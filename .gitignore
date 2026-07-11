@@ -125,3 +125,8 @@ Desktop.ini
 # --- Claude ---
 .claude/settings.json
 .claude/settings.local.json
+
+# --- Wok pipeline ---
+.wok-plans/
+.wok-grill/
+.wok-handoff/

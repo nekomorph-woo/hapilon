@@ -1,0 +1,26 @@
+{
+  "name": "hapilon",
+  "version": "0.1.0-alpha",
+  "description": "A multi-provider coding agent powered by Pi",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "hapilon": "./dist/cli.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "npm run build && node dist/cli.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.80.6"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.4",
+    "typescript": "5.9.3"
+  }
+}
