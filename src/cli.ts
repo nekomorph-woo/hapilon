@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { resolvePiCli } from "./pi-cli-path.js";
+import { discoverExtensions } from "./extensions.js";
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -86,9 +87,12 @@ async function main(): Promise<void> {
   const config = readHapilonConfig();
   const piArgs = injectDefaultArgs(args, config);
 
+  // 自动扫描 hapilon 内置扩展，通过 -e 注入到 pi
+  const extensionFlags = discoverExtensions().flatMap((e) => ["-e", e]);
+
   const child = spawn(
     process.execPath,
-    [piCli, ...piArgs],
+    [piCli, ...extensionFlags, ...piArgs],
     {
       cwd: process.cwd(),
       stdio: "inherit",
