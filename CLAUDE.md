@@ -1,5 +1,5 @@
 # 项目定位
-Hapilon 是一个以 Pi Coding Agent 为运行内核的通用终端 Coding Agent。
+Hapilon 是一个以 Pi Coding Agent 为运行内核的通用终端 Coding Agent。因此，我所有的操作都是为了开发和扩展 Pi Coding Agent ，变为我独属的 Coding Agent，除非明确指出（例如创建一个Claude Code SKILL），那么我所有想要增加SKILL/扩展/hooks/生命周期等等内容，都是为了 hapilon 要扩展 Pi Coding Agent 的要求。
 
 以 https://github.com/nekomorph-woo/wokiii 管道流：Discussion-Decision-to-Action. Constructing a circular and efficient value chain 为设计指导方向，侧重编码，通用任务次之的 Pi-extension 式项目。
 
