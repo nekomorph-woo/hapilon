@@ -1,39 +1,20 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
-function resolvePiCli(): string {
-  const entryUrl = import.meta.resolve(
-    "@earendil-works/pi-coding-agent",
-  );
-  let dir = dirname(fileURLToPath(entryUrl));
-
-  while (true) {
-    const pkgPath = join(dir, "package.json");
-    if (existsSync(pkgPath)) {
-      const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-      if (
-        pkg.name === "@earendil-works/pi-coding-agent" &&
-        pkg.bin?.pi
-      ) {
-        return resolve(dir, pkg.bin.pi);
-      }
-    }
-    const parent = dirname(dir);
-    if (parent === dir) {
-      throw new Error(
-        "Cannot locate pi-coding-agent CLI",
-      );
-    }
-    dir = parent;
-  }
-}
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { resolvePiCli } from "./pi-cli-path.js";
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+
+  // ── --help / -h intercept (any position) ───────────────────────────
+
+  if (args.includes("--help") || args.includes("-h")) {
+    const { printHelp } = await import("./help.js");
+    printHelp();
+    return;
+  }
 
   // ── Command routing ──────────────────────────────────────────────
 
@@ -57,6 +38,31 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "help") {
+    const { printHelp, printHelpFor } = await import("./help.js");
+    const cmdName = args[1];
+    if (cmdName) {
+      printHelpFor(cmdName);
+    } else {
+      printHelp();
+    }
+    return;
+  }
+
+  if (command === "config") {
+    const { handleConfig } = await import("./config.js");
+    await handleConfig(args);
+    return;
+  }
+
+  // ── Unknown command guard ────────────────────────────────────────
+
+  if (command && !command.startsWith("-")) {
+    console.error(`未知命令: ${command}`);
+    console.error("输入 hapilon help 查看帮助");
+    process.exit(1);
+  }
+
   // ── Default: launch pi ───────────────────────────────────────────
 
   console.log("hapilon_v0.1.0_alpha");
@@ -74,9 +80,15 @@ async function main(): Promise<void> {
     );
   }
 
+  const { readHapilonConfig, injectDefaultArgs } = await import(
+    "./config-io.js"
+  );
+  const config = readHapilonConfig();
+  const piArgs = injectDefaultArgs(args, config);
+
   const child = spawn(
     process.execPath,
-    [piCli, ...args],
+    [piCli, ...piArgs],
     {
       cwd: process.cwd(),
       stdio: "inherit",
@@ -104,6 +116,6 @@ try {
 } catch (err) {
   const msg =
     err instanceof Error ? err.message : String(err);
-  console.error(`Hapilon startup failed: ${msg}`);
+  console.error(`Hapilon 运行错误: ${msg}`);
   process.exitCode = 1;
 }

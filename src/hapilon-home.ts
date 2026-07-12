@@ -38,3 +38,8 @@ export function ensureHapilonDirs(): HapilonDirs {
   }
   return dirs;
 }
+
+/** 返回 ~/.hapilon/config.json 的完整路径 */
+export function configFilePath(): string {
+  return join(hapilonHome(), "config.json");
+}

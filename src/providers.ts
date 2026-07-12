@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 
 // ─── Provider Definitions ────────────────────────────────────────────
@@ -46,14 +46,11 @@ export const ALL_PROVIDERS: ProviderDef[] = [
 
 // ─── Config File Helpers ─────────────────────────────────────────────
 
-export function writeAuthFile(
+/** 以 Pi 原生格式（{type, key}）写入 auth.json */
+export function writeAuthFileNative(
   agentDir: string,
-  entries: Record<string, string>,
+  auth: Record<string, { type: string; key: string }>,
 ): void {
-  const auth: Record<string, { type: string; key: string }> = {};
-  for (const [id, key] of Object.entries(entries)) {
-    auth[id] = { type: "api_key", key };
-  }
   const path = join(agentDir, "auth.json");
   writeFileSync(path, JSON.stringify(auth, null, 2) + "\n", "utf8");
   chmodSync(path, 0o600);
@@ -98,4 +95,58 @@ export function writeSkeletonFiles(agentDir: string): void {
       if (name === "auth.json") chmodSync(p, 0o600);
     }
   }
+}
+
+// ─── Auth File Reader ──────────────────────────────────────────────────
+
+/** 读取并解析 auth.json，不存在或损坏时返回 {} */
+export function readAuthFile(
+  agentDir: string,
+): Record<string, { type: string; key: string }> {
+  const path = join(agentDir, "auth.json");
+  if (!existsSync(path)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      console.warn("Warning: auth.json 格式异常，将以空配置处理");
+      return {};
+    }
+    // Validate each entry has {type, key} shape
+    for (const [id, entry] of Object.entries(parsed)) {
+      if (
+        typeof entry !== "object" ||
+        entry === null ||
+        typeof (entry as Record<string, unknown>).type !== "string" ||
+        typeof (entry as Record<string, unknown>).key !== "string"
+      ) {
+        console.warn(
+          `Warning: auth.json 条目 ${id} 格式不正确（需要 {type, key}），已跳过`,
+        );
+        delete parsed[id];
+      }
+    }
+    return parsed;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `Warning: auth.json 解析失败 (${detail})，将以空配置处理`,
+    );
+    return {};
+  }
+}
+
+// ─── Key Masking ───────────────────────────────────────────────────────
+
+/** 脱敏显示 API key：sk-a1b2c3d4e5f6g7h8 → sk-a…g7h8 */
+export function maskKey(key: string): string {
+  if (key.length <= 4) return "****";
+  if (key.length <= 8) return key.slice(0, 2) + "…" + key.slice(-2);
+  return key.slice(0, 4) + "…" + key.slice(-4);
+}
+
+// ─── Provider Lookup ───────────────────────────────────────────────────
+
+/** 在 ALL_PROVIDERS 中按 id 查找 */
+export function findProviderDef(id: string): ProviderDef | undefined {
+  return ALL_PROVIDERS.find((p) => p.id === id);
 }

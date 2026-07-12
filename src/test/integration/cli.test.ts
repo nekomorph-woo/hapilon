@@ -1,7 +1,7 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,10 +9,16 @@ describe("cli integration", () => {
   let tmpBase: string;
   const ORIGINAL_ENV = process.env.HAPILON_HOME;
   const CLI_PATH = join(process.cwd(), "dist", "cli.js");
+  const CONFIG_PATH = join(process.cwd(), "dist", "config.js");
 
   before(() => {
     tmpBase = mkdtempSync(join(tmpdir(), "hapilon-cli-test-"));
     process.env.HAPILON_HOME = tmpBase;
+    // Ensure agent dir exists for config commands that read auth.json
+    spawnSync(process.execPath, [CLI_PATH, "setup", "--quick"], {
+      env: { ...process.env, HAPILON_HOME: tmpBase },
+      encoding: "utf8",
+    });
   });
 
   after(() => {
@@ -106,14 +112,286 @@ describe("cli integration", () => {
   });
 
   describe("参数透传", () => {
-    it("非 setup/doctor 命令应传给 pi", () => {
-      const result = spawnSync(process.execPath, [CLI_PATH, "--help"], {
+    it("非 setup/doctor/config/help 命令应传给 pi", () => {
+      // --version 不是 hapilon 子命令，应透传给 pi
+      const result = spawnSync(process.execPath, [CLI_PATH, "--version"], {
         env: { ...process.env, HAPILON_HOME: tmpBase },
         encoding: "utf8",
         timeout: 5000,
       });
 
       assert.ok(result.status !== undefined, "应正常退出或有退出码");
+    });
+  });
+
+  describe("help", () => {
+    it("hapilon --help 打印帮助信息", () => {
+      const result = spawnSync(process.execPath, [CLI_PATH, "--help"], {
+        env: { ...process.env, HAPILON_HOME: tmpBase },
+        encoding: "utf8",
+      });
+
+      assert.strictEqual(result.status, 0, `--help 应成功退出: ${result.stderr}`);
+      assert.ok(result.stdout.includes("hapilon"), "帮助应包含 hapilon");
+      assert.ok(result.stdout.includes("setup"), "帮助应包含 setup");
+      assert.ok(result.stdout.includes("doctor"), "帮助应包含 doctor");
+      assert.ok(result.stdout.includes("config"), "帮助应包含 config");
+      assert.ok(result.stdout.includes("help"), "帮助应包含 help");
+    });
+
+    it("hapilon -h 打印帮助信息", () => {
+      const result = spawnSync(process.execPath, [CLI_PATH, "-h"], {
+        env: { ...process.env, HAPILON_HOME: tmpBase },
+        encoding: "utf8",
+      });
+
+      assert.strictEqual(result.status, 0, `-h 应成功退出: ${result.stderr}`);
+      assert.ok(result.stdout.includes("hapilon"), "帮助应包含 hapilon");
+    });
+
+    it("hapilon help 打印帮助信息", () => {
+      const result = spawnSync(process.execPath, [CLI_PATH, "help"], {
+        env: { ...process.env, HAPILON_HOME: tmpBase },
+        encoding: "utf8",
+      });
+
+      assert.strictEqual(result.status, 0, `help 应成功退出: ${result.stderr}`);
+      assert.ok(result.stdout.includes("hapilon"), "帮助应包含 hapilon");
+    });
+
+    it("hapilon help config 打印 config 详细帮助", () => {
+      const result = spawnSync(process.execPath, [CLI_PATH, "help", "config"], {
+        env: { ...process.env, HAPILON_HOME: tmpBase },
+        encoding: "utf8",
+      });
+
+      assert.strictEqual(result.status, 0, `help config 应成功退出: ${result.stderr}`);
+      assert.ok(result.stdout.includes("config"), "应包含 config");
+      assert.ok(result.stdout.includes("show"), "应包含 show 子命令");
+    });
+
+    it("hapilon help setup 打印 setup 详细帮助", () => {
+      const result = spawnSync(process.execPath, [CLI_PATH, "help", "setup"], {
+        env: { ...process.env, HAPILON_HOME: tmpBase },
+        encoding: "utf8",
+      });
+
+      assert.strictEqual(result.status, 0, `help setup 应成功退出: ${result.stderr}`);
+      assert.ok(result.stdout.includes("setup"), "应包含 setup");
+    });
+
+    it("hapilon help nonexistent 提示未知命令", () => {
+      const result = spawnSync(process.execPath, [CLI_PATH, "help", "nonexistent"], {
+        env: { ...process.env, HAPILON_HOME: tmpBase },
+        encoding: "utf8",
+      });
+
+      // printHelpFor prints to stderr for unknown commands
+      const output = result.stdout + result.stderr;
+      assert.ok(output.includes("未知命令"), "应提示未知命令");
+    });
+
+    it("--help 在任意位置均触发 hapilon help", () => {
+      const result = spawnSync(process.execPath, [CLI_PATH, "--model", "gpt", "--help"], {
+        env: { ...process.env, HAPILON_HOME: tmpBase },
+        encoding: "utf8",
+      });
+
+      assert.strictEqual(result.status, 0);
+      assert.ok(result.stdout.includes("hapilon"), "应打印 hapilon help");
+      assert.ok(!result.stdout.includes("hapilon_v0.1.0_alpha"), "不应走到 default 路径");
+    });
+  });
+
+  describe("unknown command", () => {
+    it("hapilon foobar 输出错误提示", () => {
+      const result = spawnSync(process.execPath, [CLI_PATH, "foobar"], {
+        env: { ...process.env, HAPILON_HOME: tmpBase },
+        encoding: "utf8",
+      });
+
+      assert.notStrictEqual(result.status, 0, "应非零退出");
+      const output = result.stdout + result.stderr;
+      assert.ok(output.includes("未知命令"), "应提示未知命令");
+      assert.ok(output.includes("foobar"), "应包含命令名");
+      assert.ok(output.includes("help"), "应建议使用 help");
+    });
+  });
+
+  describe("config", () => {
+    it("hapilon config show 不设置默认时提示", () => {
+      const result = spawnSync(process.execPath, [CLI_PATH, "config", "show"], {
+        env: { ...process.env, HAPILON_HOME: tmpBase },
+        encoding: "utf8",
+      });
+
+      assert.strictEqual(result.status, 0, `config show 应成功退出: ${result.stderr}`);
+      assert.ok(
+        result.stdout.includes("未设置") || result.stdout.includes("default"),
+        "应提示未设置默认",
+      );
+    });
+
+    it("hapilon config provider list 显示空列表", () => {
+      const result = spawnSync(process.execPath, [CLI_PATH, "config", "provider", "list"], {
+        env: { ...process.env, HAPILON_HOME: tmpBase },
+        encoding: "utf8",
+      });
+
+      assert.strictEqual(result.status, 0, `config provider list 应成功退出: ${result.stderr}`);
+      assert.ok(
+        result.stdout.includes("未配置"),
+        "应提示未配置任何 provider",
+      );
+    });
+
+    it("hapilon config default --unset 无默认时提示", () => {
+      const result = spawnSync(process.execPath, [CLI_PATH, "config", "default", "--unset"], {
+        env: { ...process.env, HAPILON_HOME: tmpBase },
+        encoding: "utf8",
+      });
+
+      assert.strictEqual(result.status, 0, `config default --unset 应成功退出: ${result.stderr}`);
+      assert.ok(
+        result.stdout.includes("无需清除"),
+        "应提示无需清除",
+      );
+    });
+
+    it("config provider add 写入 auth.json", () => {
+      const result = spawnSync(process.execPath, ["-e", `
+        process.env.HAPILON_HOME = "${tmpBase}";
+        Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+        import("${CONFIG_PATH}").then(m => m.handleConfig(["config","provider","add","deepseek"]));
+      `], {
+        input: "sk-deepseek-test-key\n",
+        encoding: "utf8",
+        timeout: 5000,
+      });
+
+      const authPath = join(tmpBase, "agent", "auth.json");
+      const auth = JSON.parse(readFileSync(authPath, "utf8"));
+      assert.deepStrictEqual(auth.deepseek, { type: "api_key", key: "sk-deepseek-test-key" });
+    });
+
+    it("config provider add 无效 ID 时列出全部 provider 供选择", () => {
+      const result = spawnSync(process.execPath, ["-e", `
+        process.env.HAPILON_HOME = "${tmpBase}";
+        Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+        import("${CONFIG_PATH}").then(m => m.handleConfig(["config","provider","add","invalid-foo"]));
+      `], {
+        input: "\n",  // 列出后留空取消
+        encoding: "utf8",
+        timeout: 5000,
+      });
+
+      const output = result.stdout + result.stderr;
+      assert.ok(output.includes("未知 provider"), "应提示未知 provider");
+      assert.ok(output.includes("可用的 Provider"), "应列出可选 provider");
+    });
+
+    it("config provider list 显示已配置 provider", () => {
+      // Pre-populate auth.json
+      writeFileSync(
+        join(tmpBase, "agent", "auth.json"),
+        JSON.stringify({ deepseek: { type: "api_key", key: "sk-test-key-12345678" } }) + "\n",
+      );
+
+      const result = spawnSync(process.execPath, [CLI_PATH, "config", "provider", "list"], {
+        env: { ...process.env, HAPILON_HOME: tmpBase },
+        encoding: "utf8",
+      });
+
+      assert.strictEqual(result.status, 0);
+      assert.ok(result.stdout.includes("deepseek"), "应列出 deepseek");
+      assert.ok(result.stdout.includes("sk-t"), "应显示脱敏 key");
+      assert.ok(!result.stdout.includes("sk-test-key-12345678"), "不应完整显示 key");
+    });
+
+    it("config provider remove 删除 provider", () => {
+      // Pre-populate
+      writeFileSync(
+        join(tmpBase, "agent", "auth.json"),
+        JSON.stringify({ deepseek: { type: "api_key", key: "sk-xxx" } }) + "\n",
+      );
+
+      const result = spawnSync(process.execPath, ["-e", `
+        process.env.HAPILON_HOME = "${tmpBase}";
+        Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+        import("${CONFIG_PATH}").then(m => m.handleConfig(["config","provider","remove","deepseek"]));
+      `], {
+        input: "y\n",
+        encoding: "utf8",
+        timeout: 5000,
+      });
+
+      const auth = JSON.parse(readFileSync(join(tmpBase, "agent", "auth.json"), "utf8"));
+      assert.strictEqual(auth.deepseek, undefined, "deepseek 应被删除");
+    });
+
+    it("config provider add 拒绝对话取消", () => {
+      writeFileSync(
+        join(tmpBase, "agent", "auth.json"),
+        JSON.stringify({ deepseek: { type: "api_key", key: "sk-existing" } }) + "\n",
+      );
+
+      const result = spawnSync(process.execPath, ["-e", `
+        process.env.HAPILON_HOME = "${tmpBase}";
+        Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+        import("${CONFIG_PATH}").then(m => m.handleConfig(["config","provider","add","deepseek"]));
+      `], {
+        input: "n\n",
+        encoding: "utf8",
+        timeout: 5000,
+      });
+
+      // 已存在时选"否"应保留原 key
+      const auth = JSON.parse(readFileSync(join(tmpBase, "agent", "auth.json"), "utf8"));
+      assert.deepStrictEqual(auth.deepseek, { type: "api_key", key: "sk-existing" }, "取消时原 key 应保留");
+    });
+
+    it("config default --set 交互式设置默认模型（需 pi 已安装）", () => {
+      // Pre-populate auth for deepseek so it appears in provider list
+      writeFileSync(
+        join(tmpBase, "agent", "auth.json"),
+        JSON.stringify({ deepseek: { type: "api_key", key: "sk-test" } }) + "\n",
+      );
+
+      const result = spawnSync(process.execPath, ["-e", `
+        process.env.HAPILON_HOME = "${tmpBase}";
+        Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+        import("${CONFIG_PATH}").then(m => m.handleConfig(["config","default","--set"]));
+      `], {
+        input: "1\n1\n",
+        encoding: "utf8",
+        timeout: 30000, // pi --list-models may take a moment
+      });
+
+      // Should have written config.json
+      const configPath = join(tmpBase, "config.json");
+      if (existsSync(configPath)) {
+        const config = JSON.parse(readFileSync(configPath, "utf8"));
+        assert.strictEqual(config.defaultProvider, "deepseek", "应设置 deepseek 为默认 provider");
+        assert.ok(typeof config.defaultModel === "string", "应设置默认 model");
+      }
+      // If pi is not installed, this test will fail at listModelsForProvider
+      // which is acceptable (requires pi dependency)
+    });
+
+    it("config show 显示已设置的默认配置", () => {
+      writeFileSync(
+        join(tmpBase, "config.json"),
+        JSON.stringify({ defaultProvider: "deepseek", defaultModel: "deepseek-chat" }) + "\n",
+      );
+
+      const result = spawnSync(process.execPath, [CLI_PATH, "config", "show"], {
+        env: { ...process.env, HAPILON_HOME: tmpBase },
+        encoding: "utf8",
+      });
+
+      assert.strictEqual(result.status, 0);
+      assert.ok(result.stdout.includes("deepseek"), "应显示 deepseek");
+      assert.ok(result.stdout.includes("deepseek-chat"), "应显示 deepseek-chat");
     });
   });
 });

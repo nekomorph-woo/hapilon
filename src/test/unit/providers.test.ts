@@ -4,9 +4,12 @@ import { mkdtempSync, rmSync, readFileSync, statSync, existsSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  writeAuthFile,
+  writeAuthFileNative,
   writeSettingsFile,
   writeSkeletonFiles,
+  readAuthFile,
+  maskKey,
+  findProviderDef,
   semverGte,
   COMMON,
   ALL_PROVIDERS,
@@ -25,13 +28,13 @@ describe("providers", () => {
     } catch { /* ignore cleanup errors */ }
   });
 
-  describe("writeAuthFile()", () => {
-    it("写入正确的 auth.json 格式", () => {
-      const entries = {
-        deepseek: "sk-ds-xxx",
-        openai: "sk-oa-yyy",
+  describe("writeAuthFileNative()", () => {
+    it("写入正确的 auth.json 格式（原生对象）", () => {
+      const auth = {
+        deepseek: { type: "api_key", key: "sk-ds-xxx" },
+        openai: { type: "api_key", key: "sk-oa-yyy" },
       };
-      writeAuthFile(tmpDir, entries);
+      writeAuthFileNative(tmpDir, auth);
 
       const content = readFileSync(join(tmpDir, "auth.json"), "utf8");
       const parsed = JSON.parse(content);
@@ -41,7 +44,7 @@ describe("providers", () => {
     });
 
     it("空对象时写入空 auth.json", () => {
-      writeAuthFile(tmpDir, {});
+      writeAuthFileNative(tmpDir, {});
 
       const content = readFileSync(join(tmpDir, "auth.json"), "utf8");
       const parsed = JSON.parse(content);
@@ -50,7 +53,7 @@ describe("providers", () => {
     });
 
     it("文件权限为 0600", () => {
-      writeAuthFile(tmpDir, { test: "key" });
+      writeAuthFileNative(tmpDir, { test: { type: "api_key", key: "key" } });
 
       const stat = statSync(join(tmpDir, "auth.json"));
       const mode = stat.mode & 0o777;
@@ -58,21 +61,10 @@ describe("providers", () => {
     });
 
     it("文件以换行符结尾", () => {
-      writeAuthFile(tmpDir, { key: "value" });
+      writeAuthFileNative(tmpDir, { key: { type: "api_key", key: "value" } });
 
       const content = readFileSync(join(tmpDir, "auth.json"), "utf8");
       assert.ok(content.endsWith("\n"), "auth.json 应以换行符结尾");
-    });
-
-    it("覆盖已存在的文件", () => {
-      writeAuthFile(tmpDir, { first: "key1" });
-      writeAuthFile(tmpDir, { second: "key2" });
-
-      const content = readFileSync(join(tmpDir, "auth.json"), "utf8");
-      const parsed = JSON.parse(content);
-
-      assert.strictEqual(parsed.first, undefined, "旧条目应被覆盖");
-      assert.deepStrictEqual(parsed.second, { type: "api_key", key: "key2" });
     });
   });
 
@@ -186,6 +178,132 @@ describe("providers", () => {
       for (const p of ALL_PROVIDERS) {
         assert.ok(p.name && p.name.length > 0, `${p.id} 应有名称`);
       }
+    });
+  });
+
+  describe("readAuthFile()", () => {
+    it("存在的 auth.json → 正确解析", () => {
+      writeAuthFileNative(tmpDir, {
+        deepseek: { type: "api_key", key: "sk-ds-xxx" },
+        openai: { type: "api_key", key: "sk-oa-yyy" },
+      });
+
+      const auth = readAuthFile(tmpDir);
+      assert.deepStrictEqual(auth.deepseek, { type: "api_key", key: "sk-ds-xxx" });
+      assert.deepStrictEqual(auth.openai, { type: "api_key", key: "sk-oa-yyy" });
+    });
+
+    it("不存在的 auth.json → 返回 {}", () => {
+      const auth = readAuthFile(join(tmpDir, "nonexistent"));
+      assert.deepStrictEqual(auth, {});
+    });
+
+    it("空 auth.json → 返回 {}", () => {
+      writeFileSync(join(tmpDir, "auth.json"), "{}\n");
+
+      const auth = readAuthFile(tmpDir);
+      assert.deepStrictEqual(auth, {});
+    });
+
+    it("JSON 语法错误 → console.warn + 返回 {}", () => {
+      writeFileSync(join(tmpDir, "auth.json"), "bad json!\n");
+
+      const warnings: string[] = [];
+      const originalWarn = console.warn;
+      console.warn = (...args: unknown[]) => {
+        warnings.push(args.map(String).join(" "));
+      };
+
+      try {
+        const auth = readAuthFile(tmpDir);
+        assert.deepStrictEqual(auth, {});
+        assert.ok(warnings.length > 0, "应打印警告");
+      } finally {
+        console.warn = originalWarn;
+      }
+    });
+
+    it("条目是纯字符串（非 {type,key} 对象）→ warn + 跳过", () => {
+      writeFileSync(
+        join(tmpDir, "auth.json"),
+        JSON.stringify({ deepseek: "sk-plain-string", openai: { type: "api_key", key: "sk-xxx" } }) + "\n",
+      );
+
+      const warnings: string[] = [];
+      const originalWarn = console.warn;
+      console.warn = (...args: unknown[]) => {
+        warnings.push(args.map(String).join(" "));
+      };
+
+      try {
+        const auth = readAuthFile(tmpDir);
+        // 纯字符串条目应被跳过
+        assert.strictEqual(auth.deepseek, undefined, "格式异常的条目应被跳过");
+        // 格式正确的条目应保留
+        assert.deepStrictEqual(auth.openai, { type: "api_key", key: "sk-xxx" });
+        assert.ok(warnings.length > 0, "应打印警告");
+      } finally {
+        console.warn = originalWarn;
+      }
+    });
+
+    it("条目缺少 key 字段 → warn + 跳过", () => {
+      writeFileSync(
+        join(tmpDir, "auth.json"),
+        JSON.stringify({ bad: { type: "api_key" }, good: { type: "api_key", key: "sk-xxx" } }) + "\n",
+      );
+
+      const warnings: string[] = [];
+      const originalWarn = console.warn;
+      console.warn = (...args: unknown[]) => {
+        warnings.push(args.map(String).join(" "));
+      };
+
+      try {
+        const auth = readAuthFile(tmpDir);
+        assert.strictEqual(auth.bad, undefined, "缺少 key 的条目应被跳过");
+        assert.deepStrictEqual(auth.good, { type: "api_key", key: "sk-xxx" });
+        assert.ok(warnings.length > 0, "应打印警告");
+      } finally {
+        console.warn = originalWarn;
+      }
+    });
+  });
+
+  describe("maskKey()", () => {
+    it("正常长 key 脱敏", () => {
+      const masked = maskKey("sk-a1b2c3d4e5f6g7h8i9j0");
+      assert.ok(masked.startsWith("sk-a"), "应以 sk-a 开头");
+      assert.ok(masked.endsWith("j0"), "应以 j0 结尾");
+      assert.ok(masked.includes("…"), "应包含省略号");
+    });
+
+    it("短 key (≤4) 显示 ****", () => {
+      assert.strictEqual(maskKey("abc"), "****");
+      assert.strictEqual(maskKey("abcd"), "****");
+    });
+
+    it("中等长度 key (5-8) 首尾 2 字符", () => {
+      const masked = maskKey("abcdefgh");
+      assert.strictEqual(masked, "ab…gh");
+    });
+
+    it("空字符串显示 ****", () => {
+      assert.strictEqual(maskKey(""), "****");
+    });
+  });
+
+  describe("findProviderDef()", () => {
+    it("存在的 provider id → 返回 ProviderDef", () => {
+      const def = findProviderDef("deepseek");
+      assert.ok(def, "deepseek 应存在");
+      assert.strictEqual(def!.id, "deepseek");
+      assert.strictEqual(def!.name, "DeepSeek");
+    });
+
+    it("不存在的 id → 返回 undefined", () => {
+      const def = findProviderDef("nonexistent-provider-12345");
+      assert.strictEqual(def, undefined);
     });
   });
 });

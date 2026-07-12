@@ -7,9 +7,10 @@ import { ensureHapilonDirs, hapilonHome } from "./hapilon-home.js";
 import {
   COMMON,
   ALL_PROVIDERS,
-  writeAuthFile,
+  writeAuthFileNative,
   writeSettingsFile,
   writeSkeletonFiles,
+  maskKey,
   semverGte,
 } from "./providers.js";
 
@@ -84,7 +85,11 @@ export async function setupInteractive(): Promise<void> {
     rl.close();
   }
 
-  writeAuthFile(dirs.agent, collected);
+  const auth: Record<string, { type: string; key: string }> = {};
+  for (const [id, key] of Object.entries(collected)) {
+    auth[id] = { type: "api_key", key };
+  }
+  writeAuthFileNative(dirs.agent, auth);
   writeSettingsFile(dirs.agent, {});
 
   const names = Object.keys(collected).map(
@@ -129,9 +134,7 @@ export function doctor(): void {
       if (keys.length > 0) {
         for (const id of keys) {
           const entry = auth[id];
-          const masked = entry.key.length > 8
-            ? entry.key.slice(0, 4) + "…" + entry.key.slice(-4)
-            : "********";
+          const masked = maskKey(entry.key);
           console.log(`  ✅ ${id}: ${masked}`);
         }
       } else {

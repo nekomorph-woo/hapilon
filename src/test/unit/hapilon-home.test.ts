@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hapilonHome, ensureHapilonDirs } from "../../hapilon-home.js";
+import { hapilonHome, ensureHapilonDirs, configFilePath } from "../../hapilon-home.js";
 
 describe("hapilon-home", () => {
   describe("hapilonHome()", () => {
@@ -113,6 +113,31 @@ describe("hapilon-home", () => {
           return true;
         },
       );
+    });
+  });
+
+  describe("configFilePath()", () => {
+    const ORIGINAL_ENV = process.env.HAPILON_HOME;
+
+    after(() => {
+      if (ORIGINAL_ENV !== undefined) {
+        process.env.HAPILON_HOME = ORIGINAL_ENV;
+      } else {
+        delete process.env.HAPILON_HOME;
+      }
+    });
+
+    it("默认路径为 ~/.hapilon/config.json", () => {
+      delete process.env.HAPILON_HOME;
+      const path = configFilePath();
+      assert.ok(path.endsWith(".hapilon/config.json"), `路径应以 .hapilon/config.json 结尾，得到: ${path}`);
+      assert.ok(!path.includes("undefined"), "路径不应包含 undefined");
+    });
+
+    it("HAPILON_HOME 环境变量时路径随之变化", () => {
+      process.env.HAPILON_HOME = "/custom/hapilon";
+      const path = configFilePath();
+      assert.strictEqual(path, "/custom/hapilon/config.json");
     });
   });
 });
