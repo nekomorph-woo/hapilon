@@ -1,5 +1,5 @@
 ---
-name: todo-less
+name: lite-todo
 description: 小步迭代选取下一个 TODO，不一口气吃成胖子。综合 PRD / _foresight.md / _foresight/ / 互联网 Pi Agent 知识 / CHANGELOG 梳理下一步，单次产出 ≤3 个 TODO，超出则让用户筛选。Use when 用户说"重新规划 todo"、"刷新任务清单"、"重新整理 todo"、"我想下一步做什么"。
 ---
 
@@ -57,7 +57,10 @@ description: 小步迭代选取下一个 TODO，不一口气吃成胖子。综�
 
 如果 `_CHANGELOG-alpha.md` 不存在或为空，跳过此步骤。
 
-### 3. 生成候选 TODO
+### 3a. 清除过时 TODO
+清空当前 `_todo.md`
+
+### 3b. 生成候选 TODO
 
 综合以下信息生成候选 TODO 列表：
 
@@ -90,7 +93,7 @@ description: 小步迭代选取下一个 TODO，不一口气吃成胖子。综�
 
 ### 4. 写入 _todo.md
 
-清空当前 `_todo.md`，按以下模板写入被选中的 TODO：
+按以下模板写入被选中的 TODO：
 
 ```markdown
 # TODO 清单
