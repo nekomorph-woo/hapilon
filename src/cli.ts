@@ -66,7 +66,14 @@ async function main(): Promise<void> {
 
   // ── Default: launch pi ───────────────────────────────────────────
 
-  console.log("hapilon_v0.1.0_alpha");
+  // 非交互模式（print/json/rpc）不打印 hapilon banner，避免污染 stdout
+  const hasFlag = (flag: string) =>
+    args.some((a) => a === flag || a.startsWith(flag + "="));
+  const isNonInteractive =
+    hasFlag("-p") || hasFlag("--print") || hasFlag("--mode");
+  if (!isNonInteractive) {
+    console.log("hapilon_v0.1.0_alpha");
+  }
 
   const piCli = resolvePiCli();
   const { hapilonHome } = await import(
