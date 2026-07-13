@@ -7,6 +7,7 @@ import { configFilePath } from "./hapilon-home.js";
 export interface HapilonConfig {
   defaultProvider?: string;
   defaultModel?: string;
+  safetyNoticeShown?: boolean;
 }
 
 // ─── Config file I/O ─────────────────────────────────────────────────
@@ -21,22 +22,28 @@ export function readHapilonConfig(): HapilonConfig {
       return {};
     }
     // Validate property types
+    const obj = parsed as Record<string, unknown>;
     const result: HapilonConfig = {};
-    if (typeof (parsed as Record<string, unknown>).defaultProvider === "string") {
-      result.defaultProvider = (parsed as Record<string, unknown>).defaultProvider as string;
-    } else if ((parsed as Record<string, unknown>).defaultProvider !== undefined) {
+    if (typeof obj.defaultProvider === "string") {
+      result.defaultProvider = obj.defaultProvider;
+    } else if (obj.defaultProvider !== undefined) {
       console.warn("Warning: config.json 中 defaultProvider 不是字符串，已忽略");
     }
-    if (typeof (parsed as Record<string, unknown>).defaultModel === "string") {
-      result.defaultModel = (parsed as Record<string, unknown>).defaultModel as string;
-    } else if ((parsed as Record<string, unknown>).defaultModel !== undefined) {
+    if (typeof obj.defaultModel === "string") {
+      result.defaultModel = obj.defaultModel;
+    } else if (obj.defaultModel !== undefined) {
       console.warn("Warning: config.json 中 defaultModel 不是字符串，已忽略");
+    }
+    if (typeof obj.safetyNoticeShown === "boolean") {
+      result.safetyNoticeShown = obj.safetyNoticeShown;
+    } else if (obj.safetyNoticeShown !== undefined) {
+      console.warn("Warning: config.json 中 safetyNoticeShown 不是布尔值，已忽略");
     }
     return result;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.warn(
-      `Warning: config.json 解析失败 (${detail})，将以空配置处理`,
+      `Warning: config.json 读取或解析失败 (${detail})，将以空配置处理`,
     );
     return {};
   }

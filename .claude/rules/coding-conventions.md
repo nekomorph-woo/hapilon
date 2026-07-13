@@ -59,7 +59,7 @@ wok:
 - 用户完成方案选择、issue 创建、根因分析、PRD/架构设计、重构计划
 
 制定计划时：
-- **推荐使用 replan agent**：通过 Agent 工具启动 `replan`（`subagent_type: "replan"`），它会探索代码库、设计方案，将计划写入 `_hapilon_plans/` 目录
+- **推荐使用 replan agent**：通过 Agent 工具启动 `replan`（`subagent_type: "replan"`），它会探索代码库、设计方案，将计划写入 `_plans/` 目录
 - **备选方案**：使用内置 EnterPlanMode 进入计划模式，计划写入系统默认位置后调用 ExitPlanMode
 - 计划内容至少包含：任务拆分与阶段划分、关键文件和修改点、验证标准
 

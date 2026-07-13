@@ -1,130 +1,97 @@
 # TODO 清单
 
-> 当前任务
+> 当前任务：P0 安全基础设施
 
 ---
 
-## [~] TODO-2：~/.hapilon/config.json + 默认模型选择与启动注入
+## [ ] TODO-5：危险命令拦截扩展 (safety-gate.ts)
 
 ### 目标
 
-创建 hapilon 自有的 `~/.hapilon/config.json`，存储默认 provider 和模型。用户通过交互式选择（从 Pi 运行时获取模型列表）设置默认模型，启动 hapilon 时自动作为 CLI 参数注入 Pi。
+创建一个 Pi 内置扩展，通过 `pi.on("tool_call", ...)` 拦截 bash 工具中的危险命令，按风险等级采用不同策略：高危直接阻止，中危弹确认框。
 
 ### 实现要点
 
 | 项目 | 内容 |
 |------|------|
-| 配置文件 | `~/.hapilon/config.json`（hapilon 自有，不操作 Pi settings.json） |
-| 存储结构 | `{ "defaultProvider": "deepseek", "defaultModel": "deepseek-chat" }` |
-| 模型列表来源 | spawn `pi --list-models` 运行时获取（方案 B），解析表格输出 |
-| 启动注入 | `cli.ts` 读 config.json → 用户未传 --model/--provider 时注入默认值 |
-| 用户参数优先 | 显式传 `--model` / `--provider` 时覆盖默认 |
-| 新增命令 | `hapilon config show`、`hapilon config default --set`、`hapilon config default --unset` |
+| 扩展文件 | `src/extensions/safety-gate.ts` |
+| 拦截机制 | `pi.on("tool_call", ...)` 拦截 `bash` 工具调用 |
+| 高危命令（block） | `rm -rf /`、`sudo rm`、`mkfs.*`、`dd of=/dev/*`、`:(){ :\|:& };:`、`chmod 777 /`、`chown -R /`、`> /dev/sda` |
+| 中危命令（confirm） | `rm -rf`（非根）、`git push --force`、`git push --force-with-lease`、`curl ... \| sh`、`chmod 777`（非根）、`git reset --hard`（有远程）、`docker rm -f`、`eval` |
+| Shell 技巧检测（block） | 命令中包含 `` ` ``、`$(`、`<( `、`>( ` — 可疑的命令注入/绕过 |
+| 确认框 | 使用 `ctx.ui.confirm("message", { title: "⚠️ 危险操作" })` |
+| 绕过开关 | 支持 `--no-safety` CLI 标志跳过所有安全检查 |
 
-### 交互流程（hapilon config default --set）
+### 混合策略
 
 ```
-已配置 auth 的 Provider:
-  1. deepseek   (DeepSeek)
-  2. openai     (OpenAI)
-
-选择默认 Provider [1-2]: 1
-
-DeepSeek 可用模型（来自 pi --list-models）:
-  1. deepseek-chat
-  2. deepseek-reasoner
-
-选择默认模型 [1-2]: 1
-
-✅ 已保存: defaultProvider=deepseek, defaultModel=deepseek-chat
+高危 ──→ block（返回 { block: true, reason: "..." }）
+中危 ──→ ctx.ui.confirm() 弹确认框
+安全 ──→ 直接放行
 ```
 
 ### 验收标准
 
-- [ ] `~/.hapilon/config.json` 由 hapilon 管理，Pi 不读写此文件
-- [ ] `hapilon config show` 展示当前默认配置
-- [ ] `hapilon config default --set` 交互式：列出已配 provider → 选 provider → spawn pi --list-models → 筛选模型 → 选模型 → 保存
-- [ ] `hapilon config default --unset` 清除默认配置
-- [ ] `hapilon`（无参数）启动时自动注入 `--provider <X> --model <Y>`
-- [ ] `hapilon --model gpt-4o` 用户参数覆盖默认，不注入 config 中的 model
-- [ ] `hapilon --provider openai` 用户参数覆盖默认 provider
-- [ ] 未设置默认时 `hapilon` 行为和现在一致（不注入额外参数）
-- [ ] `hapilon setup` 行为不变（仍为初始化引导）
+- [ ] 高危命令（如 `sudo rm -rf /`）被直接阻止，Agent 收到 block reason
+- [ ] 中危命令（如 `rm -rf ./node_modules`）弹出确认框，用户可选择 Allow/Deny
+- [ ] Shell 注入技巧（`` `cmd` ``、`$(cmd)`、`eval`）被检测并阻止
+- [ ] 正常 bash 命令（`ls`、`npm test`、`git status`）不受影响
+- [ ] `--no-safety` 标志可绕过所有安全检查
+- [ ] hapilon 启动时自动加载（通过 `discoverExtensions()`）
+- [ ] 单元测试覆盖：高危阻止、中危确认、正常放行、shell 技巧检测、绕过开关
+- [ ] 阻止时返回清晰的 reason 信息，不静默阻止
 
 ---
 
-## [~] TODO-3：hapilon config provider 独立管理命令
+## [ ] TODO-6：文件路径保护扩展 (protected-paths.ts)
 
 ### 目标
 
-提供 `hapilon config provider` 子命令组，独立管理 provider API key 的增删查，不再依赖 `hapilon setup` 全量重走。
+创建一个 Pi 内置扩展，拦截 write/edit 工具对敏感路径的写入操作，保护关键文件不被误修改。
 
 ### 实现要点
 
 | 项目 | 内容 |
 |------|------|
-| `hapilon config provider list` | 列出 `auth.json` 中已配置的 provider（key 脱敏显示） |
-| `hapilon config provider add <id>` | 交互式输入 API key → 写入 `auth.json`（Pi 原生格式） |
-| `hapilon config provider remove <id>` | 从 `auth.json` 删除指定 provider |
-| 去重 | add 已存在的 provider 时提示"已配置，将覆盖" |
-| 校验 | provider id 必须在 `ALL_PROVIDERS` 中 |
-| setup 不变 | `hapilon setup` 保持初始化引导，不耦合 CRUD |
+| 扩展文件 | `src/extensions/protected-paths.ts` |
+| 拦截机制 | `pi.on("tool_call", ...)` 拦截 `write` 和 `edit` 工具调用 |
+| 写保护路径（block） | `.env`、`.env.local`、`.env.production`、`package-lock.json`、`yarn.lock`、`pnpm-lock.yaml`、`.git/config`、`.git/hooks/*`、`*.pem`、`*.key`、`id_rsa*`、`~/.ssh/*`、`~/.aws/*` |
+| 读保护路径（confirm） | `~/.ssh/*`、`~/.aws/credentials`、`~/.config/gcloud/*`（避免 Agent 偷看密钥） |
+| 确认框 | 写操作 → block；读敏感文件 → confirm |
+| 绕过开关 | `--no-safety` 标志可绕过 |
 
 ### 验收标准
 
-- [ ] `hapilon config provider list` 列出已配置 provider + 脱敏 key（`sk-a1…xyz9`）
-- [ ] `hapilon config provider add deepseek` → 提示输入 key → 写入 auth.json → 权限 0600
-- [ ] `hapilon config provider add deepseek`（重复）→ 提示已存在，确认覆盖
-- [ ] `hapilon config provider add foo`（无效 id）→ 报错提示未知 provider
-- [ ] `hapilon config provider remove deepseek` → 确认后删除 → auth.json 更新
-- [ ] `hapilon config provider remove deepseek`（不存在）→ 提示未配置
-- [ ] `hapilon setup` 行为不变
-- [ ] `hapilon doctor` 仍能正确读取并展示 provider 信息
+- [ ] 对 `.env` 文件的 write/edit 被直接阻止
+- [ ] 对 `~/.ssh/id_rsa` 的 read 弹出确认框
+- [ ] 对普通文件（`src/app.ts`、`README.md`）的 write/edit 不受影响
+- [ ] `--no-safety` 标志绕过所有路径保护
+- [ ] hapilon 启动时自动加载（通过 `discoverExtensions()`）
+- [ ] 单元测试覆盖：写保护阻止、读保护确认、正常文件放行、路径匹配规则、绕过开关
+- [ ] 阻止时返回清晰的 reason 信息
 
 ---
 
-## [~] TODO-4：hapilon help 帮助命令
+## [ ] TODO-7：启动安全提示
 
 ### 目标
 
-为 hapilon CLI 增加 `hapilon help` / `hapilon --help` 帮助命令，统一展示所有可用子命令和用法。
+hapilon 首次启动时向用户展示安全声明，告知哪些操作会被拦截、如何绕过。
 
 ### 实现要点
 
 | 项目 | 内容 |
 |------|------|
-| `hapilon --help` / `hapilon -h` | 打印所有 hapilon 子命令概览（简要描述 + 用法） |
-| `hapilon help` | 同上 |
-| `hapilon help <command>` | 打印指定命令的详细帮助（如 `hapilon help config`、`hapilon help setup`） |
-| 未知命令提示 | 输入未知命令时提示 `hapilon help` 而非静默透传给 Pi |
-| 命令注册 | 建议提取命令定义到统一注册表，help 和路由共用，避免手动维护 |
-
-### 命令概览示例
-
-```
-hapilon — Pi Coding Agent 启动器
-
-用法:
-  hapilon [options]                 启动 Pi TUI 交互
-  hapilon <command> [args]          执行子命令
-
-命令:
-  setup         初始化 ~/.hapilon/ 和 provider 认证
-  doctor        诊断 hapilon 配置状态
-  config        管理 hapilon 配置（默认模型、provider）
-  help          显示帮助信息
-
-选项:
-  --help, -h    显示此帮助
-  其余选项透传给 Pi Coding Agent
-```
+| 触发条件 | 首次启动 hapilon 时（通过 `~/.hapilon/config.json` 中的 flag 判断） |
+| 提示内容 | hapilon 内置安全扩展已激活：危险命令拦截 + 文件路径保护 |
+| 绕过说明 | `--no-safety` 可临时关闭所有安全检查 |
+| 持久标记 | 首次展示后写入标记，不再重复提示 |
+| 静默模式 | `-p`/`--print` 模式不显示安全声明 |
 
 ### 验收标准
 
-- [ ] `hapilon --help` 和 `hapilon -h` 打印命令概览
-- [ ] `hapilon help` 打印命令概览
-- [ ] `hapilon help setup` 打印 setup 详细帮助
-- [ ] `hapilon help config` 打印 config 子命令树（config show / config default / config provider）
-- [ ] `hapilon help doctor` 打印 doctor 详细帮助
-- [ ] 输入未知命令（如 `hapilon foobar`）→ 提示"未知命令，输入 hapilon help 查看帮助"
-- [ ] help 输出不依赖 Pi（不需要 spawn pi 进程）
+- [ ] 全新安装后首次 `hapilon` 启动显示安全声明
+- [ ] 再次启动 hapilon 不重复显示
+- [ ] `hapilon -p "..."` 静默模式下不显示
+- [ ] 安全声明内容清晰、简洁（2-3 行），列出被保护的内容
+- [ ] 安全声明包含绕过方式说明

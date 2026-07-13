@@ -66,11 +66,14 @@ async function main(): Promise<void> {
 
   // ── Default: launch pi ───────────────────────────────────────────
 
-  // 非交互模式（print/json/rpc）不打印 hapilon banner，避免污染 stdout
-  const hasFlag = (flag: string) =>
-    args.some((a) => a === flag || a.startsWith(flag + "="));
+  // --mode 存在时抑制 hapilon banner，避免在非 TUI 模式下污染 stdout
+  const { hasFlag, readHapilonConfig, writeHapilonConfig, injectDefaultArgs } = await import(
+    "./config-io.js"
+  );
   const isNonInteractive =
-    hasFlag("-p") || hasFlag("--print") || hasFlag("--mode");
+    hasFlag(args, "-p") || hasFlag(args, "--print") || hasFlag(args, "--mode");
+  const noSafety = hasFlag(args, "--no-safety");
+
   if (!isNonInteractive) {
     console.log("hapilon_v0.1.0_alpha");
   }
@@ -88,14 +91,34 @@ async function main(): Promise<void> {
     );
   }
 
-  const { readHapilonConfig, injectDefaultArgs } = await import(
-    "./config-io.js"
-  );
   const config = readHapilonConfig();
   const piArgs = injectDefaultArgs(args, config);
 
+  // 首次启动安全提示（即使 --no-safety 也展示，这是告知性的）
+  if (!config.safetyNoticeShown && !isNonInteractive) {
+    console.log("\n🛡️  hapilon 安全扩展已激活：");
+    console.log("   • 危险命令拦截 — sudo rm、mkfs、fork bomb 等将被阻止");
+    console.log("   • 文件路径保护 — .env / SSH key 等敏感文件受保护");
+    console.log("   • 使用 --no-safety 可临时关闭所有安全检查\n");
+    try {
+      writeHapilonConfig({ ...config, safetyNoticeShown: true });
+    } catch (err) {
+      console.warn("无法写入安全提示状态到配置文件（权限不足？），将在下次启动时重新提示。");
+    }
+  }
+
   // 自动扫描 hapilon 内置扩展，通过 -e 注入到 pi
-  const extensionFlags = discoverExtensions().flatMap((e) => ["-e", e]);
+  const allExtensions = discoverExtensions();
+  const loadedExtensions = noSafety
+    ? allExtensions.filter(
+        (e) =>
+          !e.endsWith("/safety-gate/index.js") &&
+          !e.endsWith("/safety-gate.js") &&
+          !e.endsWith("/protected-paths/index.js") &&
+          !e.endsWith("/protected-paths.js"),
+      )
+    : allExtensions;
+  const extensionFlags = loadedExtensions.flatMap((e) => ["-e", e]);
 
   const child = spawn(
     process.execPath,

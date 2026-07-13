@@ -113,7 +113,7 @@ description: 引导用户编写 Pi Coding Agent 的 TypeScript 扩展。
 - 读取 `reference/code-patterns.md` 对应的代码模式
 - 读取 `reference/event-catalog.md` 确认事件签名
 - 产出结构化编码计划，包含：文件清单、每个文件的修改点、类型定义、测试验证方式
-- 计划写入 `_hapilon_plans/` 目录
+- 计划写入 `_plans/` 目录
 - **等待用户批准计划后，才进入 Stage 3 编码**
 
 ### Stage 3: 代码生成（用户批准计划后执行）

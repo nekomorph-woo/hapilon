@@ -125,6 +125,67 @@ describe("config-io", () => {
         console.warn = originalWarn;
       }
     });
+
+    it("正确解析 safetyNoticeShown 为 true", () => {
+      writeFileSync(
+        join(tmpBase, "config.json"),
+        JSON.stringify({ safetyNoticeShown: true, defaultProvider: "test" }) + "\n",
+      );
+      const config = readHapilonConfig();
+      assert.strictEqual(config.safetyNoticeShown, true);
+      assert.strictEqual(config.defaultProvider, "test", "其他字段不受影响");
+    });
+
+    it("safetyNoticeShown 不是布尔值 → warn + 忽略", () => {
+      writeFileSync(
+        join(tmpBase, "config.json"),
+        JSON.stringify({ safetyNoticeShown: "yes" }) + "\n",
+      );
+
+      const warnings: string[] = [];
+      const originalWarn = console.warn;
+      console.warn = (...args: unknown[]) => {
+        warnings.push(args.map(String).join(" "));
+      };
+
+      try {
+        const config = readHapilonConfig();
+        assert.strictEqual(config.safetyNoticeShown, undefined, "非布尔 safetyNoticeShown 应被忽略");
+        assert.ok(warnings.length > 0, "应打印警告");
+      } finally {
+        console.warn = originalWarn;
+      }
+    });
+
+    it("正确解析 safetyNoticeShown 为 false", () => {
+      writeFileSync(
+        join(tmpBase, "config.json"),
+        JSON.stringify({ safetyNoticeShown: false }) + "\n",
+      );
+      const config = readHapilonConfig();
+      assert.strictEqual(config.safetyNoticeShown, false);
+    });
+
+    it("safetyNoticeShown 为 null → warn + 忽略", () => {
+      writeFileSync(
+        join(tmpBase, "config.json"),
+        JSON.stringify({ safetyNoticeShown: null }) + "\n",
+      );
+
+      const warnings: string[] = [];
+      const originalWarn = console.warn;
+      console.warn = (...args: unknown[]) => {
+        warnings.push(args.map(String).join(" "));
+      };
+
+      try {
+        const config = readHapilonConfig();
+        assert.strictEqual(config.safetyNoticeShown, undefined, "null safetyNoticeShown 应被忽略");
+        assert.ok(warnings.length > 0, "应打印警告");
+      } finally {
+        console.warn = originalWarn;
+      }
+    });
   });
 
   describe("writeHapilonConfig()", () => {
@@ -162,6 +223,14 @@ describe("config-io", () => {
       const content = readFileSync(join(tmpBase, "config.json"), "utf8");
       const parsed = JSON.parse(content);
       assert.deepStrictEqual(parsed, {});
+    });
+
+    it("写入 safetyNoticeShown 后可 read 回相同内容", () => {
+      writeHapilonConfig({ safetyNoticeShown: true, defaultProvider: "test" });
+
+      const config = readHapilonConfig();
+      assert.strictEqual(config.safetyNoticeShown, true);
+      assert.strictEqual(config.defaultProvider, "test", "其他字段不受影响");
     });
   });
 

@@ -63,7 +63,7 @@ npm run build && hapilon
 - 读取 `reference/code-patterns.md` 对应的完整模式代码
 - 读取 `reference/event-catalog.md` 确认事件签名和返回值
 - 读取 `reference/api-quick-reference.md` 确认 API 方法签名
-- 产出结构化编码计划，写入 `_hapilon_plans/` 目录
+- 产出结构化编码计划，写入 `_plans/` 目录
 - 计划内容：文件清单、每个文件的修改点、类型定义、测试验证方式
 - **等待用户批准计划后，才进入 Stage 3 编码**
 
