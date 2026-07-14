@@ -72,8 +72,8 @@ def generate_changelog(todo_id: str, title_rest: str, body_lines: list[str]) -> 
     title = (title_rest or todo_id).lstrip("：:").strip()
     goal = extract_goal_section(body_lines)
     if goal:
-        return f"{TIMESTAMP}: {title} —— {goal}"
-    return f"{TIMESTAMP}: {title}"
+        return f"- {TIMESTAMP}: {title} —— {goal}"
+    return f"- {TIMESTAMP}: {title}"
 
 
 def rewrite_todo(text: str, matched_lines: set[int]) -> str:

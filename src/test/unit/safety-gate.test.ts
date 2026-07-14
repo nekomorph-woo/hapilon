@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import {
   classifyCommand,
   hasShellInjection,
-} from "../../extensions/safety-gate.js";
+} from "../../extensions/safety-gate/index.js";
 
 describe("safety-gate", () => {
   describe("classifyCommand()", () => {

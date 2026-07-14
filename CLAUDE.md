@@ -19,6 +19,7 @@ Hapilon 是一个以 Pi Coding Agent 为运行内核的通用终端 Coding Agent
 
 # 编码文件/代码组织
 - **合理的模块拆分，禁止将所有东西全部写在一个文件中，但也不要将代码拆的细碎到多个文件中，保持合理的组织**
+- **Pi 扩展拆分原则**：扩展包含多个独立职责/功能时，拆为目录组织（`<name>/index.ts` + `<name>/xxx.ts`），`discoverExtensions()` 自动发现 `<name>/index.js` 入口。一个文件一个职责，一个目录一个扩展。
 - **所有的技术债/预留扩展全部以结构化描述方式记录到 `_backlog` 目录下，一个内容一个文件 **，包含以下结构块：背景，目的，技术债/预留扩展描述，参考引用，项目中指向的位置
 
 # Claude Code Plan Mode & Planning File
