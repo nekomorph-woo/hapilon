@@ -107,6 +107,72 @@ describe("safety-gate", () => {
       assert.strictEqual(classifyCommand("diff <(ls) <(ls -a)"), "block");
     });
 
+    // ── BLOCK：新增社区补全 ──
+
+    it("find . -exec rm → block", () => {
+      assert.strictEqual(classifyCommand("find . -name '*.tmp' -exec rm {} +"), "block");
+    });
+
+    it("find . -delete → block", () => {
+      assert.strictEqual(classifyCommand("find . -name '*.log' -delete"), "block");
+    });
+
+    it("git clean -fd → block", () => {
+      assert.strictEqual(classifyCommand("git clean -fd"), "block");
+    });
+
+    it("git clean -fdx → block", () => {
+      assert.strictEqual(classifyCommand("git clean -fdx"), "block");
+    });
+
+    it("git clean -xfd → block", () => {
+      assert.strictEqual(classifyCommand("git clean -xfd"), "block");
+    });
+
+    it("kill -9 -1 → block", () => {
+      assert.strictEqual(classifyCommand("kill -9 -1"), "block");
+    });
+
+    it("killall -9 无参数 → block", () => {
+      assert.strictEqual(classifyCommand("killall -9"), "block");
+    });
+
+    it("shutdown → block", () => {
+      assert.strictEqual(classifyCommand("shutdown -h now"), "block");
+    });
+
+    it("reboot → block", () => {
+      assert.strictEqual(classifyCommand("reboot"), "block");
+    });
+
+    it("halt → block", () => {
+      assert.strictEqual(classifyCommand("halt"), "block");
+    });
+
+    it("poweroff → block", () => {
+      assert.strictEqual(classifyCommand("poweroff"), "block");
+    });
+
+    it("init 0 → block", () => {
+      assert.strictEqual(classifyCommand("init 0"), "block");
+    });
+
+    it("docker system prune -af → block", () => {
+      assert.strictEqual(classifyCommand("docker system prune -af"), "block");
+    });
+
+    it("docker volume prune -f → block", () => {
+      assert.strictEqual(classifyCommand("docker volume prune -f"), "block");
+    });
+
+    it("chmod -R 000 → block", () => {
+      assert.strictEqual(classifyCommand("chmod -R 000 /tmp/test"), "block");
+    });
+
+    it("chmod -R 000 → block", () => {
+      assert.strictEqual(classifyCommand("chmod -R 000 ."), "block");
+    });
+
     // ── CONFIRM：中危命令 ──
 
     it("rm -rf ./node_modules → confirm", () => {
@@ -179,6 +245,104 @@ describe("safety-gate", () => {
 
     it("eval \"$CMD\" → confirm", () => {
       assert.strictEqual(classifyCommand('eval "$CMD"'), "confirm");
+    });
+
+    // ── CONFIRM：新增社区补全 ──
+
+    it("git push → confirm", () => {
+      assert.strictEqual(classifyCommand("git push origin main"), "confirm");
+    });
+
+    it("git checkout . → confirm", () => {
+      assert.strictEqual(classifyCommand("git checkout ."), "confirm");
+    });
+
+    it("git restore . → confirm", () => {
+      assert.strictEqual(classifyCommand("git restore ."), "confirm");
+    });
+
+    it("git branch -D feat → confirm", () => {
+      assert.strictEqual(classifyCommand("git branch -D feat-x"), "confirm");
+    });
+
+    it("git stash drop → confirm", () => {
+      assert.strictEqual(classifyCommand("git stash drop stash@{0}"), "confirm");
+    });
+
+    it("git stash clear → confirm", () => {
+      assert.strictEqual(classifyCommand("git stash clear"), "confirm");
+    });
+
+    it("git rebase -i → confirm", () => {
+      assert.strictEqual(classifyCommand("git rebase -i HEAD~3"), "confirm");
+    });
+
+    it("git commit --amend → confirm", () => {
+      assert.strictEqual(classifyCommand("git commit --amend"), "confirm");
+    });
+
+    it("chown -R ./project → confirm", () => {
+      assert.strictEqual(classifyCommand("chown -R user:group ./project"), "confirm");
+    });
+
+    it("ssh user@host → confirm", () => {
+      assert.strictEqual(classifyCommand("ssh admin@prod-server.com"), "confirm");
+    });
+
+    it("rsync --delete → confirm", () => {
+      assert.strictEqual(classifyCommand("rsync -avz --delete ./src/ user@host:/var/www/"), "confirm");
+    });
+
+    it("> /etc/hosts → confirm（系统文件写入）", () => {
+      assert.strictEqual(classifyCommand("echo '127.0.0.1 test' | sudo tee /etc/hosts"), "confirm");
+    });
+
+    it(">> /etc/fstab → confirm", () => {
+      assert.strictEqual(classifyCommand("echo '/dev/sdb1 /mnt ext4 defaults 0 0' >> /etc/fstab"), "confirm");
+    });
+
+    it("npm install -g → confirm", () => {
+      assert.strictEqual(classifyCommand("npm install -g some-package"), "confirm");
+    });
+
+    it("yarn global add → confirm", () => {
+      assert.strictEqual(classifyCommand("yarn global add some-package"), "confirm");
+    });
+
+    it("pip install → confirm（系统级）", () => {
+      assert.strictEqual(classifyCommand("pip install requests"), "confirm");
+    });
+
+    it("gem install → confirm", () => {
+      assert.strictEqual(classifyCommand("gem install rails"), "confirm");
+    });
+
+    it("docker compose down -v → confirm", () => {
+      assert.strictEqual(classifyCommand("docker compose down -v"), "confirm");
+    });
+
+    it("docker container prune → confirm", () => {
+      assert.strictEqual(classifyCommand("docker container prune -f"), "confirm");
+    });
+
+    it("DROP DATABASE → confirm", () => {
+      assert.strictEqual(classifyCommand("mysql -e 'DROP DATABASE production'"), "confirm");
+    });
+
+    it("DROP TABLE → confirm", () => {
+      assert.strictEqual(classifyCommand("psql -c 'DROP TABLE users'"), "confirm");
+    });
+
+    it("TRUNCATE TABLE → confirm", () => {
+      assert.strictEqual(classifyCommand("mysql -e 'TRUNCATE TABLE cache'"), "confirm");
+    });
+
+    it("scp 远程传输 → confirm", () => {
+      assert.strictEqual(classifyCommand("scp file.txt user@host:/path/"), "confirm");
+    });
+
+    it("rm -r 递归删除 → confirm", () => {
+      assert.strictEqual(classifyCommand("rm -r ./old-data"), "confirm");
     });
 
     // ── ALLOW：正常命令 ──
