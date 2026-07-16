@@ -1,31 +1,36 @@
 # TODO 清单
 
-> 当前任务：hapilon setup OAuth 引导体验
+> 当前任务：OS 沙箱集成（macOS 优先）
 
 ---
 
-## [~] TODO-11：hapilon setup — OAuth provider 引导
+## [ ] TODO-12：hapilon --sandbox — macOS Seatbelt 沙箱集成
 
 ### 目标
 
-`hapilon setup` 在交互式配置结束后，主动引导用户了解可用的 OAuth provider（xAI/Grok、Codex、Claude Pro、GitHub Copilot），告知如何在 hapilon TUI 中完成 OAuth 登录，不要让用户困在 API key 输入流程里。
+集成 `@anthropic-ai/sandbox-runtime` 为 hapilon 提供 `--sandbox` 选项。macOS 用 Seatbelt 内核级隔离，Linux 用 bubblewrap，Windows 暂不处理（依赖现有 safety-gate + protected-paths 两层防护）。
 
 ### 实现要点
 
 | 项目 | 内容 |
 |------|------|
-| 修改文件 | `src/setup.ts` — setupInteractive() 和 setupQuick() 末尾 |
-| 触发时机 | API key 配置流程结束后，打印 OAuth 引导区块 |
-| 引导内容 | 列出 Pi 内置支持的 OAuth provider 及 /login 命令 |
-| Pi 内置 OAuth | xAI (Grok 4.5)、Codex、Claude Pro、GitHub Copilot |
-| 登录方式 | 进入 hapilon TUI → `/login <provider>` → device-code / Web PKCE OAuth → 浏览器授权 |
-| token 存储 | 自动写入 `~/.hapilon/agent/auth.json`，与 API key 模式共存 |
-| 快速模式 | `hapilon setup --quick` 也输出 OAuth 引导（不能跳过） |
+| npm 依赖 | `@anthropic-ai/sandbox-runtime` |
+| CLI flag | `--sandbox` |
+| 集成位置 | `cli.ts` — spawn pi 前用 `SandboxManager.wrapWithSandbox()` 包裹命令 |
+| 配置文件 | 复用 `~/.srt-settings.json` 或 hapilon 内置默认沙箱策略 |
+| macOS | Seatbelt（系统内置，零安装） |
+| Linux | bubblewrap（需 `apt-get install bubblewrap socat ripgrep`） |
+| Windows | 不启动沙箱，打印提示 "Windows 暂不支持 --sandbox，使用命令+文件策略保护" |
+| 沙箱策略 | 默认 denyWrite 除项目目录 + /tmp；denyRead 保护 ~/.ssh/~/.aws/~/.netrc；网络全允许 |
+| 与现有安全层 | 独立——`--sandbox` 是内核层兜底，safety-gate + protected-paths 是扩展层拦截，两层可叠加 |
 
 ### 验收标准
 
-- [ ] `hapilon setup` 交互式流程结束时，打印 OAuth provider 列表和 `/login` 使用说明
-- [ ] `hapilon setup --quick` 也输出 OAuth 引导
-- [ ] 引导内容区分：API key 配完了 → 顺带告知还有 OAuth 方式
-- [ ] 当前可用的 OAuth provider 从 Pi 运行时检测（而非硬编码过时列表）
-- [ ] 引导文案简洁（不超过 10 行），用"ℹ OAuth 方式登录"标识
+- [ ] `npm install @anthropic-ai/sandbox-runtime` 成功
+- [ ] `hapilon --sandbox` 在 macOS 上以 Seatbelt 沙箱启动 Pi
+- [ ] 沙箱内 Agent 尝试 `cat ~/.ssh/id_rsa` → Operation not permitted
+- [ ] 沙箱内 Agent 正常读写项目目录文件
+- [ ] `hapilon`（不加 --sandbox）行为不变
+- [ ] Linux 上 `hapilon --sandbox` 用 bubblewrap（需预先安装依赖）
+- [ ] Windows 上 `hapilon --sandbox` 打印提示并降级为无沙箱运行
+- [ ] 与 `--no-safety` 独立——可以同时或单独使用

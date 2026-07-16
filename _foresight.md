@@ -1,334 +1,211 @@
-# 封装裸 Pi Coding Agent 的必做 Roadmap
+# OS 沙箱方案 — 跨平台 Coding Agent 隔离
 
-> 一句话概括：拿到裸 Pi 后，每个 wrapper 都必须补齐的安全、配置、体验三大基础设施路线图，按优先级排列。
+> 一句话概括：OS 沙箱在操作系统层面给 AI Agent 画一个圈——圈内能碰，圈外看不见也改不了。hapilon 面向 macOS / Linux / Windows 三平台，需要了解每个平台可用的隔离方案。
 
 ## 核心概念
 
-### 裸 Pi 给你什么？
+### 什么是 OS 沙箱
 
-Pi Coding Agent 是一个**最小化终端 Coding Agent 内核**。它提供了 Agent 循环、7 个内置工具（read/bash/edit/write/grep/find/ls）、TUI、Session 持久化、Extension 系统和 Skills 系统。
+不是 Docker 容器、不是虚拟机、不是应用层拦截——是**操作系统内核**直接限制进程能访问什么。Agent 进程想读 `~/.ssh/`？内核直接返回 "permission denied"，Agent 绕不过去。
 
-### 裸 Pi 没给你什么？
+### 为什么 coding agent 需要它
 
-Pi 刻意不提供以下内容（设计哲学：自己按需加）：
+```text
+安全层次（深层防御）：
 
-| 缺失能力 | 风险等级 | 说明 |
-|----------|----------|------|
-| **Sandbox/沙箱** | 🔴 致命 | bash 工具以用户完整权限运行，无任何隔离 |
-| **权限系统** | 🔴 致命 | 无命令审批、无文件保护、无操作确认 |
-| **Provider 配置引导** | 🟠 高 | 无 setup wizard，用户需手动编辑 JSON |
-| **多 Provider 管理** | 🟡 中 | 需手动编辑 models.json / auth.json |
-| **CLI 帮助系统** | 🟡 中 | Pi 的 --help 较简略，无分层帮助 |
-| **自定义命令路由** | 🟡 中 | 无 setup/doctor/config 等管理命令 |
-| **日志/可观测性** | 🟡 中 | 有 pi-debug.log 但无结构化日志 |
-| **会话管理 UI** | 🟢 低 | 内置 /tree 和 session selector，基本够用 |
-| **Sub-agents** | 🟢 低 | 无内置，但可通过扩展实现 |
-| **Plan Mode** | 🟢 低 | 无内置，但可通过扩展实现 |
-
----
-
-## 必做路线图（按优先级）
-
-```
-🔴 P0 — 不做会有安全事故
-🟠 P1 — 不做用户无法正常使用
-🟡 P2 — 不做体验差但能跑
-🟢 P3 — 锦上添花
+第 1 层：命令拦截     ← safety-gate（我们已有）   正则匹配，漏一条就出事
+第 2 层：文件保护     ← protected-paths（我们已有） hook 拦截，只覆盖 write/edit/read
+第 3 层：OS 沙箱      ← 本次主题                   内核强制，不可能绕过
+第 4 层：容器/虚拟机   ← Docker/microVM            完全隔离，但有性能开销
 ```
 
-### 🔴 P0: 安全基础设施
-
-#### P0.1 命令审批/危险操作拦截
-
-**为什么必做**：Pi 的 bash 工具直接以用户权限运行任意命令。`rm -rf /`、`sudo`、修改 `.env`、读取 `~/.ssh/` 等操作无任何拦截。
-
-**实现方式**（按强度递增）：
-
-| 方案 | 实现 | 强度 | hapilon 状态 |
-|------|------|------|-------------|
-| **A. 危险命令黑名单** | `pi.on("tool_call", ...)` 拦截 bash 工具，正则匹配 `rm -rf`、`sudo`、`chmod 777`、`curl ... \| sh` 等模式，弹确认框 | ⭐⭐ | ❌ 未实现 |
-| **B. 文件路径保护** | 拦截 write/edit 工具，阻止修改 `.env`、`.git/`、`~/.ssh/`、`package-lock.json` 等受保护路径 | ⭐⭐⭐ | ❌ 未实现 |
-| **C. OS 级沙箱** | 使用 `@anthropic-ai/sandbox-runtime`（macOS `sandbox-exec` / Linux `bubblewrap`）限制文件系统和网络访问 | ⭐⭐⭐⭐ | ❌ 未实现 |
-| **D. 容器隔离** | Docker/podman 容器内运行 Pi，完全隔离 | ⭐⭐⭐⭐⭐ | ❌ 未实现 |
-
-**参考**：
-- Pi 官方 example: `permission-gate.ts`、`protected-paths.ts`、`sandbox/`
-- 社区 package: [pi-permission-system](https://github.com/MasuRii/pi-permission-system)、[pi-permission-layers](https://pi.dev/packages/pi-permission-layers)、[pi-guard-sandbox](https://pi.dev/packages/pi-guard-sandbox)
-- macOS 专用: [agent-safehouse.dev](https://agent-safehouse.dev/)
-
-**hapilon 需要做的**：至少实现方案 A（危险命令黑名单）+ 方案 B（文件路径保护）作为内置扩展。方案 C（沙箱）作为可选功能后续迭代。
-
-#### P0.2 项目信任机制
-
-**为什么必做**：Pi 已内置 project trust（`trust.json`），但 wrapper 可能需要额外的信任层——例如在非交互模式下的默认行为。
-
-**实现方式**：
-- 利用 Pi 自带的 `-a`/`-na`/`--no-approve` 标志控制非交互模式的信任决策
-- wrapper 层面可记录用户对项目的信任选择
-
-**hapilon 状态**：⚠️ 部分实现 — `cli.ts` 已转发参数但未做额外处理
+safety-gate 和 protected-paths 的局限：它们是**规则匹配**——漏写一条规则就多一个洞。OS 沙箱是**默认拒绝 + 显式允许**——所有路径默认不可访问，只有明确列出的才放行。
 
 ---
 
-### 🟠 P1: 用户上手基础设施
+## 三平台隔离技术总览
 
-#### P1.1 Provider 配置引导（Setup Wizard）
+| 平台 | 内核隔离技术 | 成熟度 | 是否需要安装 | 备注 |
+|------|-------------|--------|-------------|------|
+| **macOS** | Seatbelt (sandbox-exec) | ⭐⭐⭐ | 系统内置 | Apple 标记 deprecated，但仍在用 |
+| **Linux** | Landlock / bubblewrap | ⭐⭐⭐⭐⭐ | 内核 5.13+ 内置 / 需安装 | 最成熟 |
+| **Windows** | Windows Sandbox / 完整性级别 / AppContainer | ⭐⭐ | Win 10/11 Pro+ 内置 | 生态最弱 |
 
-**为什么必做**：用户拿到 hapilon 后第一步就是配模型。裸 Pi 需要手动创建 `auth.json` 和 `models.json`，门槛高。
+### macOS — Seatbelt (sandbox-exec)
 
-**实现方式**：
-- 交互式 CLI：询问用户用什么 provider → 输入 API Key → 自动写入 `auth.json`
-- 支持环境变量引用（`$OPENAI_API_KEY`）而非明文存储
-- 支持 macOS Keychain / 1Password CLI 提取
-
-**hapilon 状态**：✅ 已实现 — `hapilon setup` 命令 (`src/setup.ts`)
-
-#### P1.2 配置目录隔离
-
-**为什么必做**：hapilon 的配置不能和裸 Pi 的配置混在一起。用户可能同时使用 hapilon 和 Pi。
-
-**实现方式**：
-- 设置 `PI_CODING_AGENT_DIR=~/.hapilon/agent/`
-- 所有 Pi 的配置（auth.json、settings.json、sessions、extensions）自动写入 hapilon 专用目录
-
-**hapilon 状态**：✅ 已实现 — `cli.ts:103-109` 通过环境变量注入
-
-#### P1.3 默认模型/Provider 注入
-
-**为什么必做**：用户配好 provider 后，每次启动应该自动使用配置的模型，不需要手动 `/model` 切换。
-
-**实现方式**：
-- 读取 `~/.hapilon/config.json` 中的默认 provider/model
-- 通过 CLI 参数注入：`--model`、`--provider`、`--thinking-level`
-- 或者修改 Pi 的 `settings.json` 设置 `defaultProvider`/`defaultModel`
-
-**hapilon 状态**：✅ 已实现 — `config-io.ts` 的 `injectDefaultArgs()`
-
-#### P1.4 健康检查（Doctor）
-
-**为什么必做**：用户配完环境后需要一个命令验证所有配置正确——provider 可连接、API key 有效、目录结构正确。
-
-**实现方式**：
-- 检查 `~/.hapilon/agent/` 目录存在性
-- 检查 `auth.json` 是否有至少一个 provider
-- 可选：发一个最小 API 请求验证 key 有效性
-
-**hapilon 状态**：✅ 已实现 — `hapilon doctor` 命令
-
----
-
-### 🟡 P2: 体验增强
-
-#### P2.1 扩展自动发现与注入
-
-**为什么必做**：hapilon 内置扩展（安全、便利工具等）应该随 hapilon 发布一起打包，用户不需要手动 `-e` 加载。
-
-**实现方式**：
-- `discoverExtensions()` 扫描 `dist/extensions/` 目录
-- 自动通过 `-e` 注入到 Pi 启动参数
-
-**hapilon 状态**：✅ 已实现 — `src/extensions.ts` + `cli.ts:98`
-
-#### P2.2 CLI 帮助系统
-
-**为什么必做**：用户需要知道 hapilon 支持哪些命令、参数、配置方式。
-
-**实现方式**：
-- `hapilon help` — 总览
-- `hapilon help <command>` — 分命令帮助
-- `hapilon --help` / `-h` — 兼容
-
-**hapilon 状态**：✅ 已实现 — `src/help.ts` + `src/cli.ts:14-18`
-
-#### P2.3 非交互模式适配
-
-**为什么必做**：hapilon 在 print/json/rpc 模式下不应输出 banner、警告等污染 stdout。
-
-**实现方式**：
-- 检测 `-p`/`--print`/`--mode` 标志
-- 非交互模式下静默 banner 和非关键警告
-
-**hapilon 状态**：✅ 已实现 — `cli.ts:69-76`
-
-#### P2.4 会话管理扩展
-
-**为什么必做**：裸 Pi 的会话管理较基础。实用的增强包括：
-- 自动命名 session（基于第一个 prompt 或 git branch）
-- 会话书签（重要决策点打标签）
-- dirty repo guard（有未提交改动时阻止切换 session）
-
-**参考 Pi 官方 example**：`session-name.ts`、`bookmark.ts`、`dirty-repo-guard.ts`
-
-**hapilon 状态**：❌ 未实现
-
-#### P2.5 Token 用量追踪
-
-**为什么必做**：用户需要知道花了多少钱、用了多少 token。裸 Pi 不提供内置统计。
-
-**实现方式**：
-- `pi.on("model_response", ...)` 累计 token 用量
-- 在 footer/status bar 显示实时统计
-- 存储历史用量数据
-
-**hapilon 状态**：❌ 未实现
-
----
-
-### 🟢 P3: 锦上添花
-
-#### P3.1 自定义 Prompt 模板
-
-内置一些常用 prompt 模板：code review、重构、写测试、解释代码等。
-
-**hapilon 状态**：❌ 未实现
-
-#### P3.2 Git 集成增强
-
-自动 checkpoint（每个 turn stash）、退出时自动 commit 等。
-
-**参考 Pi 官方 example**：`git-checkpoint.ts`、`auto-commit-on-exit.ts`
-
-**hapilon 状态**：❌ 未实现
-
-#### P3.3 多 Provider 故障切换
-
-一个 provider 挂了自动切到备用 provider。
-
-**hapilon 状态**：❌ 未实现
-
-#### P3.4 上下文压缩定制
-
-自定义 compaction 策略，例如总结整个对话而非简单截断。
-
-**参考 Pi 官方 example**：`custom-compaction.ts`
-
-**hapilon 状态**：❌ 未实现
-
----
-
-## 与本项目 hapilon 的关系
-
-### 已实现 vs 待实现
+Apple 的内核级沙箱。用 Scheme 语言写 `.sb` 配置文件，声明进程能读写哪些路径。
 
 ```
-hapilon v0.1.0-alpha 完成度
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+优势：
+  ✅ 系统内置，零安装
+  ✅ 内核强制，不可绕过
+  ✅ 子进程自动继承沙箱规则
 
-🔴 P0 安全
-  命令审批/危险拦截  ░░░░░░░░░░░░░░░░░░░░  0%
-  文件路径保护       ░░░░░░░░░░░░░░░░░░░░  0%
-  OS 沙箱（可选）    ░░░░░░░░░░░░░░░░░░░░  0%
-
-🟠 P1 上手
-  Setup Wizard      ████████████████████  100%
-  配置目录隔离       ████████████████████  100%
-  默认模型注入       ████████████████████  100%
-  Doctor 健康检查    ████████████████████  100%
-
-🟡 P2 体验
-  扩展自动发现       ████████████████████  100%
-  CLI 帮助系统       ████████████████████  100%
-  非交互模式适配     ████████████████████  100%
-  会话管理增强       ░░░░░░░░░░░░░░░░░░░░  0%
-  Token 追踪         ░░░░░░░░░░░░░░░░░░░░  0%
-
-🟢 P3 锦上添花
-  全部               ░░░░░░░░░░░░░░░░░░░░  0%
+劣势：
+  ❌ Apple 官方标记 deprecated（但 macOS 15 仍可用）
+  ❌ Scheme 语法的 .sb 文件学习曲线陡峭
+  ❌ 不支持细粒度网络控制
+  ❌ 未来 macOS 版本可能移除
 ```
 
-### 当前最紧迫的差距
+**代表工具**：`scode`、`nono`、`fence`、`anthropic-sandbox-runtime`
 
-**安全是零**。hapilon 目前对 Pi 的危险操作没有任何拦截。这意味着：
-- Agent 可以 `rm -rf` 你的项目
-- Agent 可以读取你的 `~/.ssh/` 密钥
-- Agent 可以 `curl` 你的文件到外部服务器
-- Agent 可以修改 `.env`、`.git/config` 等敏感文件
+**基本用法**（手工）：
+```bash
+sandbox-exec -f profile.sb hapilon
+```
 
-这不是"未来要做"的事，这是**下次编码之前就应该做**的事。
+### Linux — Landlock + bubblewrap
+
+Linux 生态最丰富，两个主力：
+
+| 技术 | 原理 | 优势 |
+|------|------|------|
+| **Landlock** | 内核 5.13+ 内置的安全模块，无特权即可使用 | 零依赖、不可逆、子进程继承 |
+| **bubblewrap (bwrap)** | 用 Linux namespace 隔离进程 | 更成熟、支持更细粒度控制 |
+
+```
+优势：
+  ✅ Landlock 内核内置，无需 root
+  ✅ bubblewrap 几乎所有发行版都有包
+  ✅ 生态最成熟（landrun/nono/fence/...）
+  ✅ 细粒度网络控制（namespace + proxy）
+
+劣势：
+  ❌ Landlock 需要内核 >= 5.13（Ubuntu 22.04+）
+  ❌ bubblewrap 需额外安装
+  ❌ 不同发行版行为可能有差异
+```
+
+**代表工具**：`nono`、`fence`、`landrun`、`bubblewrap`
+
+**基本用法**（手工）：
+```bash
+bwrap --bind /workspace --dev /dev --proc /proc hapilon
+```
+
+### Windows — Windows Sandbox / 其他
+
+Windows 是三个平台里最弱的：
+
+```
+方案 A：Windows Sandbox（Win 10/11 Pro/Enterprise）
+  ✅ 内置、轻量 VM 级隔离
+  ❌ 需要 Pro 版，Home 版没有
+  ❌ 每次启动都是全新环境（默认无状态）
+  ❌ 文件共享需配置
+
+方案 B：AppContainer / 完整性级别
+  ✅ 系统内置
+  ❌ API 复杂，极少有 AI 沙箱工具用这个
+  ❌ 没有现成的命令行包装器
+
+方案 C：WSL2 + Linux 沙箱
+  ✅ 如果 hapilon 在 WSL2 中运行，直接用 Linux 方案
+  ❌ 需要用户安装 WSL2
+```
+
+**现实**：绝大多数 Windows AI 沙箱工具依赖 WSL2 运行 Linux 版。原生 Windows 沙箱方案基本不存在。
 
 ---
 
-## 入门路线图（推荐实施顺序）
+## 现有 Coding Agent 沙箱工具对比
 
-### Phase 1: 安全地基（当前阶段，1~3 天）
+### 跨平台（推荐关注）
 
-1. **危险命令黑名单扩展** (`src/extensions/safety-gate.ts`)
-   - 拦截 bash 工具中的 `rm -rf`、`sudo`、`chmod 777`、`curl ... | sh`、`git push --force` 等
-   - 弹确认框（复用 `ctx.ui.confirm`）
-   - 提供 `--yolo` / `--no-safety` 绕过选项
+| 工具 | Stars | macOS | Linux | Windows | 方式 | 特色 |
+|------|-------|-------|-------|---------|------|------|
+| **anthropic-sandbox-runtime** | 4388 | Seatbelt | bubblewrap | ❌ | OS 原语 | Claude Code /sandbox 后台 |
+| **nono** | 2643 | Seatbelt | Landlock | WSL2 计划中 | OS 原语 | 凭证注入代理、审计日志、最强独立方案 |
+| **fence** | 794 | Seatbelt | bubblewrap | ❌ | OS 原语 | 命令 deny 规则、SSH 过滤、模板继承 |
+| **scode** | ~300 | Seatbelt | bubblewrap | ❌ | 单 bash 脚本 | 最轻量、零依赖、35+ 凭证路径预设 |
+| **yolobox** | 603 | Docker | Docker | Docker | 容器 | 开箱即用 `yolobox claude` |
 
-2. **文件路径保护扩展** (`src/extensions/protected-paths.ts`)
-   - 拦截 write/edit 工具对 `.env`、`.git/`、`~/.ssh/`、`package-lock.json`、`*.pem` 等路径的写操作
-   - 必要时扩展到读保护（`~/.ssh/`、`~/.aws/`）
+### macOS 专有
 
-3. **启动时安全提示**
-   - 首次启动 hapilon 时显示安全声明
-   - 说明哪些操作会被拦截、如何绕过
+| 工具 | 特色 |
+|------|------|
+| **Agent Safehouse** | 预配置 Seatbelt 方案，开箱即用 |
+| **SandVault** | 独立 macOS 用户账户 + sandbox-exec 双重隔离 |
+| **Chamber** | 用 Tart 启动临时 macOS VM |
 
-### Phase 2: 体验补全（1~2 周）
+### Linux 专有
 
-4. **Token 追踪扩展** — 实时显示 token 用量和费用
-5. **Session 命名** — 自动给 session 起有意义的名字
-6. **Dirty repo guard** — 有未提交改动时阻止切换 session
+| 工具 | 特色 |
+|------|------|
+| **landrun** | Landlock 先驱（已停滞，但已验证技术路线） |
+| **sandlock** | Landlock + seccomp-bpf + seccomp 用户通知 |
+| **Firejail** | 成熟的 Linux 桌面/应用沙箱 |
 
-### Phase 3: 高级特性（按需）
+### Windows 选项
 
-7. **OS 级沙箱** — 集成 `@anthropic-ai/sandbox-runtime` 或容器方案
-8. **多 Provider 故障切换**
-9. **自定义 compaction 策略**
+| 工具 | 特色 |
+|------|------|
+| **Windows Sandbox** | 内置，Win Pro+ |
+| **WSL2 + Linux 沙箱** | 务实地看，这是目前最好的 Windows 方案 |
+| **Docker Desktop** | 跨平台容器方案 |
+
+---
+
+## 与本项目的关系
+
+### hapilon 的定位
+
+hapilon 是 Pi Coding Agent 的 CLI wrapper。当前安全层：
+
+```text
+hapilon CLI
+  → spawn pi 子进程（stdio: inherit）
+  → 注入扩展（safety-gate + protected-paths）
+  → pi 以用户完整权限运行
+```
+
+沙箱会在**更外层**包裹整个 hapilon 进程。hapilon 不需要自己实现——应该对接现有工具。
+
+### 推荐策略
+
+```
+阶段 1（当前）：用户自己用 fence/nono/scode 包裹 hapilon
+  → hapilon 零改动，用户在 .bashrc 里 alias hapilon='fence -t code -- hapilon'
+
+阶段 2（后续）：hapilon 内置沙箱感知
+  → hapilon --sandbox 自动检测平台，对接最佳沙箱后端
+  → macOS: Seatbelt, Linux: Landlock/bubblewrap, Windows: WSL2
+```
+
+### 相关文档
+
+- `_foresight.md`（已归档 → `_foresight/2-os-sandbox-solutions.md`）— P0.1 安全基础设施
+- `Hapilon-PRD-v1.1.md` §9.16 — 权限与安全
+- `src/extensions/safety-gate/` — 命令拦截（内层防御）
+- `src/extensions/protected-paths/` — 文件保护（中层防御）
+
+---
+
+## 入门路线图
+
+1. **理解概念**：OS 沙箱 vs 容器 vs 应用层拦截的区别
+2. **在你的 macOS 上试用 fence**：`brew install fencesandbox/tap/fence && fence -t code -- hapilon`
+3. **对比体验**：在沙箱内故意访问 `~/.ssh/`，观察被拦截
+4. **阅读 _foresight.md 归档**：了解之前的安全设计决策
+5. **决定时机**：当 hapilon 开始被用在多项目/多 provider 场景时，再考虑内置沙箱
 
 ---
 
 ## 常见陷阱
 
-### 安全类
-
-- **不要在 hook 里 return false 来静默阻止**
-  — 必须 `return { block: true, reason: "xxx" }` 给用户清晰的反馈
-  — 静默阻止会让用户以为操作成功，比不阻止更危险
-
-- **不要只拦截 bash 而忽略其他工具**
-  — `write` 工具也能覆盖 `.env` 文件
-  — `edit` 工具也能删除代码
-  — 拦截要覆盖所有可变工具
-
-- **安全扩展本身不能被绕过**
-  — 不要把安全扩展做成"可被 Agent 卸载"的
-  — 不要提供"永久信任"选项（容易被 prompt injection 利用）
-
-### 体验类
-
-- **不要过度确认**
-  — 每次 bash 都弹确认框 = 用户点麻木 = 安全失效
-  — 只拦截真正危险的操作
-
-- **设置页不要做成"填表单"**
-  — 交互式 question-answer 比 JSON 编辑友好 100 倍
-  — 提供推荐默认值，让用户一路回车
+1. **sandbox-exec deprecated ≠ 不能用**：Apple 标记了但 macOS 15 仍正常工作。关注替代方案（AppContainer?），但当前可用
+2. **Windows 原生沙箱几乎不存在**：行业共识是用 WSL2 运行 Linux 版沙箱。不要花时间找 Windows 原生方案
+3. **沙箱 ≠ 万能**：沙箱防止 Agent 访问系统文件，但不防止 Agent 在项目目录里搞破坏。三层防御缺一不可
+4. **凭证注入问题**：沙箱内 Agent 不能读 `~/.ssh/` 但需要调 API——怎么安全传递 API key？nono 的凭证代理是参考方案
+5. **性能开销**：OS 原语（Seatbelt/Landlock）零开销，容器（Docker）有启动延迟，VM 有内存开销
 
 ---
 
 ## 参考资源
 
-### Pi 官方文档
-- [Pi Extensions 文档](https://pi.dev/docs/latest/extensions)
-- [Pi 官方 extension 示例集](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/examples/extensions/README.md) — 包含 permission-gate、protected-paths、sandbox 等 50+ 示例
-- [Pi Sandbox 分析报告](https://agent-safehouse.dev/docs/agent-investigations/pi) — 详尽的安全审计
-- [doc/pi-wiki.md](doc/pi-wiki.md) §15 安全模型
-
-### 社区安全方案
-- [pi-permission-system](https://github.com/MasuRii/pi-permission-system) — 集中式权限门控
-- [pi-permission-layers](https://pi.dev/packages/pi-permission-layers) — 分层权限控制
-- [pi-guard-sandbox](https://pi.dev/packages/pi-guard-sandbox) — OS 级沙箱
-- [agent-safehouse.dev](https://agent-safehouse.dev/) — macOS sandbox-exec 工具
-
-### 行业参考
-- [Claude Code 安全文档](https://code.claude.com/docs/en/security)
-- [Docker Sandbox for Coding Agents](https://www.docker.com/blog/docker-sandboxes-a-new-approach-for-coding-agent-safety/)
-- [Enterprise AI Coding Agent Deployment](https://northflank.com/blog/enterprise-ai-coding-agent-deployment)
-
-### 项目内参考
-- [Hapilon PRD](Hapilon-PRD-v1.1.md) — 第 9 章 配置与 Provider
-- [src/extensions.ts](src/extensions.ts) — 扩展自动发现机制
-- [src/cli.ts](src/cli.ts) — CLI 入口，启动流程
-- [.claude/skills/write-a-hapi/](.claude/skills/write-a-hapi/) — 写 hapi 扩展的 SKILL
+- [Ry Walker: Local AI Agent Sandboxes Compared](https://rywalker.com/research/local-agent-sandboxes) — 8 工具详细对比
+- [awesome-AI-sandbox](https://github.com/webcoyote/awesome-AI-sandbox) — 100+ 沙箱工具清单
+- [scode: A Seatbelt for AI Coding](https://binds.ch/blog/scode-sandbox-for-ai-coding-tools) — 最轻量的跨工具沙箱
+- [nono](https://github.com/nono) — 凭证注入代理 + Landlock/Seatbelt
+- [anthropic-sandbox-runtime](https://github.com/anthropics/sandbox-runtime) — Claude Code /sandbox 后台

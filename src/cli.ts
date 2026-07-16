@@ -120,6 +120,61 @@ async function main(): Promise<void> {
     : allExtensions;
   const extensionFlags = loadedExtensions.flatMap((e) => ["-e", e]);
 
+  // ── OS 沙箱 ────────────────────────────────────────────────────
+
+  const useSandbox = hasFlag(args, "--sandbox");
+
+  if (useSandbox) {
+    const platform = process.platform;
+
+    if (platform === "win32") {
+      console.warn("⚠ --sandbox 暂不支持 Windows。使用命令+文件策略保护。");
+    } else {
+      if (!isNonInteractive) {
+        console.log("🛡️  OS 沙箱已激活");
+      }
+
+      const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+      await SandboxManager.initialize({
+        filesystem: {
+          denyRead: ["~/.ssh", "~/.aws", "~/.netrc"],
+          allowWrite: [".", "/tmp"],
+          denyWrite: [".env", ".git/config"],
+        },
+        network: {
+          allowedDomains: ["*"],
+          deniedDomains: [],
+        },
+      });
+
+      const cmdStr = [process.execPath, piCli, ...extensionFlags, ...piArgs]
+        .map((a) => (a.includes(" ") ? `"${a}"` : a))
+        .join(" ");
+      const sandboxedCmd = await SandboxManager.wrapWithSandbox(cmdStr);
+
+      const child = spawn(sandboxedCmd, {
+        shell: true,
+        stdio: "inherit",
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          PI_CODING_AGENT_DIR: agentDir,
+        },
+      });
+
+      child.on("error", (err) => {
+        console.error(`Failed to start Hapilon (sandbox): ${err.message}`);
+        process.exitCode = 1;
+      });
+      child.on("exit", (code) => {
+        process.exitCode = code ?? 1;
+      });
+      return; // 沙箱路径直接返回，不走默认 spawn
+    }
+  }
+
+  // ── 默认启动（无沙箱）─────────────────────────────────────────
+
   const child = spawn(
     process.execPath,
     [piCli, ...extensionFlags, ...piArgs],

@@ -63,6 +63,7 @@ export function printHelp(): void {
 选项:
   --help, -h    显示此帮助
   --no-safety   临时关闭所有安全检查（危险命令拦截 + 文件路径保护）
+  --sandbox     OS 内核级沙箱隔离（macOS/Linux，Windows 暂不支持）
   其余选项透传给 Pi Coding Agent
 
 使用 hapilon help <command> 查看具体命令详情。`);
