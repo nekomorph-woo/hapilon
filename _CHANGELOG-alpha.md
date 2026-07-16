@@ -12,3 +12,4 @@
 - 2026-07-15 23:00: 安全命令审计 —— 4 路 subagent fan-out，覆盖 7 套社区方案 + 15+ 真实事故，BLOCK 从 7 → 14 类，CONFIRM 从 7 → 33 类，258 测试。
 - 2026-07-16 23:00: 项目级配置 + /allow 持久化信任 —— .hapilon/ 项目级目录（对标 .claude/），三级合并（local > shared > user），trust-store 命令+路径双维度信任。confirm 弹框 ctx.ui.select() 4 选项（Allow Once/Session/Project）。276 测试。
 - 2026-07-17 01:00: setup OAuth 引导 —— hapilon setup 交互式/快速模式末尾输出 OAuth provider 列表和 /login 引导，覆盖 xAI/Grok、Codex、Claude Pro、GitHub Copilot。pi 升级至 0.80.8。
+- 2026-07-17 02:00: hapilon --sandbox OS 内核级沙箱 —— 集成 @anthropic-ai/sandbox-runtime (Claude Code /sandbox 后台)，macOS Seatbelt / Linux bubblewrap。与 --no-safety 独立，两层可叠加。Windows 降级为提示。

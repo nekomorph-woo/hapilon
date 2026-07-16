@@ -4,7 +4,7 @@
 
 ---
 
-## [ ] TODO-12：hapilon --sandbox — macOS Seatbelt 沙箱集成
+## [~] TODO-12：hapilon --sandbox — macOS Seatbelt 沙箱集成
 
 ### 目标
 
