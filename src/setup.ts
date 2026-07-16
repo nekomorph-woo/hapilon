@@ -14,6 +14,25 @@ import {
   semverGte,
 } from "./providers.js";
 
+// ─── OAuth guide ──────────────────────────────────────────────────────
+
+const OAUTH_PROVIDERS = [
+  { id: "xai",              name: "xAI / Grok",         login: "/login xai" },
+  { id: "codex",            name: "Codex (OpenAI)",     login: "/login codex" },
+  { id: "anthropic-sub",    name: "Claude Pro",          login: "/login anthropic-sub" },
+  { id: "github-copilot",   name: "GitHub Copilot",      login: "/login github-copilot" },
+];
+
+function printOAuthGuide(): void {
+  console.log("\n── OAuth 方式登录 ──");
+  console.log("以下 provider 支持 OAuth 登录，无需手动输入 API Key：\n");
+  for (const p of OAUTH_PROVIDERS) {
+    console.log(`  ${p.name.padEnd(22)} → ${p.login}`);
+  }
+  console.log("\n进入 hapilon TUI 后输入对应命令，Pi 会弹出浏览器完成授权。");
+  console.log("Token 自动保存在 ~/.hapilon/agent/auth.json（与 API key 共存）。");
+}
+
 // ─── Setup ───────────────────────────────────────────────────────────
 
 export function setupQuick(): void {
@@ -21,6 +40,7 @@ export function setupQuick(): void {
   writeSkeletonFiles(dirs.agent);
   console.log(`Created ~/.hapilon/ skeleton at ${dirs.base}`);
   console.log("Run `hapilon setup` (without --quick) for interactive provider configuration.");
+  printOAuthGuide();
 }
 
 export async function setupInteractive(): Promise<void> {
@@ -102,7 +122,7 @@ export async function setupInteractive(): Promise<void> {
   } else {
     console.log("ℹ 未配置任何 provider。auth.json 为空。");
   }
-  console.log("ℹ OAuth provider（Codex / Claude Pro / GitHub Copilot）请通过 pi TUI 的 /login 配置");
+  printOAuthGuide();
   console.log(`\n配置已写入 ${dirs.agent}`);
 }
 

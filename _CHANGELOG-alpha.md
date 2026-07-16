@@ -9,3 +9,6 @@
 - 2026-07-14 23:00: 写保护分层 + /allow 会话白名单 —— protected-paths 从统一 block 拆为 block（高危）+ confirm（中危），/allow 命令提供会话级临时白名单，读写均生效。
 - 2026-07-14 23:30: 代码审查修复 —— 27 findings（4🔴+11🟠+12🟡）全部修复，含 rm -rf ~ bypass、fork bomb 空格变体、chmod 符号模式等。
 - 2026-07-14 23:45: 扩展目录组织化 —— safety-gate 和 protected-paths 从单文件拆为目录（index/rules/classifier/whitelist/confirm），discoverExtensions 自动发现。_hapilon_plans/ → _plans/。CLAUDE.md 扩展拆分原则。
+- 2026-07-15 23:00: 安全命令审计 —— 4 路 subagent fan-out，覆盖 7 套社区方案 + 15+ 真实事故，BLOCK 从 7 → 14 类，CONFIRM 从 7 → 33 类，258 测试。
+- 2026-07-16 23:00: 项目级配置 + /allow 持久化信任 —— .hapilon/ 项目级目录（对标 .claude/），三级合并（local > shared > user），trust-store 命令+路径双维度信任。confirm 弹框 ctx.ui.select() 4 选项（Allow Once/Session/Project）。276 测试。
+- 2026-07-17 01:00: setup OAuth 引导 —— hapilon setup 交互式/快速模式末尾输出 OAuth provider 列表和 /login 引导，覆盖 xAI/Grok、Codex、Claude Pro、GitHub Copilot。pi 升级至 0.80.8。
