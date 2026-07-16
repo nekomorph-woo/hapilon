@@ -1,6 +1,6 @@
 ---
 name: write-a-hapi
-description: 引导用户为 hapilon（Pi Coding Agent wrapper）编写 TypeScript 扩展。覆盖注册自定义 Tool、订阅生命周期事件（Hook）、注册 Slash Command、注册 CLI Flag、注册 Provider。基于 doc/pi-wiki.md 权威参考，按 4 阶段工作流引导：需求澄清 → replan 编码计划 → 代码生成 → 放置与验证。Use when 用户说"写一个 pi 扩展"、"给 hapilon 加个扩展"、"创建 pi extension"、"写 extension"、"写个 hapi 扩展"、"write pi extension"。
+description: 引导用户为 hapilon（Pi Coding Agent wrapper）编写 TypeScript 扩展。覆盖注册自定义 Tool、订阅生命周期事件（Hook）、注册 Slash Command、注册 CLI Flag、注册 Provider。基于 doc/pi-wiki.md 权威参考，按 4 阶段工作流引导：需求澄清 → write-plan 编码计划 → 代码生成 → 放置与验证。Use when 用户说"写一个 pi 扩展"、"给 hapilon 加个扩展"、"创建 pi extension"、"写 extension"、"写个 hapi 扩展"、"write pi extension"。
 ---
 
 # Write a Hapi Extension
@@ -44,7 +44,7 @@ npm run build && hapilon
 - 每个问题附带推荐答案（根据常见场景）
 - 从代码库能查到的事实不要问用户
 
-### Stage 2: 模式匹配 → replan 编码计划
+### Stage 2: 模式匹配 → write-plan 编码计划
 
 需求澄清后，将需求映射到代码模式。读取 `reference/code-patterns.md` 对应章节：
 
@@ -58,7 +58,7 @@ npm run build && hapilon
 | "注册新 Provider" | 模式 5: `pi.registerProvider(...)` |
 | "注册 CLI flag" | 模式 6: `pi.registerFlag(...)` |
 
-**然后启动 `/replan` agent 制定编码计划**：
+**然后通过 `/write-plan` 启动 hpl-planner agent 制定编码计划**：
 
 - 读取 `reference/code-patterns.md` 对应的完整模式代码
 - 读取 `reference/event-catalog.md` 确认事件签名和返回值
@@ -171,7 +171,7 @@ hapilon 启动时通过 `discoverExtensions()`（`src/extensions.ts`）自动扫
 ## 关键约束
 
 - **pi-wiki.md 是唯一权威来源**：SKILL 不重复 wi-ki 内容，只做结构化引导和按需引用
-- **先计划后编码**：需求澄清后必须先用 replan 出计划、用户批准、再编码
+- **先计划后编码**：需求澄清后必须先用 write-plan 出计划、用户批准、再编码
 - **引导 > 生成**：先帮用户理清需求（问对问题），再生成代码（生成对的东西）
 - **错误可抛不可吞**：遵循项目 `Fail Fast` 原则，不要写兜底逻辑隐藏问题
 - **扩展随 hapilon 发布**：放在 `src/extensions/`，由 `discoverExtensions()` 自动扫描注入，不放在 `~/.hapilon/` 用户目录

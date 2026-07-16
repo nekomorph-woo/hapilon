@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-changelog-alpha runner:
+write-changelog runner:
   - Reads _todo.md
   - Finds sections headed "## [x] TODO-NNN: ..."
   - Prints one CHANGELOG line per completed TODO

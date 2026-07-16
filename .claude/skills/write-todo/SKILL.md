@@ -1,5 +1,5 @@
 ---
-name: lite-todo
+name: write-todo
 description: 小步迭代选取下一个 TODO，不一口气吃成胖子。综合 PRD / _foresight.md / _foresight/ / 互联网 Pi Agent 知识 / CHANGELOG 梳理下一步，单次产出 ≤3 个 TODO，超出则让用户筛选。Use when 用户说"重新规划 todo"、"刷新任务清单"、"重新整理 todo"、"我想下一步做什么"。
 ---
 

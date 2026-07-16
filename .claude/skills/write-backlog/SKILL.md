@@ -1,5 +1,5 @@
 ---
-name: backlog-write
+name: write-backlog
 description: 将技术债或预留扩展记录到 _backlog 目录。Use when 发现代码中存在未实现的预留目录、空函数、待扩展点、技术债，或用户明确说"记录到 backlog"。
 ---
 
