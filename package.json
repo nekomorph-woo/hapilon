@@ -20,7 +20,7 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.80.6"
+    "@earendil-works/pi-coding-agent": "0.80.7"
   },
   "devDependencies": {
     "@types/node": "24.12.4",

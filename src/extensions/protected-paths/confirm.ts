@@ -1,20 +1,27 @@
 /**
- * confirm.ts — confirm 弹框辅助
+ * confirm.ts — confirm 弹框辅助（4 选项 select）
  *
- * 封装 ctx.ui.confirm 调用，区分四种状态：
- *   approved — 用户批准
- *   rejected — 用户拒绝
- *   unavailable — 非交互模式无 UI
- *   error — 对话框异常
+ * 用 ctx.ui.select() 替代 ctx.ui.confirm()，提供：
+ *   Allow Once      — 仅本次放行
+ *   Allow Session   — 当前 session 不再询问（内存）
+ *   Allow Project   — 本项目不再询问（持久化到 .hapilon/config.local.json）
+ *   Deny            — 拒绝本次
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export type ConfirmResult =
-  | { status: "approved" }
+  | { status: "approved"; scope: "once" | "session" | "project" }
   | { status: "rejected" }
   | { status: "unavailable" }
   | { status: "error"; message: string };
+
+const OPTIONS = [
+  "Allow Once",
+  "Allow this Session",
+  "Allow this Project",
+  "Deny",
+] as const;
 
 export async function requestConfirm(
   ctx: ExtensionContext,
@@ -23,8 +30,13 @@ export async function requestConfirm(
 ): Promise<ConfirmResult> {
   if (!ctx.hasUI) return { status: "unavailable" };
   try {
-    const approved = await ctx.ui.confirm(title, msg);
-    return approved ? { status: "approved" } : { status: "rejected" };
+    const choice = await ctx.ui.select(title + "\n\n" + msg, [...OPTIONS]);
+    switch (choice) {
+      case "Allow Once":          return { status: "approved", scope: "once" };
+      case "Allow this Session":  return { status: "approved", scope: "session" };
+      case "Allow this Project":  return { status: "approved", scope: "project" };
+      default:                     return { status: "rejected" };
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn("安全确认对话框异常:", message);

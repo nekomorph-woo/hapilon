@@ -14,12 +14,14 @@ import {
   classifyPath,
   expandTilde,
   resolveTarget,
+} from "../../extensions/protected-paths/index.js";
+import {
   addAllow,
   removeAllow,
   isAllowed,
   clearAllow,
   listAllow,
-} from "../../extensions/protected-paths/index.js";
+} from "../../extensions/protected-paths/whitelist.js";
 
 const home = homedir();
 

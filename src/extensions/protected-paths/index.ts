@@ -2,12 +2,8 @@
  * protected-paths/index.ts — 文件路径保护扩展（分层版）
  *
  * 通过 pi.on("tool_call", ...) 拦截 write/edit/read 工具调用：
- *   write/edit → 白名单 → block（高危硬阻止）→ confirm（中危弹确认）
- *   read → 白名单 → confirm（敏感路径弹确认）
- *
- * 写保护分层：
- *   高危 block — SSH/凭证/证书（永远硬阻止，除非 /allow 显式白名单）
- *   中危 confirm — .env/lock 文件/CI 管道
+ *   write/edit → trust-check → block（高危硬阻止）→ confirm（中危 4 选项弹框）
+ *   read → trust-check → confirm（敏感路径 4 选项弹框）
  *
  * /allow <path> — 会话级临时白名单，读写均生效
  *
@@ -19,10 +15,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { classifyPath } from "./classifier.js";
 import { requestConfirm } from "./confirm.js";
-import { addAllow, clearAllow, listAllow, isPathAllowed } from "./whitelist.js";
+import { addTrust, isTrusted, isSessionTrusted, clearSessionTrust, listSessionTrust, listProjectTrust } from "../trust-store.js";
 
 export { classifyPath, expandTilde, resolveTarget } from "./classifier.js";
-export { addAllow, removeAllow, isAllowed, clearAllow, listAllow } from "./whitelist.js";
 
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
@@ -33,20 +28,23 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      // 白名单检查（/allow 后可绕过所有保护）
-      if (isPathAllowed(filePath, ctx.cwd)) return;
+      const toolName = isToolCallEventType("edit", event) ? "edit" : "write";
 
-      const verdict = classifyPath(
-        filePath,
-        isToolCallEventType("edit", event) ? "edit" : "write",
-        ctx.cwd,
-      );
+      // confirm 路径 → 查 session + project trust
+      const verdict = classifyPath(filePath, toolName, ctx.cwd);
 
       if (verdict === "block") {
-        return { block: true, reason: `🛡️ 受保护的文件路径，不允许写入：${filePath}` };
+        // block 路径 → 仅 session trust
+        if (!isSessionTrusted(toolName, filePath)) {
+          return { block: true, reason: `🛡️ 受保护的文件路径，不允许写入：${filePath}` };
+        }
+        return;
       }
 
       if (verdict === "confirm") {
+        // confirm 路径 → session + project trust
+        if (isTrusted(toolName, filePath, ctx.cwd)) return;
+
         const result = await requestConfirm(
           ctx,
           "⚠️ 写入确认",
@@ -60,6 +58,14 @@ export default function (pi: ExtensionAPI) {
             : `用户拒绝了写入：${filePath}`;
           return { block: true, reason };
         }
+        // 用户批准 → 按 scope 添加信任
+        try {
+          if (result.scope !== "once") {
+            addTrust(toolName, filePath, result.scope, ctx.cwd);
+          }
+        } catch (err) {
+          console.warn("添加信任失败（不影响本次操作）:", err instanceof Error ? err.message : String(err));
+        }
       }
       return;
     }
@@ -71,7 +77,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      if (isPathAllowed(filePath, ctx.cwd)) return;
+      if (isTrusted("read", filePath, ctx.cwd)) return;
 
       const verdict = classifyPath(filePath, "read", ctx.cwd);
       if (verdict !== "confirm") return;
@@ -89,6 +95,13 @@ export default function (pi: ExtensionAPI) {
           : `用户拒绝了读取敏感文件：${filePath}`;
         return { block: true, reason };
       }
+      try {
+        if (result.scope !== "once") {
+          addTrust("read", filePath, result.scope, ctx.cwd);
+        }
+      } catch (err) {
+        console.warn("添加信任失败（不影响本次操作）:", err instanceof Error ? err.message : String(err));
+      }
     }
   });
 
@@ -98,19 +111,29 @@ export default function (pi: ExtensionAPI) {
       const arg = argsStr.trim();
 
       if (arg === "--list") {
-        const paths = listAllow();
-        if (paths.length === 0) {
+        const session = listSessionTrust();
+        const project = listProjectTrust(ctx.cwd);
+        const lines: string[] = [];
+        if (session.length > 0) {
+          lines.push("Session 白名单：");
+          for (const s of session) lines.push(`  ${s.toolName}: ${s.targets.join(", ")}`);
+        }
+        if (project.length > 0) {
+          lines.push("项目白名单：");
+          for (const p of project) lines.push(`  ${p.toolName}: ${p.targets.join(", ")}`);
+        }
+        if (lines.length === 0) {
           ctx.ui.notify("白名单为空", "info");
         } else {
-          ctx.ui.notify(`当前白名单（${paths.length} 条）：\n${paths.join("\n")}`, "info");
+          ctx.ui.notify(lines.join("\n"), "info");
         }
         return;
       }
 
       if (arg === "--clear") {
-        const count = listAllow().length;
-        clearAllow();
-        ctx.ui.notify(`已清空 ${count} 条白名单`, "info");
+        const count = listSessionTrust().length;
+        clearSessionTrust();
+        ctx.ui.notify(`已清空 ${count} 条 session 白名单`, "info");
         return;
       }
 
@@ -119,9 +142,11 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      addAllow(arg, ctx.cwd);
-      const key = listAllow()[listAllow().length - 1];
-      ctx.ui.notify(`✅ 已添加白名单：${key}（当前 session 有效，读写均生效）`, "info");
+      // /allow → 加入 session 白名单（适用于 block 和 confirm 路径）
+      addTrust("write", arg, "session", ctx.cwd);
+      addTrust("edit", arg, "session", ctx.cwd);
+      addTrust("read", arg, "session", ctx.cwd);
+      ctx.ui.notify(`✅ 已添加 session 白名单：${arg}（读写均生效）`, "info");
     },
   });
 }
