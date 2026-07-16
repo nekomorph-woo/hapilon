@@ -5,7 +5,7 @@ description: 引导用户为 hapilon（Pi Coding Agent wrapper）编写 TypeScri
 
 # Write a Hapi Extension
 
-为 hapilon（Pi Coding Agent v0.80.6）编写 TypeScript 扩展。
+为 hapilon（Pi Coding Agent）编写 TypeScript 扩展。
 
 > **权威参考**: `doc/pi-wiki.md` — 当 reference/ 信息不足时应回退到此文件。
 
@@ -158,7 +158,7 @@ hapilon 启动时通过 `discoverExtensions()`（`src/extensions.ts`）自动扫
 
 ## 参考文档
 
-按需加载以下 reference 文件，避免 pi-wiki.md 1395 行全量读入：
+按需加载以下 reference 文件，避免 pi-wiki.md 全量读入：
 
 | 文件 | 内容 | 何时读取 |
 |------|------|----------|
@@ -170,7 +170,7 @@ hapilon 启动时通过 `discoverExtensions()`（`src/extensions.ts`）自动扫
 
 ## 关键约束
 
-- **pi-wiki.md 是唯一权威来源**：SKILL 不重复 wi-ki 内容，只做结构化引导和按需引用
+- **pi-wiki.md 是唯一权威来源**：SKILL 不重复 pi-wiki 内容，只做结构化引导和按需引用
 - **先计划后编码**：需求澄清后必须先用 write-plan 出计划、用户批准、再编码
 - **引导 > 生成**：先帮用户理清需求（问对问题），再生成代码（生成对的东西）
 - **错误可抛不可吞**：遵循项目 `Fail Fast` 原则，不要写兜底逻辑隐藏问题

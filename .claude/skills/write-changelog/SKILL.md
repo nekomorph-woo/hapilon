@@ -7,7 +7,7 @@ description: 解析根目录 _todo.md 中 TODO-* 已完成条目，追加人类�
 
 将 `_todo.md` 中已完成的 TODO 条目追加到 `_CHANGELOG-alpha.md`。
 
-## 运行方式
+## 快速开始
 
 ```bash
 python3 .claude/skills/write-changelog/scripts/run.py >> _CHANGELOG-alpha.md

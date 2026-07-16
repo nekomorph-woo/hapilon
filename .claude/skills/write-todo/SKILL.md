@@ -3,7 +3,7 @@ name: write-todo
 description: 小步迭代选取下一个 TODO，不一口气吃成胖子。综合 PRD / _foresight.md / _foresight/ / 互联网 Pi Agent 知识 / CHANGELOG 梳理下一步，单次产出 ≤3 个 TODO，超出则让用户筛选。Use when 用户说"重新规划 todo"、"刷新任务清单"、"重新整理 todo"、"我想下一步做什么"。
 ---
 
-# Todo Less
+# Write Todo
 
 > 小步迭代选取 TODO，不要一口气吃成胖子。
 > 一次只做一件（或几件）最值得做的事。
@@ -18,11 +18,11 @@ description: 小步迭代选取下一个 TODO，不一口气吃成胖子。综�
 
 #### 1a. 本地文档 — PRD
 
-使用 `/look` 探索 `Hapilon-PRD-v1.1.md`：
+使用 `/wok-kit:look` 探索 `Hapilon-PRD-v1.1.md`：
 
 - **重点关注**：与当前项目目标相关的模块描述、约束条件、设计背景
 - **忽略的内容**：版本路线 / MVP 验收 / 需求优先级排序——版本由你控制，PRD 不驱动 TODO
-- **在控制台用 look SKILL 的结构化格式展示结果**
+- **在控制台用 wok-kit:look SKILL 的结构化格式展示结果**
 
 > PRD 是你前期探索的参考资料，不是 TODO 的驱动力。
 
@@ -32,7 +32,7 @@ description: 小步迭代选取下一个 TODO，不一口气吃成胖子。综�
 
 - 阅读 `_foresight.md` 和 `_foresight/` 下的文件，了解之前做的预见性研究与知识储备
 - 重点提取：与当前项目相关的技术背景、设计约束、前置知识
-- **在控制台用 look SKILL 的结构化格式展示结果**
+- **在控制台用 wok-kit:look SKILL 的结构化格式展示结果**
 
 > 如果对 Pi Agent 相关概念不熟悉，foresight 文档是快速入门的绝佳资料。
 
@@ -44,7 +44,7 @@ description: 小步迭代选取下一个 TODO，不一口气吃成胖子。综�
 2. **与用户输入相关的知识** — 如果用户提到了具体技术、问题或方向，补充相关背景
 
 - 使用 WebSearch 搜索，优先查阅官方文档和主流技术博客
-- **在控制台用 look SKILL 的结构化格式展示结果**
+- **在控制台用 wok-kit:look SKILL 的结构化格式展示结果**
 
 > 互联网知识帮助判断「TODO 在当下是否合理可行」，而非驱动 TODO 本身。
 
@@ -52,8 +52,8 @@ description: 小步迭代选取下一个 TODO，不一口气吃成胖子。综�
 
 如果 `_CHANGELOG-alpha.md` 非空：
 
-- 使用 `/look` 探索 `_CHANGELOG-alpha.md`，了解已完成的进度
-- **在控制台用 look SKILL 的结构化格式展示结果**
+- 使用 `/wok-kit:look` 探索 `_CHANGELOG-alpha.md`，了解已完成的进度
+- **在控制台用 wok-kit:look SKILL 的结构化格式展示结果**
 
 如果 `_CHANGELOG-alpha.md` 不存在或为空，跳过此步骤。
 
@@ -124,11 +124,11 @@ description: 小步迭代选取下一个 TODO，不一口气吃成胖子。综�
 
 ## 检查清单
 
-- [ ] `/look` 已探索 PRD（知识参考，非版本驱动）
+- [ ] `/wok-kit:look` 已探索 PRD（知识参考，非版本驱动）
 - [ ] `_foresight.md` / `_foresight/` 已查阅（存在时）
 - [ ] 互联网已搜索 Pi Agent 知识（用户输入涉及时）
 - [ ] 互联网已搜索用户输入相关的背景知识
-- [ ] `/look` 已探索 CHANGELOG（存在且非空时）
+- [ ] `/wok-kit:look` 已探索 CHANGELOG（存在且非空时）
 - [ ] 各来源探索结果已结构化展示到控制台
 - [ ] 候选 TODO ≤ 3 个 → 直接写入
 - [ ] 候选 TODO > 3 个 → 已让用户筛选
