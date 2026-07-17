@@ -1,36 +1,45 @@
 # TODO 清单
 
-> 当前任务：OS 沙箱集成（macOS 优先）
+> 当前任务：hpl-footer 状态栏定制扩展
 
 ---
 
-## [~] TODO-12：hapilon --sandbox — macOS Seatbelt 沙箱集成
+## [~] TODO-13：hpl-footer — 状态栏定制扩展（自定义版式 + DING 上下文指示灯）
 
 ### 目标
 
-集成 `@anthropic-ai/sandbox-runtime` 为 hapilon 提供 `--sandbox` 选项。macOS 用 Seatbelt 内核级隔离，Linux 用 bubblewrap，Windows 暂不处理（依赖现有 safety-gate + protected-paths 两层防护）。
+新建 `hpl-footer` 扩展，通过 `ctx.ui.setFooter()` 接管 Pi TUI 状态栏，按自定义版式重绘三行内容，并实现 [DING] 按钮式上下文占用指示灯（背景色随占用率平滑渐变 + 感叹号分级）。
+
+### 目标版式
+
+```
+~/hapi | main
+up.2.2k | down.1.2k | hit: 86.6% | ctx/win: 41.2%/1m | [DING]     glm-4.7 • thinking off
+状态A | 状态B          ← 有扩展状态才显示
+```
 
 ### 实现要点
 
 | 项目 | 内容 |
 |------|------|
-| npm 依赖 | `@anthropic-ai/sandbox-runtime` |
-| CLI flag | `--sandbox` |
-| 集成位置 | `cli.ts` — spawn pi 前用 `SandboxManager.wrapWithSandbox()` 包裹命令 |
-| 配置文件 | 复用 `~/.srt-settings.json` 或 hapilon 内置默认沙箱策略 |
-| macOS | Seatbelt（系统内置，零安装） |
-| Linux | bubblewrap（需 `apt-get install bubblewrap socat ripgrep`） |
-| Windows | 不启动沙箱，打印提示 "Windows 暂不支持 --sandbox，使用命令+文件策略保护" |
-| 沙箱策略 | 默认 denyWrite 除项目目录 + /tmp；denyRead 保护 ~/.ssh/~/.aws/~/.netrc；网络全允许 |
-| 与现有安全层 | 独立——`--sandbox` 是内核层兜底，safety-gate + protected-paths 是扩展层拦截，两层可叠加 |
+| 扩展目录 | `src/extensions/hpl-footer/`（index.ts + format.ts + ding.ts） |
+| 核心 API | `ctx.ui.setFooter(factory)` — 全量接管 footer 渲染（含右侧模型名） |
+| 第1行 | `工作目录 \| 分支名`（非 git 仓库时无竖线，仅目录） |
+| 第2行左 | `up.N \| down.N \| hit: N% \| ctx/win: N%/窗口 \| [DING]`（移除 R/W/$） |
+| 第2行右 | `模型名 • thinking 档位` |
+| 第3行 | 扩展状态 ` \| ` 分隔；无状态时整行隐藏 |
+| [DING] 渐变 | 真彩色背景分段插值：0% 无背景 → (0,70] 暗黄→正黄 → (70,90] 黄→红 → (90,95] 红→深红 → >95% 深红恒定 |
+| [DING] 感叹号 | ≥70% ! / ≥80% !! / ≥85% !!! / ≥90% !!!! / ≥95% !!!!! |
+| 字色自适应 | 按背景相对亮度自动切换黑/白字，保证可读 |
+| 详细计划 | `_plans/hpl-footer-custom.md` §3 起（含渐变函数设计与全量数据清单） |
 
 ### 验收标准
 
-- [ ] `npm install @anthropic-ai/sandbox-runtime` 成功
-- [ ] `hapilon --sandbox` 在 macOS 上以 Seatbelt 沙箱启动 Pi
-- [ ] 沙箱内 Agent 尝试 `cat ~/.ssh/id_rsa` → Operation not permitted
-- [ ] 沙箱内 Agent 正常读写项目目录文件
-- [ ] `hapilon`（不加 --sandbox）行为不变
-- [ ] Linux 上 `hapilon --sandbox` 用 bubblewrap（需预先安装依赖）
-- [ ] Windows 上 `hapilon --sandbox` 打印提示并降级为无沙箱运行
-- [ ] 与 `--no-safety` 独立——可以同时或单独使用
+- [ ] 三行版式与目标版式逐项一致（第2行不显示 R/W/$）
+- [ ] [DING] 感叹号在 70/80/85/90/95 阈值处分别为 1~5 个
+- [ ] [DING] 背景色按分段渐变函数变化：0% 无背景，>95% 深红恒定
+- [ ] 背景亮时黑字、背景暗时白字（亮度公式自动判断）
+- [ ] 占用未知（压缩后 `?`）时 [DING] 无背景无感叹号
+- [ ] ding.ts + format.ts 纯函数单元测试三层覆盖（正常/边界/异常）
+- [ ] 第3行仅在有扩展状态时出现；单条状态无分隔符
+- [ ] `--no-safety` 不影响 hpl-footer 加载

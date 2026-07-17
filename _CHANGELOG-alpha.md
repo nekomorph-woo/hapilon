@@ -13,3 +13,4 @@
 - 2026-07-16 23:00: 项目级配置 + /allow 持久化信任 —— .hapilon/ 项目级目录（对标 .claude/），三级合并（local > shared > user），trust-store 命令+路径双维度信任。confirm 弹框 ctx.ui.select() 4 选项（Allow Once/Session/Project）。276 测试。
 - 2026-07-17 01:00: setup OAuth 引导 —— hapilon setup 交互式/快速模式末尾输出 OAuth provider 列表和 /login 引导，覆盖 xAI/Grok、Codex、Claude Pro、GitHub Copilot。pi 升级至 0.80.8。
 - 2026-07-17 02:00: hapilon --sandbox OS 内核级沙箱 —— 集成 @anthropic-ai/sandbox-runtime (Claude Code /sandbox 后台)，macOS Seatbelt / Linux bubblewrap。与 --no-safety 独立，两层可叠加。Windows 降级为提示。
+- 2026-07-18 01:27: hpl-footer — 状态栏定制扩展（自定义版式 + DING 上下文指示灯） —— 新建 hpl-footer 扩展，通过 ctx.ui.setFooter() 接管 Pi TUI 状态栏，按自定义版式重绘三行内容（目录|分支 / up.N|down.N|hit|ctx/win|[DING] / 扩展状态行），并实现 [DING] 按钮式上下文占用指示灯（真彩背景四段渐变 + 感叹号五档分级 + 亮度自适应字色）。41 个单元测试，全量 342 通过。
