@@ -15,7 +15,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { classifyPath } from "./classifier.js";
 import { requestConfirm } from "./confirm.js";
-import { addTrust, isTrusted, isSessionTrusted, clearSessionTrust, listSessionTrust, listProjectTrust } from "../trust-store.js";
+import { addTrust, isTrusted, isSessionTrusted, clearSessionTrust, listSessionTrust, listProjectTrust } from "../../trust-store.js";
 
 export { classifyPath, expandTilde, resolveTarget } from "./classifier.js";
 

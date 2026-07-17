@@ -11,7 +11,7 @@
  * 来源: _plans/project-config-and-trust.md
  */
 
-import { readProjectConfig, writeProjectLocalConfig, readProjectLocalConfig } from "../project-config.js";
+import { readProjectConfig, writeProjectLocalConfig, readProjectLocalConfig } from "./project-config.js";
 
 // ─── Session 级信任（内存）──────────────────────────────────────────
 

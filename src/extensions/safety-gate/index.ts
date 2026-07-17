@@ -14,7 +14,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { classifyCommand } from "./classifier.js";
 import { requestConfirm } from "../protected-paths/confirm.js";
-import { addTrust, isTrusted } from "../trust-store.js";
+import { addTrust, isTrusted } from "../../trust-store.js";
 
 export { classifyCommand, hasShellInjection } from "./classifier.js";
 
