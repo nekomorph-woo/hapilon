@@ -5,9 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   writeAuthFileNative,
-  writeSettingsFile,
   writeSkeletonFiles,
   readAuthFile,
+  mergeAuthEntries,
+  ensureSettingsFile,
   maskKey,
   findProviderDef,
   semverGte,
@@ -68,33 +69,6 @@ describe("providers", () => {
     });
   });
 
-  describe("writeSettingsFile()", () => {
-    it("写入正确的 settings.json 格式", () => {
-      const config = { theme: "dark", timeout: 30 };
-      writeSettingsFile(tmpDir, config);
-
-      const content = readFileSync(join(tmpDir, "settings.json"), "utf8");
-      const parsed = JSON.parse(content);
-
-      assert.deepStrictEqual(parsed, config);
-    });
-
-    it("空对象时写入空 settings.json", () => {
-      writeSettingsFile(tmpDir, {});
-
-      const content = readFileSync(join(tmpDir, "settings.json"), "utf8");
-      const parsed = JSON.parse(content);
-
-      assert.deepStrictEqual(parsed, {});
-    });
-
-    it("文件以换行符结尾", () => {
-      writeSettingsFile(tmpDir, { key: "value" });
-
-      const content = readFileSync(join(tmpDir, "settings.json"), "utf8");
-      assert.ok(content.endsWith("\n"), "settings.json 应以换行符结尾");
-    });
-  });
 
   describe("writeSkeletonFiles()", () => {
     it("创建所有骨架文件", () => {
@@ -305,5 +279,64 @@ describe("providers", () => {
       const def = findProviderDef("nonexistent-provider-12345");
       assert.strictEqual(def, undefined);
     });
+  });
+});
+
+describe("mergeAuthEntries — 增量合并（issue #1）", () => {
+  it("🤖①: 已有 provider 条目在合并后原样保留", () => {
+    const existing = { deepseek: { type: "api_key", key: "sk-ds-old" } };
+    const merged = mergeAuthEntries(existing, { zai: "sk-zai-new" });
+    assert.deepEqual(merged, {
+      deepseek: { type: "api_key", key: "sk-ds-old" },
+      zai: { type: "api_key", key: "sk-zai-new" },
+    });
+  });
+
+  it("🤖②: 同一 provider 重复配置时新 key 覆盖旧 key", () => {
+    const existing = { deepseek: { type: "api_key", key: "sk-ds-old" } };
+    const merged = mergeAuthEntries(existing, { deepseek: "sk-ds-new" });
+    assert.deepEqual(merged, { deepseek: { type: "api_key", key: "sk-ds-new" } });
+  });
+
+  it("边界条件: OAuth 条目（type 非 api_key）不受本次输入影响", () => {
+    const existing = { xai: { type: "oauth", key: "token-xxx" } };
+    const merged = mergeAuthEntries(existing, { zai: "sk-zai" });
+    assert.equal(merged.xai.type, "oauth");
+    assert.equal(merged.xai.key, "token-xxx");
+  });
+
+  it("边界条件: 空输入时返回与已有配置相同的内容且不修改原对象", () => {
+    const existing: Record<string, { type: string; key: string }> = {
+      deepseek: { type: "api_key", key: "sk-ds" },
+    };
+    const snapshot = structuredClone(existing);
+    const merged = mergeAuthEntries(existing, {});
+    assert.deepEqual(merged, snapshot);
+    merged["zai"] = { type: "api_key", key: "x" };
+    assert.deepEqual(existing, snapshot); // 原对象不受返回值修改影响
+  });
+});
+
+describe("ensureSettingsFile — settings.json 保护（issue #1）", () => {
+  it("🤖③: settings.json 已存在且有内容时不被清空", () => {
+    const dir = mkdtempSync(join(tmpdir(), "hapilon-settings-test-"));
+    try {
+      writeFileSync(join(dir, "settings.json"), '{"theme":"dark"}\n', "utf8");
+      ensureSettingsFile(dir);
+      const parsed = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
+      assert.equal(parsed.theme, "dark");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("正常路径: settings.json 不存在时写入空骨架", () => {
+    const dir = mkdtempSync(join(tmpdir(), "hapilon-settings-test-"));
+    try {
+      ensureSettingsFile(dir);
+      assert.deepEqual(JSON.parse(readFileSync(join(dir, "settings.json"), "utf8")), {});
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

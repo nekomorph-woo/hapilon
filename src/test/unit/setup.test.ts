@@ -141,7 +141,46 @@ describe("setup", () => {
       const content = readFileSync(authPath, "utf8");
       const parsed = JSON.parse(content);
 
-      assert.deepStrictEqual(parsed, {}, "无效 provider 不应被写入");
+      // issue #1 增量合并后，auth.json 保留此前测试写入的条目——仅断言无效 ID 未被写入
+      assert.equal(
+        Object.hasOwn(parsed, "invalid-provider-id"),
+        false,
+        "无效 provider 不应被写入",
+      );
+    });
+
+    it("🤖①②: 增量 setup 保留已有 provider，两轮配置共存（issue #1）", () => {
+      const isolated = mkdtempSync(join(tmpdir(), "hapilon-issue1-test-"));
+      try {
+        const run = (answers: string[]) =>
+          spawnSync(process.execPath, ["-e", `
+            process.env.HAPILON_HOME = ${JSON.stringify(isolated)};
+            import(${JSON.stringify(SETUP_PATH)}).then(m => m.setupInteractive()).catch(() => process.exit(1));
+          `], {
+            input: answers.join("\n") + "\n",
+            encoding: "utf8",
+            timeout: 5000,
+          });
+
+        // 第一轮：只配置 deepseek（COMMON 第 1 位），其余 8 个 + "其他 provider" 均跳过
+        run(["y", "sk-ds-first", "n", "n", "n", "n", "n", "n", "n", "n", "n"]);
+        // 第二轮：跳过前 8 个，只配置 zai（COMMON 第 9 位）
+        run(["n", "n", "n", "n", "n", "n", "n", "n", "y", "sk-zai-second", "n"]);
+
+        const parsed = JSON.parse(
+          readFileSync(join(isolated, "agent", "auth.json"), "utf8"),
+        );
+        assert.deepStrictEqual(parsed.deepseek, {
+          type: "api_key",
+          key: "sk-ds-first",
+        }, "第一轮配置的 deepseek 不应被第二轮覆盖丢失");
+        assert.deepStrictEqual(parsed.zai, {
+          type: "api_key",
+          key: "sk-zai-second",
+        }, "第二轮配置的 zai 应写入");
+      } finally {
+        rmSync(isolated, { recursive: true, force: true });
+      }
     });
   });
 

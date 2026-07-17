@@ -8,8 +8,10 @@ import {
   COMMON,
   ALL_PROVIDERS,
   writeAuthFileNative,
-  writeSettingsFile,
   writeSkeletonFiles,
+  readAuthFile,
+  mergeAuthEntries,
+  ensureSettingsFile,
   maskKey,
   semverGte,
 } from "./providers.js";
@@ -59,6 +61,9 @@ export async function setupInteractive(): Promise<void> {
 
   const dirs = ensureHapilonDirs();
 
+  // issue #1: 先读已有配置，交互提示"已配置"状态，写入时增量合并
+  const existingAuth = readAuthFile(dirs.agent);
+
   const yesno = async (q: string): Promise<boolean> => {
     const a = (await question(q + "（y/N）")).trim().toLowerCase();
     return a === "y" || a === "yes";
@@ -70,7 +75,11 @@ export async function setupInteractive(): Promise<void> {
     console.log("\n══════ Hapilon Provider Setup ══════\n");
 
     for (const p of COMMON) {
-      if (await yesno(`你有 ${p.name} API Key？`)) {
+      const configured = Object.hasOwn(existingAuth, p.id);
+      const prompt = configured
+        ? `你有 ${p.name} API Key？（已配置 ${maskKey(existingAuth[p.id].key)}，重新输入将覆盖）`
+        : `你有 ${p.name} API Key？`;
+      if (await yesno(prompt)) {
         const key = (await question(`  输入 ${p.name} API Key（留空跳过）: `)).trim();
         if (key) collected[p.id] = key;
       }
@@ -105,20 +114,21 @@ export async function setupInteractive(): Promise<void> {
     rl.close();
   }
 
-  const auth: Record<string, { type: string; key: string }> = {};
-  for (const [id, key] of Object.entries(collected)) {
-    auth[id] = { type: "api_key", key };
-  }
+  // issue #1: 增量合并——已有条目（含 OAuth token）保留，本次输入覆盖同名条目
+  const auth = mergeAuthEntries(existingAuth, collected);
   writeAuthFileNative(dirs.agent, auth);
-  writeSettingsFile(dirs.agent, {});
+  ensureSettingsFile(dirs.agent);
 
   const names = Object.keys(collected).map(
     (id) => ALL_PROVIDERS.find((p) => p.id === id)?.name ?? id,
   );
 
   console.log("\n══════ 配置摘要 ══════");
+  const total = Object.keys(auth).length;
   if (names.length > 0) {
-    console.log(`✅ auth.json 已配置: ${names.join(", ")}`);
+    console.log(`✅ auth.json 本次新增/更新: ${names.join(", ")}（共 ${total} 个 provider）`);
+  } else if (total > 0) {
+    console.log(`ℹ 本次未新增 provider。auth.json 现有 ${total} 个 provider。`);
   } else {
     console.log("ℹ 未配置任何 provider。auth.json 为空。");
   }

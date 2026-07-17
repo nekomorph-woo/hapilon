@@ -56,12 +56,27 @@ export function writeAuthFileNative(
   chmodSync(path, 0o600);
 }
 
-export function writeSettingsFile(
-  agentDir: string,
-  config: Record<string, unknown>,
-): void {
+/**
+ * 合并已有 auth 与本次收集的 API key（issue #1）：
+ * 已有条目（含 OAuth token）原样保留，同 id 新 key 覆盖。返回新对象，不修改入参。
+ */
+export function mergeAuthEntries(
+  existing: Record<string, { type: string; key: string }>,
+  collected: Record<string, string>,
+): Record<string, { type: string; key: string }> {
+  const merged = { ...existing };
+  for (const [id, key] of Object.entries(collected)) {
+    merged[id] = { type: "api_key", key };
+  }
+  return merged;
+}
+
+/** settings.json 仅在不存在时写入空骨架，存在时不触碰（issue #1） */
+export function ensureSettingsFile(agentDir: string): void {
   const path = join(agentDir, "settings.json");
-  writeFileSync(path, JSON.stringify(config, null, 2) + "\n", "utf8");
+  if (!existsSync(path)) {
+    writeFileSync(path, "{}\n", "utf8");
+  }
 }
 
 // ─── Version Helper ──────────────────────────────────────────────────
