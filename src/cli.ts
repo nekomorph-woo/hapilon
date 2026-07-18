@@ -94,6 +94,9 @@ async function main(): Promise<void> {
   const config = readHapilonConfig();
   const piArgs = injectDefaultArgs(args, config);
 
+  // TODO-14: 禁用 Pi 原生上下文识别，由 hpl-context 扩展接管
+  piArgs.push("--no-context-files", "--no-skills");
+
   // 首次启动安全提示（即使 --no-safety 也展示，这是告知性的）
   if (!config.safetyNoticeShown && !isNonInteractive) {
     console.log("\n🛡️  hapilon 安全扩展已激活：");
