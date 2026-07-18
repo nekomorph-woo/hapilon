@@ -14,3 +14,6 @@
 - 2026-07-17 01:00: setup OAuth 引导 —— hapilon setup 交互式/快速模式末尾输出 OAuth provider 列表和 /login 引导，覆盖 xAI/Grok、Codex、Claude Pro、GitHub Copilot。pi 升级至 0.80.8。
 - 2026-07-17 02:00: hapilon --sandbox OS 内核级沙箱 —— 集成 @anthropic-ai/sandbox-runtime (Claude Code /sandbox 后台)，macOS Seatbelt / Linux bubblewrap。与 --no-safety 独立，两层可叠加。Windows 降级为提示。
 - 2026-07-18 01:27: hpl-footer — 状态栏定制扩展（自定义版式 + DING 上下文指示灯） —— 新建 hpl-footer 扩展，通过 ctx.ui.setFooter() 接管 Pi TUI 状态栏，按自定义版式重绘三行内容（目录|分支 / up.N|down.N|hit|ctx/win|[DING] / 扩展状态行），并实现 [DING] 按钮式上下文占用指示灯（真彩背景四段渐变 + 感叹号五档分级 + 亮度自适应字色）。41 个单元测试，全量 342 通过。
+- 2026-07-18 20:13: CLI 注入 --no-context-files --no-skills，禁用 Pi 原生上下文识别 —— 在 cli.ts 默认启动参数中始终注入 --no-context-files --no-skills，禁止 Pi 自动加载 AGENTS.md / CLAUDE.md / .pi/skills/ / ~/.pi/agent/skills/。扩展自身路径不受影响。
+- 2026-07-18 20:13: hpl-context 扩展 — HAPILON.md + skills + rules 自有体系 —— 新建 hpl-context 扩展替代 Pi 原生上下文识别，建立 hapilon 自己的三层体系：HAPILON.md 祖先遍历注入 systemPrompt、Rules 扫描 alwaysApply 注入、Skills 通过 resources_discover 委托 Pi 引擎渐进式披露。25 个单元测试 + code review 14 findings 全修复。
+- 2026-07-18 22:05: hapilon 完全接管 System Prompt — XML 结构化 + 全量自主控制 —— 用 before_agent_start 全量替换 Pi 默认 system prompt，改为 hapilon 自有体系：第一版照抄 Pi 当前内容，用 XML 标签明确分隔各部分（参考 Claude Code），后续所有定制/优化/识别都由 hapilon 自主控制。

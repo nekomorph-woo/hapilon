@@ -1,5 +1,5 @@
 /**
- * hpl-context files.ts 单元测试 — 文件发现纯函数
+ * shared/files.ts 单元测试 — 文件发现函数（原 hpl-context/files.ts，已迁移至 shared/）
  */
 
 import { describe, it, before, after } from "node:test";
@@ -13,7 +13,7 @@ import {
   readHapilonMd,
   readRules,
   discoverSkillPaths,
-} from "../../extensions/hpl-context/files.js";
+} from "../../shared/files.js";
 
 describe("listFiles", () => {
   let dir: string;
