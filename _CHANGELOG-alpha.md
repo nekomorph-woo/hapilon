@@ -17,3 +17,6 @@
 - 2026-07-18 20:13: CLI 注入 --no-context-files --no-skills，禁用 Pi 原生上下文识别 —— 在 cli.ts 默认启动参数中始终注入 --no-context-files --no-skills，禁止 Pi 自动加载 AGENTS.md / CLAUDE.md / .pi/skills/ / ~/.pi/agent/skills/。扩展自身路径不受影响。
 - 2026-07-18 20:13: hpl-context 扩展 — HAPILON.md + skills + rules 自有体系 —— 新建 hpl-context 扩展替代 Pi 原生上下文识别，建立 hapilon 自己的三层体系：HAPILON.md 祖先遍历注入 systemPrompt、Rules 扫描 alwaysApply 注入、Skills 通过 resources_discover 委托 Pi 引擎渐进式披露。25 个单元测试 + code review 14 findings 全修复。
 - 2026-07-18 22:05: hapilon 完全接管 System Prompt — XML 结构化 + 全量自主控制 —— 用 before_agent_start 全量替换 Pi 默认 system prompt，改为 hapilon 自有体系：第一版照抄 Pi 当前内容，用 XML 标签明确分隔各部分（参考 Claude Code），后续所有定制/优化/识别都由 hapilon 自主控制。
+- 2026-07-19 22:00: FloatingPane 通用浮层组件 —— 新建 src/shared/floating-pane/，借鉴 pi-pop 实现通用可复用浮层组件：Unicode 边框 + 滚动 + 长行换行 + mouse reporting + 自定尺寸。showFloatingPane() 一行弹窗，任何扩展可复用。
+- 2026-07-19 22:00: hpl-context-viewer — /context 上下文查看命令 —— 新建 hpl-context-viewer 扩展，注册 /context 命令，用 FloatingPane 浮层展示上下文组成（System prompt / Tools / Skills / Messages token 分解 + session 统计）。包含 Unicode 进度条 + 分类对齐表格。
+- 2026-07-19 22:00: hpl-panel-viewer — pi-pop 风格折叠面板浮动查看器 —— 新建 hpl-panel-viewer 扩展，遍历 TUI component tree 发现可折叠面板，临时 expand→render→restore 读取渲染后内容（conversation 无感知），FloatingPane 浮层展示。支持 /pop 精准打开、← → 切换面板、↑↓ 滚动、全局快捷键、mouse wheel、LLM tools、折叠行数上限，配置持久化到 ~/.hapilon/config.json。全量 502 测试通过。
