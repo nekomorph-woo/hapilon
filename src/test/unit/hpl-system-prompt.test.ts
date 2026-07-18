@@ -37,6 +37,7 @@ import {
   type AssembleOptions,
 } from "../../extensions/hpl-system-prompt/assemble.js";
 import hplSystemPrompt from "../../extensions/hpl-system-prompt/index.js";
+import { getLastMeta as getSpMeta, clearLastMeta as clearSpMeta } from "../../extensions/hpl-system-prompt/metadata.js";
 
 // ── shared/format.ts: xmlEscape ────────────────────────────────────────
 
@@ -440,6 +441,18 @@ describe("assembleSystemPrompt", () => {
       hapilonRules: [{ name: 'test"rule', content: "body" }],
     });
     assert.ok(result.includes("test&quot;rule"), "双引号应被转义");
+  });
+
+  it("正常路径: assembleSystemPrompt 后 metadata 被记录", () => {
+    clearSpMeta();
+    assembleSystemPrompt(defaultOpts);
+    const meta = getSpMeta();
+    assert.ok(meta, "metadata 已被记录");
+    assert.ok(meta!.sections.roleAndIdentity > 0, "role 长度 > 0");
+    assert.ok(meta!.sections.tools > 0, "tools 长度 > 0");
+    assert.ok(meta!.sections.environment > 0, "environment 长度 > 0");
+    assert.equal(meta!.cwd, defaultOpts.cwd, "cwd 匹配");
+    clearSpMeta();
   });
 });
 

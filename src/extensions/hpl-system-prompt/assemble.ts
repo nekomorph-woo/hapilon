@@ -25,6 +25,7 @@ import {
   buildPiDocText,
   BUILTIN_GUIDELINES,
 } from "./sections.js";
+import { setLastMeta } from "./metadata.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -206,21 +207,50 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   // 统一归一化：undefined = Pi 默认工具集（两个 builder 语义一致）
   const tools = selectedTools ?? DEFAULT_TOOLS;
 
-  const sections = [
-    buildRoleSection(),
-    buildToolsSection(toolSnippets, tools),
-    buildCustomToolsNote(),
-    buildGuidelinesSection(promptGuidelines, tools),
-    buildPiDocSection(),
-    buildHapilonInstructions(hapilonMd),
-    buildHapilonRules(hapilonRules),
-    buildContextSection(contextFiles),
-    buildSkillsSection(skills),
-    buildAppendSection(appendSystemPrompt),
-    buildEnvironmentSection(cwd),
-  ];
+  const roleSection = buildRoleSection();
+  const toolsSection = buildToolsSection(toolSnippets, tools);
+  const customToolsNote = buildCustomToolsNote();
+  const guidelinesSection = buildGuidelinesSection(promptGuidelines, tools);
+  const piDocSection = buildPiDocSection();
+  const hapilonInstructions = buildHapilonInstructions(hapilonMd);
+  const hapilonRulesSection = buildHapilonRules(hapilonRules);
+  const contextFilesSection = buildContextSection(contextFiles);
+  const skillsSection = buildSkillsSection(skills);
+  const appendSection = buildAppendSection(appendSystemPrompt);
+  const envSection = buildEnvironmentSection(cwd);
 
-  return wrapSystemPrompt(sections);
+  // 记录元数据：各部分长度供 hpl-context-viewer /context 命令做 token 估算
+  setLastMeta({
+    assembledAt: Date.now(),
+    cwd,
+    sections: {
+      roleAndIdentity: roleSection.length,
+      piDocumentation: piDocSection.length,
+      tools: toolsSection.length,
+      guidelines: guidelinesSection.length,
+      hapilonInstructions: hapilonInstructions.length,
+      hapilonRules: hapilonRulesSection.length,
+      contextFiles: contextFilesSection.length,
+      skills: skillsSection.length,
+      customToolsNote: customToolsNote.length,
+      additionalData: appendSection.length,
+      environment: envSection.length,
+    },
+  });
+
+  return wrapSystemPrompt([
+    roleSection,
+    toolsSection,
+    customToolsNote,
+    guidelinesSection,
+    piDocSection,
+    hapilonInstructions,
+    hapilonRulesSection,
+    contextFilesSection,
+    skillsSection,
+    appendSection,
+    envSection,
+  ]);
 }
 
 // Re-export for index.ts
