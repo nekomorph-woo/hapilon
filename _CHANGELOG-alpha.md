@@ -20,3 +20,6 @@
 - 2026-07-19 22:00: FloatingPane 通用浮层组件 —— 新建 src/shared/floating-pane/，借鉴 pi-pop 实现通用可复用浮层组件：Unicode 边框 + 滚动 + 长行换行 + mouse reporting + 自定尺寸。showFloatingPane() 一行弹窗，任何扩展可复用。
 - 2026-07-19 22:00: hpl-context-viewer — /context 上下文查看命令 —— 新建 hpl-context-viewer 扩展，注册 /context 命令，用 FloatingPane 浮层展示上下文组成（System prompt / Tools / Skills / Messages token 分解 + session 统计）。包含 Unicode 进度条 + 分类对齐表格。
 - 2026-07-19 22:00: hpl-panel-viewer — pi-pop 风格折叠面板浮动查看器 —— 新建 hpl-panel-viewer 扩展，遍历 TUI component tree 发现可折叠面板，临时 expand→render→restore 读取渲染后内容（conversation 无感知），FloatingPane 浮层展示。支持 /pop 精准打开、← → 切换面板、↑↓ 滚动、全局快捷键、mouse wheel、LLM tools、折叠行数上限，配置持久化到 ~/.hapilon/config.json。全量 502 测试通过。
+ℹ 2 entries logged, TODO markers updated.
+- 2026-07-19 14:36: cli.ts 启动画面清理 —— 移除 hapilon 版本打印、屏蔽 Pi 自带版本检查/更新通知、设置静默启动。
+- 2026-07-19 14:36: hpl-startup-header — Claude Code 风格自定义头部 —— 新建 hpl-startup-header 扩展，在 Pi 启动时通过 ctx.ui.setHeader() 展示 Hapilon 品牌头部。
