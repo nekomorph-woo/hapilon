@@ -1,5 +1,5 @@
 import { readdirSync, statSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -39,4 +39,22 @@ export function discoverExtensions(dir?: string): string[] {
   }
 
   return extensions;
+}
+
+/**
+ * 从扩展文件路径列表中提取人类可读的扩展名。
+ *
+ * - `<dir>/index.js` → 取目录名
+ * - `<name>.js`      → 取文件名（去 .js 后缀）
+ *
+ * 用于在启动 header 中展示已加载的扩展列表。
+ */
+export function extensionNames(paths: string[]): string[] {
+  return paths.map((p) => {
+    const name = basename(p);
+    if (name === "index.js") {
+      return basename(dirname(p));
+    }
+    return name.replace(/\.js$/, "");
+  });
 }

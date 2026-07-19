@@ -5,7 +5,7 @@ import { COMMANDS, type CommandDef } from "./commands.js";
 
 // ─── Version ─────────────────────────────────────────────────────────
 
-function getVersion(): string {
+export function getVersion(): string {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const pkgPath = join(__dirname, "..", "package.json");
   try {

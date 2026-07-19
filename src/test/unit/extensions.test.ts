@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverExtensions } from "../../extensions.js";
+import { discoverExtensions, extensionNames } from "../../extensions.js";
 
 describe("discoverExtensions()", () => {
   let tmpBase: string;
@@ -86,5 +86,30 @@ describe("discoverExtensions()", () => {
 
     const result = discoverExtensions(dir);
     assert.deepStrictEqual(result, []);
+  });
+});
+
+describe("extensionNames()", () => {
+  it("目录扩展: /a/hpl-foo/index.js → hpl-foo", () => {
+    const names = extensionNames(["/a/hpl-foo/index.js"]);
+    assert.deepStrictEqual(names, ["hpl-foo"]);
+  });
+
+  it("单文件扩展: /a/bar.js → bar", () => {
+    const names = extensionNames(["/a/bar.js"]);
+    assert.deepStrictEqual(names, ["bar"]);
+  });
+
+  it("混合输入", () => {
+    const names = extensionNames([
+      "/a/hpl-foo/index.js",
+      "/a/bar.js",
+      "/b/hpl-baz/index.js",
+    ]);
+    assert.deepStrictEqual(names, ["hpl-foo", "bar", "hpl-baz"]);
+  });
+
+  it("空数组 → 空数组", () => {
+    assert.deepStrictEqual(extensionNames([]), []);
   });
 });

@@ -74,10 +74,6 @@ async function main(): Promise<void> {
     hasFlag(args, "-p") || hasFlag(args, "--print") || hasFlag(args, "--mode");
   const noSafety = hasFlag(args, "--no-safety");
 
-  if (!isNonInteractive) {
-    console.log("hapilon_v0.1.0_alpha");
-  }
-
   const piCli = resolvePiCli();
   const { hapilonHome } = await import(
     "./hapilon-home.js"
@@ -91,10 +87,17 @@ async function main(): Promise<void> {
     );
   }
 
+  // 确保 Pi 静默启动（隐藏内置 header + loaded resources）
+  const { ensureQuietStartup } = await import("./providers.js");
+  ensureQuietStartup(agentDir);
+
+  const { getVersion } = await import("./help.js");
+  const { extensionNames } = await import("./extensions.js");
+
   const config = readHapilonConfig();
   const piArgs = injectDefaultArgs(args, config);
 
-  // TODO-14: 禁用 Pi 原生上下文识别，由 hpl-context 扩展接管
+  // 禁用 Pi 原生上下文识别（hpl-context 扩展已接管）
   piArgs.push("--no-context-files", "--no-skills");
 
   // 首次启动安全提示（即使 --no-safety 也展示，这是告知性的）
@@ -123,6 +126,15 @@ async function main(): Promise<void> {
     : allExtensions;
   const extensionFlags = loadedExtensions.flatMap((e) => ["-e", e]);
 
+  // 构建统一的 Pi 环境变量（sandbox 与默认路径共用）
+  const piEnv = {
+    ...process.env,
+    PI_CODING_AGENT_DIR: agentDir,
+    PI_SKIP_VERSION_CHECK: "1",
+    HAPILON_EXTENSIONS: JSON.stringify(extensionNames(loadedExtensions)),
+    HAPILON_VERSION: getVersion(),
+  };
+
   // ── OS 沙箱 ────────────────────────────────────────────────────
 
   const useSandbox = hasFlag(args, "--sandbox");
@@ -150,8 +162,12 @@ async function main(): Promise<void> {
         },
       });
 
+      const shellEscape = (a: string): string => {
+        if (!/[ "\$\\]/.test(a)) return a;
+        return `"${a.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+      };
       const cmdStr = [process.execPath, piCli, ...extensionFlags, ...piArgs]
-        .map((a) => (a.includes(" ") ? `"${a}"` : a))
+        .map(shellEscape)
         .join(" ");
       const sandboxedCmd = await SandboxManager.wrapWithSandbox(cmdStr);
 
@@ -159,10 +175,7 @@ async function main(): Promise<void> {
         shell: true,
         stdio: "inherit",
         cwd: process.cwd(),
-        env: {
-          ...process.env,
-          PI_CODING_AGENT_DIR: agentDir,
-        },
+        env: piEnv,
       });
 
       child.on("error", (err) => {
@@ -184,10 +197,7 @@ async function main(): Promise<void> {
     {
       cwd: process.cwd(),
       stdio: "inherit",
-      env: {
-        ...process.env,
-        PI_CODING_AGENT_DIR: agentDir,
-      },
+      env: piEnv,
     },
   );
 

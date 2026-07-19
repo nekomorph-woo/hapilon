@@ -9,9 +9,11 @@ import {
   readAuthFile,
   mergeAuthEntries,
   ensureSettingsFile,
+  ensureQuietStartup,
   maskKey,
   findProviderDef,
   semverGte,
+  parseSemver,
   COMMON,
   ALL_PROVIDERS,
 } from "../../providers.js";
@@ -131,6 +133,32 @@ describe("providers", () => {
     it("处理不同长度的版本号", () => {
       assert.strictEqual(semverGte("v22.19", "v22.19.0"), true);
       assert.strictEqual(semverGte("v22.19.0", "v22.19"), true);
+    });
+  });
+
+  describe("parseSemver()", () => {
+    it("标准三段式", () => {
+      assert.deepStrictEqual(parseSemver("1.2.3"), [1, 2, 3]);
+    });
+
+    it("带 v 前缀", () => {
+      assert.deepStrictEqual(parseSemver("v0.80.10"), [0, 80, 10]);
+    });
+
+    it("两段式补零", () => {
+      assert.deepStrictEqual(parseSemver("1.0"), [1, 0, 0]);
+    });
+
+    it("单段式补零", () => {
+      assert.deepStrictEqual(parseSemver("1"), [1, 0, 0]);
+    });
+
+    it("非数字降级为 0", () => {
+      assert.deepStrictEqual(parseSemver("abc"), [0, 0, 0]);
+    });
+
+    it("空字符串降级为 0", () => {
+      assert.deepStrictEqual(parseSemver(""), [0, 0, 0]);
     });
   });
 
@@ -278,6 +306,143 @@ describe("providers", () => {
     it("不存在的 id → 返回 undefined", () => {
       const def = findProviderDef("nonexistent-provider-12345");
       assert.strictEqual(def, undefined);
+    });
+  });
+
+  describe("ensureQuietStartup()", () => {
+    it("settings.json 不存在 → 创建并写入 { quietStartup: true }", () => {
+      const dir = mkdtempSync(join(tmpdir(), "hapilon-qs-test-"));
+      try {
+        ensureQuietStartup(dir);
+        const parsed = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
+        assert.strictEqual(parsed.quietStartup, true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("已存在其他键 → 合并写回，原有键保留", () => {
+      const dir = mkdtempSync(join(tmpdir(), "hapilon-qs-test-"));
+      try {
+        writeFileSync(join(dir, "settings.json"), '{"theme":"dark"}\n', "utf8");
+        ensureQuietStartup(dir);
+        const parsed = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
+        assert.strictEqual(parsed.quietStartup, true);
+        assert.strictEqual(parsed.theme, "dark");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("已为 true → 不写文件（幂等）", () => {
+      const dir = mkdtempSync(join(tmpdir(), "hapilon-qs-test-"));
+      try {
+        const original = '{"quietStartup":true,"theme":"dark"}\n';
+        writeFileSync(join(dir, "settings.json"), original, "utf8");
+        ensureQuietStartup(dir);
+        const content = readFileSync(join(dir, "settings.json"), "utf8");
+        assert.strictEqual(content, original, "已为 true 时不应重写文件");
+        const parsed = JSON.parse(content);
+        assert.strictEqual(parsed.theme, "dark", "原有键应保留");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("settings.json 内容为 JSON null → warn + 不动原文件", () => {
+      const dir = mkdtempSync(join(tmpdir(), "hapilon-qs-test-"));
+      try {
+        writeFileSync(join(dir, "settings.json"), "null\n", "utf8");
+        const warnings: string[] = [];
+        const orig = console.warn;
+        console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
+        try {
+          ensureQuietStartup(dir);
+          assert.ok(warnings.length > 0, "应打印警告");
+          assert.ok(warnings.some((w) => w.includes("not a JSON object")), "应提示非对象");
+          assert.strictEqual(readFileSync(join(dir, "settings.json"), "utf8"), "null\n", "原文件不应变更");
+        } finally {
+          console.warn = orig;
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("settings.json 内容为 JSON string → warn + 不动原文件", () => {
+      const dir = mkdtempSync(join(tmpdir(), "hapilon-qs-test-"));
+      try {
+        writeFileSync(join(dir, "settings.json"), '"just a string"\n', "utf8");
+        const warnings: string[] = [];
+        const orig = console.warn;
+        console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
+        try {
+          ensureQuietStartup(dir);
+          assert.ok(warnings.length > 0, "应打印警告");
+          assert.ok(warnings.some((w) => w.includes("not a JSON object")), "应提示非对象");
+          assert.strictEqual(readFileSync(join(dir, "settings.json"), "utf8"), '"just a string"\n', "原文件不应变更");
+        } finally {
+          console.warn = orig;
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("settings.json 内容为 JSON array → warn + 不动原文件", () => {
+      const dir = mkdtempSync(join(tmpdir(), "hapilon-qs-test-"));
+      try {
+        writeFileSync(join(dir, "settings.json"), "[1,2,3]\n", "utf8");
+        const warnings: string[] = [];
+        const orig = console.warn;
+        console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
+        try {
+          ensureQuietStartup(dir);
+          assert.ok(warnings.length > 0, "应打印警告");
+          assert.strictEqual(readFileSync(join(dir, "settings.json"), "utf8"), "[1,2,3]\n", "原文件不应变更");
+        } finally {
+          console.warn = orig;
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("JSON 解析失败 → warn 且不覆盖原文件", () => {
+      const dir = mkdtempSync(join(tmpdir(), "hapilon-qs-test-"));
+      try {
+        const badJson = "bad json!\n";
+        writeFileSync(join(dir, "settings.json"), badJson, "utf8");
+        const warnings: string[] = [];
+        const originalWarn = console.warn;
+        console.warn = (...args: unknown[]) => {
+          warnings.push(args.map(String).join(" "));
+        };
+        try {
+          ensureQuietStartup(dir);
+          assert.ok(warnings.length > 0, "应打印警告");
+          const content = readFileSync(join(dir, "settings.json"), "utf8");
+          assert.strictEqual(content, badJson, "原文件内容不应变更");
+        } finally {
+          console.warn = originalWarn;
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("agentDir 不存在 → 创建目录并写入", () => {
+      const dir = mkdtempSync(join(tmpdir(), "hapilon-qs-test-"));
+      const subDir = join(dir, "nonexistent");
+      try {
+        ensureQuietStartup(subDir);
+        const parsed = JSON.parse(readFileSync(join(subDir, "settings.json"), "utf8"));
+        assert.strictEqual(parsed.quietStartup, true);
+        const stat = statSync(subDir);
+        assert.strictEqual(stat.mode & 0o777, 0o700, "目录权限应为 0700");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 });
