@@ -1089,24 +1089,57 @@ roles:
 
 ### 9.7.1 首期实现方式
 
-使用独立 Pi 子进程：
+> 📍 **架构决策（2026-07-19）**：采用**进程内 `createAgentSession` 路线**（与 `@tintinweb/pi-subagents` 一致），放弃早期设想的 `spawn pi --mode json` 独立子进程方案。决策理由见下方"优点"与 §9.7.1.1 安全模型；调研依据见 `_foresight.md`（Pi-Subagents 与 Hapilon Subagent 系统）。
 
-```text
-pi --mode json -p --no-session
-   --model provider/model
-   --tools read,grep,find,ls
-   --append-system-prompt role.md
-   "Task: ..."
+在同一 Pi 运行时内创建独立会话对象（非新进程），由 `src/extensions/hpl-delegate/` 扩展注册 `delegate` 工具触发：
+
+```typescript
+const { session } = await createAgentSession({
+  cwd,
+  sessionManager: SessionManager.inMemory(),   // 或 .create() 持久化
+  modelRegistry: ctx.modelRegistry,            // ★ 复用父会话——所有 provider 配置都在
+  model,                                        // resolveModel 解析（支持 tier，见 §9.7.4）
+  tools: allowedTools,                          // ★ 构造时钉死的 tool 白名单
+  resourceLoader,                               // 按 extensions:/exclude_extensions: 过滤
+  thinkingLevel,
+});
+await session.bindExtensions();                 // 触发 session_start，扩展重新加载
+session.subscribe(event => { ... });            // 订阅 turn_end / compaction_end
+session.abort();                                // 取消（接 delegate 工具的 AbortSignal）
 ```
 
 优点：
 
-- 独立上下文；
-- 独立模型；
-- 独立工具集；
-- 结构化 JSON 输出；
-- 容易并行和取消；
-- 不需要改主 TUI。
+- 独立上下文（会话隔离，不污染父对话）；
+- 独立模型（每 subagent 可设不同 model / tier）；
+- 独立工具集（构造时白名单钉死）；
+- 低开销（无进程启动，同运行时内创建会话对象）；
+- **主进程 `tool_call` hook 在子会话内仍生效**——safety-gate / protected-paths 自动覆盖 subagent（见 §9.7.1.1）；
+- `modelRegistry` 复用，无需子进程传参；
+- 容易并行（多 session 对象）和取消（`session.abort()` / AbortSignal）；
+- pi-subagents 的高级 feature（graceful max_turns、mid-run steering、widget、调度）可分阶段移植。
+
+代价：
+
+- 隔离强度弱于独立子进程（同进程共享内存 / modelRegistry）——tool 级由 hook 可控，文件系统级由 `isolation: worktree` 补强；
+- subagent 递归 spawn 需在 tool gating 时剔除自注册的 `delegate` 工具（参考 pi-subagents 的 `EXCLUDED_TOOL_NAMES`）。
+
+#### 9.7.1.1 安全模型（进程内路线的关键收益）
+
+进程内路线下，子会话通过 `session.bindExtensions()` **重新加载扩展**，hapilon 的 safety-gate / protected-paths 在每个子会话内重新注册生效——`_backlog/prompt-injection-defense.md` 记录的"独立子进程 hook 盲区"问题**不复存在**。
+
+安全控制点：
+
+| 控制点 | 机制 |
+|--------|------|
+| tool 白名单 | `createAgentSession({ tools })` 构造时钉死 |
+| 扩展裁剪 | agent `.md` 的 `extensions:` / `exclude_extensions:` |
+| tool denylist | agent `.md` 的 `disallowed_tools:` |
+| 防递归 spawn | 剔除 `delegate` 工具本身 |
+| 只读策略（首期） | agent 默认 `tools: read,grep,find,ls` |
+| 写入隔离 | `isolation: worktree`（临时 git worktree） |
+
+> 注意：扩展工厂在子会话会**重新执行**，工厂应保持无副作用（副作用放 `session_start` 等 hook）。`exclude_extensions:` 不是沙箱——被排除的扩展工厂代码仍会执行一次，只是不暴露 tool、不绑定 hook。
 
 ### 9.7.2 支持模式
 
@@ -1151,6 +1184,86 @@ Subagent 默认只读。
 - Worker 使用独立 Git Worktree；
 - 多个并行 Worker 每人一个 Worktree；
 - Main 审查 Patch 后合并。
+
+### 9.7.4 Model Tiers（turbo / pro / ultra）
+
+hapilon 将可用 model 抽象为三档，供 subagent（及未来的 Role Router）通过档位名引用，**解耦 agent 定义与具体 provider/model id**——换 provider 或换 model 只改档位映射，不动每个 agent 的 `.md`。
+
+#### 三档语义
+
+| 档位 | 定位 | 典型用途 |
+|------|------|---------|
+| `turbo` | 快、便宜、上下文适中 | 只读侦察（Scout / Explore）、批量并行、简单分类 |
+| `pro` | 平衡，主力 | 通用 subagent（general-purpose）、规划、摘要 |
+| `ultra` | 强推理、贵、慢 | 深度审查（Reviewer）、架构设计、挑战者（Challenger） |
+
+档位语义参考 pi-subagents 的默认 agent 分配（Explore→haiku 对应 turbo；深度审查→opus 对应 ultra）。
+
+#### 配置形态（用户配置项，不硬编码）
+
+档位映射存入 `HapilonConfig`（`src/config-io.ts`），格式 `"provider/modelId"` 单字符串（与 pi-subagents 的 model 字段一致）：
+
+```typescript
+interface HapilonConfig {
+  defaultProvider?: string;
+  defaultModel?: string;
+  safetyNoticeShown?: boolean;
+  modelTiers?: {
+    turbo?: string;   // "zai/glm-4.5-flash"
+    pro?: string;     // "zai/glm-4.6"
+    ultra?: string;   // "deepseek/deepseek-reasoner"
+  };
+}
+```
+
+三档可跨 provider（turbo 用 zai、ultra 用 deepseek），不强求同一 provider。读取时沿用现有 `readHapilonConfig` 的逐字段类型校验 + "非字符串 warn 并丢弃"防御风格。
+
+#### 交互式配置（复用现有 default 设置范式）
+
+复用 `hapilon config default --set` 的交互范式（readline 编号选择 + `spawn pi --list-models` 拉模型列表，见 `src/config.ts` 的 `configSetDefaultInteractive`），新增子命令：
+
+```text
+hapilon config tier --set              # 依次为 turbo/pro/ultra 各选 provider + model
+hapilon config tier --set turbo        # 只设某一档
+hapilon config tier --unset            # 清除所有档位
+hapilon config tier --unset turbo      # 清除某一档
+hapilon config show                    # 显示三档当前映射（扩展现有 configShow）
+```
+
+`config tier --set` 交互流程（每档重复，复用 `configSetDefaultInteractive` 的步骤）：
+
+```text
+正在配置 turbo 档位
+已配置 auth 的 Provider:
+  1. zai              (ZAI GLM)
+  2. deepseek         (DeepSeek)
+选择 Provider [1-2]: 1
+正在获取 ZAI GLM 模型列表...
+ZAI GLM 可用模型:
+  1. glm-4.5-flash    (128K)
+  2. glm-4.6          (128K)
+选择模型 [1-2]: 1
+✅ turbo = zai/glm-4.5-flash
+
+是否继续配置 pro？(Y/n)
+...
+```
+
+#### resolveModel 优先级
+
+subagent spawn 时解析 model（沿用 pi-subagents 的 frontmatter-authoritative 哲学）：
+
+```text
+调用参数 model  >  agent .md frontmatter model  >  agent .md frontmatter tier  >  父 session model
+```
+
+- frontmatter 显式 `model: provider/modelId` → 直接用（最高优先级）；
+- frontmatter `tier: turbo` → 查 `HapilonConfig.modelTiers.turbo`；**未配置则明确报错并拒绝 spawn**（Fail Fast，不静默回退父 model——区别于 pi-subagents 的静默继承，呼应 hapilon 原则 1）；
+- 都没设 → 继承父 session 的 model。
+
+#### 与 §9.5 / §9.6 的关系
+
+turbo/pro/ultra 是 §9.5 Model Capability Registry（`contextClass` / `costClass` / `preferredRoles`）的**简化先行版**：先用三档打通"agent 定义解耦 model id"，后续随 §9.6 Role Router 落地，档位可演进为按角色自动路由（如 reviewer 角色自动用 ultra 档）。首期不做自动路由，tier 由 agent `.md` 显式指定。
 
 ## 9.8 Agent Backend
 

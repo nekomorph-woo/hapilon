@@ -1,60 +1,92 @@
 # TODO 清单
 
-> 当前任务：Pi 启动画面自定义 — Claude Code 风格头部
+> 当前任务：TUI 鼠标划选自动复制到系统剪贴板
 
 ---
 
-## [~] TODO-19：cli.ts 启动画面清理
+## [ ] TODO-21：OSC 52 剪贴板工具 + /copy 命令
 
 ### 目标
 
-移除 hapilon 版本打印、屏蔽 Pi 自带版本检查/更新通知、设置静默启动。
+创建共享的 OSC 52 剪贴板写入工具函数，并注册 `/copy` slash command，让用户可以一键将指定内容复制到系统剪贴板。
 
 ### 实现要点
 
 | 项目 | 内容 |
 |------|------|
-| 移除 console.log | 删除 `cli.ts:78` 的 `console.log("hapilon_v0.1.0_alpha")` |
-| 跳过 Pi 版本检查 | spawn 时注入 `PI_SKIP_VERSION_CHECK=1` 环境变量 |
-| 静默启动 | 通过 hapilon config-io 设置 Pi settings `quietStartup: true`（写入 `~/.hapilon/agent/settings.json`） |
-| 扩展路径传递 | 将 `discoverExtensions()` 结果通过 env var 或文件传递给 header 扩展 |
-| 安全提示 | 安全提示保留（`--no-safety` 仍然可见） |
+| 共享工具 | `src/shared/clipboard.ts` — `copyToClipboard(text)` 函数，通过 OSC 52 转义序列写入系统剪贴板 |
+| ANSI 剥离 | 复制前自动剥离 ANSI 颜色码，确保粘贴到其他应用时是纯文本 |
+| /copy 命令 | 新建 `src/extensions/hpl-clipboard/index.ts` — 注册 `/copy` 命令，复制最后一次 assistant 输出或用户指定内容 |
+| 大文本保护 | 超过 100KB 的内容拒绝复制（OSC 52 协议缓冲区限制），提示用户使用终端原生选择 |
+| 单元测试 | `src/test/unit/clipboard.test.ts` — 测试 OSC 52 序列生成、base64 编码、ANSI 剥离、大文本保护 |
 
 ### 验收标准
 
-- [ ] 启动 hapilon 后不再看到 `hapilon_v0.1.0_alpha` 打印
-- [ ] 启动后不再看到 Pi 的 `pi v0.80.8` 版本头和快捷键提示
-- [ ] 启动后不再看到 `[Extensions]` 等加载资源列表
-- [ ] 启动后不再看到 `Update Available` 通知
-- [ ] cli.ts 修改不破坏 `--mode` / `--print` 非交互模式
+- [ ] `copyToClipboard("hello")` 生成正确的 OSC 52 序列
+- [ ] 复制内容包含中文、emoji、特殊字符时 base64 编码正确
+- [ ] ANSI 颜色码被正确剥离
+- [ ] 超过 100KB 内容触发保护，不发送 OSC 52
+- [ ] `/copy` 命令注册成功，执行后系统剪贴板包含复制内容
+- [ ] 在 iTerm2 + Terminal.app 中实测复制可用
 
 ---
 
-## [~] TODO-20：hpl-startup-header — Claude Code 风格自定义头部
+## [ ] TODO-22：鼠标文本选择引擎
 
 ### 目标
 
-新建 `hpl-startup-header` 扩展，在 Pi 启动时通过 `ctx.ui.setHeader()` 展示 Hapilon 品牌头部。
+实现应用级鼠标文本选择引擎：追踪鼠标拖拽轨迹，计算选中区域对应终端缓冲区中的文本行范围，提取纯文本选中内容。为体验 3（拖选松手即复制）提供核心能力。
 
 ### 实现要点
 
 | 项目 | 内容 |
 |------|------|
-| 注册方式 | `pi.on("session_start", ...)` + `ctx.ui.setHeader(factory)` |
-| 参考实现 | `hpl-footer/index.ts` 的 `setFooter` 模式 + Pi 官方 `custom-header.ts` 示例 |
-| Header 布局 | Claude Code 风格：Hapilon 名称+版本 → Welcome back → Provider+Model → workspace 全路径 → Pi 版本更新（可选）→ 扩展列表 |
-| Provider+Model 来源 | `ctx.model?.id` + `ctx.model?.name` |
-| workspace 来源 | `ctx.cwd` |
-| 扩展列表来源 | cli.ts 通过环境变量 `HAPILON_EXTENSIONS` 传递（JSON 数组） |
-| Pi 版本检查 | 自行请求 `https://pi.dev/api/latest-version`（或省略此部分保持简洁） |
-| 文件结构 | `src/extensions/hpl-startup-header/index.ts` + `content.ts`（header 组件） |
+| 核心模块 | `src/shared/text-selection.ts` — 文本选择状态机和文本提取逻辑 |
+| 选择状态 | 追踪 `selecting: boolean`、`startRow/Col`、`endRow/Col`，支持拖拽扩展 |
+| 渲染缓存 | 维护一个行级渲染缓存（`row → rendered string`），由 Pi TUI 的 render cycle 更新。每次 render 后记录每行的原始渲染内容 |
+| 坐标映射 | 鼠标事件的 `(row, col)` 映射到缓存行，截取 `[minCol, maxCol]` 范围 |
+| ANSI 剥离 | 从渲染缓存中剥离 ANSI 转义码，提取可见纯文本 |
+| 可视化反馈 | 选中区域反转颜色或加下划线，通过重写对应行的 ANSI 样式实现 |
+| 鼠标模式管理 | 与 `mouse.ts` 协作，选择模式下使用 SGR 1006 鼠标事件解析 |
+| 单元测试 | `src/test/unit/text-selection.test.ts` — 测试状态机转换、坐标映射、ANSI 剥离、边界条件 |
 
 ### 验收标准
 
-- [ ] 启动 hapilon 后看到 Hapilon 品牌 header（名称 + 版本号）
-- [ ] header 包含 "Welcome back!" 问候语
-- [ ] header 包含当前 provider 名称 + model 名称
-- [ ] header 包含当前 workspace 全路径
-- [ ] header 包含已加载的 hapilon 扩展列表
-- [ ] 非 TUI 模式（`--print` / `--mode`）下不崩溃
-- [ ] 单元测试覆盖 header 渲染逻辑
+- [ ] 鼠标按下开始选择，拖拽扩展选区，松开结束选择
+- [ ] 选中区域有视觉反馈（反转或高亮）
+- [ ] 从渲染缓存中正确提取选中区域的纯文本（剥离 ANSI 码）
+- [ ] 多行选择正确处理（行首/行尾对齐）
+- [ ] 点击不拖拽 = 单行选择（或取消选择）
+- [ ] 滚轮事件不影响选择状态
+- [ ] 与 overlay 的鼠标滚轮模式不冲突
+
+---
+
+## [ ] TODO-23：整合到 Pi 主会话 — 拖选松手自动复制
+
+### 目标
+
+将 OSC 52 剪贴板工具和文本选择引擎整合到 Pi 主会话中，实现「拖选松手即复制到系统剪贴板」的完整体验。
+
+### 实现要点
+
+| 项目 | 内容 |
+|------|------|
+| 扩展入口 | `src/extensions/hpl-clipboard/index.ts` — 在 `session_start` 时启用主会话的鼠标模式 + 选择引擎 |
+| 鼠标模式切换 | 主会话启用鼠标模式 1006 用于文本选择；overlay 打开时由现有 `mouse.ts` 接管（滚轮）；overlay 关闭后恢复选择模式 |
+| 松手触发复制 | 鼠标释放事件触发 `copyToClipboard(selectedText)`，自动写入系统剪贴板 |
+| 键盘兼容 | `Escape` 取消当前选择（不清空剪贴板） |
+| Shift 绕过保留 | Shift+拖拽仍绕过应用级选择，走终端原生路径（终端协议自动处理） |
+| 端到端测试 | 手动在 Pi 主会话中拖选对话文本 → 松手 → 在其他应用粘贴验证 |
+| 回归测试 | 确保现有 502 测试不受影响 |
+
+### 验收标准
+
+- [ ] Pi 主会话中鼠标拖选文本有视觉反馈
+- [ ] 松手后系统剪贴板自动包含选中文本（纯文本，无 ANSI 码）
+- [ ] 在其他应用中粘贴验证内容正确
+- [ ] 打开 FloatingPane overlay 时滚轮仍可滚动内容
+- [ ] 关闭 overlay 后文本选择恢复工作
+- [ ] Shift+拖拽走终端原生路径
+- [ ] Escape 取消选择
+- [ ] 全量测试通过（含新增测试）
