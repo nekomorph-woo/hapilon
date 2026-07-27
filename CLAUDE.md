@@ -4,7 +4,7 @@ Hapilon 是一个以 Pi Coding Agent 为运行内核的通用终端 Coding Agent
 以 https://github.com/nekomorph-woo/wokiii 管道流：Discussion-Decision-to-Action. Constructing a circular and efficient value chain 为设计指导方向，侧重编码，通用任务次之的 Pi-extension 式项目。
 
 # 我的弱项 - 你需要特别关照
-- 当前项目使用 TypeScript 编写，因此你在变更了任意逻辑代码、文档、注释、提示词、引用等等会变更项目行为的内容，在 `dialogue-style.md` 基础之上，你还需要使用 `人话` 耐心地向我解释代码业务逻辑（DO NOT 语法）、目的、产生影响。
+- 当前项目使用 TypeScript 编写，因此你在变更了任意逻辑代码、文档、注释、提示词、引用等等会变更项目行为的内容，在 `b3oy1-conversation-style.md` 基础之上，你还需要使用 `人话` 耐心地向我解释代码业务逻辑（DO NOT 语法）、目的、产生影响。
 - 项目不会使用 `wokiii` 管道式自动化流水线方式的 Vibe Coding，而是 `目标/问题驱动 ➡️ 解答讨论 ➡️ 构思完善 ➡️ Planning with hpl-planner agent  ➡️ Coding with agent` 的 `傻瓜式` 流程进行。
 - **任务完整实现后，详细告知我如何进行端到端验证**
 - `wok-execute`：TDD编码完成后，详细告诉我你覆盖的测试（单元测试/集成测试），避免测试与真实需求的理解偏差
