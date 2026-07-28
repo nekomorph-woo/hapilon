@@ -405,7 +405,7 @@ You are a security auditor. Review code for vulnerabilities including:
 
 ### 5.2 hapilon 扩展机制现状（subagent 落点已明确）
 
-- **扩展组织**：`src/extensions/<name>/index.ts`，默认导出 `function(pi: ExtensionAPI): void`，一目录一扩展（现有 9 个：safety-gate / protected-paths / hpl-system-prompt / hpl-context / hpl-context-viewer / hpl-panel-viewer / hpl-startup-header / hpl-footer / hpl-clipboard）
+- **扩展组织**：`src/extensions/<name>/index.ts`，默认导出 `function(pi: ExtensionAPI): void`，一目录一扩展（现有 8 个：safety-gate / protected-paths / hpl-system-prompt / hpl-context / hpl-context-viewer / hpl-panel-viewer / hpl-startup-header / hpl-footer）
 - **发现机制**：`discoverExtensions()`（`src/extensions.ts:15-42`）扫 **`dist/extensions/`**（编译后产物），支持 `<name>/index.js` 或单文件 `<name>.js`，按名排序加载（决定 `before_agent_start` 等链式 hook 顺序）
 - **注入方式**：`src/cli.ts:117-127` 把发现的扩展通过 Pi 原生 `-e` flag 注入（临时扩展机制，路径是 dist，不是 `~/.pi/agent/extensions/`）
 - **Tool 注册范例**：`src/extensions/hpl-panel-viewer/index.ts:59-99` 已注册过 LLM tool，可直接参照；Tool 签名见 `doc/pi-wiki.md:978-1006`（`parameters: Type.Object(...)`、`execute(toolCallId, params, signal, onUpdate, ctx)`、`signal` 支持取消、`terminate:true` 跳过后续 LLM 调用）
