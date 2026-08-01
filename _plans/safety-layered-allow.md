@@ -10,9 +10,9 @@
 
 ## 核心原则
 
-1. **安全侧默认**：真正不可逆的高危路径（SSH key、凭证、证书等）永远 block
+1. **安全侧默认**：真正不可逆的高危路径（SSH key、凭证、证书等）默认 block；`/allow` 可显式放行，但需**高危二次确认**（⚠️⚠️ 警告弹框），且强制 session 级、不提供 project 持久化选项（block 保护不可被项目配置永久绕过，见 `project-config-and-trust.md` 核心原则 2）
 2. **最小权限提升**：白名单是 session 级的 `Set<string>`，不持久化，不给全局豁免
-3. **显式操作**：白名单需要用户显式输入 `/allow` 命令；block 路径也可加入白名单（用户有意的操作）
+3. **显式操作**：白名单需要用户显式输入 `/allow` 命令；block 路径经高危二次确认后可加入白名单（用户有意的操作）
 4. **不改 signature**：`classifyPath()` 不增加额外参数，改变的是内部分类逻辑；`PathVerdict` 类型不变
 
 ## 分层设计：哪个路径去哪层
@@ -159,6 +159,8 @@ if (toolName === "write" || toolName === "edit") {
 ---
 
 ### Step 3：在 tool_call handler 中实现 confirm 弹窗（写操作）
+
+> **实现偏差（2026-08-01，issue #10 review 确认）**：confirm 弹框实际实现为 **4 选项 select**（Allow Once / Allow this Session / Allow this Project / Deny），其中 project scope 持久化到 `.hapilon/config.local.json`。该设计来自 `project-config-and-trust.md` 决策 3（confirm 升级 4 选项），由本实现提前落地，非本计划范围。trust-store 见 `src/trust-store.ts`（命令+路径双维度，session 内存 + project 持久化）。高危路径（WRITE_BLOCK）的 `/allow` 放行使用独立 2 选项确认（`requestHighRiskConfirm`，`confirm.ts`），强制 session 级。
 
 **文件**：`src/extensions/protected-paths.ts`
 
@@ -538,21 +540,22 @@ npm run test:unit    # 全量单测通过
 
 ### /allow 命令
 
-- [ ] `/allow .env` → 将 .env 解析为绝对路径加入白名单
-- [ ] 白名单路径写入 → 直接放行，不弹 block/confirm
-- [ ] 白名单路径读取 → 不弹 confirm（如果该路径在 READ_CONFIRM 中）
-- [ ] `/allow --list` → 显示当前白名单（空则提示为空）
-- [ ] `/allow --clear` → 清空白名单并提示移除数量
-- [ ] 支持空格分隔多个路径同时添加
-- [ ] hapilon 重启后白名单自动清除
-- [ ] 白名单对 block 路径也生效（用户显式操作视为有意）
+- [x] `/allow .env` → 将 .env 解析为绝对路径加入白名单（resolveTarget 规范化，issue #10 发现 4）
+- [x] 白名单路径写入 → 直接放行，不弹 block/confirm
+- [x] 白名单路径读取 → 不弹 confirm（如果该路径在 READ_CONFIRM 中）
+- [x] `/allow --list` → 显示当前白名单（空则提示为空）
+- [x] `/allow --clear` → 清空白名单并提示移除数量（计数按路径条数，issue #10 发现 6）
+- [x] 支持空格分隔多个路径同时添加（parseAllowArgs，issue #10 发现 3）
+- [x] hapilon 重启后白名单自动清除
+- [x] 白名单对 block 路径也生效，但需**高危二次确认**（2 选项：Allow this Session / Deny），强制 session 级、不提供 project 持久化（issue #10 发现 1）
 
 ### 单元测试
 
-- [ ] `classifyPath` 写保护测试区分 `"block"` 和 `"confirm"`（约 17 个用例改预期值）
-- [ ] 高风险路径保持 `"block"` 的用例不变
-- [ ] `resolveTarget` 有独立测试
-- [ ] 全量单测 `npm run test:unit` 通过，断言数不减少
+- [x] `classifyPath` 写保护测试区分 `"block"` 和 `"confirm"`（约 17 个用例改预期值）
+- [x] 高风险路径保持 `"block"` 的用例不变
+- [x] `resolveTarget` 有独立测试
+- [x] `parseAllowArgs` 批量解析 + `/allow` 高危确认行为（Seam 直调 handler）+ 白名单 resolve 一致性测试
+- [x] 全量单测 `npm run test:unit` 通过（issue #10 修复后 559 用例 / 556 过，仅 hpl-startup-header 3 例挂——issue #13 待修）
 
 ## 执行顺序
 

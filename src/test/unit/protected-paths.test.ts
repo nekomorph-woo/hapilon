@@ -5,7 +5,7 @@
  * 不依赖 Pi ExtensionAPI mock。
  */
 
-import { describe, it, mock } from "node:test";
+import { describe, it, mock, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
@@ -14,15 +14,10 @@ import {
   classifyPath,
   expandTilde,
   resolveTarget,
+  parseAllowArgs,
 } from "../../extensions/protected-paths/index.js";
 import protectedPathsExtension from "../../extensions/protected-paths/index.js";
-import {
-  addAllow,
-  removeAllow,
-  isAllowed,
-  clearAllow,
-  listAllow,
-} from "../../extensions/protected-paths/whitelist.js";
+import { addTrust, isSessionTrusted, clearSessionTrust } from "../../trust-store.js";
 
 const home = homedir();
 
@@ -121,60 +116,141 @@ describe("protected-paths", () => {
     it("空路径 → allow", () => assert.strictEqual(classifyPath("", "write"), "allow"));
   });
 
-  // ─── 白名单 ────────────────────────────────────────────────────
+  // ─── /allow 参数解析（批量支持，纯函数）────────────────────────────
 
-  describe("whitelist（白名单）", () => {
-    // 每个 test 前清空白名单
-    const resetWhitelist = () => {
-      clearAllow();
-      // 验证清空
-      assert.strictEqual(listAllow().length, 0);
-    };
+  describe("parseAllowArgs()", () => {
+    it("单个路径 → add", () => {
+      assert.deepStrictEqual(parseAllowArgs(".env"), { kind: "add", paths: [".env"] });
+    });
+    it("空格分隔批量 → add 多条", () => {
+      assert.deepStrictEqual(parseAllowArgs(".env .env.production"), {
+        kind: "add",
+        paths: [".env", ".env.production"],
+      });
+    });
+    it("多余空格与换行 → trim 后解析", () => {
+      assert.deepStrictEqual(parseAllowArgs("  .env  .gitmodules\n.env.production "), {
+        kind: "add",
+        paths: [".env", ".gitmodules", ".env.production"],
+      });
+    });
+    it("--list → list", () => assert.deepStrictEqual(parseAllowArgs("--list"), { kind: "list", paths: [] }));
+    it("--clear → clear", () => assert.deepStrictEqual(parseAllowArgs("--clear"), { kind: "clear", paths: [] }));
+    it("空输入 → add 空列表（handler 判空给用法提示）", () => {
+      assert.deepStrictEqual(parseAllowArgs(""), { kind: "add", paths: [] });
+    });
+  });
 
-    it("addAllow → isAllowed → true", () => {
-      resetWhitelist();
-      addAllow("/tmp/project/.env", "/tmp/project");
-      assert.strictEqual(isAllowed("/tmp/project/.env"), true);
+  // ─── 白名单 resolve 一致性（调用层约定：add/is 均用 resolveTarget 后的路径）──
+
+  describe("白名单 resolve 一致性", () => {
+    afterEach(() => clearSessionTrust());
+
+    it("/allow .env 后 agent 写 ./.env 命中白名单", () => {
+      const cwd = "/tmp/project";
+      // 模拟 /allow：存储 resolveTarget 后的路径
+      addTrust("write", resolveTarget(".env", cwd), "session", cwd);
+      // 模拟 agent 用不同写法写入：入口统一 resolve 后检查
+      assert.strictEqual(isSessionTrusted("write", resolveTarget("./.env", cwd)), true);
     });
 
-    it("未添加的路径 → isAllowed → false", () => {
-      resetWhitelist();
-      assert.strictEqual(isAllowed("/tmp/project/.env"), false);
+    it("原样存储时写法一变即失效（证明调用层必须 resolve）", () => {
+      const cwd = "/tmp/project";
+      addTrust("write", ".env", "session", cwd);
+      assert.strictEqual(isSessionTrusted("write", ".env"), true);
+      assert.strictEqual(isSessionTrusted("write", "./.env"), false);
+    });
+  });
+
+  // ─── /allow 命令行为（高危路径二次确认，Seam 直调 handler）────────
+
+  describe("/allow 命令（高危确认）", () => {
+    afterEach(() => clearSessionTrust());
+
+    function captureAllowHandler() {
+      let allowHandler: ((argsStr: string, ctx: unknown) => Promise<unknown>) | undefined;
+      const pi = {
+        on: () => {},
+        registerCommand: (name: string, def: { handler: unknown }) => {
+          if (name === "allow") allowHandler = def.handler as typeof allowHandler;
+        },
+      };
+      protectedPathsExtension(pi as never);
+      assert.ok(allowHandler, "/allow 命令已注册");
+      return allowHandler as (argsStr: string, ctx: unknown) => Promise<unknown>;
+    }
+
+    it("confirm 路径 → 直接加白名单，不弹高危确认", async () => {
+      const h = captureAllowHandler();
+      const ctx = {
+        hasUI: true,
+        cwd: "/tmp",
+        ui: {
+          select: async () => {
+            throw new Error("confirm 路径不应弹确认框");
+          },
+          notify: () => {},
+        },
+      };
+      await h(".env", ctx);
+      assert.strictEqual(isSessionTrusted("write", resolveTarget(".env", "/tmp")), true);
     });
 
-    it("removeAllow 后 → isAllowed → false", () => {
-      resetWhitelist();
-      addAllow("/tmp/project/.env", "/tmp/project");
-      removeAllow("/tmp/project/.env", "/tmp/project");
-      assert.strictEqual(isAllowed("/tmp/project/.env"), false);
+    it("block 路径 → 弹高危确认，拒绝则不加", async () => {
+      const h = captureAllowHandler();
+      let selectCalls = 0;
+      const ctx = {
+        hasUI: true,
+        cwd: "/tmp",
+        ui: {
+          select: async () => {
+            selectCalls++;
+            return "Deny";
+          },
+          notify: () => {},
+        },
+      };
+      await h("~/.ssh/id_rsa", ctx);
+      assert.strictEqual(selectCalls, 1, "应弹一次高危确认");
+      assert.strictEqual(isSessionTrusted("write", resolveTarget("~/.ssh/id_rsa", "/tmp")), false);
     });
 
-    it("listAllow 返回已添加路径", () => {
-      resetWhitelist();
-      addAllow("/tmp/project/.env", "/tmp/project");
-      const list = listAllow();
-      assert.strictEqual(list.length, 1);
-      assert.ok(list[0].endsWith(".env"));
+    it("block 路径 → 确认后加白名单（write/edit/read 三命令维度）", async () => {
+      const h = captureAllowHandler();
+      const ctx = {
+        hasUI: true,
+        cwd: "/tmp",
+        ui: {
+          select: async () => "Allow this Session",
+          notify: () => {},
+        },
+      };
+      await h("~/.ssh/id_rsa", ctx);
+      const key = resolveTarget("~/.ssh/id_rsa", "/tmp");
+      assert.strictEqual(isSessionTrusted("write", key), true);
+      assert.strictEqual(isSessionTrusted("edit", key), true);
+      assert.strictEqual(isSessionTrusted("read", key), true);
     });
 
-    it("clearAllow 清空所有", () => {
-      resetWhitelist();
-      addAllow("/tmp/project/.env", "/tmp/project");
-      addAllow("/tmp/project/.gitmodules", "/tmp/project");
-      clearAllow();
-      assert.strictEqual(listAllow().length, 0);
+    it("非交互（无 UI）block 路径 → 拒绝", async () => {
+      const h = captureAllowHandler();
+      await h("~/.ssh/id_rsa", { cwd: "/tmp", hasUI: false });
+      assert.strictEqual(isSessionTrusted("write", resolveTarget("~/.ssh/id_rsa", "/tmp")), false);
     });
 
-    it("相对路径 → 解析为绝对后加白名单", () => {
-      resetWhitelist();
-      addAllow("./.env", "/tmp/project");
-      assert.strictEqual(isAllowed("/tmp/project/.env"), true);
-    });
-
-    it("空路径 → 不加白名单", () => {
-      resetWhitelist();
-      addAllow("", "/tmp/project");
-      assert.strictEqual(listAllow().length, 0);
+    it("批量 → 逐条处理", async () => {
+      const h = captureAllowHandler();
+      const ctx = {
+        hasUI: true,
+        cwd: "/tmp",
+        ui: {
+          select: async () => "Deny",
+          notify: () => {},
+        },
+      };
+      await h(".env .env.production", ctx);
+      assert.strictEqual(isSessionTrusted("write", resolveTarget(".env", "/tmp")), true);
+      assert.strictEqual(isSessionTrusted("write", resolveTarget(".env.production", "/tmp")), true);
     });
   });
 

@@ -43,3 +43,26 @@ export async function requestConfirm(
     return { status: "error", message };
   }
 }
+
+/**
+ * 高危路径（WRITE_BLOCK）专用确认 — 仅两个选项（允许本次会话 / 拒绝）。
+ *
+ * 与 requestConfirm 的区别：高危路径的 /allow 放行**强制 session 级**，
+ * 不提供 "Allow this Project" 持久化选项——block 保护不可被项目配置永久绕过
+ * （见 _plans/project-config-and-trust.md 核心原则 2）。
+ */
+export async function requestHighRiskConfirm(
+  ctx: ExtensionContext,
+  title: string,
+  msg: string,
+): Promise<boolean> {
+  if (!ctx.hasUI) return false; // 非交互模式 → 拒绝（安全侧默认）
+  try {
+    const choice = await ctx.ui.select(title + "\n\n" + msg, ["Allow this Session", "Deny"]);
+    return choice === "Allow this Session";
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn("高危路径确认对话框异常:", message);
+    return false; // 对话框异常 → 拒绝
+  }
+}

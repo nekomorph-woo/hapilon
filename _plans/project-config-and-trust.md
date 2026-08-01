@@ -26,7 +26,7 @@ TODO-9（项目级配置目录）是 TODO-10（持久化信任）的存储基础
 ## 核心原则
 
 1. **存储分层，查询统一**：session 信任在内存，项目信任在文件，但通过统一的 `trust-store.ts` 查询，调用方不需要关心数据在哪。
-2. **安全降级不可逆**：项目级 trust 仅对 confirm（中危）生效；block（高危）必须 session 级显式 `/allow`，不可通过项目配置永久绕过。
+2. **安全降级不可逆**：项目级 trust 仅对 confirm（中危）生效；block（高危）必须 session 级显式 `/allow` 且需**高危二次确认**（`requestHighRiskConfirm`，2 选项：Allow this Session / Deny），不可通过项目配置永久绕过。已落地（2026-08-01，issue #10）。
 3. **最小改动面**：`classifyPath()` / `classifyCommand()` 等纯函数不改签名；confirm 弹框升级为 4 选项但调用方接口变化最小化。
 4. **纯函数可测**：文件 I/O 和处理逻辑分离，所有核心逻辑可脱离 ExtensionContext mock 独立测试。
 

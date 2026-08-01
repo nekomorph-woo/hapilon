@@ -13,20 +13,43 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
-import { classifyPath } from "./classifier.js";
-import { requestConfirm } from "./confirm.js";
+import { classifyPath, resolveTarget } from "./classifier.js";
+import { requestConfirm, requestHighRiskConfirm } from "./confirm.js";
 import { addTrust, isTrusted, isSessionTrusted, clearSessionTrust, listSessionTrust, listProjectTrust } from "../../trust-store.js";
 
 export { classifyPath, expandTilde, resolveTarget } from "./classifier.js";
 
+/**
+ * /allow 参数解析 — 纯函数，独立可测。
+ *
+ * 支持空格分隔批量路径（计划 line 353 语义）。
+ */
+export type AllowArgs =
+  | { kind: "list"; paths: [] }
+  | { kind: "clear"; paths: [] }
+  | { kind: "add"; paths: string[] };
+
+export function parseAllowArgs(argsStr: string): AllowArgs {
+  const arg = argsStr.trim();
+  if (arg === "--list") return { kind: "list", paths: [] };
+  if (arg === "--clear") return { kind: "clear", paths: [] };
+  const paths = arg.split(/\s+/).filter(Boolean);
+  return { kind: "add", paths };
+}
+
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     if (isToolCallEventType("write", event) || isToolCallEventType("edit", event)) {
-      const filePath: string = event.input.path ?? "";
-      if (!filePath) {
+      const rawPath: string = event.input.path ?? "";
+      if (!rawPath) {
         console.warn("write/edit 工具调用缺少 path 参数，安全扩展无法生效");
         return;
       }
+
+      // 入口统一 resolve（~ 展开 + 相对路径解析 + symlink 跟随），
+      // 后续所有信任检查/写入均基于规范化路径——保证 /allow .env 后
+      // agent 写 ./.env 也能命中白名单（resolve 幂等，已解析路径无副作用）
+      const filePath = resolveTarget(rawPath, ctx.cwd);
 
       const toolName = isToolCallEventType("edit", event) ? "edit" : "write";
 
@@ -75,11 +98,14 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (isToolCallEventType("read", event)) {
-      const filePath: string = event.input.path ?? "";
-      if (!filePath) {
+      const rawPath: string = event.input.path ?? "";
+      if (!rawPath) {
         console.warn("read 工具调用缺少 path 参数，安全扩展无法生效");
         return;
       }
+
+      // 与 write/edit 分支一致：入口 resolve，信任检查基于规范化路径
+      const filePath = resolveTarget(rawPath, ctx.cwd);
 
       if (isTrusted("read", filePath, ctx.cwd)) return;
 
@@ -112,11 +138,13 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("allow", {
-    description: "会话级临时白名单（读写均生效）。用法：/allow <path> | --list | --clear",
+    description: "会话级临时白名单（读写均生效）。用法：/allow <path>... | --list | --clear",
     handler: async (argsStr, ctx) => {
-      const arg = argsStr.trim();
+      // 非交互上下文（无 UI）时 notify 静默，不抛异常
+      const notify = (msg: string, level: "info" | "warning" = "info") => ctx.ui?.notify(msg, level);
+      const args = parseAllowArgs(argsStr);
 
-      if (arg === "--list") {
+      if (args.kind === "list") {
         const session = listSessionTrust();
         const project = listProjectTrust(ctx.cwd);
         const lines: string[] = [];
@@ -129,30 +157,56 @@ export default function (pi: ExtensionAPI) {
           for (const p of project) lines.push(`  ${p.toolName}: ${p.targets.join(", ")}`);
         }
         if (lines.length === 0) {
-          ctx.ui.notify("白名单为空", "info");
+          notify("白名单为空", "info");
         } else {
-          ctx.ui.notify(lines.join("\n"), "info");
+          notify(lines.join("\n"), "info");
         }
         return;
       }
 
-      if (arg === "--clear") {
-        const count = listSessionTrust().length;
+      if (args.kind === "clear") {
+        // 计数按路径条数（不是 toolName 分组数），issue #10 发现 6
+        const count = listSessionTrust().reduce((n, g) => n + g.targets.length, 0);
         clearSessionTrust();
-        ctx.ui.notify(`已清空 ${count} 条 session 白名单`, "info");
+        notify(`已清空 ${count} 条 session 白名单`, "info");
         return;
       }
 
-      if (!arg) {
-        ctx.ui.notify("用法：/allow <path> | --list | --clear", "warning");
+      if (args.paths.length === 0) {
+        notify("用法：/allow <path>... | --list | --clear", "warning");
         return;
       }
 
-      // /allow → 加入 session 白名单（适用于 block 和 confirm 路径）
-      addTrust("write", arg, "session", ctx.cwd);
-      addTrust("edit", arg, "session", ctx.cwd);
-      addTrust("read", arg, "session", ctx.cwd);
-      ctx.ui.notify(`✅ 已添加 session 白名单：${arg}（读写均生效）`, "info");
+      // /allow → 加入 session 白名单（支持空格分隔批量，issue #10 发现 3）
+      const added: string[] = [];
+      for (const p of args.paths) {
+        const resolved = resolveTarget(p, ctx.cwd);
+
+        // block 路径（SSH key/凭证等高危）：需高危二次确认，且强制 session 级
+        // （不提供 project 持久化选项，block 保护不可被项目配置永久绕过）
+        if (classifyPath(resolved, "write", ctx.cwd) === "block") {
+          const ok = await requestHighRiskConfirm(
+            ctx,
+            "⚠️⚠️ 高危路径确认",
+            `将解除高危路径的写保护：\n\n> ${p}\n\n` +
+              "该路径（SSH 密钥/凭证/证书等）本应被硬性阻止写入。" +
+              "确认本次会话允许修改它？",
+          );
+          if (!ok) {
+            notify(`已拒绝高危路径：${p}`, "warning");
+            continue;
+          }
+        }
+
+        addTrust("write", resolved, "session", ctx.cwd);
+        addTrust("edit", resolved, "session", ctx.cwd);
+        addTrust("read", resolved, "session", ctx.cwd);
+        added.push(p);
+      }
+
+      if (added.length > 0) {
+        notify(`✅ 已添加 session 白名单：${added.join(", ")}（读写均生效）`, "info");
+      }
     },
   });
 }
