@@ -191,3 +191,68 @@ describe("buildStatusLine — 控制字符清洗", () => {
     assert.equal(buildStatusLine(["a\nb", "c\t\td"]), "a b | c d");
   });
 });
+
+describe("visibleWidth — CJK / emoji 宽字符", () => {
+  it("正常路径: 汉字每字占 2 列", () => {
+    assert.equal(visibleWidth("张三"), 4);
+    assert.equal(visibleWidth("a张三"), 5);
+  });
+
+  it("正常路径: 假名 / 全角标点 / 全角字母占 2 列", () => {
+    assert.equal(visibleWidth("日本語"), 6);
+    assert.equal(visibleWidth("中文：路径"), 10);
+    assert.equal(visibleWidth("ＡＢＣ"), 6);
+  });
+
+  it("正常路径: Hangul 音节占 2 列", () => {
+    assert.equal(visibleWidth("한글"), 4);
+  });
+
+  it("正常路径: emoji（代理对）占 2 列", () => {
+    assert.equal(visibleWidth("😀"), 2);
+    assert.equal(visibleWidth("a😀b"), 4);
+  });
+
+  it("异常路径: 控制字符不占列", () => {
+    assert.equal(visibleWidth("a\tb"), 2);
+    assert.equal(visibleWidth("a\nb"), 2);
+  });
+});
+
+describe("truncatePlain — 按可见宽度截断", () => {
+  it("正常路径: 中文超宽按列截断，不切半字符", () => {
+    assert.equal(truncatePlain("一二三四五六七八九十", 8), "一二...");
+  });
+
+  it("正常路径: 中英混合按列截断", () => {
+    assert.equal(truncatePlain("abc一二三四", 7), "abc...");
+  });
+
+  it("边界条件: 中文不超宽时原样返回", () => {
+    assert.equal(truncatePlain("中文", 10), "中文");
+  });
+
+  it("异常路径: emoji 截断不产生孤立代理字符", () => {
+    assert.equal(truncatePlain("😀😀😀", 4, ""), "😀😀");
+  });
+});
+
+describe("layoutLine — CJK 宽度下的对齐与截断", () => {
+  it("正常路径: 中文左右两端对齐，宽度恰好填满", () => {
+    const line = layoutLine("左", "右", 6);
+    assert.equal(line, "左" + "  " + "右");
+    assert.equal(visibleWidth(line), 6);
+  });
+
+  it("正常路径: 中英混合对齐", () => {
+    const line = layoutLine("a", "右", 5);
+    assert.equal(line, "a" + "  " + "右");
+    assert.equal(visibleWidth(line), 5);
+  });
+
+  it("边界条件: 宽度不足按列截断右侧中文", () => {
+    const line = layoutLine("0123456789", "一二三", 14);
+    assert.equal(line, "0123456789" + "  " + "一");
+    assert.ok(visibleWidth(line) <= 14);
+  });
+});

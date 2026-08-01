@@ -52,10 +52,11 @@ export function shortenHome(cwd: string, home: string | undefined): string {
   return cwd;
 }
 
-/** 纯文本超宽截断并追加省略号 */
+/** 纯文本超宽按可见宽度截断并追加省略号 */
 export function truncatePlain(text: string, width: number, ellipsis = "..."): string {
-  if (text.length <= width) return text;
-  return text.slice(0, Math.max(0, width - ellipsis.length)) + ellipsis;
+  if (visibleWidth(text) <= width) return text;
+  const avail = Math.max(0, width - visibleWidth(ellipsis));
+  return truncateByWidth(text, avail) + ellipsis;
 }
 
 // ─── usage 累加 ─────────────────────────────────────────────────────
@@ -112,14 +113,52 @@ export function buildStatsLeft(
 
 const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
 
-/** 剥离 ANSI 转义码后的可见宽度 */
+/** 终端宽字符的简化区间（East Asian Wide 子集：CJK / 假名 / 全角 / Hangul / emoji） */
+function isWide(cp: number): boolean {
+  return (
+    (cp >= 0x1100 && cp <= 0x115f) ||   // Hangul Jamo
+    (cp >= 0x2e80 && cp <= 0xa4cf) ||   // 部首 / 注音 / 假名 / 全角标点 / CJK / 彝文
+    (cp >= 0xac00 && cp <= 0xd7a3) ||   // Hangul 音节
+    (cp >= 0xf900 && cp <= 0xfaff) ||   // CJK 兼容表意
+    (cp >= 0xfe30 && cp <= 0xfe6f) ||   // CJK 兼容形式
+    (cp >= 0xff00 && cp <= 0xff60) ||   // 全角形式
+    (cp >= 0xffe0 && cp <= 0xffe6) ||   // 全角货币符号
+    (cp >= 0x1f000 && cp <= 0x1faff) || // emoji 及补充平面符号
+    (cp >= 0x20000 && cp <= 0x2fa1f)    // CJK Ext B-F
+  );
+}
+
+/** 单个 codepoint 的终端显示宽度：宽字符 2 列，控制字符 0 列，其余 1 列 */
+function charWidth(ch: string): number {
+  const cp = ch.codePointAt(0)!;
+  if (cp < 0x20 || (cp >= 0x7f && cp < 0xa0)) return 0;
+  return isWide(cp) ? 2 : 1;
+}
+
+/** 剥离 ANSI 转义码后的可见宽度（CJK / emoji 按 2 列计） */
 export function visibleWidth(text: string): number {
-  return text.replace(ANSI_PATTERN, "").length;
+  let width = 0;
+  for (const ch of text.replace(ANSI_PATTERN, "")) width += charWidth(ch);
+  return width;
+}
+
+/** 按可见宽度截断为前缀子串（不含省略号），不切断代理对 */
+function truncateByWidth(text: string, width: number): string {
+  if (visibleWidth(text) <= width) return text;
+  let out = "";
+  let w = 0;
+  for (const ch of text) {
+    const cw = charWidth(ch);
+    if (w + cw > width) break;
+    out += ch;
+    w += cw;
+  }
+  return out;
 }
 
 /**
  * 左右两端对齐布局：宽度足够时中间补空格右对齐；
- * 不足时截断右侧（右侧为纯文本）；极窄时仅输出左侧。
+ * 不足时按可见宽度截断右侧（右侧为纯文本）；极窄时仅输出左侧。
  */
 export function layoutLine(left: string, right: string, width: number): string {
   const minPadding = 2;
@@ -132,8 +171,7 @@ export function layoutLine(left: string, right: string, width: number): string {
 
   const availableForRight = width - leftWidth - minPadding;
   if (availableForRight > 0) {
-    const truncated = right.slice(0, availableForRight);
-    return left + " ".repeat(minPadding) + truncated;
+    return left + " ".repeat(minPadding) + truncateByWidth(right, availableForRight);
   }
   return left;
 }
