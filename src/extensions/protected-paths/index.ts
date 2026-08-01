@@ -36,6 +36,8 @@ export default function (pi: ExtensionAPI) {
       if (verdict === "block") {
         // block 路径 → 仅 session trust
         if (!isSessionTrusted(toolName, filePath)) {
+          // 拦截必须留痕（Make It Observable），issue #6
+          console.warn(`[protected-paths] 受保护的文件路径，不允许写入: ${filePath}`);
           return { block: true, reason: `🛡️ 受保护的文件路径，不允许写入：${filePath}` };
         }
         return;
@@ -56,6 +58,8 @@ export default function (pi: ExtensionAPI) {
             : result.status === "error"
             ? `🛡️ 确认对话框异常，已阻止：${filePath}`
             : `用户拒绝了写入：${filePath}`;
+          // 拦截必须留痕（Make It Observable），issue #6
+          console.warn(`[protected-paths] ${reason}`);
           return { block: true, reason };
         }
         // 用户批准 → 按 scope 添加信任
@@ -93,6 +97,8 @@ export default function (pi: ExtensionAPI) {
           : result.status === "error"
           ? `🛡️ 确认对话框异常，已阻止读取：${filePath}`
           : `用户拒绝了读取敏感文件：${filePath}`;
+        // 拦截必须留痕（Make It Observable），issue #6
+        console.warn(`[protected-paths] ${reason}`);
         return { block: true, reason };
       }
       try {

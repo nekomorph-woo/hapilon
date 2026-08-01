@@ -5,13 +5,14 @@
  * 不依赖 Pi ExtensionAPI mock。
  */
 
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 
 import {
   classifyCommand,
   hasShellInjection,
 } from "../../extensions/safety-gate/index.js";
+import safetyGateExtension from "../../extensions/safety-gate/index.js";
 
 describe("safety-gate", () => {
   describe("classifyCommand()", () => {
@@ -34,6 +35,32 @@ describe("safety-gate", () => {
         classifyCommand("sudo rm -rf / --no-preserve-root"),
         "block",
       );
+    });
+
+    it("rm -rf --one-file-system / → block（-rf 与目标间插参，issue #6）", () => {
+      assert.strictEqual(
+        classifyCommand("rm -rf --one-file-system /"),
+        "block",
+      );
+    });
+
+    it("sudo rm -rf --no-preserve-root / → block（flag 在目标前，issue #6）", () => {
+      assert.strictEqual(
+        classifyCommand("sudo rm -rf --no-preserve-root /"),
+        "block",
+      );
+    });
+
+    it("rm\\ -rf\\ / → block（反斜杠转义空白，issue #6）", () => {
+      assert.strictEqual(classifyCommand("rm\\ -rf\\ /"), "block");
+    });
+
+    it("rm -rf ${IFS}/ → block（变量展开为空白，issue #6）", () => {
+      assert.strictEqual(classifyCommand("rm -rf ${IFS}/"), "block");
+    });
+
+    it("rm -rf $IFS/ → block（$IFS 无花括号变体，issue #6）", () => {
+      assert.strictEqual(classifyCommand("rm -rf $IFS/"), "block");
     });
 
     it("mkfs.ext4 /dev/sda1 → block", () => {
@@ -91,6 +118,17 @@ describe("safety-gate", () => {
 
     it("fork bomb 内部多空格变体仍 block", () => {
       assert.strictEqual(classifyCommand(":(){  :|: &  };:"), "block");
+    });
+
+    it(":(){ :|:& }; → block（无尾冒号变体，issue #6）", () => {
+      assert.strictEqual(classifyCommand(":(){ :|:& };"), "block");
+    });
+
+    it("function bomb 变体 → allow（Spec 明确暂不拦截，不扩大范围）", () => {
+      assert.strictEqual(
+        classifyCommand("function bomb { bomb|bomb& }; bomb"),
+        "allow",
+      );
     });
 
     // ── BLOCK：shell 注入（通过 classifyCommand 集成路径）──
@@ -421,6 +459,59 @@ describe("safety-gate", () => {
 
     it("$ 变量展开不是注入 → false", () => {
       assert.strictEqual(hasShellInjection('echo "$HOME"'), false);
+    });
+  });
+
+  // ── Seam B：拦截日志（tool_call 回调 + spy console.warn，issue #6）──
+  // 仅捕获注册的回调并直接调用，不经过 Pi 运行时，不执行任何命令。
+  describe("拦截日志（tool_call 回调）", () => {
+    function captureToolCallHandler() {
+      let handler: ((event: unknown, ctx: unknown) => Promise<unknown>) | undefined;
+      const pi = {
+        on: (name: string, cb: unknown) => {
+          if (name === "tool_call") handler = cb as typeof handler;
+        },
+      };
+      safetyGateExtension(pi as never);
+      assert.ok(handler, "tool_call 回调已注册");
+      return handler;
+    }
+
+    const bashEvent = (command: string) => ({
+      toolName: "bash",
+      input: { command },
+    });
+
+    it("BLOCK 命中 → console.warn 记录 reason（不再静默）", async () => {
+      const handler = captureToolCallHandler();
+      const warn = mock.method(console, "warn");
+      try {
+        const result = (await handler(bashEvent("rm -rf /"), {
+          cwd: "/tmp",
+          hasUI: false,
+        })) as { block?: boolean } | null | undefined;
+        assert.strictEqual(result?.block, true);
+        assert.strictEqual(warn.mock.callCount(), 1);
+        assert.match(String(warn.mock.calls[0]?.arguments[0]), /危险命令已阻止/);
+      } finally {
+        warn.mock.restore();
+      }
+    });
+
+    it("CONFIRM 非交互拒绝 → console.warn 记录 reason", async () => {
+      const handler = captureToolCallHandler();
+      const warn = mock.method(console, "warn");
+      try {
+        const result = (await handler(bashEvent("rm -rf ./node_modules"), {
+          cwd: "/tmp",
+          hasUI: false,
+        })) as { block?: boolean } | null | undefined;
+        assert.strictEqual(result?.block, true);
+        assert.strictEqual(warn.mock.callCount(), 1);
+        assert.match(String(warn.mock.calls[0]?.arguments[0]), /非交互模式下拦截中危命令/);
+      } finally {
+        warn.mock.restore();
+      }
     });
   });
 });

@@ -129,15 +129,15 @@ discoverExtensions() → filter out safety-gate.js + protected-paths.js → spaw
 
 | 级别 | 模式 | 匹配方式 |
 |------|------|----------|
-| BLOCK | `rm -rf /`, `rm -rf /*`, `sudo rm -rf /`, `sudo rm -rf /*` | 包含匹配（含空格） |
+| BLOCK | `rm -rf /`, `rm -rf /*`, `sudo rm -rf /`, `sudo rm -rf /*` | 包含匹配（含空格）；`-rf` 与目标间允许插参（issue #6） |
 | BLOCK | `mkfs.` | 前缀匹配 |
 | BLOCK | `dd of=/dev/` | 包含匹配 |
-| BLOCK | `:(){ :\|:& };:`, `:(){ :\|:& };:` | 精确匹配（fork bomb） |
+| BLOCK | `:(){ :\|:& };:`, `:(){ :\|:& };` | fork bomb，尾冒号可选（issue #6） |
 | BLOCK | `chmod 777 /`, `chmod -R 777 /` | 包含匹配 |
 | BLOCK | `chown -R /` | 包含匹配 |
 | BLOCK | `> /dev/sda`, `> /dev/nvme` | 包含匹配（输出重定向到块设备） |
 | BLOCK | `` ` ``（反引号）、`$(`、`<(`、`>(` | 字符级检测（shell 注入） |
-| CONFIRM | `rm -rf`（target 不是 `/` 或 `/*`） | 先匹配 `rm -rf` 再排除根目录 |
+| CONFIRM | `rm -rf`（target 不是 `/` 或 `/*`） | 先匹配 `rm -rf` 再排除根目录（排除逻辑与 BLOCK 同语义、含插参，issue #6） |
 | CONFIRM | `git push --force`（含 `--force-with-lease`） | 包含匹配 |
 | CONFIRM | `curl ... \| sh`, `curl ... \| bash`, `wget ... \| sh` | 包含 `\|` 且目标为 sh/bash |
 | CONFIRM | `chmod 777`（target 不是 `/`） | 先匹配 `chmod 777` 再排除根目录 |
@@ -306,7 +306,12 @@ function resolveTarget(targetPath: string, cwd: string): string {
 | | `echo "$HOME"` | `false`（双引号内的 `$` 变量不是命令替换） |
 | fork bomb 精确匹配 | `:(){ :\|:& };:` | BLOCK |
 | | `:(){ :\|:& };: ` | BLOCK（trim 后匹配） |
+| | `:(){ :\|:& };` | BLOCK（无尾冒号变体，issue #6） |
 | | `function bomb { bomb\|bomb& }; bomb` | 不匹配（变体，暂不拦截） |
+| rm -rf 参数插入 | `rm -rf --one-file-system /` | BLOCK（`-rf` 与 `/` 间插参，issue #6） |
+| | `sudo rm -rf --no-preserve-root /` | BLOCK（flag 在目标前，issue #6） |
+| 编码/变量归一化 | `rm\ -rf\ /` | BLOCK（反斜杠转义空白归一化，issue #6） |
+| | `rm -rf ${IFS}/`、`rm -rf $IFS/` | BLOCK（IFS 变量归一化，issue #6） |
 
 **验证**：`npm run test:unit` 全部通过（65+ 个断言）
 

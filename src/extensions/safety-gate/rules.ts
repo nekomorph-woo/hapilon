@@ -11,7 +11,8 @@
 export const BLOCK_PATTERNS: Array<{ test: (cmd: string) => boolean; label: string }> = [
   // ── 文件系统破坏 ──
   {
-    test: (c) => /\b(?:sudo\s+)?rm\s+-rf\s+(\/|~|\/\*)/.test(c),
+    // `-rf` 与目标之间允许插参（`rm -rf --one-file-system /` 等仍应 BLOCK），issue #6
+    test: (c) => /\b(?:sudo\s+)?rm\s+-rf\b(?:\s+[^\s]+)*\s+(\/|~|\/\*)/.test(c),
     label: "rm -rf 根目录/home",
   },
   {
@@ -80,7 +81,8 @@ export const BLOCK_PATTERNS: Array<{ test: (cmd: string) => boolean; label: stri
 
   // ── fork bomb ──
   {
-    test: (c) => /:\(\)\s*\{\s*:\|\s*:\s*&\s*\};:/.test(c.replace(/\s+/g, " ")),
+    // 尾冒号 `;:` 可选——`:(){ :|:& };`（无尾冒号变体）同为 fork bomb，issue #6
+    test: (c) => /:\(\)\s*\{\s*:\|\s*:\s*&\s*\};\s*:?/.test(c.replace(/\s+/g, " ")),
     label: "fork bomb",
   },
 ];
@@ -88,7 +90,8 @@ export const BLOCK_PATTERNS: Array<{ test: (cmd: string) => boolean; label: stri
 export const CONFIRM_PATTERNS: Array<{ test: (cmd: string) => boolean; label: string }> = [
   // ── 文件删除 ──
   {
-    test: (c) => /\brm\s+-rf\b/.test(c) && !/\brm\s+-rf\s+(\/|~|\/\*)/.test(c),
+    // 排除与 BLOCK 规则同语义（含插参），避免「BLOCK 未覆盖则降级 confirm」的耦合缺口，issue #6
+    test: (c) => /\brm\s+-rf\b/.test(c) && !/\b(?:sudo\s+)?rm\s+-rf\b(?:\s+[^\s]+)*\s+(\/|~|\/\*)/.test(c),
     label: "rm -rf",
   },
   {

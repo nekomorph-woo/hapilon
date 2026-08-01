@@ -5,7 +5,7 @@
  * 不依赖 Pi ExtensionAPI mock。
  */
 
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
@@ -15,6 +15,7 @@ import {
   expandTilde,
   resolveTarget,
 } from "../../extensions/protected-paths/index.js";
+import protectedPathsExtension from "../../extensions/protected-paths/index.js";
 import {
   addAllow,
   removeAllow,
@@ -174,6 +175,82 @@ describe("protected-paths", () => {
       resetWhitelist();
       addAllow("", "/tmp/project");
       assert.strictEqual(listAllow().length, 0);
+    });
+  });
+
+  // ── Seam B：拦截日志（tool_call 回调 + spy console.warn，issue #6）──
+  // 仅捕获注册的回调并直接调用，不经过 Pi 运行时，不执行任何命令。
+  describe("拦截日志（tool_call 回调）", () => {
+    function captureToolCallHandler() {
+      let handler: ((event: unknown, ctx: unknown) => Promise<unknown>) | undefined;
+      const pi = {
+        on: (name: string, cb: unknown) => {
+          if (name === "tool_call") handler = cb as typeof handler;
+        },
+        // protected-paths 扩展注册了 /allow 命令，mock 需提供该方法
+        registerCommand: () => {},
+      };
+      protectedPathsExtension(pi as never);
+      assert.ok(handler, "tool_call 回调已注册");
+      return handler;
+    }
+
+    const writeEvent = (path: string) => ({
+      toolName: "write",
+      input: { path },
+    });
+    const readEvent = (path: string) => ({
+      toolName: "read",
+      input: { path },
+    });
+    const noUI = { cwd: "/tmp", hasUI: false };
+
+    it("write BLOCK 命中 → console.warn 记录 reason（不再静默）", async () => {
+      const handler = captureToolCallHandler();
+      const warn = mock.method(console, "warn");
+      try {
+        const result = (await handler(writeEvent("~/.ssh/id_rsa"), noUI)) as
+          | { block?: boolean }
+          | null
+          | undefined;
+        assert.strictEqual(result?.block, true);
+        assert.strictEqual(warn.mock.callCount(), 1);
+        assert.match(String(warn.mock.calls[0]?.arguments[0]), /受保护的文件路径/);
+      } finally {
+        warn.mock.restore();
+      }
+    });
+
+    it("write CONFIRM 非交互拒绝 → console.warn 记录 reason", async () => {
+      const handler = captureToolCallHandler();
+      const warn = mock.method(console, "warn");
+      try {
+        const result = (await handler(writeEvent(".env"), noUI)) as
+          | { block?: boolean }
+          | null
+          | undefined;
+        assert.strictEqual(result?.block, true);
+        assert.strictEqual(warn.mock.callCount(), 1);
+        assert.match(String(warn.mock.calls[0]?.arguments[0]), /非交互模式下拦截中危写入/);
+      } finally {
+        warn.mock.restore();
+      }
+    });
+
+    it("read CONFIRM 非交互拒绝 → console.warn 记录 reason", async () => {
+      const handler = captureToolCallHandler();
+      const warn = mock.method(console, "warn");
+      try {
+        const result = (await handler(readEvent("~/.ssh/id_rsa"), noUI)) as
+          | { block?: boolean }
+          | null
+          | undefined;
+        assert.strictEqual(result?.block, true);
+        assert.strictEqual(warn.mock.callCount(), 1);
+        assert.match(String(warn.mock.calls[0]?.arguments[0]), /非交互模式下禁止读取敏感文件/);
+      } finally {
+        warn.mock.restore();
+      }
     });
   });
 });

@@ -32,6 +32,8 @@ export default function (pi: ExtensionAPI) {
     if (verdict === "allow") return;
 
     if (verdict === "block") {
+      // 拦截必须留痕（Make It Observable），issue #6
+      console.warn(`[safety-gate] 危险命令已阻止: ${command.slice(0, 120)}`);
       return {
         block: true,
         reason: `🛡️ 危险命令已阻止：${command.slice(0, 120)}`,
@@ -42,6 +44,8 @@ export default function (pi: ExtensionAPI) {
     if (isTrusted("bash", normalized, ctx.cwd)) return;
 
     if (!ctx.hasUI) {
+      // 拦截必须留痕（Make It Observable），issue #6
+      console.warn(`[safety-gate] 非交互模式下拦截中危命令: ${command.slice(0, 120)}`);
       return {
         block: true,
         reason: `🛡️ 非交互模式下拦截中危命令：${command.slice(0, 120)}`,
@@ -59,6 +63,8 @@ export default function (pi: ExtensionAPI) {
         : result.status === "error"
         ? `🛡️ 确认对话框异常，已阻止：${command.slice(0, 120)}`
         : `用户拒绝了此操作：${command.slice(0, 120)}`;
+      // 拦截必须留痕（Make It Observable），issue #6
+      console.warn(`[safety-gate] ${reason}`);
       return { block: true, reason };
     }
     try {
