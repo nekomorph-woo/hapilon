@@ -97,8 +97,8 @@ pi.on("tool_result", (event) => {
 #### 与现有扩展的关系
 
 - **hpl-safety-gate**：拦截 bash 危险命令 → 与本扩展互斥无冲突
-- **protected-paths**：拦截敏感路径的 read/write → 本扩展拦截的是"文件是否被读过"，是另一个维度。如果 write 同时命中 protected-paths 和 freshness-gate，两个扩展独立判断（Pi 的 tool_call 事件链式传递，任一 block 即 block）
-- **hapilon CLI**（`cli.ts:97-112`）：`--no-safety` 标记需扩展，过滤 `hpl-safety-gate` 和 `protected-paths`，freshness-gate 也应加入过滤列表
+- **hpl-protected-paths**：拦截敏感路径的 read/write → 本扩展拦截的是"文件是否被读过"，是另一个维度。如果 write 同时命中 hpl-protected-paths 和 freshness-gate，两个扩展独立判断（Pi 的 tool_call 事件链式传递，任一 block 即 block）
+- **hapilon CLI**（`cli.ts:97-112`）：`--no-safety` 标记需扩展，过滤 `hpl-safety-gate` 和 `hpl-protected-paths`，freshness-gate 也应加入过滤列表
 
 ### 与其他 Coding Agent 的对比
 
@@ -116,7 +116,7 @@ pi.on("tool_result", (event) => {
 
 - Pi `edit.js` 实时读文件逻辑：`node_modules/@earendil-works/pi-coding-agent/dist/core/tools/edit.js:198`
 - hapilon `hpl-safety-gate` 扩展（同类 tool_call 拦截模式）：`src/extensions/hpl-safety-gate/index.ts`
-- hapilon `protected-paths` 扩展（同类 tool_call 拦截模式）：`src/extensions/protected-paths/index.ts`
+- hapilon `hpl-protected-paths` 扩展（同类 tool_call 拦截模式）：`src/extensions/hpl-protected-paths/index.ts`
 - hapilon CLI `--no-safety` 过滤逻辑：`src/cli.ts:97-112`
 - Claude Code read-before-write guard：内置 harness 机制
 

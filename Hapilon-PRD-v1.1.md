@@ -1114,7 +1114,7 @@ session.abort();                                // 取消（接 delegate 工具�
 - 独立模型（每 subagent 可设不同 model / tier）；
 - 独立工具集（构造时白名单钉死）；
 - 低开销（无进程启动，同运行时内创建会话对象）；
-- **主进程 `tool_call` hook 在子会话内仍生效**——hpl-safety-gate / protected-paths 自动覆盖 subagent（见 §9.7.1.1）；
+- **主进程 `tool_call` hook 在子会话内仍生效**——hpl-safety-gate / hpl-protected-paths 自动覆盖 subagent（见 §9.7.1.1）；
 - `modelRegistry` 复用，无需子进程传参；
 - 容易并行（多 session 对象）和取消（`session.abort()` / AbortSignal）；
 - pi-subagents 的高级 feature（graceful max_turns、mid-run steering、widget、调度）可分阶段移植。
@@ -1126,7 +1126,7 @@ session.abort();                                // 取消（接 delegate 工具�
 
 #### 9.7.1.1 安全模型（进程内路线的关键收益）
 
-进程内路线下，子会话通过 `session.bindExtensions()` **重新加载扩展**，hapilon 的 hpl-safety-gate / protected-paths 在每个子会话内重新注册生效——`_backlog/prompt-injection-defense.md` 记录的"独立子进程 hook 盲区"问题**不复存在**。
+进程内路线下，子会话通过 `session.bindExtensions()` **重新加载扩展**，hapilon 的 hpl-safety-gate / hpl-protected-paths 在每个子会话内重新注册生效——`_backlog/prompt-injection-defense.md` 记录的"独立子进程 hook 盲区"问题**不复存在**。
 
 安全控制点：
 

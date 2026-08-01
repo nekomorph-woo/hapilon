@@ -73,7 +73,7 @@ describe("trust-store", () => {
       }));
 
       // isTrusted 会同时查 session + project，所以 project trust 会生效
-      // 调用方（protected-paths）对 block 路径应使用 isSessionTrusted
+      // 调用方（hpl-protected-paths）对 block 路径应使用 isSessionTrusted
       assert.strictEqual(isTrusted("write", "id_rsa", proj), true, "isTrusted 查 project");
 
       // block 路径应用 isSessionTrusted — project 不生效

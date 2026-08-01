@@ -5,7 +5,7 @@
 hapilon 以 Pi Coding Agent 为内核，裸 Pi 的所有工具（bash/write/edit/read 等）以用户完整权限运行，无任何拦截。需要在 hapilon 层面补齐三层安全基础设施：
 
 1. **TODO-5**：危险命令拦截（hpl-safety-gate.ts）— 拦截 bash 工具的高危/中危命令
-2. **TODO-6**：文件路径保护（protected-paths.ts）— 拦截 write/edit/read 对敏感路径的操作
+2. **TODO-6**：文件路径保护（hpl-protected-paths.ts）— 拦截 write/edit/read 对敏感路径的操作
 3. **TODO-7**：启动安全提示 — 首次启动时告知用户安全扩展已激活
 
 三者共享 `--no-safety` CLI 绕过开关，需统一设计。
@@ -24,9 +24,9 @@ hapilon 以 Pi Coding Agent 为内核，裸 Pi 的所有工具（bash/write/edit
 | 文件 | 职责 |
 |------|------|
 | `src/extensions/hpl-safety-gate.ts` | 危险命令拦截扩展：bash 工具混合策略（block / confirm / allow）+ shell 注入检测 |
-| `src/extensions/protected-paths.ts` | 文件路径保护扩展：拦截 write/edit 的写操作 + read 的读敏感文件操作 |
+| `src/extensions/hpl-protected-paths.ts` | 文件路径保护扩展：拦截 write/edit 的写操作 + read 的读敏感文件操作 |
 | `src/test/unit/hpl-safety-gate.test.ts` | hpl-safety-gate 单元测试：命令分类逻辑、shell 注入检测、扩展注册验证 |
-| `src/test/unit/protected-paths.test.ts` | protected-paths 单元测试：路径匹配逻辑、写保护/读保护分类、扩展注册验证 |
+| `src/test/unit/hpl-protected-paths.test.ts` | hpl-protected-paths 单元测试：路径匹配逻辑、写保护/读保护分类、扩展注册验证 |
 
 ### 修改文件
 
@@ -42,7 +42,7 @@ hapilon 以 Pi Coding Agent 为内核，裸 Pi 的所有工具（bash/write/edit
 **方案 A（选择）**：hailon CLI 检测 `--no-safety` 后，从 `discoverExtensions()` 结果中过滤掉安全扩展的 JS 文件，不传给 Pi。
 
 ```
-discoverExtensions() → filter out hpl-safety-gate.js + protected-paths.js → spawn pi
+discoverExtensions() → filter out hpl-safety-gate.js + hpl-protected-paths.js → spawn pi
 ```
 
 **方案 B（不选）**：安全扩展内通过 `pi.getFlag("no-safety")` 自行判断。
@@ -51,7 +51,7 @@ discoverExtensions() → filter out hpl-safety-gate.js + protected-paths.js → 
 
 ### 决策 2：两个独立扩展 vs 一个统一扩展
 
-**方案 A（选择）**：hpl-safety-gate.ts 和 protected-paths.ts 两个独立文件。
+**方案 A（选择）**：hpl-safety-gate.ts 和 hpl-protected-paths.ts 两个独立文件。
 
 **方案 B（不选）**：合并为 safety.ts 单文件。
 
@@ -173,9 +173,9 @@ async function requestConfirm(ctx: ExtensionContext, reason: string): Promise<bo
 
 ---
 
-#### 步骤 2.2：实现 protected-paths.ts
+#### 步骤 2.2：实现 hpl-protected-paths.ts
 
-**文件**：`src/extensions/protected-paths.ts`
+**文件**：`src/extensions/hpl-protected-paths.ts`
 
 **结构**：
 
@@ -317,9 +317,9 @@ function resolveTarget(targetPath: string, cwd: string): string {
 
 ---
 
-#### 步骤 3.2：protected-paths 单元测试
+#### 步骤 3.2：hpl-protected-paths 单元测试
 
-**文件**：`src/test/unit/protected-paths.test.ts`
+**文件**：`src/test/unit/hpl-protected-paths.test.ts`
 
 **测试用例清单**：
 
@@ -410,8 +410,8 @@ const loadedExtensions = noSafety
       (e) =>
         !e.endsWith("/hpl-safety-gate/index.js") &&
         !e.endsWith("/hpl-safety-gate.js") &&
-        !e.endsWith("/protected-paths/index.js") &&
-        !e.endsWith("/protected-paths.js"),
+        !e.endsWith("/hpl-protected-paths/index.js") &&
+        !e.endsWith("/hpl-protected-paths.js"),
     )
   : allExtensions;
 const extensionFlags = loadedExtensions.flatMap((e) => ["-e", e]);
@@ -448,7 +448,7 @@ const extensionFlags = loadedExtensions.flatMap((e) => ["-e", e]);
 ```bash
 npm run build
 ls dist/extensions/hpl-safety-gate.js       # 应存在
-ls dist/extensions/protected-paths.js   # 应存在
+ls dist/extensions/hpl-protected-paths.js   # 应存在
 ```
 
 #### 步骤 5.2：类型检查
@@ -462,7 +462,7 @@ npm run typecheck
 
 ```bash
 npm run test:unit
-# 全部通过，包括新增的 hpl-safety-gate.test.js 和 protected-paths.test.js
+# 全部通过，包括新增的 hpl-safety-gate.test.js 和 hpl-protected-paths.test.js
 ```
 
 ---
@@ -515,10 +515,10 @@ npm run test:unit
 步骤 1.1 (config-io.ts 接口扩展)
   │
   ├─► 步骤 2.1 (hpl-safety-gate.ts)     ──┐  可并行
-  └─► 步骤 2.2 (protected-paths.ts) ──┘
+  └─► 步骤 2.2 (hpl-protected-paths.ts) ──┘
         │
         ├─► 步骤 3.1 (hpl-safety-gate 单元测试)     ──┐  可并行
-        └─► 步骤 3.2 (protected-paths 单元测试) ──┘
+        └─► 步骤 3.2 (hpl-protected-paths 单元测试) ──┘
               │
               └─► 步骤 4.1 (cli.ts 集成)
                     │

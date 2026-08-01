@@ -1,5 +1,5 @@
 /**
- * protected-paths 单元测试 — 分层路径匹配 + 白名单 + /allow
+ * hpl-protected-paths 单元测试 — 分层路径匹配 + 白名单 + /allow
  *
  * 测试纯函数 classifyPath()、expandTilde() 和白名单辅助函数，
  * 不依赖 Pi ExtensionAPI mock。
@@ -15,13 +15,13 @@ import {
   expandTilde,
   resolveTarget,
   parseAllowArgs,
-} from "../../extensions/protected-paths/index.js";
-import protectedPathsExtension from "../../extensions/protected-paths/index.js";
+} from "../../extensions/hpl-protected-paths/index.js";
+import protectedPathsExtension from "../../extensions/hpl-protected-paths/index.js";
 import { addTrust, isSessionTrusted, clearSessionTrust } from "../../trust-store.js";
 
 const home = homedir();
 
-describe("protected-paths", () => {
+describe("hpl-protected-paths", () => {
   describe("expandTilde()", () => {
     it("~ → home", () => assert.strictEqual(expandTilde("~"), home));
     it("~/ → home/", () => assert.strictEqual(expandTilde("~/"), home + "/"));
@@ -263,7 +263,7 @@ describe("protected-paths", () => {
         on: (name: string, cb: unknown) => {
           if (name === "tool_call") handler = cb as typeof handler;
         },
-        // protected-paths 扩展注册了 /allow 命令，mock 需提供该方法
+        // hpl-protected-paths 扩展注册了 /allow 命令，mock 需提供该方法
         registerCommand: () => {},
       };
       protectedPathsExtension(pi as never);

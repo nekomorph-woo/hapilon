@@ -368,7 +368,7 @@ hapilon CLI (cli.ts)
 │     ├─ 收集 HAPILON.md + rules (复用 files.ts / 直接 import)
 │     └─ 组装 XML → return { systemPrompt: xml }
 │
-└─ hpl-safety-gate / protected-paths / hpl-footer (不变)
+└─ hpl-safety-gate / hpl-protected-paths / hpl-footer (不变)
 ```
 
 ### 3.3 `before_agent_start` handler 组装逻辑

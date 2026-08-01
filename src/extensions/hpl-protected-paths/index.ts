@@ -1,5 +1,5 @@
 /**
- * protected-paths/index.ts — 文件路径保护扩展（分层版）
+ * hpl-protected-paths/index.ts — 文件路径保护扩展（分层版）
  *
  * 通过 pi.on("tool_call", ...) 拦截 write/edit/read 工具调用：
  *   write/edit → trust-check → block（高危硬阻止）→ confirm（中危 4 选项弹框）
@@ -60,7 +60,7 @@ export default function (pi: ExtensionAPI) {
         // block 路径 → 仅 session trust
         if (!isSessionTrusted(toolName, filePath)) {
           // 拦截必须留痕（Make It Observable），issue #6
-          console.warn(`[protected-paths] 受保护的文件路径，不允许写入: ${filePath}`);
+          console.warn(`[hpl-protected-paths] 受保护的文件路径，不允许写入: ${filePath}`);
           return { block: true, reason: `🛡️ 受保护的文件路径，不允许写入：${filePath}` };
         }
         return;
@@ -82,7 +82,7 @@ export default function (pi: ExtensionAPI) {
             ? `🛡️ 确认对话框异常，已阻止：${filePath}`
             : `用户拒绝了写入：${filePath}`;
           // 拦截必须留痕（Make It Observable），issue #6
-          console.warn(`[protected-paths] ${reason}`);
+          console.warn(`[hpl-protected-paths] ${reason}`);
           return { block: true, reason };
         }
         // 用户批准 → 按 scope 添加信任
@@ -124,7 +124,7 @@ export default function (pi: ExtensionAPI) {
           ? `🛡️ 确认对话框异常，已阻止读取：${filePath}`
           : `用户拒绝了读取敏感文件：${filePath}`;
         // 拦截必须留痕（Make It Observable），issue #6
-        console.warn(`[protected-paths] ${reason}`);
+        console.warn(`[hpl-protected-paths] ${reason}`);
         return { block: true, reason };
       }
       try {

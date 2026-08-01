@@ -14,12 +14,12 @@
 安全层次（深层防御）：
 
 第 1 层：命令拦截     ← hpl-safety-gate（我们已有）   正则匹配，漏一条就出事
-第 2 层：文件保护     ← protected-paths（我们已有） hook 拦截，只覆盖 write/edit/read
+第 2 层：文件保护     ← hpl-protected-paths（我们已有） hook 拦截，只覆盖 write/edit/read
 第 3 层：OS 沙箱      ← 本次主题                   内核强制，不可能绕过
 第 4 层：容器/虚拟机   ← Docker/microVM            完全隔离，但有性能开销
 ```
 
-hpl-safety-gate 和 protected-paths 的局限：它们是**规则匹配**——漏写一条规则就多一个洞。OS 沙箱是**默认拒绝 + 显式允许**——所有路径默认不可访问，只有明确列出的才放行。
+hpl-safety-gate 和 hpl-protected-paths 的局限：它们是**规则匹配**——漏写一条规则就多一个洞。OS 沙箱是**默认拒绝 + 显式允许**——所有路径默认不可访问，只有明确列出的才放行。
 
 ---
 
@@ -156,7 +156,7 @@ hapilon 是 Pi Coding Agent 的 CLI wrapper。当前安全层：
 ```text
 hapilon CLI
   → spawn pi 子进程（stdio: inherit）
-  → 注入扩展（hpl-safety-gate + protected-paths）
+  → 注入扩展（hpl-safety-gate + hpl-protected-paths）
   → pi 以用户完整权限运行
 ```
 
@@ -178,7 +178,7 @@ hapilon CLI
 - `_foresight.md`（已归档 → `_foresight/2-os-sandbox-solutions.md`）— P0.1 安全基础设施
 - `Hapilon-PRD-v1.1.md` §9.16 — 权限与安全
 - `src/extensions/hpl-safety-gate/` — 命令拦截（内层防御）
-- `src/extensions/protected-paths/` — 文件保护（中层防御）
+- `src/extensions/hpl-protected-paths/` — 文件保护（中层防御）
 
 ---
 

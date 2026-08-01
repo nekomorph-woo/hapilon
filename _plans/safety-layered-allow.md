@@ -2,7 +2,7 @@
 
 ## Context
 
-当前 `protected-paths.ts` 对所有 ~30 种写保护路径一律 hard block。正常工作中需要修改 `.env` 或 `.github/workflows/` 时，只能用 `--no-safety` 全局关闭所有安全检查，风险极大。
+当前 `hpl-protected-paths.ts` 对所有 ~30 种写保护路径一律 hard block。正常工作中需要修改 `.env` 或 `.github/workflows/` 时，只能用 `--no-safety` 全局关闭所有安全检查，风险极大。
 
 需要两个增强：
 1. **写保护分层**：将统一 block 拆为高危 block + 中危 confirm
@@ -51,8 +51,8 @@
 
 | 文件 | 变更内容 |
 |------|----------|
-| `src/extensions/protected-paths.ts` | 重写分层逻辑、新增 whitelist Set、注册 /allow 命令、中危路径弹 confirm |
-| `src/test/unit/protected-paths.test.ts` | 更新分类测试（区分 block vs confirm）、新增白名单集成测试、命令 handler 测试 |
+| `src/extensions/hpl-protected-paths.ts` | 重写分层逻辑、新增 whitelist Set、注册 /allow 命令、中危路径弹 confirm |
+| `src/test/unit/hpl-protected-paths.test.ts` | 更新分类测试（区分 block vs confirm）、新增白名单集成测试、命令 handler 测试 |
 
 （无新增文件，全部变更限定在现有 2 个文件中）
 
@@ -77,9 +77,9 @@ const verdict = classifyPath(resolved, toolName);
 - 方案 A 使得测试边界清晰：纯函数测试不改，白名单逻辑单独测
 - 未来如需 `resolveTarget` 也纳入纯函数导出，可以单独测试路径解析
 
-### 决策 2：/allow 命令放在 protected-paths.ts 还是单独文件
+### 决策 2：/allow 命令放在 hpl-protected-paths.ts 还是单独文件
 
-**方案 A（选择）**：命令注册放在 `protected-paths.ts` 内部。
+**方案 A（选择）**：命令注册放在 `hpl-protected-paths.ts` 内部。
 
 **方案 B（不选）**：独立 `src/extensions/allow-cmd.ts`。
 
@@ -93,7 +93,7 @@ const verdict = classifyPath(resolved, toolName);
 
 ### Step 1：重构写保护列表为两层
 
-**文件**：`src/extensions/protected-paths.ts`
+**文件**：`src/extensions/hpl-protected-paths.ts`
 
 **位置**：第 34-88 行 `WRITE_PROTECTED` 常量 → 拆分为 `WRITE_BLOCK` 和 `WRITE_CONFIRM`
 
@@ -124,7 +124,7 @@ const WRITE_CONFIRM: Array<{ test: ...; label: string }> = [
 
 ### Step 2：修改 classifyPath 写保护返回逻辑
 
-**文件**：`src/extensions/protected-paths.ts`
+**文件**：`src/extensions/hpl-protected-paths.ts`
 
 **位置**：第 153-157 行
 
@@ -162,7 +162,7 @@ if (toolName === "write" || toolName === "edit") {
 
 > **实现偏差（2026-08-01，issue #10 review 确认）**：confirm 弹框实际实现为 **4 选项 select**（Allow Once / Allow this Session / Allow this Project / Deny），其中 project scope 持久化到 `.hapilon/config.local.json`。该设计来自 `project-config-and-trust.md` 决策 3（confirm 升级 4 选项），由本实现提前落地，非本计划范围。trust-store 见 `src/trust-store.ts`（命令+路径双维度，session 内存 + project 持久化）。高危路径（WRITE_BLOCK）的 `/allow` 放行使用独立 2 选项确认（`requestHighRiskConfirm`，`confirm.ts`），强制 session 级。
 
-**文件**：`src/extensions/protected-paths.ts`
+**文件**：`src/extensions/hpl-protected-paths.ts`
 
 **位置**：第 176-188 行 — 写保护 handler，在 `verdict === "block"` 后增加 `verdict === "confirm"` 分支
 
@@ -236,7 +236,7 @@ if (isToolCallEventType("write", event) || isToolCallEventType("edit", event)) {
 
 ### Step 4：实现白名单 Set + whitelist 检查函数
 
-**文件**：`src/extensions/protected-paths.ts`
+**文件**：`src/extensions/hpl-protected-paths.ts`
 
 **位置**：在 `export default function` 之前（模块顶层）
 
@@ -273,7 +273,7 @@ function isPathWhitelisted(resolved: string): boolean {
 
 ### Step 5：在 tool_call handler 中集成白名单检查
 
-**文件**：`src/extensions/protected-paths.ts`
+**文件**：`src/extensions/hpl-protected-paths.ts`
 
 **位置**：写保护 handler 开头，在 `classifyPath` 调用之前
 
@@ -318,7 +318,7 @@ const verdict = classifyPath(filePath, toolName, ctx.cwd);
 
 ### Step 6：注册 /allow 命令
 
-**文件**：`src/extensions/protected-paths.ts`
+**文件**：`src/extensions/hpl-protected-paths.ts`
 
 **位置**：`export default function (pi: ExtensionAPI)` 开头
 
@@ -398,7 +398,7 @@ export default function (pi: ExtensionAPI) {
 
 ### Step 7：更新单元测试
 
-**文件**：`src/test/unit/protected-paths.test.ts`
+**文件**：`src/test/unit/hpl-protected-paths.test.ts`
 
 #### Step 7a：更新分类测试（block → confirm 的用例）
 

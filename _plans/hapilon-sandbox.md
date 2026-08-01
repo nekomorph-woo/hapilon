@@ -2,7 +2,7 @@
 
 ## Context
 
-当前 hapilon 的安全层只有应用级拦截（hpl-safety-gate + protected-paths），缺少 OS 内核级兜底。集成 `@anthropic-ai/sandbox-runtime`（Claude Code /sandbox 后台，Apache-2.0），在 macOS 上用 Seatbelt、Linux 上用 bubblewrap，为 Pi 子进程提供内核级隔离。
+当前 hapilon 的安全层只有应用级拦截（hpl-safety-gate + hpl-protected-paths），缺少 OS 内核级兜底。集成 `@anthropic-ai/sandbox-runtime`（Claude Code /sandbox 后台，Apache-2.0），在 macOS 上用 Seatbelt、Linux 上用 bubblewrap，为 Pi 子进程提供内核级隔离。
 
 ## 核心原则
 

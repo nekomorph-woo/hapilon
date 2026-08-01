@@ -52,7 +52,7 @@ Pi 刻意不提供以下内容（设计哲学：自己按需加）：
 | **D. 容器隔离** | Docker/podman 容器内运行 Pi，完全隔离 | ⭐⭐⭐⭐⭐ | ❌ 未实现 |
 
 **参考**：
-- Pi 官方 example: `permission-gate.ts`、`protected-paths.ts`、`sandbox/`
+- Pi 官方 example: `permission-gate.ts`、`hpl-protected-paths.ts`、`sandbox/`
 - 社区 package: [pi-permission-system](https://github.com/MasuRii/pi-permission-system)、[pi-permission-layers](https://pi.dev/packages/pi-permission-layers)、[pi-guard-sandbox](https://pi.dev/packages/pi-guard-sandbox)
 - macOS 专用: [agent-safehouse.dev](https://agent-safehouse.dev/)
 
@@ -257,7 +257,7 @@ hapilon v0.1.0-alpha 完成度
    - 弹确认框（复用 `ctx.ui.confirm`）
    - 提供 `--yolo` / `--no-safety` 绕过选项
 
-2. **文件路径保护扩展** (`src/extensions/protected-paths.ts`)
+2. **文件路径保护扩展** (`src/extensions/hpl-protected-paths.ts`)
    - 拦截 write/edit 工具对 `.env`、`.git/`、`~/.ssh/`、`package-lock.json`、`*.pem` 等路径的写操作
    - 必要时扩展到读保护（`~/.ssh/`、`~/.aws/`）
 
@@ -312,7 +312,7 @@ hapilon v0.1.0-alpha 完成度
 
 ### Pi 官方文档
 - [Pi Extensions 文档](https://pi.dev/docs/latest/extensions)
-- [Pi 官方 extension 示例集](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/examples/extensions/README.md) — 包含 permission-gate、protected-paths、sandbox 等 50+ 示例
+- [Pi 官方 extension 示例集](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/examples/extensions/README.md) — 包含 permission-gate、hpl-protected-paths、sandbox 等 50+ 示例
 - [Pi Sandbox 分析报告](https://agent-safehouse.dev/docs/agent-investigations/pi) — 详尽的安全审计
 - [doc/pi-wiki.md](doc/pi-wiki.md) §15 安全模型
 

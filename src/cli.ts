@@ -120,8 +120,8 @@ async function main(): Promise<void> {
         (e) =>
           !e.endsWith("/hpl-safety-gate/index.js") &&
           !e.endsWith("/hpl-safety-gate.js") &&
-          !e.endsWith("/protected-paths/index.js") &&
-          !e.endsWith("/protected-paths.js"),
+          !e.endsWith("/hpl-protected-paths/index.js") &&
+          !e.endsWith("/hpl-protected-paths.js"),
       )
     : allExtensions;
   const extensionFlags = loadedExtensions.flatMap((e) => ["-e", e]);
