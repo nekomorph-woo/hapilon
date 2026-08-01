@@ -13,7 +13,7 @@ protected-paths/
   whitelist.ts  → Set<string>       仅路径维度，session 级内存
   index.ts      → tool_call 钩子 + /allow 命令
 
-safety-gate/
+hpl-safety-gate/
   index.ts      → ctx.ui.confirm()  内联二元，无信任机制
 ```
 
@@ -44,11 +44,11 @@ TODO-9（项目级配置目录）是 TODO-10（持久化信任）的存储基础
 - `whitelist.ts` 被 `/allow` 命令和测试直接使用，修改签名会形成大型变更
 - `/allow` 命令的用户语义是"信任这个路径的所有操作"，用 `addPathAllow` 更自然
 - `trust-store.ts` 是全新模块，职责清晰，session + project 两级信任统一管理
-- 方案 A 使得两个扩展（safety-gate 和 protected-paths）都能独立使用信任存储，不依赖 protected-paths 的模块
+- 方案 A 使得两个扩展（hpl-safety-gate 和 protected-paths）都能独立使用信任存储，不依赖 protected-paths 的模块
 
-### 决策 2：confirm.ts 放在哪里供 safety-gate 共享
+### 决策 2：confirm.ts 放在哪里供 hpl-safety-gate 共享
 
-**方案 A（选择）**：`confirm.ts` 保留在 `protected-paths/` 目录，safety-gate 通过 `../protected-paths/confirm.js` 路径导入。
+**方案 A（选择）**：`confirm.ts` 保留在 `protected-paths/` 目录，hpl-safety-gate 通过 `../protected-paths/confirm.js` 路径导入。
 
 **方案 B（不选）**：将 `confirm.ts` 提升到 `src/extensions/confirm.ts` 作为共享模块。
 
@@ -124,10 +124,10 @@ export type ConfirmResult =
 | `src/extensions/protected-paths/confirm.ts` | `requestConfirm()` 重写：`ctx.ui.confirm()` → `ctx.ui.select()` 4 选项；ConfirmResult 新增 scope 字段 |
 | `src/extensions/protected-paths/whitelist.ts` | 内部转发到 trust-store.ts 的 `addPathAllow`；保持旧 API 签名兼容性 |
 | `src/extensions/protected-paths/index.ts` | tool_call 钩子接入 trust-store：confirm 前置检查信任 → 无信任则弹 4 选项 → 根据 scope 写入 trust；`/allow` 命令改用 trust-store |
-| `src/extensions/safety-gate/index.ts` | bash confirm 接入 trust-store：confirm 前置检查信任 → 无信任则弹 4 选项 → 根据 scope 写入 trust |
+| `src/extensions/hpl-safety-gate/index.ts` | bash confirm 接入 trust-store：confirm 前置检查信任 → 无信任则弹 4 选项 → 根据 scope 写入 trust |
 | `src/cli.ts` | 默认启动路径新增 `initProjectTrust(process.cwd())` 调用；导入 project-config.ts |
 | `src/test/unit/protected-paths.test.ts` | 更新白名单测试适配 Map 结构；新增信任维度测试 |
-| `src/test/unit/safety-gate.test.ts` | 新增 bash 信任判定测试 |
+| `src/test/unit/hpl-safety-gate.test.ts` | 新增 bash 信任判定测试 |
 
 ## 数据流架构
 
@@ -286,7 +286,7 @@ interface MergedConfig extends HapilonConfig {
 - 保留 `unavailable` / `error` 状态逻辑
 - 删除旧 `ctx.ui.confirm` 调用
 
-→ verify: 类型检查通过；`src/extensions/protected-paths/index.ts` 和 `src/extensions/safety-gate/index.ts` 中对 `requestConfirm` 的调用不报类型错误
+→ verify: 类型检查通过；`src/extensions/protected-paths/index.ts` 和 `src/extensions/hpl-safety-gate/index.ts` 中对 `requestConfirm` 的调用不报类型错误
 
 ### 阶段 4：扩展接入 trust-store
 
@@ -310,7 +310,7 @@ interface MergedConfig extends HapilonConfig {
 
 → verify: 代码审查确认数据流正确
 
-**step 4.3**：更新 `src/extensions/safety-gate/index.ts`
+**step 4.3**：更新 `src/extensions/hpl-safety-gate/index.ts`
 
 变更内容：
 - confirm 路径（bash 命令）在弹框前先检查 `isTrusted("bash", command)`
@@ -345,13 +345,13 @@ interface MergedConfig extends HapilonConfig {
 
 → verify: `npm run test:unit -- --test-name-pattern="protected-paths"` 全部通过
 
-**step 6.2**：更新 `src/test/unit/safety-gate.test.ts`
+**step 6.2**：更新 `src/test/unit/hpl-safety-gate.test.ts`
 
 变更内容：
 - 新增 bash 信任判定测试组：`classifyCommand` 返回 confirm + trust-store 命中 → 不放行的单元逻辑验证
-- 不直接测试 trust-store（那是 trust-store.test.ts 的职责），只测试 safety-gate 与分类器的集成
+- 不直接测试 trust-store（那是 trust-store.test.ts 的职责），只测试 hpl-safety-gate 与分类器的集成
 
-→ verify: `npm run test:unit -- --test-name-pattern="safety-gate"` 全部通过
+→ verify: `npm run test:unit -- --test-name-pattern="hpl-safety-gate"` 全部通过
 
 ### 阶段 7：清理与收尾
 
@@ -400,9 +400,9 @@ interface MergedConfig extends HapilonConfig {
 - [ ] `/allow --list` → 展示 session + project 全部信任
 - [ ] `/allow --clear` → 清空 session，不影响 project
 - [ ] 非交互模式下 project trust 仍生效，session trust 不生效
-- [ ] safety-gate bash confirm 接入 4 选项 trust 流程
+- [ ] hpl-safety-gate bash confirm 接入 4 选项 trust 流程
 - [ ] 单元测试覆盖 trust-store 所有维度
-- [ ] protected-paths / safety-gate 旧测试保持通过
+- [ ] protected-paths / hpl-safety-gate 旧测试保持通过
 - [ ] 集成测试验证端到端启动流程
 
 ## 非目标（显式排除）

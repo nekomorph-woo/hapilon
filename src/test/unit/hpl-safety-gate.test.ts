@@ -1,5 +1,5 @@
 /**
- * safety-gate 单元测试 — 命令分类 + shell 注入检测
+ * hpl-safety-gate 单元测试 — 命令分类 + shell 注入检测
  *
  * 测试纯函数 classifyCommand() 和 hasShellInjection()，
  * 不依赖 Pi ExtensionAPI mock。
@@ -11,10 +11,10 @@ import assert from "node:assert/strict";
 import {
   classifyCommand,
   hasShellInjection,
-} from "../../extensions/safety-gate/index.js";
-import safetyGateExtension from "../../extensions/safety-gate/index.js";
+} from "../../extensions/hpl-safety-gate/index.js";
+import safetyGateExtension from "../../extensions/hpl-safety-gate/index.js";
 
-describe("safety-gate", () => {
+describe("hpl-safety-gate", () => {
   describe("classifyCommand()", () => {
     // ── BLOCK：高危命令 ──
 

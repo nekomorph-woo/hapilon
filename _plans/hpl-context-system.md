@@ -215,4 +215,4 @@ piArgs.push("--no-context-files", "--no-skills");
 - [ ] `~/.hapilon/agents/skills/` + `.hapilon/agents/skills/` skills 出现在 `<available_skills>` 中
 - [ ] Skills 完整复刻渐进式披露：正文通过 read tool 按需加载（手测确认）
 - [ ] files.ts + format.ts 单元测试全过（三层覆盖）
-- [ ] hpl-footer / safety-gate / protected-paths 不受影响（全量测试）
+- [ ] hpl-footer / hpl-safety-gate / protected-paths 不受影响（全量测试）

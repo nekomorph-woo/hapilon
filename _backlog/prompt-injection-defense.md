@@ -19,7 +19,7 @@
 | 项目 | 内容 |
 |------|------|
 | 类型 | 待实现 |
-| 当前状态 | 未实现。hapilon 仅做命令级拦截（safety-gate + protected-paths），无 prompt 层面的注入防御 |
+| 当前状态 | 未实现。hapilon 仅做命令级拦截（hpl-safety-gate + protected-paths），无 prompt 层面的注入防御 |
 | 预期用途 | 分层防御：(1) 配置文件审计 — 扫描 CLAUDE.md/rules 中的可疑隐藏字符；(2) 输入过滤 — 参考 Ian Paterson 的 canary honeypot 方案；(3) subagent 输出验证 — 弥补 hooks 盲区 |
 | 创建时间 | 2026-07-16 |
 

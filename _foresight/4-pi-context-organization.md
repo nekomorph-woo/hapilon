@@ -159,7 +159,7 @@ hapilon 目前已深度接触这套体系的位置：
 
 | 已接触 | 级别 | 说明 |
 |--------|------|------|
-| `tool_call` / `tool_result` 拦截 | 消息流修改 | safety-gate / protected-paths 在扩展层阻止危险操作 |
+| `tool_call` / `tool_result` 拦截 | 消息流修改 | hpl-safety-gate / protected-paths 在扩展层阻止危险操作 |
 | `session_start` + `setFooter` | UI 接管 | hpl-footer 替换状态栏 |
 | `ctx.sessionManager.getEntries()` | 数据读取 | footer 累加 usage 统计 |
 | `ctx.getContextUsage()` | 数据读取 | [DING] 指示灯数据源 |

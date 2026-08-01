@@ -523,7 +523,7 @@ theme.bold(text);
 |------|-----------|----------|
 | **hpl-footer** | `setFooter()` + `footerData` | 全量接管 footer：cwd/branch、stats/[DING]/model、扩展状态 |
 | **hpl-context** | `before_agent_start` (非 TUI) | 注入 HAPILON.md + rules 到 systemPrompt |
-| **safety-gate** | `tool_call` + `confirm/notify` | 危险命令拦截 + 确认弹窗 |
+| **hpl-safety-gate** | `tool_call` + `confirm/notify` | 危险命令拦截 + 确认弹窗 |
 | **protected-paths** | `tool_call` + `notify` | 保护路径写入拦截 |
 
 ### 尚未使用但有潜力的 TUI API

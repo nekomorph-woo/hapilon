@@ -2,7 +2,7 @@
 
 ## 背景
 
-社区安全工具 bashguard 有 13 条 evasion 规则覆盖编码绕过。我们的 safety-gate 当前使用纯正则匹配，无法检测以下逃逸模式：
+社区安全工具 bashguard 有 13 条 evasion 规则覆盖编码绕过。我们的 hpl-safety-gate 当前使用纯正则匹配，无法检测以下逃逸模式：
 
 - `echo "cm0gLXJmIC8=" | base64 -d | sh` — base64 编码绕过
 - `echo 726d202d7266202f | xxd -r -p | sh` — hex 编码绕过
@@ -19,7 +19,7 @@
 | 项目 | 内容 |
 |------|------|
 | 类型 | 待实现 |
-| 当前状态 | safety-gate 仅用纯正则，无语义解析 |
+| 当前状态 | hpl-safety-gate 仅用纯正则，无语义解析 |
 | 预期用途 | 在 classifyCommand 前增加一层逃逸检测，检测到 base64/hex 管道到 shell 时以及 IFS/shell-in-shell 时直接 block |
 | 创建时间 | 2026-07-16 |
 
@@ -31,6 +31,6 @@
 
 ## 项目位置
 
-- **待修改**: `src/extensions/safety-gate/rules.ts` — 新增 EVASION_PATTERNS
-- **待修改**: `src/extensions/safety-gate/classifier.ts` — classifyCommand 优先检查逃逸
-- **参考**: `src/extensions/safety-gate/rules.ts` — 现有的 SHELL_INJECTION_PATTERNS
+- **待修改**: `src/extensions/hpl-safety-gate/rules.ts` — 新增 EVASION_PATTERNS
+- **待修改**: `src/extensions/hpl-safety-gate/classifier.ts` — classifyCommand 优先检查逃逸
+- **参考**: `src/extensions/hpl-safety-gate/rules.ts` — 现有的 SHELL_INJECTION_PATTERNS

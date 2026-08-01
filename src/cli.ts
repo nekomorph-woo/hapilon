@@ -118,8 +118,8 @@ async function main(): Promise<void> {
   const loadedExtensions = noSafety
     ? allExtensions.filter(
         (e) =>
-          !e.endsWith("/safety-gate/index.js") &&
-          !e.endsWith("/safety-gate.js") &&
+          !e.endsWith("/hpl-safety-gate/index.js") &&
+          !e.endsWith("/hpl-safety-gate.js") &&
           !e.endsWith("/protected-paths/index.js") &&
           !e.endsWith("/protected-paths.js"),
       )

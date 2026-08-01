@@ -15,7 +15,7 @@ Pi 刻意不提供以下内容（设计哲学：自己按需加）：
 | 缺失能力 | 风险等级 | 说明 |
 |----------|----------|------|
 | **Sandbox/沙箱** | 🔴 致命 | bash 工具以用户完整权限运行，无任何隔离 |
-| **权限系统** | 🔴 致命 | 无命令审批、无文件保护、无操作确认 |
+| **权限系统** | 🔴 致命 | 无命令审批、无文件保护、无操作确认 |wox
 | **Provider 配置引导** | 🟠 高 | 无 setup wizard，用户需手动编辑 JSON |
 | **多 Provider 管理** | 🟡 中 | 需手动编辑 models.json / auth.json |
 | **CLI 帮助系统** | 🟡 中 | Pi 的 --help 较简略，无分层帮助 |
@@ -252,7 +252,7 @@ hapilon v0.1.0-alpha 完成度
 
 ### Phase 1: 安全地基（当前阶段，1~3 天）
 
-1. **危险命令黑名单扩展** (`src/extensions/safety-gate.ts`)
+1. **危险命令黑名单扩展** (`src/extensions/hpl-safety-gate.ts`)
    - 拦截 bash 工具中的 `rm -rf`、`sudo`、`chmod 777`、`curl ... | sh`、`git push --force` 等
    - 弹确认框（复用 `ctx.ui.confirm`）
    - 提供 `--yolo` / `--no-safety` 绕过选项

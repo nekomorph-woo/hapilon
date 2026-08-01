@@ -18,7 +18,7 @@ AI Agent 可能通过合法的工具调用将敏感数据外泄到外部。社�
 | 项目 | 内容 |
 |------|------|
 | 类型 | 待实现 |
-| 当前状态 | 未实现。safety-gate 仅拦截危险命令本身，不做数据流分析 |
+| 当前状态 | 未实现。hpl-safety-gate 仅拦截危险命令本身，不做数据流分析 |
 | 预期用途 | 检测 `cat 敏感文件 | curl` 等外泄模式，至少 confirm。更适合用网络出口 allowlist 做纵深防御 |
 | 创建时间 | 2026-07-16 |
 
@@ -31,5 +31,5 @@ AI Agent 可能通过合法的工具调用将敏感数据外泄到外部。社�
 
 ## 项目位置
 
-- **待实现**: `src/extensions/safety-gate/rules.ts` — 新增 EXFIL_PATTERNS
+- **待实现**: `src/extensions/hpl-safety-gate/rules.ts` — 新增 EXFIL_PATTERNS
 - **替代防御**: 网络出口 allowlist（更可靠但非本扩展范围）

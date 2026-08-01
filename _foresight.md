@@ -401,11 +401,11 @@ You are a security auditor. Review code for vulnerabilities including:
 
 **含义**：pi-subagents 的**大量 features（FleetView、widget、graceful max_turns、mid-run steering、调度、跨扩展 RPC、KV cache 优化）都建立在"进程内会话对象"基础上**。hapilon 若坚持 PRD 的子进程路线，这些 features **不能直接照搬**——要么放弃，要么用解析 stream-json + 进程间通信重新实现。
 
-**结论（已决策 → 进程内路线）**：hapilon subagent 采用**进程内 `createAgentSession` 路线**（与 pi-subagents 一致），放弃 PRD §9.7.1 原定的独立子进程方案。理由：① 低启动开销（无进程启动）；② 主进程 `tool_call` hook 在子会话内**仍生效**，safety-gate / protected-paths 自动覆盖 subagent，**安全盲区消失**；③ `modelRegistry` 复用，turbo/pro/ultra 三档解析直接走 `ctx.modelRegistry`；④ widget / FleetView / steering / 调度等高级 feature 可直接搬。**代价**：偏离 PRD §9.7（需同步更新 PRD）；隔离强度弱于子进程（但 hook 生效反而让 tool 级可控）。**第一参考**因此从"Pi 官方子进程示例"变回 **pi-subagents 本身**（路线一致，可 fork 其 `agent-runner.ts` 架构）；Pi 官方子进程示例降为隔离/沙箱场景的备选。
+**结论（已决策 → 进程内路线）**：hapilon subagent 采用**进程内 `createAgentSession` 路线**（与 pi-subagents 一致），放弃 PRD §9.7.1 原定的独立子进程方案。理由：① 低启动开销（无进程启动）；② 主进程 `tool_call` hook 在子会话内**仍生效**，hpl-safety-gate / protected-paths 自动覆盖 subagent，**安全盲区消失**；③ `modelRegistry` 复用，turbo/pro/ultra 三档解析直接走 `ctx.modelRegistry`；④ widget / FleetView / steering / 调度等高级 feature 可直接搬。**代价**：偏离 PRD §9.7（需同步更新 PRD）；隔离强度弱于子进程（但 hook 生效反而让 tool 级可控）。**第一参考**因此从"Pi 官方子进程示例"变回 **pi-subagents 本身**（路线一致，可 fork 其 `agent-runner.ts` 架构）；Pi 官方子进程示例降为隔离/沙箱场景的备选。
 
 ### 5.2 hapilon 扩展机制现状（subagent 落点已明确）
 
-- **扩展组织**：`src/extensions/<name>/index.ts`，默认导出 `function(pi: ExtensionAPI): void`，一目录一扩展（现有 8 个：safety-gate / protected-paths / hpl-system-prompt / hpl-context / hpl-context-viewer / hpl-panel-viewer / hpl-startup-header / hpl-footer）
+- **扩展组织**：`src/extensions/<name>/index.ts`，默认导出 `function(pi: ExtensionAPI): void`，一目录一扩展（现有 8 个：hpl-safety-gate / protected-paths / hpl-system-prompt / hpl-context / hpl-context-viewer / hpl-panel-viewer / hpl-startup-header / hpl-footer）
 - **发现机制**：`discoverExtensions()`（`src/extensions.ts:15-42`）扫 **`dist/extensions/`**（编译后产物），支持 `<name>/index.js` 或单文件 `<name>.js`，按名排序加载（决定 `before_agent_start` 等链式 hook 顺序）
 - **注入方式**：`src/cli.ts:117-127` 把发现的扩展通过 Pi 原生 `-e` flag 注入（临时扩展机制，路径是 dist，不是 `~/.pi/agent/extensions/`）
 - **Tool 注册范例**：`src/extensions/hpl-panel-viewer/index.ts:59-99` 已注册过 LLM tool，可直接参照；Tool 签名见 `doc/pi-wiki.md:978-1006`（`parameters: Type.Object(...)`、`execute(toolCallId, params, signal, onUpdate, ctx)`、`signal` 支持取消、`terminate:true` 跳过后续 LLM 调用）
@@ -450,7 +450,7 @@ You are a security auditor. Review code for vulnerabilities including:
 
 ### 5.4 安全模型：进程内路线下 hook 自动覆盖（决策带来的关键收益）
 
-**进程内路线的最大安全收益**：`_backlog/prompt-injection-defense.md` 记录的"独立子进程 hook 盲区"问题**不复存在**——子会话由 `createAgentSession` 在同进程创建，并通过 `session.bindExtensions()` 重新加载扩展（见 §3.2），hapilon 的 safety-gate / protected-paths 会在**每个子会话内重新注册生效**，subagent 的 tool 调用自动受同样保护。
+**进程内路线的最大安全收益**：`_backlog/prompt-injection-defense.md` 记录的"独立子进程 hook 盲区"问题**不复存在**——子会话由 `createAgentSession` 在同进程创建，并通过 `session.bindExtensions()` 重新加载扩展（见 §3.2），hapilon 的 hpl-safety-gate / protected-paths 会在**每个子会话内重新注册生效**，subagent 的 tool 调用自动受同样保护。
 
 进程内路线的安全控制点（对应 pi-subagents 的机制）：
 

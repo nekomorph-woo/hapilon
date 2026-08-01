@@ -213,7 +213,7 @@ buildStatusLine(statuses: string[]): string | null // " | " 分隔；空数组�
 
 ### 3.5 与现有体系的关系
 
-- `--no-safety` 只过滤 safety-gate / protected-paths，hpl-footer 不受影响（cli.ts 白名单式过滤，无需改动）
+- `--no-safety` 只过滤 hpl-safety-gate / protected-paths，hpl-footer 不受影响（cli.ts 白名单式过滤，无需改动）
 - `discoverExtensions()` 自动发现 `hpl-footer/index.js`，无需注册代码
 
 ### 3.6 实现时验证点（已实测回填，2026-07-18）
