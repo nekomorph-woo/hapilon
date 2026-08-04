@@ -187,8 +187,8 @@ describe("layoutColumns edge cases", () => {
 describe("centerLines()", () => {
   it("短文本在宽列中居中", () => {
     const result = centerLines(["hi"], 10);
-    assert.strictEqual(result[0].length, 4); // left-padded to center
-    assert.ok(result[0].startsWith(" "), "左边有空格");
+    // pad = (10-2)/2 = 4 → "    hi" = 6 chars
+    assert.strictEqual(result[0], "    hi");
   });
 
   it("超长文本不截断", () => {
@@ -198,7 +198,8 @@ describe("centerLines()", () => {
 
   it("空字符串对齐", () => {
     const result = centerLines([""], 10);
-    assert.strictEqual(result[0], "          "); // 10 spaces
+    // pad = (10-0)/2 = 5
+    assert.strictEqual(result[0], "     ");
   });
 });
 
@@ -235,22 +236,37 @@ describe("buildRightColumn()", () => {
     piUpdate: "0.81.0",
   };
 
-  it("collapsed → 显示 Tips + 扩展计数 + 分隔线 + update + help", () => {
+  it("collapsed → 默认显示 Extensions (N) + 扩展名列表（验收 §右栏）", () => {
     const lines = buildRightColumn(base, false);
     const text = lines.join("\n");
-    assert.ok(text.includes("Tips for getting started"), "含 Tips 标题");
-    assert.ok(text.includes("2 extensions loaded"), "含扩展计数");
-    assert.ok(text.includes("──"), "含分隔线");
+    assert.ok(text.includes("Extensions (2)"), "含 Extensions 计数头");
+    assert.ok(text.includes("  ext-a"), "应列出扩展名 a");
+    assert.ok(text.includes("  ext-b"), "应列出扩展名 b");
+  });
+
+  it("collapsed → 无 Tips（Tips 移到 expanded）", () => {
+    const text = buildRightColumn(base, false).join("\n");
+    assert.ok(!text.includes("Tips for getting started"), "collapsed 不应有 Tips");
+  });
+
+  it("collapsed → 含 update 提示 + ctrl+o 提示", () => {
+    const text = buildRightColumn(base, false).join("\n");
     assert.ok(text.includes("0.81.0 available"), "含更新提示");
     assert.ok(text.includes("ctrl+o for more"), "含帮助提示");
   });
 
-  it("expanded → 显示完整扩展列表 + 快捷键", () => {
+  it("expanded → Tips + 扩展名列表 + 快捷键", () => {
     const lines = buildRightColumn(base, true);
     const text = lines.join("\n");
-    assert.ok(text.includes("  ext-a"), "应列出扩展名");
-    assert.ok(text.includes("  ext-b"), "应列出扩展名");
+    assert.ok(text.includes("Tips for getting started"), "含 Tips 标题");
+    assert.ok(text.includes("  ext-a"), "应列出扩展名 a");
+    assert.ok(text.includes("  ext-b"), "应列出扩展名 b");
     assert.ok(text.includes("esc"), "应包含快捷键");
+  });
+
+  it("piUpdate 存在时扩展名列表仍显示（issue #13 逻辑 bug）", () => {
+    const collapsed = buildRightColumn(base, false).join("\n");
+    assert.ok(collapsed.includes("  ext-a"), "update 不应抢占扩展名列表");
   });
 
   it("无 piUpdate 时显示 up to date", () => {
@@ -297,7 +313,7 @@ describe("buildHeaderLines()", () => {
     assert.ok(text.includes("zai"), "包含 provider");
     assert.ok(text.includes("glm-5-turbo"), "包含模型名");
     assert.ok(text.includes(baseData.cwd), "包含 workspace 路径");
-    assert.ok(text.includes("3 extensions loaded"), "包含扩展计数");
+    assert.ok(text.includes("Extensions (3)"), "包含 Extensions 计数头");
     assert.ok(text.includes("──"), "含分隔线");
   });
 
@@ -307,11 +323,11 @@ describe("buildHeaderLines()", () => {
     assert.ok(text.includes("no model"), "应显示无模型提示");
   });
 
-  it("无 extensions env → Tips 行仍存在但不含计数", () => {
+  it("无 extensions env → 无 Extensions 段（collapsed）", () => {
     const lines = buildHeaderLines({ ...baseData, extensions: undefined }, false);
     const text = lines.join("\n");
-    assert.ok(text.includes("Tips for getting started"), "Tips 应存在");
-    assert.ok(!text.includes("extensions loaded"), "不应有计数");
+    assert.ok(!text.includes("Extensions"), "不应有扩展段");
+    assert.ok(!text.includes("Tips for getting started"), "collapsed 不应有 Tips");
   });
 
   it("无 piUpdate → 不显示更新行", () => {

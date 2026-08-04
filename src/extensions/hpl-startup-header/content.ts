@@ -186,31 +186,33 @@ export function buildRightColumn(
 ): string[] {
   const right: string[] = [];
 
-  // ── Tips ──
-  right.push("Tips for getting started");
-  right.push(`  Run /context to check usage`);
-  if (data.extensions && data.extensions.length > 0) {
-    right.push(`  ${data.extensions.length} extensions loaded`);
+  // ── Tips（仅 expanded）──
+  if (expanded) {
+    right.push("Tips for getting started");
+    right.push("  Run /context to check usage");
+    right.push("  " + H_BAR.repeat(26));
   }
 
-  // ── Divider ──
-  right.push("  " + H_BAR.repeat(26));
+  // ── Extensions (N) + 扩展名列表（恒显示，验收 §右栏）──
+  if (data.extensions && data.extensions.length > 0) {
+    right.push(`Extensions (${data.extensions.length})`);
+    for (const extName of data.extensions) {
+      right.push(`  ${extName}`);
+    }
+    right.push("  " + H_BAR.repeat(26));
+  }
 
   // ── What's new ──
   if (data.piUpdate) {
     right.push(`Pi ${data.piUpdate} available`);
     right.push("  pi.dev/changelog");
-  } else if (expanded && data.extensions && data.extensions.length > 0) {
-    for (const extName of data.extensions) {
-      right.push(`  ${extName}`);
-    }
-  } else if (!data.piUpdate) {
+  } else {
     right.push("Pi is up to date");
   }
 
   // ── Help ──
   if (expanded) {
-    right.push("");
+    right.push("  " + H_BAR.repeat(26));
     right.push("Keyboard shortcuts");
     right.push("  esc         interrupt");
     right.push("  ctrl+c/d    clear / exit");
@@ -307,18 +309,20 @@ export function createStartupHeader(
         }
 
         // Headers — bold
-        if (colored.includes("Tips for getting started")) {
+        if (
+          colored.includes("Tips for getting started") ||
+          colored.includes("Extensions (")
+        ) {
           return theme.fg("text", theme.bold(colored));
         }
         // Divider — dim
         if (colored.trim().match(/^─+$/)) {
           return theme.fg("dim", colored);
         }
-        // Metadata — dim (skip lines already handling pi.dev/ via hyperlink)
+        // Metadata — dim：ctrl+o 提示 + 缩进内容行（扩展名列表 / Tips 内容 / 快捷键）
         if (
           colored.includes("ctrl+o for") ||
-          colored.includes("extensions loaded") ||
-          colored.includes("/context")
+          /^  \S/.test(colored)
         ) {
           return theme.fg("dim", colored);
         }
