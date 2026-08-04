@@ -9,7 +9,7 @@ describe("cli integration", () => {
   let tmpBase: string;
   const ORIGINAL_ENV = process.env.HAPILON_HOME;
   const CLI_PATH = join(process.cwd(), "dist", "cli.js");
-  const CONFIG_PATH = join(process.cwd(), "dist", "config.js");
+  const CONFIG_PATH = join(process.cwd(), "dist", "config", "handlers.js");
 
   before(() => {
     tmpBase = mkdtempSync(join(tmpdir(), "hapilon-cli-test-"));
@@ -204,17 +204,16 @@ describe("cli integration", () => {
   });
 
   describe("unknown command", () => {
-    it("hapilon foobar 输出错误提示", () => {
+    it("hapilon foobar 不拦截，原样透传给 pi（issue #14）", () => {
       const result = spawnSync(process.execPath, [CLI_PATH, "foobar"], {
         env: { ...process.env, HAPILON_HOME: tmpBase },
         encoding: "utf8",
+        timeout: 10000,
       });
 
-      assert.notStrictEqual(result.status, 0, "应非零退出");
       const output = result.stdout + result.stderr;
-      assert.ok(output.includes("未知命令"), "应提示未知命令");
-      assert.ok(output.includes("foobar"), "应包含命令名");
-      assert.ok(output.includes("help"), "应建议使用 help");
+      assert.ok(!output.includes("未知命令"), "hapilon 不应拦截并提示未知命令");
+      assert.ok(!output.includes("输入 hapilon help"), "不应建议 hapilon help");
     });
   });
 

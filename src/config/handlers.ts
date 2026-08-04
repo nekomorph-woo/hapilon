@@ -1,40 +1,23 @@
+/**
+ * config/handlers.ts — config 子命令处理（show / default / provider）
+ *
+ * 从 config.ts 拆出（issue #4）：交互式问答在 prompts.ts，
+ * pi --list-models 解析在 pi-listing.ts，本模块只做子命令分发与处理。
+ */
+
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline";
-import { join } from "node:path";
-import { hapilonHome } from "./hapilon-home.js";
 import {
   ALL_PROVIDERS,
   readAuthFile,
   writeAuthFileNative,
   maskKey,
   findProviderDef,
-} from "./providers.js";
-import { readHapilonConfig, writeHapilonConfig } from "./config-io.js";
-import { resolvePiCli } from "./pi-cli-path.js";
-
-// ─── Helpers ─────────────────────────────────────────────────────────
-
-function agentDir(): string {
-  return join(hapilonHome(), "agent");
-}
-
-export async function question(
-  rl: ReturnType<typeof createInterface>,
-  q: string,
-): Promise<string> {
-  stdout.write(q);
-  const lines = rl[Symbol.asyncIterator]();
-  const { value, done } = await lines.next();
-  return done ? "" : value;
-}
-
-export async function yesno(
-  rl: ReturnType<typeof createInterface>,
-  q: string,
-): Promise<boolean> {
-  const a = (await question(rl, q + "（y/N）")).trim().toLowerCase();
-  return a === "y" || a === "yes";
-}
+} from "../providers.js";
+import { readHapilonConfig, writeHapilonConfig } from "../config-io.js";
+import { agentDir } from "../hapilon-home.js";
+import { question, yesno } from "./prompts.js";
+import { listModelsForProvider, type ParsedModel } from "../pi-listing.js";
 
 // ─── config show ─────────────────────────────────────────────────────
 
@@ -123,7 +106,7 @@ async function configSetDefaultInteractive(): Promise<void> {
 
     // 3. spawn pi --list-models
     console.log(`\n正在获取 ${providerName} 模型列表...`);
-    const models = await listModelsForProvider(selectedProvider);
+    const models: ParsedModel[] = await listModelsForProvider(selectedProvider);
 
     if (models.length === 0) {
       console.error(`错误: 未获取到 ${providerName} 的模型列表`);
@@ -354,89 +337,6 @@ async function configProviderRemove(
   } finally {
     rl.close();
   }
-}
-
-// ─── pi --list-models ────────────────────────────────────────────────
-
-interface ParsedModel {
-  provider: string;
-  model: string;
-  context: string;
-}
-
-import { spawn } from "node:child_process";
-
-export function parseModelsTable(
-  output: string,
-  targetProvider?: string,
-): ParsedModel[] {
-  const lines = output.trim().split("\n");
-  if (lines.length < 2) return [];
-
-  const dataLines = lines.slice(1);
-
-  return dataLines
-    .map((line) => line.trim().split(/\s{2,}/))
-    .filter((cols) => {
-      if (cols.length < 2) return false;
-      if (targetProvider && cols[0] !== targetProvider) return false;
-      return true;
-    })
-    .map((cols) => ({
-      provider: cols[0],
-      model: cols[1],
-      context: cols[2] ?? "?",
-    }));
-}
-
-function listModelsForProvider(
-  providerId: string,
-): Promise<ParsedModel[]> {
-  const piCli = resolvePiCli();
-
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [piCli, "--list-models"], {
-      cwd: process.cwd(),
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        PI_CODING_AGENT_DIR: agentDir(),
-      },
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (d: Buffer) => {
-      stdout += d.toString("utf8");
-    });
-    child.stderr.on("data", (d: Buffer) => {
-      stderr += d.toString("utf8");
-    });
-
-    child.on("error", (err) =>
-      reject(new Error(`无法启动 pi: ${err.message}`)),
-    );
-    child.on("exit", (code) => {
-      if (code !== 0) {
-        reject(
-          new Error(
-            `pi --list-models 失败 (exit ${code}): ${stderr}`,
-          ),
-        );
-        return;
-      }
-      try {
-        resolve(parseModelsTable(stdout, providerId));
-      } catch (e) {
-        reject(
-          new Error(
-            `解析 pi --list-models 输出失败: ${(e as Error).message}`,
-          ),
-        );
-      }
-    });
-  });
 }
 
 // ─── Router ──────────────────────────────────────────────────────────

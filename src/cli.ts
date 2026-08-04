@@ -2,7 +2,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { COMMANDS } from "./commands.js";
 import { resolvePiCli } from "./pi-cli-path.js";
 import { discoverExtensions } from "./extensions.js";
 
@@ -17,42 +17,12 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── Command routing ──────────────────────────────────────────────
+  // ── Command routing（由 commands.ts 注册表驱动，issue #4）───────
 
   const command = args[0];
-
-  if (command === "setup") {
-    const isQuick =
-      args.includes("--quick") || args.includes("-q");
-    const mod = await import("./setup.js");
-    if (isQuick) {
-      mod.setupQuick();
-    } else {
-      await mod.setupInteractive();
-    }
-    return;
-  }
-
-  if (command === "doctor") {
-    const mod = await import("./setup.js");
-    mod.doctor();
-    return;
-  }
-
-  if (command === "help") {
-    const { printHelp, printHelpFor } = await import("./help.js");
-    const cmdName = args[1];
-    if (cmdName) {
-      printHelpFor(cmdName);
-    } else {
-      printHelp();
-    }
-    return;
-  }
-
-  if (command === "config") {
-    const { handleConfig } = await import("./config.js");
-    await handleConfig(args);
+  const cmd = COMMANDS.find((c) => c.name === command);
+  if (cmd?.handler) {
+    await cmd.handler(args);
     return;
   }
 
@@ -69,13 +39,12 @@ async function main(): Promise<void> {
   const noSafety = hasFlag(args, "--no-safety");
 
   const piCli = resolvePiCli();
-  const { hapilonHome } = await import(
+  const { agentDir } = await import(
     "./hapilon-home.js"
   );
-  const home = hapilonHome();
-  const agentDir = join(home, "agent");
+  const agentDirPath = agentDir();
 
-  if (!existsSync(agentDir)) {
+  if (!existsSync(agentDirPath)) {
     console.warn(
       "~/.hapilon/ not configured. Run `hapilon setup` to configure providers.",
     );
@@ -83,7 +52,7 @@ async function main(): Promise<void> {
 
   // 确保 Pi 静默启动（隐藏内置 header + loaded resources）
   const { ensureQuietStartup } = await import("./providers.js");
-  ensureQuietStartup(agentDir);
+  ensureQuietStartup(agentDirPath);
 
   const { getVersion } = await import("./help.js");
   const { extensionNames } = await import("./extensions.js");
@@ -123,7 +92,7 @@ async function main(): Promise<void> {
   // 构建统一的 Pi 环境变量（sandbox 与默认路径共用）
   const piEnv = {
     ...process.env,
-    PI_CODING_AGENT_DIR: agentDir,
+    PI_CODING_AGENT_DIR: agentDirPath,
     PI_SKIP_VERSION_CHECK: "1",
     HAPILON_EXTENSIONS: JSON.stringify(extensionNames(loadedExtensions)),
     HAPILON_VERSION: getVersion(),

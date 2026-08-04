@@ -16,6 +16,11 @@ export function hapilonHome(): string {
   return env && env.length > 0 ? env : join(homedir(), ".hapilon");
 }
 
+/** ~/.hapilon/agent/（pi 配置目录）——单一来源，替代各处重复 join */
+export function agentDir(): string {
+  return join(hapilonHome(), "agent");
+}
+
 /** Create ~/.hapilon/ subdirectories with 0700 permissions */
 export function ensureHapilonDirs(): HapilonDirs {
   const base = hapilonHome();

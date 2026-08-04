@@ -1,14 +1,37 @@
 // ─── Command Registry ────────────────────────────────────────────────
 // Single source of truth for hapilon CLI commands.
-// Used by help.ts for help text display.
-// (cli.ts routing is not yet driven by this registry.)
+// Used by help.ts for help text display and cli.ts for routing.
+// handler 内 lazy import，保持启动开销不增加。
 
 export interface CommandDef {
   name: string;
   description: string;
   usage?: string;
   subcommands?: CommandDef[];
+  /** 命令执行器；undefined = 无独立执行逻辑 */
+  handler?: (args: string[]) => Promise<void> | void;
 }
+
+/** 全局选项（--help 等）——help.ts 由此生成「选项:」段 */
+export interface CommandOption {
+  name: string;
+  description: string;
+}
+
+export const GLOBAL_FLAGS: CommandOption[] = [
+  {
+    name: "--help, -h",
+    description: "显示此帮助",
+  },
+  {
+    name: "--no-safety",
+    description: "临时关闭所有安全检查（危险命令拦截 + 文件路径保护）",
+  },
+  {
+    name: "--sandbox",
+    description: "OS 内核级沙箱隔离（macOS/Linux，Windows 暂不支持）",
+  },
+];
 
 export const COMMANDS: CommandDef[] = [
   {
@@ -21,11 +44,25 @@ export const COMMANDS: CommandDef[] = [
         description: "仅创建骨架目录，跳过交互式问答",
       },
     ],
+    handler: async (args) => {
+      const mod = await import("./setup.js");
+      const isQuick =
+        args.includes("--quick") || args.includes("-q");
+      if (isQuick) {
+        mod.setupQuick();
+      } else {
+        await mod.setupInteractive();
+      }
+    },
   },
   {
     name: "doctor",
     description: "诊断 hapilon 配置状态（版本、目录、provider 认证）",
     usage: "hapilon doctor",
+    handler: async () => {
+      const { doctor } = await import("./setup.js");
+      doctor();
+    },
   },
   {
     name: "config",
@@ -68,10 +105,23 @@ export const COMMANDS: CommandDef[] = [
         ],
       },
     ],
+    handler: async (args) => {
+      const { handleConfig } = await import("./config/handlers.js");
+      await handleConfig(args);
+    },
   },
   {
     name: "help",
     description: "显示帮助信息",
     usage: "hapilon help [command]",
+    handler: async (args) => {
+      const { printHelp, printHelpFor } = await import("./help.js");
+      const cmdName = args[1];
+      if (cmdName) {
+        printHelpFor(cmdName);
+      } else {
+        printHelp();
+      }
+    },
   },
 ];

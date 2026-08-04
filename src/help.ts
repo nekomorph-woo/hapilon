@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { COMMANDS, type CommandDef } from "./commands.js";
+import { COMMANDS, GLOBAL_FLAGS, type CommandDef } from "./commands.js";
 
 // ─── Version ─────────────────────────────────────────────────────────
 
@@ -61,9 +61,7 @@ export function printHelp(): void {
 
   console.log(`
 选项:
-  --help, -h    显示此帮助
-  --no-safety   临时关闭所有安全检查（危险命令拦截 + 文件路径保护）
-  --sandbox     OS 内核级沙箱隔离（macOS/Linux，Windows 暂不支持）
+  ${GLOBAL_FLAGS.map((f) => `${f.name.padEnd(13)}${f.description}`).join("\n  ")}
   其余选项透传给 Pi Coding Agent
 
 使用 hapilon help <command> 查看具体命令详情。`);

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { COMMANDS } from "../../commands.js";
+import { COMMANDS, GLOBAL_FLAGS } from "../../commands.js";
 
 describe("commands", () => {
   it("所有命令有 name 和 description", () => {
@@ -43,6 +43,29 @@ describe("commands", () => {
           assert.ok(sub.description && sub.description.length > 0, `${cmd.name} > ${sub.name}: 应有 description`);
         }
       }
+    }
+  });
+
+  it("路由由注册表驱动：setup/doctor/config/help 均有 handler（issue #4）", () => {
+    for (const name of ["setup", "doctor", "config", "help"]) {
+      const cmd = COMMANDS.find((c) => c.name === name);
+      assert.ok(cmd, `应存在 ${name}`);
+      assert.equal(typeof cmd!.handler, "function", `${name} 应有 handler`);
+    }
+  });
+});
+
+describe("GLOBAL_FLAGS", () => {
+  it("含 --help / --no-safety / --sandbox（help 文本回源，issue #4）", () => {
+    const names = GLOBAL_FLAGS.map((f) => f.name);
+    assert.ok(names.some((n) => n.includes("--help")), "应含 --help");
+    assert.ok(names.some((n) => n.includes("--no-safety")), "应含 --no-safety");
+    assert.ok(names.some((n) => n.includes("--sandbox")), "应含 --sandbox");
+  });
+
+  it("每个 flag 有 description", () => {
+    for (const f of GLOBAL_FLAGS) {
+      assert.ok(f.description && f.description.length > 0, `${f.name}: 应有 description`);
     }
   });
 });
