@@ -15,9 +15,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { classifyPath, resolveTarget } from "./classifier.js";
 import { requestConfirm, requestHighRiskConfirm } from "./confirm.js";
-import { addTrust, isTrusted, isSessionTrusted, clearSessionTrust, listSessionTrust, listProjectTrust } from "../../trust-store.js";
+import { addTrust, isTrusted, isSessionTrusted, clearSessionTrust, listSessionTrust, listProjectTrust, initProjectTrust } from "../../trust-store.js";
 
 export { classifyPath, expandTilde, resolveTarget } from "./classifier.js";
+
+// 加载时初始化项目信任缓存（issue #15）：本进程是 project trust 的消费方
+initProjectTrust(process.cwd());
 
 /**
  * /allow 参数解析 — 纯函数，独立可测。

@@ -14,11 +14,14 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { classifyCommand } from "./classifier.js";
 import { requestConfirm } from "../hpl-protected-paths/confirm.js";
-import { addTrust, isTrusted } from "../../trust-store.js";
+import { addTrust, isTrusted, initProjectTrust } from "../../trust-store.js";
 
 export { classifyCommand, hasShellInjection } from "./classifier.js";
 
 export default function (pi: ExtensionAPI) {
+  // 加载时初始化项目信任缓存（issue #15）：本进程是 project trust 的消费方
+  initProjectTrust(process.cwd());
+
   pi.on("tool_call", async (event, ctx) => {
     if (!isToolCallEventType("bash", event)) return;
 

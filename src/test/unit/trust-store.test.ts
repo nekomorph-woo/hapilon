@@ -14,6 +14,7 @@ import {
   addTrust,
   clearSessionTrust,
   listSessionTrust,
+  initProjectTrust,
 } from "../../trust-store.js";
 
 describe("trust-store", () => {
@@ -98,6 +99,51 @@ describe("trust-store", () => {
       assert.strictEqual(list.length, 1);
       assert.strictEqual(list[0].toolName, "write");
       assert.strictEqual(list[0].targets[0], ".env");
+    });
+  });
+
+  describe("initProjectTrust() 缓存（issue #15）", () => {
+    it("init 后走缓存快照：外部改盘不反映", () => {
+      const proj = join(tmpBase, "cache-proj");
+      const projHap = join(proj, ".hapilon");
+      mkdirSync(projHap, { recursive: true });
+      writeFileSync(join(projHap, "config.local.json"), JSON.stringify({
+        allow: { write: ["a"] },
+      }));
+
+      initProjectTrust(proj);
+      // 外部直接改盘（不经 addProjectTrust）
+      writeFileSync(join(projHap, "config.local.json"), JSON.stringify({
+        allow: { write: ["a", "b"] },
+      }));
+
+      assert.strictEqual(isTrusted("write", "b", proj), false, "缓存快照不应看到外部新增 b");
+      assert.strictEqual(isTrusted("write", "a", proj), true, "缓存快照保留初始项 a");
+    });
+
+    it("未 init 的 cwd 仍实时读盘", () => {
+      const proj = join(tmpBase, "no-cache-proj");
+      const projHap = join(proj, ".hapilon");
+      mkdirSync(projHap, { recursive: true });
+      writeFileSync(join(projHap, "config.local.json"), JSON.stringify({
+        allow: { write: ["live"] },
+      }));
+
+      assert.strictEqual(isTrusted("write", "live", proj), true, "未 init 应实时读盘命中");
+    });
+
+    it("addProjectTrust 更新缓存，新增项立即可见", () => {
+      const proj = join(tmpBase, "cache-proj2");
+      const projHap = join(proj, ".hapilon");
+      mkdirSync(projHap, { recursive: true });
+      writeFileSync(join(projHap, "config.local.json"), JSON.stringify({
+        allow: { write: ["a"] },
+      }));
+
+      initProjectTrust(proj);
+      addTrust("write", "c", "project", proj);
+
+      assert.strictEqual(isTrusted("write", "c", proj), true, "addTrust 后缓存应更新");
     });
   });
 });

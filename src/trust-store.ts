@@ -77,6 +77,20 @@ function saveLocalAllow(allow: Record<string, string[]>, cwd: string): void {
   }
 }
 
+// ─── Project trust 内存缓存（issue #15）──────────────────────────────
+// cwd → merged allow 快照。initProjectTrust 加载一次，此后检查走缓存；
+// addProjectTrust 同步更新缓存。未 init 的 cwd 仍实时读盘（懒加载不缓存）。
+
+const projectCache = new Map<string, Record<string, string[]>>();
+
+/**
+ * 初始化项目信任缓存（扩展加载时调用一次）。
+ * 此后 isProjectTrusted/listProjectTrust 命中缓存，避免每次检查都 fs I/O。
+ */
+export function initProjectTrust(cwd: string): void {
+  projectCache.set(cwd, loadMergedAllow(cwd));
+}
+
 export function addProjectTrust(toolName: string, target: string, cwd: string): void {
   const allow = loadLocalAllow(cwd);
   const list = allow[toolName] ?? [];
@@ -85,16 +99,25 @@ export function addProjectTrust(toolName: string, target: string, cwd: string): 
   }
   allow[toolName] = list;
   saveLocalAllow(allow, cwd);
+
+  // 同步更新缓存（若该 cwd 已初始化）
+  const cached = projectCache.get(cwd);
+  if (cached) {
+    const cachedList = cached[toolName] ?? [];
+    if (!cachedList.includes(target)) {
+      cached[toolName] = [...cachedList, target];
+    }
+  }
 }
 
 export function isProjectTrusted(toolName: string, target: string, cwd: string): boolean {
-  const allow = loadMergedAllow(cwd);
+  const allow = projectCache.get(cwd) ?? loadMergedAllow(cwd);
   const list = allow[toolName];
   return list?.includes(target) ?? false;
 }
 
 export function listProjectTrust(cwd: string): Array<{ toolName: string; targets: string[] }> {
-  const allow = loadMergedAllow(cwd);
+  const allow = projectCache.get(cwd) ?? loadMergedAllow(cwd);
   return Object.entries(allow).map(([toolName, targets]) => ({ toolName, targets: targets as string[] }));
 }
 
