@@ -648,5 +648,5 @@ hapilon 的 hpl-footer 目前是**单一固定布局**。未来可借鉴 presets
 - [pi-powerline-footer](https://pi.dev/packages/pi-powerline-footer) — 最成熟的第三方 TUI 扩展，预设/布局/customItems 体系
 - [Joel Claw: Extending Pi with Custom Tools](https://joelclaw.com/extending-pi-with-custom-tools) — Widget + silent message 实战模式
 - hapilon 已实现：`src/extensions/hpl-footer/` — hpl-footer 完整实现（setFooter + footerData + 真彩 [DING]）
-- hapilon 已有文档：`doc/pi-wiki.md` — Pi 生命周期与事件参考
+- hapilon 已有文档：`../.fiber/docs/pi-wiki.md` — Pi 生命周期与事件参考
 - hapilon 已有文档：`_foresight/4-pi-context-organization.md` — Pi 上下文组织研究

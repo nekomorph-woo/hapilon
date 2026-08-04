@@ -74,7 +74,7 @@ Pi 是一个 monorepo（[pi-mono](https://github.com/earendil-works/pi-mono)）�
 
 ### configDir 机制
 
-`package.json` 中定义 `piConfig.configDir`：
+`../../package.json` 中定义 `piConfig.configDir`：
 
 ```json
 {
@@ -1297,7 +1297,7 @@ pi install ./relative/path/to/package
 
 ### 14.2 Package 结构
 
-在 `package.json` 中声明：
+在 `../../package.json` 中声明：
 
 ```json
 {
@@ -1391,5 +1391,5 @@ hapilon 的设计原则是**不修改 Pi 原生文件格式**，而是通过 CLI
 ---
 
 > **最后更新**: 2026-07-12
-> **源文档**: `node_modules/@earendil-works/pi-coding-agent/docs/`（v0.80.6）
+> **源文档**: `../../node_modules/@earendil-works/pi-coding-agent/docs`（v0.80.6）
 > **GitHub**: [earendil-works/pi-mono](https://github.com/earendil-works/pi-mono)

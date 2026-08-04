@@ -655,7 +655,7 @@ Wokii 不继续以某一家 Harness 的文件格式作为核心模型。
 | Subagent | `WorkerSession` |
 | Plan | `WorkflowRun + PhaseArtifact` |
 | Todo | `WorkItem` |
-| `CLAUDE.md` / `AGENTS.md` | `ProjectInstruction` |
+| `../../CLAUDE.md` / `AGENTS.md` | `ProjectInstruction` |
 | Agent 输出 | `AgentResult / Finding / Artifact` |
 | Hook State | `RunState / EventRecord` |
 
@@ -1201,7 +1201,7 @@ hapilon 将可用 model 抽象为三档，供 subagent（及未来的 Role Route
 
 #### 配置形态（用户配置项，不硬编码）
 
-档位映射存入 `HapilonConfig`（`src/config-io.ts`），格式 `"provider/modelId"` 单字符串（与 pi-subagents 的 model 字段一致）：
+档位映射存入 `HapilonConfig`（`../../src/config-io.ts`），格式 `"provider/modelId"` 单字符串（与 pi-subagents 的 model 字段一致）：
 
 ```typescript
 interface HapilonConfig {
@@ -1220,7 +1220,7 @@ interface HapilonConfig {
 
 #### 交互式配置（复用现有 default 设置范式）
 
-复用 `hapilon config default --set` 的交互范式（readline 编号选择 + `spawn pi --list-models` 拉模型列表，见 `src/config.ts` 的 `configSetDefaultInteractive`），新增子命令：
+复用 `hapilon config default --set` 的交互范式（readline 编号选择 + `spawn pi --list-models` 拉模型列表，见 `../../src/config.ts` 的 `configSetDefaultInteractive`），新增子命令：
 
 ```text
 hapilon config tier --set              # 依次为 turbo/pro/ultra 各选 provider + model
@@ -2737,7 +2737,7 @@ hapilon/
             └── SKILL.md
 ```
 
-## 15.4 `package.json`
+## 15.4 `../../package.json`
 
 > Pi 版本应在实际开发时重新确认并精确锁定。本文基线日期所验证的仓库版本为 `0.80.6`。
 
@@ -2774,7 +2774,7 @@ hapilon/
 }
 ```
 
-## 15.5 `tsconfig.json`
+## 15.5 `../../tsconfig.json`
 
 ```json
 {
@@ -2796,7 +2796,7 @@ hapilon/
 }
 ```
 
-## 15.6 `src/cli.ts`
+## 15.6 `../../src/cli.ts`
 
 ```typescript
 #!/usr/bin/env node

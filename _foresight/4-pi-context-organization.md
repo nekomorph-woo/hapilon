@@ -195,5 +195,5 @@ hapilon 目前已深度接触这套体系的位置：
 - [Pi 官方 session-format.md](https://github.com/earendil-works/pi/blob/master/packages/coding-agent/docs/session-format.md) — 会话文件格式与条目类型
 - [Pi 官方 skills.md](https://github.com/earendil-works/pi/blob/master/packages/coding-agent/docs/skills.md) — Skills 发现与注入
 - [Pi 官方 extensions.md](https://github.com/earendil-works/pi/blob/master/packages/coding-agent/docs/extensions.md) — 扩展 API 详解
-- hapilon 已有文档：`doc/pi-wiki.md` — Pi 生命周期与事件参考
+- hapilon 已有文档：`../.fiber/docs/pi-wiki.md` — Pi 生命周期与事件参考
 - hapilon 已有文档：`_plans/hpl-footer-custom.md` — footer 扩展中 contextUsage 的使用案例

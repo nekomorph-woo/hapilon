@@ -2,7 +2,7 @@
 
 ## Context
 
-hapilon 基于 Pi Coding Agent v0.80.6，Extensions 是 Pi 最核心的扩展机制（TypeScript 模块，通过 jiti 加载，无需编译）。然而，查阅 `doc/pi-wiki.md` 虽然覆盖了全部机制，但对于"写一个新的 Pi 扩展"这个具体任务缺乏结构化引导。
+hapilon 基于 Pi Coding Agent v0.80.6，Extensions 是 Pi 最核心的扩展机制（TypeScript 模块，通过 jiti 加载，无需编译）。然而，查阅 `../.fiber/docs/pi-wiki.md` 虽然覆盖了全部机制，但对于"写一个新的 Pi 扩展"这个具体任务缺乏结构化引导。
 
 本 SKILL 将填补这个缺口：当用户说"写一个 pi 扩展"、"给 hapilon 加个扩展"、"创建一个 pi extension"时自动触发，按结构化工作流引导用户完成从需求到验证的全过程。
 
@@ -17,7 +17,7 @@ hapilon 基于 Pi Coding Agent v0.80.6，Extensions 是 Pi 最核心的扩展机
 
 编写本 SKILL 及 reference/ 内容时，从以下来源提取结构化信息：
 
-1. **pi-wiki.md**（`doc/pi-wiki.md`）：使用 `/teach-me` SKILL 多次定向提取，每次聚焦一个主题
+1. **pi-wiki.md**（`../.fiber/docs/pi-wiki.md`）：使用 `/teach-me` SKILL 多次定向提取，每次聚焦一个主题
    - 提取 ExtensionAPI 全部方法签名与用法 → 写入 `reference/api-quick-reference.md`
    - 提取全部事件类型、触发时机、返回值 → 写入 `reference/event-catalog.md`
    - 提取 6 个核心代码模式 → 写入 `reference/code-patterns.md`
@@ -48,7 +48,7 @@ hapilon 基于 Pi Coding Agent v0.80.6，Extensions 是 Pi 最核心的扩展机
 
 在正式开始编写 SKILL 文件之前，先收集外部信息：
 
-0.1 使用 `/teach-me` SKILL 从 `doc/pi-wiki.md` 定向提取结构化信息：
+0.1 使用 `/teach-me` SKILL 从 `../.fiber/docs/pi-wiki.md` 定向提取结构化信息：
     - 第 1 次：提取 ExtensionAPI 全部方法（第 6.4 节）→ 输出到 `reference/api-quick-reference.md` 草稿
     - 第 2 次：提取全部生命周期事件（第 4 章）→ 输出到 `reference/event-catalog.md` 草稿
     - 第 3 次：提取 6 个核心代码模式（Tool/Hook/Command/Provider/Flag/Shortcut）→ 输出到 `reference/code-patterns.md` 草稿

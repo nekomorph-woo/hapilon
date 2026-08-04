@@ -176,7 +176,7 @@ hapilon CLI
 ### 相关文档
 
 - `_foresight.md`（已归档 → `_foresight/2-os-sandbox-solutions.md`）— P0.1 安全基础设施
-- `Hapilon-PRD-v1.1.md` §9.16 — 权限与安全
+- `../.fiber/docs/hapilon-prd-v1.1.md` §9.16 — 权限与安全
 - `src/extensions/hpl-safety-gate/` — 命令拦截（内层防御）
 - `src/extensions/hpl-protected-paths/` — 文件保护（中层防御）
 
