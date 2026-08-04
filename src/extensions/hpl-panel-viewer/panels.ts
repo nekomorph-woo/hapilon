@@ -11,7 +11,7 @@
 import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
-  PANEL_MARKER, SWEEP_MS, config,
+  panelMarker, SWEEP_MS, config,
 } from "./shared.js";
 
 // ── TUI tree traversal ──────────────────────────────────────────────────
@@ -44,7 +44,7 @@ export function patternMatches(pattern: string, text: string): boolean {
 export function titleOfLines(lines: string[]): string {
   for (const l of lines) {
     if (typeof l !== "string") continue;
-    const plain = l.replace(/\x1b\[[0-9;]*m/g, "").replace(/^[\s▶▼]+/, "").replace(/^\(hapi-pop\)\s*/, "").trim();
+    const plain = l.replace(/\x1b\[[0-9;]*m/g, "").replace(/^[\s▶▼]+/, "").trim();
     if (plain) return plain;
   }
   return "";
@@ -129,17 +129,17 @@ export function decorateExpandable(comp: any, theme: Theme): boolean {
     const expanded = comp.expanded ?? expandedState.get(comp) ?? false;
     const maxL = config.maxLines;
 
-    // 折叠时截断到 maxLines
+    // 折叠时截断到 maxLines，footer 以 ▼ 表明当前为折叠态
     if (maxL > 0 && !expanded && lines.length > maxL) {
       const hidden = lines.length - maxL;
       const footer = truncateToWidth(
-        ` ${theme.fg("dim", `…${hidden} more lines (hapi-pop)`)}`,
+        ` ${theme.fg("dim", `…${hidden} more lines ▼`)}`,
         width, "", true,
       );
       lines = [...lines.slice(0, maxL), footer];
     }
 
-    // 注入 (hapi-pop) 标记到第一行，继承原行背景色
+    // 注入状态 marker（▶ 折叠 / ▼ 展开）到第一行，继承原行背景色
     const firstIdx = lines.findIndex((l: unknown) => typeof l === "string" && l.trim().length > 0);
     if (firstIdx >= 0) {
       const orig = lines[firstIdx] as string;
@@ -147,7 +147,7 @@ export function decorateExpandable(comp: any, theme: Theme): boolean {
       const bgMatch = orig.match(/\x1b\[48;[0-9;]*m/);
       const bg = bgMatch ? bgMatch[0] : "";
       // 标记 + 空格 = 前缀，继承原行背景
-      const marker = bg + theme.fg("dim", PANEL_MARKER + " ") + bg;
+      const marker = bg + theme.fg("dim", panelMarker(expanded) + " ") + bg;
       const marked = marker + orig;
       lines[firstIdx] = truncateToWidth(marked, width, "", true);
     }

@@ -6,8 +6,9 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import {
   isExpandable, collectExpandables, patternMatches, titleOfLines,
-  panelTitle, findNewestPanel,
+  panelTitle, findNewestPanel, decorateExpandable,
 } from "../../extensions/hpl-panel-viewer/panels.js";
+import { panelMarker } from "../../extensions/hpl-panel-viewer/shared.js";
 import { applyPopConfig, loadPopConfig } from "../../extensions/hpl-panel-viewer/config.js";
 import { config as popConfig } from "../../extensions/hpl-panel-viewer/shared.js";
 
@@ -86,6 +87,64 @@ describe("findNewestPanel", () => {
   it("未匹配返回 null", () => {
     const tui = { terminal: { columns: 80 }, children: [] };
     assert.equal(findNewestPanel(tui, "nonexistent"), null);
+  });
+});
+
+describe("panelMarker", () => {
+  it("折叠返回 ▶，展开返回 ▼", () => {
+    assert.equal(panelMarker(false), "▶");
+    assert.equal(panelMarker(true), "▼");
+  });
+});
+
+describe("decorateExpandable marker", () => {
+  // 最小 theme mock：fg 直接透传文本（不带 ANSI）
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const theme = { fg: (_s: string, t: string) => t } as any;
+
+  function makePanel(expanded: boolean, n = 2) {
+    const comp: Record<string, unknown> & {
+      expanded: boolean;
+      setExpanded(v: boolean): void;
+      render(w: number): string[];
+    } = {
+      toolName: "bash",
+      expanded,
+      setExpanded(v: boolean) { this.expanded = v; },
+      render: () => Array.from({ length: n }, (_, i) => `line ${i}`),
+    };
+    return comp;
+  }
+
+  it("折叠面板首行注入 ▶", () => {
+    const comp = makePanel(false);
+    assert.equal(decorateExpandable(comp, theme), true);
+    const lines = comp.render(80);
+    assert.ok(lines[0].startsWith("▶ "), `实际: ${lines[0]}`);
+  });
+
+  it("展开面板首行注入 ▼", () => {
+    const comp = makePanel(true);
+    decorateExpandable(comp, theme);
+    const lines = comp.render(80);
+    assert.ok(lines[0].startsWith("▼ "), `实际: ${lines[0]}`);
+  });
+
+  it("setExpanded 切换后 marker 跟随状态", () => {
+    const comp = makePanel(false);
+    decorateExpandable(comp, theme);
+    assert.ok(comp.render(80)[0].startsWith("▶ "));
+    comp.setExpanded(true);
+    assert.ok(comp.render(80)[0].startsWith("▼ "), `实际: ${comp.render(80)[0]}`);
+  });
+
+  it("折叠截断时 footer 显示当前状态 ▼", () => {
+    popConfig.maxLines = 5;
+    const comp = makePanel(false, 10);
+    decorateExpandable(comp, theme);
+    const lines = comp.render(80);
+    assert.ok(lines.length <= 6, `行数: ${lines.length}`);
+    assert.ok(lines[lines.length - 1].includes("▼"), `实际: ${lines[lines.length - 1]}`);
   });
 });
 
