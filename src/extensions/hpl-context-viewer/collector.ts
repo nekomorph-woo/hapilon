@@ -62,8 +62,30 @@ export function collectContextSnapshot(input: CollectorInput): ContextSnapshot {
   // ── System prompt 分解（从 metadata） ──────────────────────
   const meta: SystemPromptMeta | undefined = getLastMeta();
 
+  // 只累加纯 system 组成（role/guidelines/pi docs/env 等）。
+  // tools/skills/contextFiles/hapilonRules/hapilonInstructions 各自独立成类，
+  // 避免被双倍计入（issue #8）。
+  const PURE_SYSTEM_SECTIONS = [
+    "roleAndIdentity",
+    "piDocumentation",
+    "guidelines",
+    "customToolsNote",
+    "additionalData",
+    "environment",
+  ] as const;
+
   const spTokens = meta
-    ? estimateTokensFromLengths(...Object.values(meta.sections))
+    ? estimateTokensFromLengths(...PURE_SYSTEM_SECTIONS.map((k) => meta.sections[k]))
+    : null;
+
+  // ── Rules（hapilonRules 独立分类） ─────────────────────────
+  const rulesTokens = meta
+    ? estimateTokensFromLengths(meta.sections.hapilonRules)
+    : null;
+
+  // ── HAPILON.md（hapilonInstructions 独立分类） ─────────────
+  const hapilonMdTokens = meta
+    ? estimateTokensFromLengths(meta.sections.hapilonInstructions)
     : null;
 
   // ── Tools ─────────────────────────────────────────────────
@@ -108,19 +130,39 @@ export function collectContextSnapshot(input: CollectorInput): ContextSnapshot {
   // ── Messages ───────────────────────────────────────────────
   // total tokens - static parts = messages（粗略分解）
   // chars/4 会保守高估 static 部分 → 当 staticTotal > tokens 时 messages 估算无意义
-  const staticTotal = (spTokens ?? 0) + (toolsTotal ?? 0) + (contextFilesTokens ?? 0) + (skillsTokens ?? 0);
+  const staticTotal =
+    (spTokens ?? 0) + (hapilonMdTokens ?? 0) + (rulesTokens ?? 0) +
+    (toolsTotal ?? 0) + (contextFilesTokens ?? 0) + (skillsTokens ?? 0);
   const messagesTokens =
     tokens !== null && tokens > staticTotal ? tokens - staticTotal : null;
 
   // ── Build categories ───────────────────────────────────────
   const categories: CategoryBreakdown[] = [];
 
-  // System prompt（含 role + guidelines + pi docs + hapilon instructions + rules）
+  // System prompt（纯组成：role + guidelines + pi docs + env，不含独立分类）
   if (spTokens !== null) {
     categories.push({
       label: "System prompt",
       tokens: spTokens,
       percent: safePercent(spTokens, contextWindow),
+    });
+  }
+
+  // HAPILON.md（hapilonInstructions section）
+  if (hapilonMdTokens !== null && hapilonMdTokens > 0) {
+    categories.push({
+      label: "HAPILON.md",
+      tokens: hapilonMdTokens,
+      percent: safePercent(hapilonMdTokens, contextWindow),
+    });
+  }
+
+  // Rules（hapilonRules section）
+  if (rulesTokens !== null && rulesTokens > 0) {
+    categories.push({
+      label: "Rules",
+      tokens: rulesTokens,
+      percent: safePercent(rulesTokens, contextWindow),
     });
   }
 
@@ -174,7 +216,8 @@ export function collectContextSnapshot(input: CollectorInput): ContextSnapshot {
 
   // ── Estimated total ────────────────────────────────────────
   const estimatedTotal = spTokens !== null
-    ? spTokens + (toolsTotal ?? 0) + (contextFilesTokens ?? 0) + (skillsTokens ?? 0) + (messagesTokens ?? 0)
+    ? spTokens + (hapilonMdTokens ?? 0) + (rulesTokens ?? 0) +
+      (toolsTotal ?? 0) + (contextFilesTokens ?? 0) + (skillsTokens ?? 0) + (messagesTokens ?? 0)
     : null;
 
   return {

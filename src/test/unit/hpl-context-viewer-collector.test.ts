@@ -166,3 +166,83 @@ describe("collectContextSnapshot", () => {
     assert.equal(freeCat!.tokens, 0);
   });
 });
+
+describe("token 统计不重复计算（issue #8）", () => {
+  beforeEach(() => {
+    clearLastMeta();
+  });
+
+  const baseInput: CollectorInput = {
+    contextUsage: { tokens: 20000, contextWindow: 128000, percent: 15.6 },
+    systemPromptOptions: {
+      toolSnippets: { read: "Read a file", bash: "Run a command" },
+      selectedTools: ["read", "bash"],
+    },
+    model: { id: "deepseek-v4", name: "DeepSeek V4", contextWindow: 128000 },
+  };
+
+  /** sections 故意让 tools/skills/contextFiles/rules 都有大长度，验证不被双倍计入 spTokens */
+  function fullMeta() {
+    return {
+      assembledAt: Date.now(),
+      cwd: "/test",
+      sections: {
+        roleAndIdentity: 100,
+        piDocumentation: 100,
+        tools: 4000,
+        guidelines: 100,
+        hapilonInstructions: 800,
+        hapilonRules: 2000,
+        contextFiles: 3000,
+        skills: 2000,
+        customToolsNote: 0,
+        additionalData: 0,
+        environment: 100,
+      },
+    };
+  }
+
+  it("spTokens 只含纯 system 部分，不含 tools/skills/contextFiles/rules", () => {
+    setLastMeta(fullMeta());
+    const snapshot = collectContextSnapshot(baseInput);
+    const spCat = snapshot.categories.find((c) => c.label === "System prompt");
+    assert.ok(spCat, "存在 System prompt category");
+    // roleAndIdentity 100 + piDocumentation 100 + guidelines 100 + environment 100 = 400 chars → 100 tokens
+    assert.equal(spCat!.tokens, 100);
+  });
+
+  it("Rules 分类独立展示 hapilonRules", () => {
+    setLastMeta(fullMeta());
+    const snapshot = collectContextSnapshot(baseInput);
+    const rulesCat = snapshot.categories.find((c) => c.label === "Rules");
+    assert.ok(rulesCat, "存在 Rules category");
+    assert.equal(rulesCat!.tokens, Math.ceil(2000 / 4));
+  });
+
+  it("HAPILON.md 分类独立展示 hapilonInstructions", () => {
+    setLastMeta(fullMeta());
+    const snapshot = collectContextSnapshot(baseInput);
+    const mdCat = snapshot.categories.find((c) => c.label === "HAPILON.md");
+    assert.ok(mdCat, "存在 HAPILON.md category");
+    assert.equal(mdCat!.tokens, Math.ceil(800 / 4));
+  });
+
+  it("虚高的 staticTotal 不再把 Messages 压成 null", () => {
+    setLastMeta(fullMeta());
+    const input: CollectorInput = {
+      ...baseInput,
+      contextUsage: { tokens: 3000, contextWindow: 128000, percent: 2.3 },
+    };
+    const snapshot = collectContextSnapshot(input);
+    const msgCat = snapshot.categories.find((c) => c.label === "Messages");
+    assert.ok(msgCat, "Messages category 存在（未被压成 null）");
+    assert.ok(msgCat!.tokens! > 0);
+  });
+
+  it("分类 percent 加总不超过 100%（含 Free space）", () => {
+    setLastMeta(fullMeta());
+    const snapshot = collectContextSnapshot(baseInput);
+    const total = snapshot.categories.reduce((s, c) => s + (c.percent ?? 0), 0);
+    assert.ok(total <= 100.5, `percent 加总 ${total} 应 ≤ 100`);
+  });
+});
