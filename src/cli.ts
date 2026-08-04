@@ -145,6 +145,15 @@ async function main(): Promise<void> {
     if (platform === "win32") {
       console.warn("⚠ --sandbox 暂不支持 Windows。使用命令+文件策略保护。");
     } else {
+      // Linux 预检 bwrap（issue #5）：缺失时打印发行版安装提示并退出
+      if (platform === "linux") {
+        const { bwrapInstalled, bwrapInstallHint } = await import("./sandbox.js");
+        if (!bwrapInstalled()) {
+          console.error(bwrapInstallHint().join("\n"));
+          process.exit(1);
+        }
+      }
+
       if (!isNonInteractive) {
         console.log("🛡️  OS 沙箱已激活");
       }
