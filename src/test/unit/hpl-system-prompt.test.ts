@@ -235,12 +235,24 @@ describe("buildPiDocSection", () => {
 });
 
 describe("buildHapilonInstructions", () => {
-  it("正常路径: 正文原样注入（不转义，对齐 Pi contextFiles 行为）", () => {
+  it("正常路径: 正文 XML 转义，防止 < 破坏 XML 结构", () => {
     const result = buildHapilonInstructions([
       { path: "/x.md", content: "Use Array<string> & generics" },
     ]);
-    assert.ok(result.includes("Use Array<string> & generics"), "正文保持原样");
-    assert.ok(!result.includes("&lt;"), "正文不做实体转义");
+    assert.ok(result.includes("Use Array&lt;string&gt; &amp; generics"), "正文 < > & 转义");
+    assert.ok(!result.includes("Use Array<string>"), "原样尖括号不出现");
+  });
+
+  it("异常路径: 正文含 </hapilon_instructions> 字面量时结构不被破坏", () => {
+    const result = buildHapilonInstructions([
+      { path: "/x.md", content: "before </hapilon_instructions> after" },
+    ]);
+    assert.ok(result.includes("&lt;/hapilon_instructions&gt;"), "闭合标签被转义");
+    assert.equal(
+      (result.match(/<\/hapilon_instructions>/g) ?? []).length,
+      1,
+      "仅结尾一个闭合标签",
+    );
   });
 
   it("边界条件: 空数组返回空字符串", () => {
@@ -249,12 +261,12 @@ describe("buildHapilonInstructions", () => {
 });
 
 describe("buildHapilonRules", () => {
-  it("正常路径: name 属性转义，正文原样注入", () => {
+  it("正常路径: name 属性与正文均转义", () => {
     const result = buildHapilonRules([
       { name: 'test"rule', content: "if a < b & c > d" },
     ]);
     assert.ok(result.includes('name="test&quot;rule"'), "name 属性中双引号被转义");
-    assert.ok(result.includes("if a < b & c > d"), "正文保持原样");
+    assert.ok(result.includes("if a &lt; b &amp; c &gt; d"), "正文 < > & 转义");
   });
 
   it("边界条件: 空数组返回空字符串", () => {
@@ -277,19 +289,22 @@ describe("buildEnvironmentSection", () => {
 });
 
 describe("buildContextSection", () => {
-  it("正常路径: 多文件拼接，path 属性转义，正文原样", () => {
+  it("正常路径: 多文件拼接，path 属性与正文均转义", () => {
     const result = buildContextSection([
       { path: '/a"b.md', content: "hello <x>" },
       { path: "/c.md", content: "world" },
     ]);
     assert.equal((result.match(/<project_instructions/g) ?? []).length, 2, "两个文件条目");
     assert.ok(result.includes('path="/a&quot;b.md"'), "path 中双引号被转义");
-    assert.ok(result.includes("hello <x>"), "正文原样注入");
+    assert.ok(result.includes("hello &lt;x&gt;"), "正文 < > 转义");
   });
 
-  it("边界条件: 空数组返回空字符串", () => {
-    assert.equal(buildContextSection([]), "");
-    assert.equal(buildContextSection(undefined), "");
+  it("边界条件: 空数组输出注释占位 section（Spec §2）", () => {
+    const result = buildContextSection([]);
+    assert.ok(result.includes("<project_context>"), "仍输出 section");
+    assert.ok(result.includes("<!-- 当前为空"), "空时显示注释");
+    assert.ok(result.includes("</project_context>"));
+    assert.equal(buildContextSection(undefined), result, "undefined 与空数组一致");
   });
 });
 
@@ -314,12 +329,14 @@ describe("buildSkillsSection", () => {
     assert.ok(result.includes("<name>b</name>"));
   });
 
-  it("边界条件: 空数组/全部禁用返回空字符串", () => {
-    assert.equal(buildSkillsSection([]), "");
-    assert.equal(buildSkillsSection(undefined), "");
+  it("边界条件: 空数组/全部禁用输出注释占位 section（Spec §2）", () => {
+    const placeholder = "<available_skills>\n<!-- 当前为空；hapilon 使用 --no-skills -->\n</available_skills>";
+    assert.equal(buildSkillsSection([]), placeholder, "空数组输出占位");
+    assert.equal(buildSkillsSection(undefined), placeholder, "undefined 输出占位");
     assert.equal(
       buildSkillsSection([{ name: "a", description: "d", filePath: "/a", disableModelInvocation: true }]),
-      "",
+      placeholder,
+      "全部禁用输出占位",
     );
   });
 });
@@ -407,13 +424,20 @@ describe("assembleSystemPrompt", () => {
     );
   });
 
-  it("正常路径: HAPILON.md 正文原样注入不转义", () => {
+  it("正常路径: HAPILON.md 正文 XML 转义", () => {
     const result = assembleSystemPrompt({
       ...defaultOpts,
       hapilonMd: [{ path: "/x.md", content: "use <tag> & Array<string>" }],
     });
-    assert.ok(result.includes("use <tag> & Array<string>"), "正文原样");
-    assert.ok(!result.includes("&lt;tag&gt;"), "不做实体转义");
+    assert.ok(result.includes("use &lt;tag&gt; &amp; Array&lt;string&gt;"), "正文 < > & 转义");
+    assert.ok(!result.includes("use <tag>"), "原样尖括号不出现");
+  });
+
+  it("边界条件: 空 contextFiles/skills 时仍输出注释占位 section", () => {
+    const result = assembleSystemPrompt(defaultOpts);
+    assert.ok(result.includes("<project_context>"), "project_context 占位输出");
+    assert.ok(result.includes("<available_skills>"), "available_skills 占位输出");
+    assert.ok(result.includes("<!-- 当前为空"), "空时显示注释");
   });
 
   it("边界条件: selectedTools=undefined 回退默认工具集且两个 builder 语义一致", () => {

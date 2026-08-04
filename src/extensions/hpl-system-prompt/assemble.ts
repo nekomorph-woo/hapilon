@@ -5,9 +5,10 @@
  * 构建 XML 片段；文件系统读取由 collectHapilonContext()（本文件内唯一
  * 的 I/O 函数）完成，结果经 AssembleOptions 传入。
  *
- * XML 转义策略：正文类内容（HAPILON.md / rules / contextFiles 正文）原样
- * 注入——对齐 Pi 对 contextFiles 的行为，模型能正常理解标签内的 markdown；
- * 仅对短属性值（rule name、path、skill 字段）做 xmlEscape 防结构破坏。
+ * XML 转义策略：正文类内容（HAPILON.md / rules / contextFiles 正文）与
+ * 属性值一律 xmlEscape——hapilon 的 prompt 是 XML 结构，正文中的 < > &
+ * 若不转义会被模型当作标签/实体解读，甚至提前闭合 section 破坏结构
+ * （Spec §3.9；Pi 原生 prompt 是 markdown 纯文本，无此结构，不构成参照）。
  */
 
 import {
@@ -114,27 +115,30 @@ export function buildPiDocSection(): string {
 
 export function buildHapilonInstructions(hapilonMd: FileEntry[]): string {
   if (hapilonMd.length === 0) return "";
-  // 正文原样注入（不转义）——对齐 Pi contextFiles 行为
-  const body = hapilonMd.map((f) => f.content).join("\n\n").trim();
+  // 正文转义（Spec §3.9）：防 < > & 破坏 XML 结构
+  const body = hapilonMd.map((f) => xmlEscape(f.content)).join("\n\n").trim();
   return `<hapilon_instructions>\n${body}\n</hapilon_instructions>`;
 }
 
 export function buildHapilonRules(rules: RuleEntry[]): string {
   if (rules.length === 0) return "";
-  // name 是属性值需转义；正文原样注入
+  // name 属性与正文均转义（Spec §3.9）
   const items = rules
-    .map((r) => `<rule name="${xmlEscape(r.name)}">\n${r.content}\n</rule>`)
+    .map((r) => `<rule name="${xmlEscape(r.name)}">\n${xmlEscape(r.content)}\n</rule>`)
     .join("\n\n");
   return `<hapilon_rules>\n\n${items}\n\n</hapilon_rules>`;
 }
 
 export function buildContextSection(contextFiles?: FileEntry[]): string {
-  if (!contextFiles || contextFiles.length === 0) return "";
-  // path 是属性值需转义；正文原样注入（对齐 Pi）
+  if (!contextFiles || contextFiles.length === 0) {
+    // Spec §2：无论是否为空都输出 section，空时显示注释（防将来去掉 --no-context-files）
+    return `<project_context>\n<!-- 当前为空；hapilon 使用 --no-context-files -->\n</project_context>`;
+  }
+  // path 属性与正文均转义（Spec §3.9）
   const entries = contextFiles
     .map(
       (f) =>
-        `<project_instructions path="${xmlEscape(f.path)}">\n${f.content}\n</project_instructions>`,
+        `<project_instructions path="${xmlEscape(f.path)}">\n${xmlEscape(f.content)}\n</project_instructions>`,
     )
     .join("\n\n");
   return `<project_context>\n\n${entries}\n\n</project_context>`;
@@ -142,7 +146,10 @@ export function buildContextSection(contextFiles?: FileEntry[]): string {
 
 export function buildSkillsSection(skills?: SkillEntry[]): string {
   const visible = (skills ?? []).filter((s) => !s.disableModelInvocation);
-  if (visible.length === 0) return "";
+  if (visible.length === 0) {
+    // Spec §2：无论是否为空都输出 section，空时显示注释（防将来去掉 --no-skills）
+    return `<available_skills>\n<!-- 当前为空；hapilon 使用 --no-skills -->\n</available_skills>`;
+  }
   // 与 Pi formatSkillsForPrompt 对齐：name/description/location 三字段 + read 指引
   const entries = visible
     .map(

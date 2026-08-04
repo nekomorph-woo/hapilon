@@ -107,9 +107,12 @@ Current working directory: <cwd>
   <hapilon_rules>...</hapilon_rules>
   <project_context>...</project_context>
   <available_skills>...</available_skills>
+  <additional_instructions>...</additional_instructions>
   <environment>...</environment>
 </system_prompt>
 ```
+
+> 注：顶层共 **11 个 section**（role, available_tools, custom_tools_note, guidelines, pi_documentation, hapilon_instructions, hapilon_rules, project_context, available_skills, additional_instructions, environment）。其中 project_context / available_skills 无论是否为空都输出 section（空时显示注释）；hapilon_instructions / hapilon_rules / additional_instructions 为空时不输出。
 
 ### 各 section 详解
 
@@ -256,6 +259,18 @@ hapilon-specific paths (where user extensions/skills/rules actually live):
 </available_skills>
 ```
 
+#### `<additional_instructions>`
+
+来源：`event.systemPromptOptions.appendSystemPrompt`。
+
+该字段由 Pi 的 resource-loader 填充（`discoverAppendSystemPromptFile()`，来自用户配置文件中的追加 prompt）。hapilon 用独立 section 承载，**不丢弃**——丢失用户显式配置违反 Fail Fast / 不静默吞错原则。
+
+```xml
+<additional_instructions>
+...appendSystemPrompt 内容...
+</additional_instructions>
+```
+
 #### `<environment>`
 
 ```xml
@@ -395,13 +410,16 @@ pi.on("before_agent_start", (event) => {
     // 5. 组装 context section（可能为空）
     const projectContext = buildContextSection(opts.contextFiles);
 
-    // 6. 组装 skills section（可能为空）
+    // 6. 组装 skills section（可能为空，空时输出注释占位）
     const skills = buildSkillsSection(opts.skills);
 
-    // 7. 组装 environment section
+    // 7. 组装 append section（来自 Pi resource-loader 的 appendSystemPrompt，不丢弃）
+    const append = buildAppendSection(opts.appendSystemPrompt);
+
+    // 8. 组装 environment section
     const env = buildEnvironmentSection(opts.cwd);
 
-    // 8. 拼接完整 XML
+    // 9. 拼接完整 XML
     const systemPrompt = wrapSystemPrompt([
       role,
       tools,
@@ -412,6 +430,7 @@ pi.on("before_agent_start", (event) => {
       hapilonRules,
       projectContext,
       skills,
+      append,
       env,
     ]);
 
@@ -431,14 +450,16 @@ src/extensions/hpl-system-prompt/
 ├── index.ts          # 扩展入口：pi.on("before_agent_start", ...)
 ├── assemble.ts       # XML 各 section 的 builder 函数（纯函数，可测试）
 ├── sections.ts       # 硬编码文本常量（role, pi_documentation, 内建 guidelines）
-└── xml.ts            # xmlEscape() + wrapSystemPrompt() 工具函数
+├── xml.ts            # wrapSystemPrompt() 工具函数（xmlEscape 在 shared/format.ts）
+└── metadata.ts       # 共享元数据：记录最近一次组装的各 section 长度，供 hpl-context-viewer /context 做 token 估算
 ```
 
 **职责拆分**：
 - `index.ts`：生命周期绑定、错误处理/降级、依赖注入
 - `assemble.ts`：从 options 和文件系统构建各 XML section，核心逻辑
 - `sections.ts`：第一版硬编码的文本常量，后续可迁移到配置文件
-- `xml.ts`：XML 转义和包装函数
+- `xml.ts`：XML 包装函数
+- `metadata.ts`：跨计划共享模块（由 `_plans/hpl-context-viewer.md` 规划，非本计划 §3.4 四件套成员）——`assembleSystemPrompt()` 组装后记录各 section 字符长度，hpl-context-viewer 读取后按 字符数/4 估算 token 占比
 
 ### 3.5 代码复用策略
 
@@ -543,10 +564,13 @@ function xmlEscape(s: string): string {
 }
 ```
 
-应用场景：
+应用场景（正文与属性值一律转义）：
 - `<hapilon_instructions>` 内容体（用户编写的 HAPILON.md 可能包含 `<` `>` `&`）
 - `<hapilon_rules>` 中每条 rule 的正文
 - `<rule name="...">` 的 name 属性值（规则文件名，通常不含特殊字符但防御性转义）
+- `<project_instructions path="...">` 的正文与 path 属性值（contextFiles 恒为空，但结构一致性要求同样转义）
+
+> **决策记录（code-review 修正）**：早期实现曾以「对齐 Pi contextFiles 行为」为由对正文不做转义。经核实，Pi 原生 prompt 是 markdown 纯文本拼接（`## path\n\ncontent`），不存在 XML 结构，无需转义；hapilon 用 XML 标签包裹，正文中的 `<` `>` 若原样注入会被模型当作标签/实体解读，`</hapilon_instructions>` 字面量会提前闭合 section 破坏结构且不可观测。故按 §3.9 对正文统一转义。
 
 ---
 
@@ -685,7 +709,7 @@ describe("system prompt 语义等价", () => {
 ## 7. 验收标准
 
 - [ ] `hpl-system-prompt` 扩展成功注册，`before_agent_start` handler 在每次 agent turn 前触发
-- [ ] 生成的 XML system prompt 包含所有 9 个 section（role, available_tools, custom_tools_note, guidelines, pi_documentation, hapilon_instructions, hapilon_rules, project_context, available_skills, environment）
+- [ ] 生成的 XML system prompt 包含全部 11 个 section（role, available_tools, custom_tools_note, guidelines, pi_documentation, hapilon_instructions, hapilon_rules, project_context, available_skills, additional_instructions, environment）
 - [ ] `<available_tools>` 内容与当前启用的工具集合一致（从 `event.systemPromptOptions.toolSnippets` 动态生成）
 - [ ] `<hapilon_instructions>` 包含从 `~/.hapilon/HAPILON.md` 和祖先 `.hapilon/HAPILON.md` 收集的内容
 - [ ] `<hapilon_rules>` 包含从 `~/.hapilon/agents/rules/` 和祖先 `.hapilon/agents/rules/` 收集的规则
