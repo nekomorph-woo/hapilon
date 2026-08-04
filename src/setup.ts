@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline";
 import { ensureHapilonDirs, hapilonHome } from "./hapilon-home.js";
+import { resolvePiCli } from "./pi-cli-path.js";
 import {
   COMMON,
   ALL_PROVIDERS,
@@ -180,4 +181,13 @@ export function doctor(): void {
   const modelsPath = join(agentDir, "models.json");
   console.log(`models.json:         ${existsSync(modelsPath) ? "✅ 自定义模型" : "ℹ 不存在（正常）"}`);
   console.log(`\nPI_CODING_AGENT_DIR: ${agentDir}  ${existsSync(agentDir) ? "✅" : "⚠ 目标目录缺失"}`);
+
+  // pi binary 可解析检查（issue #14）
+  try {
+    const piCli = resolvePiCli();
+    console.log(`pi binary:           ${existsSync(piCli) ? "✅" : "⚠ 解析到但文件缺失"} ${piCli}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log(`pi binary:           ❌ ${msg}`);
+  }
 }

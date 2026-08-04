@@ -56,15 +56,9 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── Unknown command guard ────────────────────────────────────────
-
-  if (command && !command.startsWith("-")) {
-    console.error(`未知命令: ${command}`);
-    console.error("输入 hapilon help 查看帮助");
-    process.exit(1);
-  }
-
   // ── Default: launch pi ───────────────────────────────────────────
+  // 未知命令不拦截（issue #14）：hapilon [other] 原样传给 pi 处理，
+  // 与 TODO-1 spec 路由表「原样传给 pi」一致，hapilon 是 pi 的薄包装。
 
   // --mode 存在时抑制 hapilon banner，避免在非 TUI 模式下污染 stdout
   const { hasFlag, readHapilonConfig, writeHapilonConfig, injectDefaultArgs } = await import(

@@ -238,6 +238,25 @@ describe("setup", () => {
       }
     });
 
+    it("输出包含 pi binary 可解析检查（issue #14）", () => {
+      const outputs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        outputs.push(args.map(String).join(" "));
+      };
+
+      try {
+        doctor();
+
+        const output = outputs.join("\n");
+        assert.ok(output.includes("pi binary"), "应包含 pi binary 检查行");
+        assert.ok(output.includes("✅") || output.includes("❌") || output.includes("⚠"),
+          "应显示检查结果状态");
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
     it("Node.js 版本检查正确", () => {
       const outputs: string[] = [];
       const originalLog = console.log;
