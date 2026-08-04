@@ -5,7 +5,7 @@ Hapilon 是一个以 Pi Coding Agent 为运行内核的通用终端 Coding Agent
 
 # 我的弱项 - 你需要特别关照
 - 当前项目使用 TypeScript 编写，因此你在变更了任意逻辑代码、文档、注释、提示词、引用等等会变更项目行为的内容，在 `b3oy1-conversation-style.md` 基础之上，你还需要使用 `人话` 耐心地向我解释代码业务逻辑（DO NOT 语法）、目的、产生影响。
-- 项目不会使用 `wokiii` 管道式自动化流水线方式的 Vibe Coding，而是 `目标/问题驱动 ➡️ 解答讨论 ➡️ 构思完善 ➡️ Planning with hpl-planner agent  ➡️ Coding with agent` 的 `傻瓜式` 流程进行。
+- 项目不会使用 `wokiii` 管道式自动化流水线方式的 Vibe Coding，而是 `目标/问题驱动 ➡️ 解答讨论 ➡️ 构思完善 ➡️ Planning with fiber（wayfinder / to-spec / to-tickets）➡️ Coding with agent` 的 `傻瓜式` 流程进行。
 - **任务完整实现后，详细告知我如何进行端到端验证**
 - `wok-execute`：TDD编码完成后，详细告诉我你覆盖的测试（单元测试/集成测试），避免测试与真实需求的理解偏差
 
@@ -23,5 +23,5 @@ Hapilon 是一个以 Pi Coding Agent 为运行内核的通用终端 Coding Agent
 - **所有的技术债/预留扩展全部以结构化描述方式记录到 `_backlog` 目录下，一个内容一个文件 **，包含以下结构块：背景，目的，技术债/预留扩展描述，参考引用，项目中指向的位置
 
 # Claude Code Plan Mode & Planning File
-- **当前项目使用 Claude Code Plan Mode时，必须将Planning计划文件输出到 `_plans` 目录下，禁止按照Claude Code默认的目录输出到 `/Users/xx/.claude/plans/`，方便我归档和检查
+- **规划方式使用 fiber 流程：大工程用 wayfinder（issue tracker 上的决策地图），小任务用 to-spec / to-tickets 发布到 GitHub issue tracker。不再使用 `_plans/` 目录输出约定，`_plans/` 仅作历史归档
 - Planning 时注意将验收标准定好，我将使用 TDD 的方式进行编码，需要符合需求的验收标准内容
