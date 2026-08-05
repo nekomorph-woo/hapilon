@@ -133,3 +133,6 @@ Desktop.ini
 .wok-plans/
 .wok-grill/
 .wok-handoff/
+
+# --- Fiber worktrees ---
+.fiber/worktrees/
