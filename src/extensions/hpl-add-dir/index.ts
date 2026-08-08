@@ -29,9 +29,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import * as childProcess from "node:child_process";
-import * as crypto from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { suggestDirectories } from "./suggestions.js";
 import {
@@ -63,43 +61,6 @@ function dirExists(dir: string): boolean {
   }
 }
 
-/**
- * Generate a deterministic hash for a cwd to use as a temp file key.
- */
-function cwdHash(cwd: string): string {
-  return crypto.createHash("sha256").update(cwd).digest("hex").slice(0, 12);
-}
-
-/**
- * Path to the temp state file used by resources_discover.
- * Keyed by cwd so different projects don't share state.
- */
-function getTempStatePath(cwd: string): string {
-  return path.join(os.tmpdir(), `hpl-add-dir-${cwdHash(cwd)}.json`);
-}
-
-/**
- * Write directory list to the temp state file so resources_discover can read it.
- */
-function writeTempState(cwd: string, dirs: AddedDir[]): void {
-  try {
-    fs.writeFileSync(getTempStatePath(cwd), JSON.stringify({ dirs }), "utf-8");
-  } catch {
-    // Non-critical — temp state is a performance optimization
-  }
-}
-
-/**
- * Remove the temp state file for a given cwd.
- */
-function removeTempState(cwd: string): void {
-  try {
-    fs.unlinkSync(getTempStatePath(cwd));
-  } catch {
-    // Already gone or never existed
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Extension
 // ---------------------------------------------------------------------------
@@ -108,16 +69,12 @@ export default function hplAddDir(pi: ExtensionAPI) {
   // Per-session state
   let addedDirs: AddedDir[] = [];
 
-  // Track the cwd for temp state file operations
-  let currentCwd: string = "";
-
   // -----------------------------------------------------------------------
   // State reconstruction
   // -----------------------------------------------------------------------
 
   function reconstructState(ctx: ExtensionContext) {
     addedDirs = [];
-    currentCwd = ctx.cwd;
 
     for (const entry of ctx.sessionManager.getBranch()) {
       if (entry.type !== "custom") continue;
@@ -129,19 +86,12 @@ export default function hplAddDir(pi: ExtensionAPI) {
     // Invalidate cache since we may have switched sessions
     invalidateContextCache();
 
-    // Sync temp state file so resources_discover stays current
-    writeTempState(currentCwd, addedDirs);
-
     updateWidget(ctx);
   }
 
-  function persistState(cwd?: string) {
+  function persistState() {
+    // 目录列表持久化到 session entries，/resume 自动恢复
     pi.appendEntry("add-dir:state", { dirs: addedDirs });
-    // Also write to temp file for resources_discover
-    const effectiveCwd = cwd || currentCwd;
-    if (effectiveCwd) {
-      writeTempState(effectiveCwd, addedDirs);
-    }
   }
 
   // -----------------------------------------------------------------------
@@ -244,7 +194,7 @@ export default function hplAddDir(pi: ExtensionAPI) {
     const label = path.basename(absolutePath);
     addedDirs.push({ absolutePath, label, addedAt: Date.now() });
     invalidateContextCache();
-    persistState(cwd);
+    persistState();
     updateWidget(ctx);
 
     // Report what was found
@@ -294,13 +244,6 @@ export default function hplAddDir(pi: ExtensionAPI) {
   // session_switch / session_fork 在 0.80–0.84 的 ExtensionAPI 中不存在
   // （内核 emit() 对未知事件宽容跳过、session_start 覆盖切换/分叉场景），不注册
   pi.on("session_tree", async (_e, ctx) => reconstructState(ctx));
-
-  // Clean up temp state file on shutdown
-  pi.on("session_shutdown", async () => {
-    if (currentCwd) {
-      removeTempState(currentCwd);
-    }
-  });
 
   // -----------------------------------------------------------------------
   // System prompt injection

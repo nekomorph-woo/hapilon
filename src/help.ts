@@ -64,6 +64,7 @@ export function printHelp(): void {
   ${GLOBAL_FLAGS.map((f) => `${f.name.padEnd(13)}${f.description}`).join("\n  ")}
   其余选项透传给 Pi Coding Agent
 
+hapi 是 hapilon 的别名，二者完全等价。
 使用 hapilon help <command> 查看具体命令详情。`);
 }
 

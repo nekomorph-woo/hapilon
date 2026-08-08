@@ -48,7 +48,6 @@ export interface SuggestOptions {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Files that indicate a directory is a real project */
 /** Files that indicate a directory is a real project (ordered by frequency for fast short-circuit) */
 const PROJECT_MARKERS = [
   "package.json",     // JS/TS (most common)
