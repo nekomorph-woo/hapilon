@@ -5,7 +5,8 @@
   "private": true,
   "type": "module",
   "bin": {
-    "hapilon": "./dist/cli.js"
+    "hapilon": "./dist/cli.js",
+    "hapi": "./dist/cli.js"
   },
   "files": [
     "dist"

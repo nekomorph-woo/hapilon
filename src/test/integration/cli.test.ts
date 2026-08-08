@@ -10,6 +10,20 @@ describe("cli integration", () => {
   const ORIGINAL_ENV = process.env.HAPILON_HOME;
   const CLI_PATH = join(process.cwd(), "dist", "cli.js");
   const CONFIG_PATH = join(process.cwd(), "dist", "config", "handlers.js");
+  const PKG_PATH = join(process.cwd(), "package.json");
+
+  describe("hapi 启动命令别名（#28）", () => {
+    it("package.json bin 同时映射 hapilon 与 hapi", () => {
+      const pkg = JSON.parse(readFileSync(PKG_PATH, "utf8"));
+      assert.strictEqual(pkg.bin.hapilon, "./dist/cli.js");
+      assert.strictEqual(pkg.bin.hapi, "./dist/cli.js", "hapi 应指向同一 cli 入口");
+    });
+
+    it("cli 入口有 shebang（bin 可直接执行的关键）", () => {
+      const firstLine = readFileSync(CLI_PATH, "utf8").split("\n")[0];
+      assert.ok(firstLine.startsWith("#!/usr/bin/env node"), `首行应为 shebang: ${firstLine}`);
+    });
+  });
 
   before(() => {
     tmpBase = mkdtempSync(join(tmpdir(), "hapilon-cli-test-"));
@@ -133,6 +147,7 @@ describe("cli integration", () => {
 
       assert.strictEqual(result.status, 0, `--help 应成功退出: ${result.stderr}`);
       assert.ok(result.stdout.includes("hapilon"), "帮助应包含 hapilon");
+      assert.ok(result.stdout.includes("hapi"), "帮助应包含 hapi 别名（#28）");
       assert.ok(result.stdout.includes("setup"), "帮助应包含 setup");
       assert.ok(result.stdout.includes("doctor"), "帮助应包含 doctor");
       assert.ok(result.stdout.includes("config"), "帮助应包含 config");

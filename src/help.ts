@@ -44,8 +44,8 @@ export function printHelp(): void {
   console.log(`hapilon v${version} — Pi Coding Agent 启动器
 
 用法:
-  hapilon [options]                 启动 Pi TUI 交互
-  hapilon <command> [args]          执行子命令
+  hapilon | hapi [options]          启动 Pi TUI 交互
+  hapilon | hapi <command> [args]   执行子命令
 
 命令:`);
 
