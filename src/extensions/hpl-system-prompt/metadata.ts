@@ -5,7 +5,6 @@
  * 供 hpl-context-viewer 在 /context 命令中读取，
  * 实现 system prompt 组成的 token 估算分解。
  *
- * 设计来源: _plans/hpl-context-viewer.md §2.5
  */
 
 import type { SystemPromptMeta } from "../hpl-context-viewer/types.js";

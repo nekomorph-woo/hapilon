@@ -2,7 +2,6 @@
  * format.ts — hpl-footer 文本拼装纯函数
  *
  * usage 累加、token/窗口格式化、三行文本构建、宽度布局。
- * 设计来源: _plans/hpl-footer-custom.md §3.3
  */
 
 export interface FooterStats {

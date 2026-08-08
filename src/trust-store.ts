@@ -8,7 +8,6 @@
  *   - confirm 路径 → isTrusted() 检查（session + project）
  *   - block 路径 → isSessionTrusted() 检查（仅 session）
  *
- * 来源: _plans/project-config-and-trust.md
  */
 
 import { readProjectConfig, writeProjectLocalConfig, readProjectLocalConfig } from "./project-config.js";

@@ -23,5 +23,5 @@ Hapilon 是一个以 Pi Coding Agent 为运行内核的通用终端 Coding Agent
 - **所有的技术债/预留扩展全部以结构化描述方式记录到 `_backlog` 目录下，一个内容一个文件 **，包含以下结构块：背景，目的，技术债/预留扩展描述，参考引用，项目中指向的位置
 
 # Claude Code Plan Mode & Planning File
-- **规划方式使用 fiber 流程：大工程用 wayfinder（issue tracker 上的决策地图），小任务用 to-spec / to-tickets 发布到 GitHub issue tracker。不再使用 `_plans/` 目录输出约定，`_plans/` 仅作历史归档
+- **规划方式使用 fiber 流程：大工程用 wayfinder（issue tracker 上的决策地图），小任务用 to-spec / to-tickets 发布到 GitHub issue tracker。历史计划与预研文档（原 `_plans/`、`_foresight/`）已随对应 tickets 关闭而删除，设计依据以 issue resolution 为准
 - Planning 时注意将验收标准定好，我将使用 TDD 的方式进行编码，需要符合需求的验收标准内容

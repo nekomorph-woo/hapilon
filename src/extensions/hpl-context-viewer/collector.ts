@@ -4,7 +4,6 @@
  * 纯函数：从各数据源聚合上下文快照，不直接依赖 ExtensionContext
  * （与 ctx 的交互由 index.ts 的 command handler 完成）。
  *
- * 设计来源: _plans/hpl-context-viewer.md §2.3
  */
 
 import type {

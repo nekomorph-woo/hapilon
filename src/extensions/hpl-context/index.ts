@@ -6,7 +6,6 @@
  * 注意：HAPILON.md + Rules 注入已迁移到 hpl-system-prompt 扩展，
  *       由 before_agent_start 全量接管 system prompt 组装。
  *
- * 设计来源: _plans/hpl-context-system.md + _plans/hpl-system-prompt.md
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

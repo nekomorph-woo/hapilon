@@ -4,7 +4,6 @@
  * 通过 pi.registerCommand 注册 /context slash 命令，
  * 收集上下文数据 → 渲染为终端文本 → FloatingPane 浮层展示。
  *
- * 设计来源: _plans/hpl-context-viewer.md + _plans/hpl-floating-pane.md
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

@@ -7,7 +7,6 @@
  *   第3行  扩展状态（存在时）
  *
  * [HOT] 为上下文占用指示灯：背景色随占用率渐变 + 感叹号分级（见 ding.ts）。
- * 设计来源: _plans/hpl-footer-custom.md
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

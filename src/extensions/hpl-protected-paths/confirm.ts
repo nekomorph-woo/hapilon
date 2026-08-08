@@ -49,7 +49,7 @@ export async function requestConfirm(
  *
  * 与 requestConfirm 的区别：高危路径的 /allow 放行**强制 session 级**，
  * 不提供 "Allow this Project" 持久化选项——block 保护不可被项目配置永久绕过
- * （见 _plans/project-config-and-trust.md 核心原则 2）。
+ * （安全设计核心原则：block 不可被持久化信任解除）。
  */
 export async function requestHighRiskConfirm(
   ctx: ExtensionContext,

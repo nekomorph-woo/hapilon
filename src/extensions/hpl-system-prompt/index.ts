@@ -8,7 +8,6 @@
  * 本扩展不替换（返回空），尊重用户显式配置。
  *
  * 组装逻辑由 assemble.ts 完成；降级策略确保任何异常时回退到 Pi 原始 prompt。
- * 设计来源: _plans/hpl-system-prompt.md
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

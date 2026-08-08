@@ -2,7 +2,6 @@
  * ding.ts — [HOT] 上下文占用指示灯（纯函数）
  *
  * 文案分级 + 四段渐变背景色 + 亮度自适应字色。
- * 设计来源: _plans/hpl-footer-custom.md §3.2（spec #21: 文案 DING → HOT）
  */
 
 export type RGB = readonly [number, number, number];
