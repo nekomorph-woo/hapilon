@@ -89,8 +89,8 @@ export function aggregateUsage(entries: readonly EntryLike[]): FooterStats {
 // ─── 第 2 行左侧 ────────────────────────────────────────────────────
 
 /**
- * 拼装第 2 行左侧统计：
- * `up.N | down.N | hit: N% | ctx/win: N%/W | [DING]`
+ * 拼装第 2 行左侧统计（符号流布局）：
+ * `↑ N ↓ N hit N% ctx N%/W [HOT]`
  * 0 值项跳过；占用未知（null）时百分比显示 `?`
  */
 export function buildStatsLeft(
@@ -100,13 +100,13 @@ export function buildStatsLeft(
   ding: string,
 ): string {
   const parts: string[] = [];
-  if (stats.input) parts.push(`up.${formatTokens(stats.input)}`);
-  if (stats.output) parts.push(`down.${formatTokens(stats.output)}`);
-  if (stats.cacheHitRate !== undefined) parts.push(`hit: ${stats.cacheHitRate.toFixed(1)}%`);
+  if (stats.input) parts.push(`↑ ${formatTokens(stats.input)}`);
+  if (stats.output) parts.push(`↓ ${formatTokens(stats.output)}`);
+  if (stats.cacheHitRate !== undefined) parts.push(`hit ${stats.cacheHitRate.toFixed(1)}%`);
   const percentStr = ctxPercent === null ? "?" : `${ctxPercent.toFixed(1)}%`;
-  parts.push(`ctx/win: ${percentStr}/${formatWindow(ctxWindow)}`);
+  parts.push(`ctx ${percentStr}/${formatWindow(ctxWindow)}`);
   parts.push(ding);
-  return parts.join(" | ");
+  return parts.join(" ");
 }
 
 // ─── ANSI 宽度与布局 ────────────────────────────────────────────────

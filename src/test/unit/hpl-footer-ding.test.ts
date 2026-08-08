@@ -1,5 +1,5 @@
 /**
- * hpl-footer ding.ts 单元测试 — [DING] 指示灯文案分级与渐变色
+ * hpl-footer ding.ts 单元测试 — [HOT] 指示灯文案分级与渐变色
  */
 
 import { describe, it } from "node:test";
@@ -9,32 +9,32 @@ import { dingLabel, dingColor, renderDing } from "../../extensions/hpl-footer/di
 
 describe("dingLabel — 感叹号分级", () => {
   it("正常路径: 低占用无感叹号", () => {
-    assert.equal(dingLabel(0), "[DING]");
-    assert.equal(dingLabel(35), "[DING]");
+    assert.equal(dingLabel(0), "[HOT]");
+    assert.equal(dingLabel(35), "[HOT]");
   });
 
   it("边界条件: 69.9% 仍无感叹号，70% 出现 1 个", () => {
-    assert.equal(dingLabel(69.9), "[DING]");
-    assert.equal(dingLabel(70), "[DING!]");
+    assert.equal(dingLabel(69.9), "[HOT]");
+    assert.equal(dingLabel(70), "[HOT!]");
   });
 
   it("边界条件: 各阈值感叹号数量 80→2 / 85→3 / 90→4 / 95→5", () => {
-    assert.equal(dingLabel(80), "[DING!!]");
-    assert.equal(dingLabel(85), "[DING!!!]");
-    assert.equal(dingLabel(90), "[DING!!!!]");
-    assert.equal(dingLabel(95), "[DING!!!!!]");
+    assert.equal(dingLabel(80), "[HOT!!]");
+    assert.equal(dingLabel(85), "[HOT!!!]");
+    assert.equal(dingLabel(90), "[HOT!!!!]");
+    assert.equal(dingLabel(95), "[HOT!!!!!]");
   });
 
   it("边界条件: 阈值之间取低档，超 95% 封顶 5 个", () => {
-    assert.equal(dingLabel(79.9), "[DING!]");
-    assert.equal(dingLabel(84.9), "[DING!!]");
-    assert.equal(dingLabel(89.9), "[DING!!!]");
-    assert.equal(dingLabel(94.9), "[DING!!!!]");
-    assert.equal(dingLabel(100), "[DING!!!!!]");
+    assert.equal(dingLabel(79.9), "[HOT!]");
+    assert.equal(dingLabel(84.9), "[HOT!!]");
+    assert.equal(dingLabel(89.9), "[HOT!!!]");
+    assert.equal(dingLabel(94.9), "[HOT!!!!]");
+    assert.equal(dingLabel(100), "[HOT!!!!!]");
   });
 
   it("异常路径: 占用未知（null）时退回无感叹号", () => {
-    assert.equal(dingLabel(null), "[DING]");
+    assert.equal(dingLabel(null), "[HOT]");
   });
 });
 
@@ -80,14 +80,14 @@ describe("dingColor — 渐变背景与自适应字色", () => {
 describe("renderDing — ANSI 真彩包裹", () => {
   it("正常路径: 输出含背景码、前景码、文案、复位码", () => {
     const out = renderDing(70);
-    assert.equal(out, "\x1b[48;2;255;200;0m\x1b[38;2;30;30;30m[DING!]\x1b[0m");
+    assert.equal(out, "\x1b[48;2;255;200;0m\x1b[38;2;30;30;30m[HOT!]\x1b[0m");
   });
 
   it("边界条件: 0% 无背景时输出纯文案（无 ANSI 码）", () => {
-    assert.equal(renderDing(0), "[DING]");
+    assert.equal(renderDing(0), "[HOT]");
   });
 
   it("异常路径: null 占用输出纯文案", () => {
-    assert.equal(renderDing(null), "[DING]");
+    assert.equal(renderDing(null), "[HOT]");
   });
 });
