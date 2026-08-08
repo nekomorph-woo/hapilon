@@ -1,21 +1,21 @@
 /**
- * ding.ts — [DING] 上下文占用指示灯（纯函数）
+ * ding.ts — [HOT] 上下文占用指示灯（纯函数）
  *
  * 文案分级 + 四段渐变背景色 + 亮度自适应字色。
- * 设计来源: _plans/hpl-footer-custom.md §3.2
+ * 设计来源: _plans/hpl-footer-custom.md §3.2（spec #21: 文案 DING → HOT）
  */
 
 export type RGB = readonly [number, number, number];
 
-/** 按占用率返回 [DING] 文案（含感叹号分级） */
+/** 按占用率返回 [HOT] 文案（含感叹号分级） */
 export function dingLabel(percent: number | null): string {
-  if (percent === null) return "[DING]";
-  if (percent >= 95) return "[DING!!!!!]";
-  if (percent >= 90) return "[DING!!!!]";
-  if (percent >= 85) return "[DING!!!]";
-  if (percent >= 80) return "[DING!!]";
-  if (percent >= 70) return "[DING!]";
-  return "[DING]";
+  if (percent === null) return "[HOT]";
+  if (percent >= 95) return "[HOT!!!!!]";
+  if (percent >= 90) return "[HOT!!!!]";
+  if (percent >= 85) return "[HOT!!!]";
+  if (percent >= 80) return "[HOT!!]";
+  if (percent >= 70) return "[HOT!]";
+  return "[HOT]";
 }
 
 // ─── 渐变色 ─────────────────────────────────────────────────────────
