@@ -7,3 +7,4 @@
 - [#26 升级 pi-tui / pi-coding-agent 至 0.84.x](https://github.com/nekomorph-woo/hapilon/issues/26) — /Volumes/Under_M2/morphiiouo/hapilon/.fiber/worktrees/afk-trio — feat/afk-trio — active (destination, 与 #28/#29 共用一个 worktree)
 - [#29 vendor 化安装 pi-add-dir，改造为只注入 HAPILON.md](https://github.com/nekomorph-woo/hapilon/issues/29) — /Volumes/Under_M2/morphiiouo/hapilon/.fiber/worktrees/afk-trio — feat/afk-trio — active (destination, 与 #26/#28 共用一个 worktree)
 - [#28 新增 hapi 启动命令](https://github.com/nekomorph-woo/hapilon/issues/28) — /Volumes/Under_M2/morphiiouo/hapilon/.fiber/worktrees/afk-trio — feat/afk-trio — active (destination, 与 #26/#29 共用一个 worktree)
+- [#27 修复 hapilon 首屏 logo 字符错位](https://github.com/nekomorph-woo/hapilon/issues/27) — /Volumes/Under_M2/morphiiouo/hapilon/.fiber/worktrees/logo-prototype — prototype/logo-options — active (prototype, HAPILON_LOGO=a|b|c 三方案)
