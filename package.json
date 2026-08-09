@@ -5,7 +5,8 @@
   "private": true,
   "type": "module",
   "bin": {
-    "hapilon": "./dist/cli.js"
+    "hapilon": "./dist/cli.js",
+    "hapi": "./dist/cli.js"
   },
   "files": [
     "dist"
@@ -23,14 +24,11 @@
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.65",
-    "@earendil-works/pi-coding-agent": "0.80.10",
-    "@earendil-works/pi-tui": "0.80.10"
+    "@earendil-works/pi-coding-agent": "0.84.1",
+    "@earendil-works/pi-tui": "0.84.1"
   },
   "devDependencies": {
     "@types/node": "24.12.4",
     "typescript": "5.9.3"
-  },
-  "overrides": {
-    "@earendil-works/pi-tui": "0.80.10"
   }
 }

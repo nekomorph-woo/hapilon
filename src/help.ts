@@ -44,8 +44,8 @@ export function printHelp(): void {
   console.log(`hapilon v${version} — Pi Coding Agent 启动器
 
 用法:
-  hapilon [options]                 启动 Pi TUI 交互
-  hapilon <command> [args]          执行子命令
+  hapilon | hapi [options]          启动 Pi TUI 交互
+  hapilon | hapi <command> [args]   执行子命令
 
 命令:`);
 
@@ -64,6 +64,7 @@ export function printHelp(): void {
   ${GLOBAL_FLAGS.map((f) => `${f.name.padEnd(13)}${f.description}`).join("\n  ")}
   其余选项透传给 Pi Coding Agent
 
+hapi 是 hapilon 的别名，二者完全等价。
 使用 hapilon help <command> 查看具体命令详情。`);
 }
 
