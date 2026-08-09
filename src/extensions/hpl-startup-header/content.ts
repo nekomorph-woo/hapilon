@@ -32,13 +32,15 @@ export interface StartupHeaderComponent {
 }
 
 // ─── Logo ─────────────────────────────────────────────────────────────
+// 原图案保留，按字符中心对齐修复（#27）：中心 7.5/8.0/8.0/8.0 收敛。
+// resize 不变形由 centerLines 块感知保证（见下）。
 
 export function hapilonLogo(): string[] {
   return [
-    "       ▗▖",
-    "      ▐▛███▜▌",
-    "     ▝▜█████▛▘",
-    "       ▘▘ ▝▝",
+    "      ▗▖",
+    "    ▐▛███▜▌",
+    "   ▝▜█████▛▘",
+    "     ▘▘ ▝▝",
   ];
 }
 
@@ -150,13 +152,33 @@ export function parseExtensionsEnv(
 
 // ─── Content Builders ─────────────────────────────────────────────────
 
-/** 将多行文本在给定宽度内居中（左边补空格） */
+function centerLine(line: string, maxWidth: number): string {
+  if (line.length >= maxWidth) return line;
+  const pad = Math.floor((maxWidth - line.length) / 2);
+  return " ".repeat(pad) + line;
+}
+
+/**
+ * 将多行文本在给定宽度内居中（左边补空格）。
+ *
+ * 首部连续非空行视为「块」（logo），整体共享 pad 居中——
+ * 行间相对位置固定，resize 时整块平移不变形（修复 #27：
+ * 逐行独立取整导致的行间抖动）。其余行保持独立居中。
+ */
 export function centerLines(lines: string[], maxWidth: number): string[] {
-  return lines.map((line) => {
-    if (line.length >= maxWidth) return line;
-    const pad = Math.floor((maxWidth - line.length) / 2);
-    return " ".repeat(pad) + line;
-  });
+  let blockEnd = 0;
+  while (blockEnd < lines.length && lines[blockEnd] !== "") blockEnd++;
+
+  if (blockEnd >= 2) {
+    const block = lines.slice(0, blockEnd);
+    const blockWidth = Math.max(...block.map((l) => l.length));
+    const pad = blockWidth >= maxWidth ? 0 : Math.floor((maxWidth - blockWidth) / 2);
+    const paddedBlock = block.map((l) => " ".repeat(pad) + l);
+    const rest = lines.slice(blockEnd);
+    return [...paddedBlock, ...rest.map((l) => centerLine(l, maxWidth))];
+  }
+
+  return lines.map((l) => centerLine(l, maxWidth));
 }
 
 export function buildLeftColumn(data: HeaderData): string[] {

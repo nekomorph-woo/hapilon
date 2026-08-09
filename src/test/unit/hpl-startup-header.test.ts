@@ -201,6 +201,31 @@ describe("centerLines()", () => {
     // pad = (10-0)/2 = 5
     assert.strictEqual(result[0], "     ");
   });
+
+  it("首部连续非空行作为块共享 pad（logo 整体居中，行间相对位置固定）", () => {
+    // 块宽 = max(2, 4) = 4 → pad = (10-4)/2 = 3
+    const result = centerLines(["aa", "bbbb", ""], 10);
+    assert.strictEqual(result[0], "   aa", "块内行共享 pad");
+    assert.strictEqual(result[1], "   bbbb", "块内行共享 pad");
+    assert.strictEqual(result[2], "     ", "空行保持原行为（pad）");
+  });
+
+  it("logo 块在 resize（maxWidth 变化）时行间相对位置不变（#27）", () => {
+    const logo = ["      ▗▖", "    ▐▛███▜▌", "   ▝▜█████▛▘", "     ▘▘ ▝▝"];
+    const w40 = centerLines(logo, 40);
+    const w41 = centerLines(logo, 41);
+    const rel40 = w40.map((l) => l.length - l.trimStart().length);
+    const rel41 = w41.map((l) => l.length - l.trimStart().length);
+    // 行间相对偏移（去掉共享 pad）应完全一致
+    const inner40 = rel40.map((p) => p - rel40[0]);
+    const inner41 = rel41.map((p) => p - rel41[0]);
+    assert.deepStrictEqual(inner41, inner40, "resize 后行间相对位置不变");
+  });
+
+  it("单行场景仍独立居中（原行为保持）", () => {
+    const result = centerLines(["hi", ""], 10);
+    assert.strictEqual(result[0], "    hi");
+  });
 });
 
 describe("buildLeftColumn()", () => {
