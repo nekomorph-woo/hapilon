@@ -1,70 +1,70 @@
 /**
- * Directory suggestion engine for hpl-add-dir（vendor 自 pi-add-dir v1.3.1）。
+ * hpl-add-dir 的目录建议引擎（vendor 自 pi-add-dir v1.3.1）。
  *
- * Scans the project environment and recommends directories that would be
- * useful to add to the session. Uses multiple heuristics:
+ * 扫描项目环境，推荐对会话有用的目录。使用多种启发式：
  *
- * 1. Sibling projects — directories alongside cwd that look like real projects
- * 2. Local dependency paths — file: deps in package.json, path: in Gemfile, etc.
- * 3. Git submodules — paths from .gitmodules
- * 4. Monorepo packages — workspace members (npm, Cargo, Go)
- * 5. Directories with HAPILON.md — high-value for this extension
+ * 1. 兄弟项目 —— 与 cwd 同级的、看起来像真实项目的目录
+ * 2. 本地依赖路径 —— package.json 中的 file: 依赖、Gemfile 中的 path: 等
+ * 3. Git 子模块 —— 来自 .gitmodules 的路径
+ * 4. Monorepo 包 —— workspace 成员（npm、Cargo、Go）
+ * 5. 含 HAPILON.md 的目录 —— 对本扩展价值最高
  *
  * 按 hapilon 受控上下文设计（#29）：只把 HAPILON.md 作为价值信号，
  * AGENTS.md / CLAUDE.md / skills 不作为建议依据。
  *
- * Each suggestion gets a relevance score (0–1) based on how many signals match.
- * Results are deduplicated, sorted by score, and capped.
+ * 每条建议按命中的信号数量得到一个相关度分数（0–1）。
+ * 结果去重、按分数排序并限制数量。
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { resolveDir, dirExists, fileExists, readFileSafe } from "./context.js";
 
 // ---------------------------------------------------------------------------
-// Types
+// 类型
 // ---------------------------------------------------------------------------
 
 export interface Suggestion {
-  /** Absolute path to the suggested directory */
+  /** 建议目录的绝对路径 */
   absolutePath: string;
-  /** Display label (basename) */
+  /** 显示标签（basename） */
   label: string;
-  /** Relevance score 0–1 (higher = more relevant) */
+  /** 相关度分数 0–1（越高越相关） */
   score: number;
-  /** Why this directory was suggested */
+  /** 该目录被建议的原因 */
   reasons: string[];
 }
 
 export interface SuggestOptions {
-  /** Current working directory */
+  /** 当前工作目录 */
   cwd: string;
-  /** Directories already added (to exclude) */
+  /** 已添加的目录（排除用） */
   alreadyAdded?: string[];
-  /** Maximum suggestions to return */
+  /** 返回的最大建议数 */
   maxResults?: number;
 }
 
 // ---------------------------------------------------------------------------
-// Constants
+// 常量
 // ---------------------------------------------------------------------------
 
-/** Files that indicate a directory is a real project (ordered by frequency for fast short-circuit) */
+/** 表明目录是真实项目的文件（按出现频率排序，便于快速短路判断） */
 const PROJECT_MARKERS = [
-  "package.json",     // JS/TS (most common)
-  ".git",             // Any git repo
+  "package.json",     // JS/TS（最常见）
+  ".git",             // 任意 git 仓库
   "Cargo.toml",       // Rust
   "go.mod",           // Go
-  "pyproject.toml",   // Python (modern)
+  "pyproject.toml",   // Python（现代）
   "Gemfile",          // Ruby
   "Rakefile",          // Ruby
   "pom.xml",          // Maven/JVM
   "build.gradle",     // Gradle
-  "build.gradle.kts", // Gradle (Kotlin DSL)
+  "build.gradle.kts", // Gradle（Kotlin DSL）
   "mix.exs",          // Elixir
-  "Makefile",         // C/C++/general
+  "Makefile",         // C/C++/通用
   "CMakeLists.txt",   // CMake
-  "setup.py",         // Python (legacy)
-  "setup.cfg",        // Python (legacy)
+  "setup.py",         // Python（旧式）
+  "setup.cfg",        // Python（旧式）
   "deno.json",        // Deno
   "project.json",     // Nx
   "composer.json",    // PHP
@@ -72,7 +72,7 @@ const PROJECT_MARKERS = [
   "pubspec.yaml",     // Dart/Flutter
 ];
 
-/** Files/dirs that make a directory extra valuable for hpl-add-dir */
+/** 使目录对 hpl-add-dir 格外有价值的文件/目录 */
 const CONTEXT_MARKERS = [
   "HAPILON.md",
   ".pi/HAPILON.md",
@@ -81,32 +81,8 @@ const CONTEXT_MARKERS = [
 const EXTENSION_DIR = ".pi/extensions";
 
 // ---------------------------------------------------------------------------
-// Helpers
+// 辅助函数
 // ---------------------------------------------------------------------------
-
-function dirExists(dir: string): boolean {
-  try {
-    return fs.statSync(dir).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-function fileExists(filePath: string): boolean {
-  try {
-    return fs.statSync(filePath).isFile();
-  } catch {
-    return false;
-  }
-}
-
-function readFileSafe(filePath: string): string | null {
-  try {
-    return fs.readFileSync(filePath, "utf-8");
-  } catch {
-    return null;
-  }
-}
 
 function isProject(dir: string): boolean {
   return PROJECT_MARKERS.some(marker => {
@@ -139,8 +115,8 @@ function hasExtensions(dir: string): boolean {
 }
 
 /**
- * Helper: scan a file with a regex and collect matching paths as candidates.
- * Each regex must have its path in capture group at `pathGroup` index (default 1).
+ * 辅助：用正则扫描文件，把匹配到的路径收集为候选。
+ * 每个正则必须把路径放在 `pathGroup` 索引的捕获组中（默认 1）。
  */
 function collectPathsFromFile(
   cwd: string,
@@ -158,7 +134,7 @@ function collectPathsFromFile(
   while ((match = regex.exec(content)) !== null) {
     const relPath = match[pathGroup];
     if (!relPath) continue;
-    const resolved = resolvePath(cwd, relPath);
+    const resolved = resolveDir(relPath, cwd);
     if (dirExists(resolved)) {
       candidates.push({ dir: resolved, reasons: [reason], weight });
     }
@@ -166,20 +142,10 @@ function collectPathsFromFile(
   return candidates;
 }
 
-/** Resolve a potentially relative path from a base directory */
-function resolvePath(base: string, rel: string): string {
-  const resolved = path.isAbsolute(rel) ? rel : path.resolve(base, rel);
-  try {
-    return fs.realpathSync(resolved);
-  } catch {
-    return path.resolve(resolved);
-  }
-}
-
-/** Cache for git root lookups — avoids re-walking for every sibling */
+/** git root 查找缓存——避免对每个兄弟目录重复向上遍历 */
 const gitRootCache = new Map<string, string | null>();
 
-/** Find the git root by walking up from cwd. Stops after 10 levels. */
+/** 从 cwd 向上查找 git root。最多 10 层。 */
 function findGitRoot(cwd: string): string | null {
   const cached = gitRootCache.get(cwd);
   if (cached !== undefined) return cached;
@@ -190,26 +156,26 @@ function findGitRoot(cwd: string): string | null {
   while (depth < 10) {
     depth++;
     if (dirExists(path.join(current, ".git")) || fileExists(path.join(current, ".git"))) {
-      // Cache result for all visited paths
+      // 为所有已访问路径缓存结果
       for (const v of visited) gitRootCache.set(v, current);
       return current;
     }
     const parent = path.dirname(current);
     if (parent === current) {
-      // No git root found — cache null for all visited
+      // 未找到 git root——为所有已访问路径缓存 null
       for (const v of visited) gitRootCache.set(v, null);
       return null;
     }
     current = parent;
     visited.push(current);
   }
-  // Depth limit reached — cache null for visited paths
+  // 达到深度上限——为已访问路径缓存 null
   for (const v of visited) gitRootCache.set(v, null);
   return null;
 }
 
-/** Find the workspace root by walking up looking for workspace config files.
- *  Stops after 10 levels to avoid expensive traversal to / on lone projects. */
+/** 向上查找 workspace 根目录，寻找 workspace 配置文件。
+ *  最多 10 层，避免在独立项目上一直遍历到 / 的高开销。 */
 function findWorkspaceRoot(cwd: string): string | null {
   let current = cwd;
   let depth = 0;
@@ -217,7 +183,7 @@ function findWorkspaceRoot(cwd: string): string | null {
   while (depth < MAX_DEPTH) {
     depth++;
 
-    // Pre-scan directory contents once per level to avoid many individual stat calls
+    // 每层预扫描一次目录内容，避免大量单独的 stat 调用
     let dirFiles: Set<string>;
     try {
       dirFiles = new Set(fs.readdirSync(current));
@@ -228,14 +194,14 @@ function findWorkspaceRoot(cwd: string): string | null {
       continue;
     }
 
-    // npm/yarn workspaces (via package.json)
+    // npm/yarn workspaces（通过 package.json）
     if (dirFiles.has("package.json")) {
       const pkg = readFileSafe(path.join(current, "package.json"));
       if (pkg) {
         try {
           const parsed = JSON.parse(pkg);
           if (parsed.workspaces) return current;
-        } catch { /* skip */ }
+        } catch { /* 跳过 */ }
       }
     }
     // pnpm workspaces
@@ -247,9 +213,9 @@ function findWorkspaceRoot(cwd: string): string | null {
     }
     // Go workspace
     if (dirFiles.has("go.work")) return current;
-    // Gradle multi-project
+    // Gradle 多项目
     if (dirFiles.has("settings.gradle") || dirFiles.has("settings.gradle.kts")) return current;
-    // Maven multi-module
+    // Maven 多模块
     if (dirFiles.has("pom.xml")) {
       const pomXml = readFileSafe(path.join(current, "pom.xml"));
       if (pomXml && pomXml.includes("<modules>")) return current;
@@ -267,32 +233,31 @@ function findWorkspaceRoot(cwd: string): string | null {
     if (parent === current) return null;
     current = parent;
   }
-  return null; // depth limit reached
+  return null; // 达到深度上限
 }
 
 // ---------------------------------------------------------------------------
-// Heuristic collectors
+// 启发式收集器
 // ---------------------------------------------------------------------------
 
 type Candidate = { dir: string; reasons: string[]; weight: number };
 
 /**
- * Collect sibling directories that look like projects.
- * Only suggests siblings that share the same git repo as cwd, OR have
- * context files (HAPILON.md) that make them high-value.
+ * 收集看起来像项目的兄弟目录。
+ * 只建议与 cwd 共享同一 git 仓库的兄弟目录，或含有
+ * 高价值上下文文件（HAPILON.md）的兄弟目录。
  *
- * When there are many sibling projects (>3), generic ones without strong
- * signals are dropped — a "projects folder" with 10 repos means most are
- * unrelated to the current work.
+ * 当兄弟项目很多（>3）时，没有强信号的普通项目会被丢弃——
+ * 一个放着 10 个仓库的 "projects" 文件夹意味着大多数与当前工作无关。
  */
 function collectSiblings(cwd: string): Candidate[] {
   const parent = path.dirname(cwd);
-  if (parent === cwd) return []; // at root
+  if (parent === cwd) return []; // 已在根目录
 
-  // Determine if cwd is inside a git repo — siblings in the same repo are more relevant
+  // 判断 cwd 是否在 git 仓库内——同一仓库内的兄弟目录更相关
   const cwdGitRoot = findGitRoot(cwd);
 
-  // First pass: categorize all sibling projects
+  // 第一遍：对所有兄弟项目分类
   interface SiblingInfo {
     fullPath: string;
     sameRepo: boolean;
@@ -315,9 +280,9 @@ function collectSiblings(cwd: string): Candidate[] {
 
       siblings.push({ fullPath, sameRepo, hasContext });
     }
-  } catch { /* skip */ }
+  } catch { /* 跳过 */ }
 
-  // When there are many unrelated siblings, only suggest those with strong signals
+  // 无关兄弟项目多时，只建议带强信号的
   const totalSiblings = siblings.length;
   const candidates: Candidate[] = [];
 
@@ -335,21 +300,21 @@ function collectSiblings(cwd: string): Candidate[] {
         weight: 0.25,
       });
     } else if (totalSiblings <= 3) {
-      // Few siblings — they're probably closely related, include them
+      // 兄弟少——它们很可能密切相关，包含它们
       candidates.push({
         dir: sib.fullPath,
         reasons: ["sibling project"],
         weight: 0.2,
       });
     }
-    // When >3 siblings and no strong signal: skip (too many unrelated projects)
+    // 超过 3 个兄弟且无强信号时：跳过（无关项目太多）
   }
 
   return candidates;
 }
 
 /**
- * Collect local file: dependencies from package.json.
+ * 收集 package.json 中的本地 file: 依赖。
  */
 function collectNpmFileDeps(cwd: string): Candidate[] {
   const pkg = readFileSafe(path.join(cwd, "package.json"));
@@ -364,11 +329,11 @@ function collectNpmFileDeps(cwd: string): Candidate[] {
     };
     for (const [name, version] of Object.entries(allDeps)) {
       if (typeof version !== "string") continue;
-      // file:, link:, portal: protocol deps (npm file:, yarn link:/portal:)
+      // file:、link:、portal: 协议依赖（npm file:、yarn link:/portal:）
       for (const protocol of ["file:", "link:", "portal:"]) {
         if (version.startsWith(protocol)) {
           const relPath = version.slice(protocol.length);
-          const resolved = resolvePath(cwd, relPath);
+          const resolved = resolveDir(relPath, cwd);
           if (dirExists(resolved)) {
             candidates.push({
               dir: resolved,
@@ -380,31 +345,31 @@ function collectNpmFileDeps(cwd: string): Candidate[] {
         }
       }
     }
-  } catch { /* skip */ }
+  } catch { /* 跳过 */ }
   return candidates;
 }
 
-/** Collect path: gems from Gemfile + gemspec directives. */
+/** 收集 Gemfile 中的 path: gems 与 gemspec 指令。 */
 function collectGemfilePaths(cwd: string): Candidate[] {
   const content = readFileSafe(path.join(cwd, "Gemfile"));
   if (!content) return [];
 
   const candidates: Candidate[] = [];
 
-  // Match: gem 'name', ..., path: 'dir' (path: can appear anywhere in options)
+  // 匹配：gem 'name', ..., path: 'dir'（path: 可出现在选项任意位置）
   const gemRegex = /gem\s+['"]([^'"]+)['"][^\n]*path:\s*['"]([^'"]+)['"]/g;
   let match;
   while ((match = gemRegex.exec(content)) !== null) {
-    const resolved = resolvePath(cwd, match[2]);
+    const resolved = resolveDir(match[2], cwd);
     if (dirExists(resolved)) {
       candidates.push({ dir: resolved, reasons: [`Gemfile path dependency (${match[1]})`], weight: 0.6 });
     }
   }
 
-  // Match: gemspec path: 'dir' (references a .gemspec in another directory)
+  // 匹配：gemspec path: 'dir'（引用其他目录中的 .gemspec）
   const gemspecRegex = /^\s*gemspec(?:\s[^\n]*)?\bpath:\s*['"]([^'"]+)['"]/gm;
   while ((match = gemspecRegex.exec(content)) !== null) {
-    const resolved = resolvePath(cwd, match[1]);
+    const resolved = resolveDir(match[1], cwd);
     if (dirExists(resolved)) {
       candidates.push({ dir: resolved, reasons: ["Gemfile gemspec path"], weight: 0.6 });
     }
@@ -413,18 +378,18 @@ function collectGemfilePaths(cwd: string): Candidate[] {
   return candidates;
 }
 
-/** Collect Cargo.toml path dependencies. */
+/** 收集 Cargo.toml 的 path 依赖。 */
 function collectCargoPaths(cwd: string): Candidate[] {
   return collectPathsFromFile(cwd, "Cargo.toml", /path\s*=\s*"([^"]+)"/g, "Cargo path dependency", 0.6);
 }
 
-/** Collect Python local file dependencies from pyproject.toml. */
+/** 收集 pyproject.toml 中的 Python 本地文件依赖。 */
 function collectPythonPaths(cwd: string): Candidate[] {
   return collectPathsFromFile(cwd, "pyproject.toml", /file:([^\s"',\]]+)/g, "Python file dependency", 0.6);
 }
 
 /**
- * Collect Composer path repository references.
+ * 收集 Composer path 仓库引用。
  */
 function collectComposerPaths(cwd: string): Candidate[] {
   const composer = readFileSafe(path.join(cwd, "composer.json"));
@@ -437,10 +402,10 @@ function collectComposerPaths(cwd: string): Candidate[] {
     if (Array.isArray(repos)) {
       for (const repo of repos) {
         if (repo?.type === "path" && typeof repo.url === "string") {
-          // Composer path repos can use glob patterns like ../packages/*
+          // Composer path 仓库可使用 glob 模式，如 ../packages/*
           const urlPath = repo.url;
           if (urlPath.endsWith("/*")) {
-            const baseDir = resolvePath(cwd, urlPath.slice(0, -2));
+            const baseDir = resolveDir(urlPath.slice(0, -2), cwd);
             if (dirExists(baseDir)) {
               try {
                 const entries = fs.readdirSync(baseDir, { withFileTypes: true });
@@ -455,10 +420,10 @@ function collectComposerPaths(cwd: string): Candidate[] {
                     });
                   }
                 }
-              } catch { /* skip */ }
+              } catch { /* 跳过 */ }
             }
           } else {
-            const resolved = resolvePath(cwd, urlPath);
+            const resolved = resolveDir(urlPath, cwd);
             if (dirExists(resolved)) {
               candidates.push({
                 dir: resolved,
@@ -470,33 +435,33 @@ function collectComposerPaths(cwd: string): Candidate[] {
         }
       }
     }
-  } catch { /* skip */ }
+  } catch { /* 跳过 */ }
   return candidates;
 }
 
-/** Collect Elixir mix.exs path dependencies. */
+/** 收集 Elixir mix.exs 的 path 依赖。 */
 function collectMixPaths(cwd: string): Candidate[] {
   return collectPathsFromFile(cwd, "mix.exs", /\{:\w+\s*,\s*path:\s*"([^"]+)"/g, "Elixir mix.exs path dependency", 0.6);
 }
 
-/** Collect Swift Package Manager local package dependencies. */
+/** 收集 Swift Package Manager 本地包依赖。 */
 function collectSwiftPMPaths(cwd: string): Candidate[] {
   return collectPathsFromFile(cwd, "Package.swift", /\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"/g, "Swift PM local package", 0.6);
 }
 
-/** Collect Dart/Flutter pubspec.yaml path dependencies. */
+/** 收集 Dart/Flutter pubspec.yaml 的 path 依赖。 */
 function collectPubspecPaths(cwd: string): Candidate[] {
   return collectPathsFromFile(cwd, "pubspec.yaml", /path:\s*['"]?(\.\.\/[^'"\s]+|\.\/.+)['"]?/g, "pubspec.yaml path dependency", 0.6);
 }
 
-/** Collect tsconfig.json project references (composite projects). */
+/** 收集 tsconfig.json 的项目引用（composite 项目）。 */
 function collectTsProjectRefs(cwd: string): Candidate[] {
-  // Use regex since tsconfig may have comments (not valid JSON)
+  // 用正则处理，因为 tsconfig 可能含注释（不是合法 JSON）
   return collectPathsFromFile(cwd, "tsconfig.json", /"path"\s*:\s*"([^"]+)"/g, "TypeScript project reference", 0.55);
 }
 
 /**
- * Collect Docker Compose build context paths.
+ * 收集 Docker Compose 构建上下文路径。
  */
 function collectDockerComposePaths(cwd: string): Candidate[] {
   const composeNames = ["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"];
@@ -509,14 +474,14 @@ function collectDockerComposePaths(cwd: string): Candidate[] {
   if (!composeContent) return [];
 
   const candidates: Candidate[] = [];
-  // Match build context paths: build: ./path or build: { context: ./path }
-  // Simple pattern: lines with "context:" or "build:" followed by a relative path
+  // 匹配构建上下文路径：build: ./path 或 build: { context: ./path }
+  // 简单模式：包含 "context:" 或 "build:" 且后跟相对路径的行
   const contextRegex = /(?:context|build):\s*['"]?(\.\.\/[^'"\s]+|\.\/[^'"\s]+)['"]?/g;
   let match;
   while ((match = contextRegex.exec(composeContent)) !== null) {
     const relPath = match[1];
-    const resolved = resolvePath(cwd, relPath);
-    if (dirExists(resolved) && resolved !== resolvePath(cwd, ".")) {
+    const resolved = resolveDir(relPath, cwd);
+    if (dirExists(resolved) && resolved !== resolveDir(".", cwd)) {
       candidates.push({
         dir: resolved,
         reasons: ["Docker Compose service"],
@@ -528,10 +493,10 @@ function collectDockerComposePaths(cwd: string): Candidate[] {
 }
 
 /**
- * Collect git submodule paths from .gitmodules.
+ * 从 .gitmodules 收集 git submodule 路径。
  */
 function collectSubmodules(cwd: string): Candidate[] {
-  // Look for .gitmodules in cwd or git root
+  // 在 cwd 或 git root 中查找 .gitmodules
   const gitRoot = findGitRoot(cwd);
   const searchDirs = gitRoot && gitRoot !== cwd ? [cwd, gitRoot] : [cwd];
 
@@ -540,12 +505,12 @@ function collectSubmodules(cwd: string): Candidate[] {
     const gitmodules = readFileSafe(path.join(searchDir, ".gitmodules"));
     if (!gitmodules) continue;
 
-    // Match: path = vendor/lib-a
+    // 匹配：path = vendor/lib-a
     const pathRegex = /path\s*=\s*(.+)/g;
     let match;
     while ((match = pathRegex.exec(gitmodules)) !== null) {
       const relPath = match[1].trim();
-      const resolved = resolvePath(searchDir, relPath);
+      const resolved = resolveDir(relPath, searchDir);
       if (dirExists(resolved)) {
         candidates.push({
           dir: resolved,
@@ -559,8 +524,8 @@ function collectSubmodules(cwd: string): Candidate[] {
 }
 
 /**
- * Collect monorepo workspace members.
- * Supports: npm workspaces, Cargo workspace, Go workspace.
+ * 收集 monorepo 的 workspace 成员。
+ * 支持：npm workspaces、Cargo workspace、Go workspace。
  */
 function collectWorkspaceMembers(cwd: string): Candidate[] {
   const wsRoot = findWorkspaceRoot(cwd);
@@ -578,7 +543,7 @@ function collectWorkspaceMembers(cwd: string): Candidate[] {
         : parsed.workspaces?.packages ?? [];
 
       for (const pattern of workspaces) {
-        // Expand simple glob patterns like "packages/*"
+        // 展开简单 glob 模式，如 "packages/*"
         if (pattern.endsWith("/*")) {
           const baseDir = path.join(wsRoot, pattern.slice(0, -2));
           if (dirExists(baseDir)) {
@@ -596,11 +561,11 @@ function collectWorkspaceMembers(cwd: string): Candidate[] {
                   });
                 }
               }
-            } catch { /* skip */ }
+            } catch { /* 跳过 */ }
           }
         } else {
-          // Direct path
-          const fullPath = resolvePath(wsRoot, pattern);
+          // 直接路径
+          const fullPath = resolveDir(pattern, wsRoot);
           if (fullPath !== cwd && dirExists(fullPath) && isProject(fullPath)) {
             candidates.push({
               dir: fullPath,
@@ -610,14 +575,14 @@ function collectWorkspaceMembers(cwd: string): Candidate[] {
           }
         }
       }
-    } catch { /* skip */ }
+    } catch { /* 跳过 */ }
   }
 
   // --- pnpm workspaces (pnpm-workspace.yaml) ---
   const pnpmWs = readFileSafe(path.join(wsRoot, "pnpm-workspace.yaml"));
   if (pnpmWs) {
-    // Parse YAML-like patterns: lines starting with "- " under "packages:"
-    // Format:
+    // 解析 YAML 风格模式：位于 "packages:" 下、以 "- " 开头的行
+    // 格式：
     //   packages:
     //     - 'packages/*'
     //     - 'apps/*'
@@ -643,10 +608,10 @@ function collectWorkspaceMembers(cwd: string): Candidate[] {
                 });
               }
             }
-          } catch { /* skip */ }
+          } catch { /* 跳过 */ }
         }
       } else {
-        const fullPath = resolvePath(wsRoot, pattern);
+        const fullPath = resolveDir(pattern, wsRoot);
         if (fullPath !== cwd && dirExists(fullPath) && isProject(fullPath)) {
           candidates.push({
             dir: fullPath,
@@ -661,7 +626,7 @@ function collectWorkspaceMembers(cwd: string): Candidate[] {
   // --- Cargo workspace ---
   const cargo = readFileSafe(path.join(wsRoot, "Cargo.toml"));
   if (cargo && cargo.includes("[workspace]")) {
-    // Match members = ["crates/*"]
+    // 匹配 members = ["crates/*"]
     const membersMatch = cargo.match(/members\s*=\s*\[([\s\S]*?)\]/);
     if (membersMatch) {
       const membersStr = membersMatch[1];
@@ -682,10 +647,10 @@ function collectWorkspaceMembers(cwd: string): Candidate[] {
                   weight: 0.5,
                 });
               }
-            } catch { /* skip */ }
+            } catch { /* 跳过 */ }
           }
         } else {
-          const fullPath = resolvePath(wsRoot, pattern);
+          const fullPath = resolveDir(pattern, wsRoot);
           if (fullPath !== cwd && dirExists(fullPath)) {
             candidates.push({
               dir: fullPath,
@@ -703,19 +668,19 @@ function collectWorkspaceMembers(cwd: string): Candidate[] {
   for (const gName of gradleNames) {
     const gradleSettings = readFileSafe(path.join(wsRoot, gName));
     if (!gradleSettings) continue;
-    // Match: include(':app', ':lib:core') or include(":app", ":lib:core")
-    // Gradle uses colon-separated module paths that map to directory paths
+    // 匹配：include(':app', ':lib:core') 或 include(":app", ":lib:core")
+    // Gradle 用冒号分隔的模块路径，映射到目录路径
     const includeRegex = /include\s*\(?\s*([^)\n]+)/g;
     let gMatch;
     while ((gMatch = includeRegex.exec(gradleSettings)) !== null) {
       const args = gMatch[1];
-      // Extract quoted strings: ':app', ':lib:core', "app"
+      // 提取带引号的字符串：':app'、':lib:core'、"app"
       const moduleRegex = /['"][:.]?([^'"]+)['"]/g;
       let mMatch;
       while ((mMatch = moduleRegex.exec(args)) !== null) {
-        // Convert Gradle module path (:lib:core) to filesystem path (lib/core)
+        // 把 Gradle 模块路径（:lib:core）转换为文件系统路径（lib/core）
         const modulePath = mMatch[1].replace(/^:/, "").replace(/:/g, "/");
-        const fullPath = resolvePath(wsRoot, modulePath);
+        const fullPath = resolveDir(modulePath, wsRoot);
         if (fullPath !== cwd && dirExists(fullPath)) {
           candidates.push({
             dir: fullPath,
@@ -725,20 +690,20 @@ function collectWorkspaceMembers(cwd: string): Candidate[] {
         }
       }
     }
-    break; // Only process one settings file
+    break; // 只处理一个 settings 文件
   }
 
   // --- Maven multi-module (pom.xml) ---
   const pom = readFileSafe(path.join(wsRoot, "pom.xml"));
   if (pom) {
-    // Match <module>subdir</module> inside <modules> block
+    // 匹配 <modules> 块内的 <module>subdir</module>
     const modulesMatch = pom.match(/<modules>([\s\S]*?)<\/modules>/);
     if (modulesMatch) {
       const moduleRegex = /<module>([^<]+)<\/module>/g;
       let mMatch;
       while ((mMatch = moduleRegex.exec(modulesMatch[1])) !== null) {
         const modulePath = mMatch[1].trim();
-        const fullPath = resolvePath(wsRoot, modulePath);
+        const fullPath = resolveDir(modulePath, wsRoot);
         if (fullPath !== cwd && dirExists(fullPath)) {
           candidates.push({
             dir: fullPath,
@@ -753,18 +718,18 @@ function collectWorkspaceMembers(cwd: string): Candidate[] {
   // --- .NET solution (.sln) ---
   try {
     const slnFiles = fs.readdirSync(wsRoot).filter(f => f.endsWith(".sln"));
-    for (const slnFile of slnFiles.slice(0, 1)) { // Only first .sln
+    for (const slnFile of slnFiles.slice(0, 1)) { // 只处理第一个 .sln
       const slnContent = readFileSafe(path.join(wsRoot, slnFile));
       if (!slnContent) continue;
-      // Match: Project("{...}") = "Name", "path\to\project.csproj", "{...}"
+      // 匹配：Project("{...}") = "Name", "path\to\project.csproj", "{...}"
       const projRegex = /Project\([^)]+\)\s*=\s*"[^"]+"\s*,\s*"([^"]+)"/g;
       let slnMatch;
       while ((slnMatch = projRegex.exec(slnContent)) !== null) {
-        const projPath = slnMatch[1].replace(/\\/g, "/"); // Convert Windows paths
-        // Get the directory containing the .csproj/.fsproj
+        const projPath = slnMatch[1].replace(/\\/g, "/"); // 转换 Windows 路径
+        // 获取包含 .csproj/.fsproj 的目录
         const projDir = path.dirname(projPath);
         if (!projDir || projDir === ".") continue;
-        const fullPath = resolvePath(wsRoot, projDir);
+        const fullPath = resolveDir(projDir, wsRoot);
         if (fullPath !== cwd && dirExists(fullPath)) {
           candidates.push({
             dir: fullPath,
@@ -774,12 +739,12 @@ function collectWorkspaceMembers(cwd: string): Candidate[] {
         }
       }
     }
-  } catch { /* skip */ }
+  } catch { /* 跳过 */ }
 
-  // --- uv/Python workspace (pyproject.toml with [tool.uv.workspace] members) ---
+  // --- uv/Python workspace（pyproject.toml，含 [tool.uv.workspace] members） ---
   const pyprojectRoot = readFileSafe(path.join(wsRoot, "pyproject.toml"));
   if (pyprojectRoot && pyprojectRoot.includes("[tool.uv.workspace]")) {
-    // Match members = ["packages/*", "apps/*"] in TOML
+    // 匹配 TOML 中的 members = ["packages/*", "apps/*"]
     const membersMatch = pyprojectRoot.match(/\[tool\.uv\.workspace\][\s\S]*?members\s*=\s*\[([^\]]+)\]/);
     if (membersMatch) {
       const patterns = [...membersMatch[1].matchAll(/["']([^"']+)["']/g)].map(m => m[1]);
@@ -801,10 +766,10 @@ function collectWorkspaceMembers(cwd: string): Candidate[] {
                   });
                 }
               }
-            } catch { /* skip */ }
+            } catch { /* 跳过 */ }
           }
         } else {
-          const fullPath = resolvePath(wsRoot, pattern);
+          const fullPath = resolveDir(pattern, wsRoot);
           if (fullPath !== cwd && dirExists(fullPath) && isProject(fullPath)) {
             candidates.push({
               dir: fullPath,
@@ -820,12 +785,12 @@ function collectWorkspaceMembers(cwd: string): Candidate[] {
   // --- Go workspace ---
   const gowork = readFileSafe(path.join(wsRoot, "go.work"));
   if (gowork) {
-    // Match "use" block: use ( ./cmd/server ./pkg/auth )
+    // 匹配 "use" 块：use ( ./cmd/server ./pkg/auth )
     const useMatch = gowork.match(/use\s*\(([\s\S]*?)\)/);
     if (useMatch) {
       const paths = useMatch[1].trim().split(/\s+/).filter(Boolean);
       for (const p of paths) {
-        const fullPath = resolvePath(wsRoot, p);
+        const fullPath = resolveDir(p, wsRoot);
         if (fullPath !== cwd && dirExists(fullPath)) {
           candidates.push({
             dir: fullPath,
@@ -841,11 +806,11 @@ function collectWorkspaceMembers(cwd: string): Candidate[] {
 }
 
 // ---------------------------------------------------------------------------
-// Scoring
+// 评分
 // ---------------------------------------------------------------------------
 
 function scoreCandidates(candidates: Candidate[], _cwd: string): Suggestion[] {
-  // Deduplicate by absolute path, merging reasons and weights
+  // 按绝对路径去重，合并 reasons 和 weights
   const byPath = new Map<string, { reasons: string[]; totalWeight: number }>();
 
   for (const c of candidates) {
@@ -863,19 +828,19 @@ function scoreCandidates(candidates: Candidate[], _cwd: string): Suggestion[] {
   for (const [dir, data] of byPath) {
     let score = Math.min(data.totalWeight, 1.0);
 
-    // Bonus for having HAPILON.md (high value for hpl-add-dir)
+    // 含 HAPILON.md 的加分（对 hpl-add-dir 价值高）
     if (hasContextFiles(dir)) {
       score = Math.min(score + 0.25, 1.0);
       data.reasons.push("has HAPILON.md");
     }
 
-    // Bonus for having extensions
+    // 含扩展的加分
     if (hasExtensions(dir)) {
       score = Math.min(score + 0.1, 1.0);
       data.reasons.push("has .pi/extensions");
     }
 
-    // Deduplicate reasons
+    // reasons 去重
     const uniqueReasons = [...new Set(data.reasons)];
 
     suggestions.push({
@@ -886,14 +851,14 @@ function scoreCandidates(candidates: Candidate[], _cwd: string): Suggestion[] {
     });
   }
 
-  // Sort by score descending, then alphabetically
+  // 按分数降序排序，再按字母序
   suggestions.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label));
 
   return suggestions;
 }
 
 // ---------------------------------------------------------------------------
-// Main entry point
+// 主入口
 // ---------------------------------------------------------------------------
 
 export function suggestDirectories(options: SuggestOptions): Suggestion[] {
@@ -901,10 +866,10 @@ export function suggestDirectories(options: SuggestOptions): Suggestion[] {
 
   if (!dirExists(cwd)) return [];
 
-  // Clear git root cache per call (paths may change between calls)
+  // 每次调用清空 git root 缓存（路径可能在调用之间变化）
   gitRootCache.clear();
 
-  // Pre-scan cwd contents once to avoid redundant statSync in each collector
+  // 预扫描一次 cwd 内容，避免每个收集器里重复 statSync
   let cwdFiles: Set<string>;
   try {
     cwdFiles = new Set(fs.readdirSync(cwd));
@@ -912,12 +877,12 @@ export function suggestDirectories(options: SuggestOptions): Suggestion[] {
     cwdFiles = new Set();
   }
 
-  // Collect candidates from heuristics — only call collectors whose trigger files exist
+  // 从各启发式收集候选——只调用触发文件存在的收集器
   const candidates: Candidate[] = [
-    ...collectSiblings(cwd), // always run (scans parent dir)
+    ...collectSiblings(cwd), // 总是运行（扫描父目录）
   ];
 
-  // File-triggered collectors — skip if trigger file doesn't exist in cwd
+  // 文件触发的收集器——cwd 中不存在触发文件则跳过
   if (cwdFiles.has("package.json"))    candidates.push(...collectNpmFileDeps(cwd));
   if (cwdFiles.has("tsconfig.json"))   candidates.push(...collectTsProjectRefs(cwd));
   if (cwdFiles.has("composer.json"))   candidates.push(...collectComposerPaths(cwd));
@@ -928,21 +893,21 @@ export function suggestDirectories(options: SuggestOptions): Suggestion[] {
   if (cwdFiles.has("Cargo.toml"))      candidates.push(...collectCargoPaths(cwd));
   if (cwdFiles.has("pyproject.toml"))  candidates.push(...collectPythonPaths(cwd));
 
-  // Docker Compose — check multiple possible filenames
+  // Docker Compose —— 检查多个可能的文件名
   if (cwdFiles.has("docker-compose.yml") || cwdFiles.has("docker-compose.yaml") ||
       cwdFiles.has("compose.yml") || cwdFiles.has("compose.yaml")) {
     candidates.push(...collectDockerComposePaths(cwd));
   }
 
-  // Always run these (they scan git root / workspace root, not cwd)
+  // 总是运行这些（它们扫描 git root / workspace root，而非 cwd）
   candidates.push(...collectSubmodules(cwd));
   candidates.push(...collectWorkspaceMembers(cwd));
 
-  // Score and deduplicate
+  // 评分并去重
   const scored = scoreCandidates(candidates, cwd);
 
-  // Filter out already-added dirs, cwd itself, ancestors of cwd, and low-scoring noise
-  const resolvedCwd = resolvePath(cwd, ".");
+  // 过滤掉已添加目录、cwd 本身、cwd 的祖先目录及低分噪音
+  const resolvedCwd = resolveDir(".", cwd);
   const excluded = new Set([resolvedCwd, ...alreadyAdded]);
   const MIN_SCORE = 0.15;
 
@@ -950,7 +915,7 @@ export function suggestDirectories(options: SuggestOptions): Suggestion[] {
     .filter(s => {
       if (excluded.has(s.absolutePath)) return false;
       if (s.score < MIN_SCORE) return false;
-      // Exclude dirs that are ancestors of cwd (we're already inside them)
+      // 排除 cwd 的祖先目录（我们已在其中）
       if (resolvedCwd.startsWith(s.absolutePath + path.sep)) return false;
       return true;
     })

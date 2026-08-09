@@ -9,35 +9,43 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-// ─── Types ────────────────────────────────────────────────────────────
+// ─── 类型 ────────────────────────────────────────────────────────────
 
 export interface AddedDir {
-  /** Absolute path to the directory */
+  /** 目录的绝对路径 */
   absolutePath: string;
-  /** Display label (basename or user-provided alias) */
+  /** 显示标签（basename 或用户提供的别名） */
   label: string;
-  /** Timestamp when added */
+  /** 添加时的时间戳 */
   addedAt: number;
 }
 
 export interface DirContext {
-  /** Path to the directory */
-  dir: string;
-  /** Content of HAPILON.md if found（根 + .pi/ 合并） */
+  /** 找到的 HAPILON.md 内容（根 + .pi/ 合并） */
   hapilonMd: string | null;
-  /** Extensions found in .pi/extensions/ */
+  /** 在 .pi/extensions/ 中找到的扩展 */
   extensionPaths: string[];
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────
+// ─── 共享辅助函数 ──────────────────────────────────────────────────────
 
 /** 只注入 HAPILON.md——hapilon 受控上下文体系（AGENTS/CLAUDE 由 --no-context-files 关闭） */
 const CONTEXT_FILES = ["HAPILON.md"];
 
-// Extension directories to scan, relative to a project root
+// 要扫描的扩展目录，相对于项目根目录
 const EXTENSION_DIRS = [".pi/extensions"];
 
-function dirExists(dir: string): boolean {
+/** 解析输入为绝对路径（相对路径基于 cwd），realpath 失败时回退 resolve */
+export function resolveDir(input: string, cwd: string): string {
+  const resolved = path.isAbsolute(input) ? input : path.resolve(cwd, input);
+  try {
+    return fs.realpathSync(resolved);
+  } catch {
+    return path.resolve(resolved);
+  }
+}
+
+export function dirExists(dir: string): boolean {
   try {
     return fs.statSync(dir).isDirectory();
   } catch {
@@ -45,7 +53,15 @@ function dirExists(dir: string): boolean {
   }
 }
 
-function readFileSafe(filePath: string): string | null {
+export function fileExists(filePath: string): boolean {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+export function readFileSafe(filePath: string): string | null {
   try {
     return fs.readFileSync(filePath, "utf-8");
   } catch {
@@ -53,19 +69,18 @@ function readFileSafe(filePath: string): string | null {
   }
 }
 
-// ─── Scan ─────────────────────────────────────────────────────────────
+// ─── 扫描 ─────────────────────────────────────────────────────────────
 
 /**
- * Scan a directory for HAPILON.md（根 + .pi/ 子目录）和扩展提示。
+ * 扫描目录中的 HAPILON.md（根 + .pi/ 子目录）和扩展提示。
  */
 export function scanDirContext(dir: string): DirContext {
   const ctx: DirContext = {
-    dir,
     hapilonMd: null,
     extensionPaths: [],
   };
 
-  // Read HAPILON.md from root and .pi/ subdirectory
+  // 从根目录和 .pi/ 子目录读取 HAPILON.md
   for (const name of CONTEXT_FILES) {
     const content = readFileSafe(path.join(dir, name));
     if (content) ctx.hapilonMd = content;
@@ -77,7 +92,7 @@ export function scanDirContext(dir: string): DirContext {
     }
   }
 
-  // Discover extensions（仅提示，不自动加载——与 pi-add-dir 原行为一致）
+  // 发现扩展（仅提示，不自动加载——与 pi-add-dir 原行为一致）
   for (const extDir of EXTENSION_DIRS) {
     const fullExtDir = path.join(dir, extDir);
     if (!dirExists(fullExtDir)) continue;
@@ -95,33 +110,33 @@ export function scanDirContext(dir: string): DirContext {
         }
       }
     } catch {
-      // Skip unreadable directories
+      // 跳过不可读的目录
     }
   }
 
   return ctx;
 }
 
-// ─── Context injection cache ──────────────────────────────────────────
+// ─── 上下文注入缓存 ──────────────────────────────────────────
 
 let contextCache: { dirs: string; injection: string } | null = null;
 
 /**
- * Invalidate the context injection cache.
- * Called when dirs are added/removed so the next turn re-scans.
+ * 使上下文注入缓存失效。
+ * 在添加/移除目录时调用，以便下一轮重新扫描。
  */
 export function invalidateContextCache(): void {
   contextCache = null;
 }
 
 /**
- * Build the system prompt injection from all added directories.
- * Cached by directory list — only re-scans when dirs change.
+ * 根据所有已添加目录构建系统提示注入。
+ * 按目录列表缓存——仅当目录变化时重新扫描。
  */
 export function buildContextInjection(dirs: AddedDir[]): string {
   if (dirs.length === 0) return "";
 
-  // Cache key: sorted absolute paths
+  // 缓存键：排序后的绝对路径
   const cacheKey = dirs.map((d) => d.absolutePath).sort().join("\0");
   if (contextCache && contextCache.dirs === cacheKey) {
     return contextCache.injection;
@@ -142,7 +157,7 @@ export function buildContextInjection(dirs: AddedDir[]): string {
       sections.push(`\n#### HAPILON.md (from ${dir.label})\n${ctx.hapilonMd}`);
     }
 
-    // Summary of directory contents
+    // 目录内容摘要
     try {
       const entries = fs.readdirSync(dir.absolutePath, { withFileTypes: true });
       const topLevel = entries
@@ -153,7 +168,7 @@ export function buildContextInjection(dirs: AddedDir[]): string {
         sections.push(`\n<details><summary>Top-level contents</summary>\n\n${topLevel.join("\n")}\n</details>`);
       }
     } catch {
-      // Skip if unreadable
+      // 不可读时跳过
     }
   }
 
