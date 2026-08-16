@@ -87,7 +87,11 @@ async function main(): Promise<void> {
           !e.endsWith("/hpl-protected-paths.js"),
       )
     : allExtensions;
-  const extensionFlags = loadedExtensions.flatMap((e) => ["-e", e]);
+  // 第三方 npm 扩展（#36 prototype）：与 hpl-* 同一 -e 通道注入。
+  // 走 node_modules 而非 pi install，保证 subagent session 不重新激活。
+  const { resolveNpmExtensionPaths } = await import("./npm-extensions.js");
+  const npmExtensions = resolveNpmExtensionPaths();
+  const extensionFlags = [...loadedExtensions, ...npmExtensions].flatMap((e) => ["-e", e]);
 
   // 构建统一的 Pi 环境变量（sandbox 与默认路径共用）
   const piEnv = {

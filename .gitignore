@@ -124,6 +124,9 @@ Desktop.ini
 
 # --- Hapilon ---
 .hapilon/config.local.json
+# pi-tasks / pi-subagents 运行时数据（#36）
+.pi/tasks/
+.pi/subagent-schedules/
 
 # --- Claude ---
 .claude/settings.json
