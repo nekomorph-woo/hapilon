@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 const SAFETY_EXTENSION_SUFFIXES = [
   "extensions/hpl-safety-gate/index.js",
   "extensions/hpl-protected-paths/index.js",
-];
+] as const;
 
 /** SettingsJson 的局部结构（与 providers.ts 一致的防御性解析） */
 type PartialSettings = Record<string, unknown> & { extensions?: unknown };
@@ -29,16 +29,25 @@ function distDir(): string {
   return dirname(fileURLToPath(import.meta.url));
 }
 
+/**
+ * 单一判定来源：给定扩展入口路径是否为安全门扩展。
+ * cli.ts 的 -e 通道过滤与 settings 条目识别都从这里走，避免两份清单分叉。
+ */
+export function isSafetyExtensionPath(path: string): boolean {
+  const normalized = path.replaceAll("\\", "/");
+  return SAFETY_EXTENSION_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+}
+
 /** 当前构建中安全门扩展的绝对入口路径 */
 export function safetyExtensionPaths(): string[] {
   const base = join(distDir(), "extensions");
-  return SAFETY_EXTENSION_SUFFIXES.map((suffix) => join(base, suffix.split("extensions/")[1]));
+  return SAFETY_EXTENSION_SUFFIXES.map((suffix) => join(base, basename(dirname(suffix)), "index.js"));
 }
 
 /**
  * 从 settings.extensions 中分离安全门条目与其它条目。
  *
- * 仅按"路径指向安全门扩展"匹配，用户手工加入的无关条目原样保留。
+ * 仅按 isSafetyExtensionPath 匹配，用户手工加入的无关条目原样保留。
  */
 export function partitionSafetyEntries(extensions: unknown): {
   safety: string[];
@@ -48,8 +57,7 @@ export function partitionSafetyEntries(extensions: unknown): {
   const safety: string[] = [];
   const others: string[] = [];
   for (const entry of entries) {
-    const normalized = entry.replaceAll("\\", "/");
-    if (SAFETY_EXTENSION_SUFFIXES.some((suffix) => normalized.endsWith(suffix))) {
+    if (isSafetyExtensionPath(entry)) {
       safety.push(entry);
     } else {
       others.push(entry);
