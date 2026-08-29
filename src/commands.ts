@@ -111,6 +111,32 @@ export const COMMANDS: CommandDef[] = [
     },
   },
   {
+    name: "mcp",
+    description: "管理 MCP server 配置（pi-mcp-adapter，#49/#50）",
+    subcommands: [
+      {
+        name: "add <name> stdio -- <command> [args...] [--env K=V]...",
+        description: "添加本地子进程 MCP server",
+      },
+      {
+        name: "add <name> http <url> [--header \"K: V\"]...",
+        description: "添加远程 MCP server",
+      },
+      {
+        name: "list",
+        description: "列出已配置的 MCP server",
+      },
+      {
+        name: "remove <name> [-y]",
+        description: "删除 MCP server（-y 跳过确认）",
+      },
+    ],
+    handler: async (args) => {
+      const { handleMcp } = await import("./mcp/handlers.js");
+      await handleMcp(args.slice(1));
+    },
+  },
+  {
     name: "help",
     description: "显示帮助信息",
     usage: "hapilon help [command]",

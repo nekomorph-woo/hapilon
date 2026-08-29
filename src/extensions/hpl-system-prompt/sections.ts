@@ -61,3 +61,24 @@ export const BUILTIN_GUIDELINES = {
   /** 始终 */
   showFilePaths: "Show file paths clearly when working with files",
 } as const;
+
+/**
+ * MCP 环境段（#50 通道 A）。
+ *
+ * pi-mcp-adapter（#49 集成）运行时从 agentDir/mcp.json 读 server 声明，
+ * 但「agent 帮用户添加 server」时靠的是 prompt 知识——不注入这段，
+ * agent 只能按训练常识猜路径（~/.pi 或 .mcp.json），必错。此处写死
+ * hapilon 的真实路径与 schema 摘要；内容静态，token 成本 ~120。
+ */
+export function buildMcpSectionText(agentDirPath: string): string {
+  return (
+    `MCP servers (Model Context Protocol, via pi-mcp-adapter):\n` +
+    `- Config file: ${agentDirPath}/mcp.json\n` +
+    `- Schema: {"mcpServers": {"<name>": {"type": "stdio", "command": "...", "args": [...], "env": {...}} ` +
+    `or {"type": "http", "url": "...", "headers": {...}}}}\n` +
+    `- When the user asks to add/install an MCP server, edit that exact file ` +
+    `(create it if missing); never guess other locations like ~/.pi or .mcp.json\n` +
+    `- Changes take effect after restarting the session; the mcp proxy tool ` +
+    `discovers servers on demand`
+  );
+}
