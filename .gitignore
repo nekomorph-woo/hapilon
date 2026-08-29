@@ -136,3 +136,4 @@ Desktop.ini
 
 # --- Fiber worktrees ---
 .fiber/worktrees/
+/.scratch/
