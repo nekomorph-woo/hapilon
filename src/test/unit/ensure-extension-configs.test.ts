@@ -32,6 +32,24 @@ describe("ensureExtensionConfigs()", () => {
     assert.equal(cfg.workflow, "none");
   });
 
+  it("首次调用写入 mcp.json 空骨架（#49：pi-mcp-adapter 配置）", () => {
+    ensureExtensionConfigs(agentDir);
+    const path = join(agentDir, "mcp.json");
+    assert.ok(existsSync(path));
+    const cfg = JSON.parse(readFileSync(path, "utf8"));
+    assert.deepEqual(cfg, { mcpServers: {} });
+  });
+
+  it("mcp.json 用户已配置时不覆盖", () => {
+    const fresh = join(agentDir, "user-mcp");
+    mkdirSync(fresh, { recursive: true });
+    const path = join(fresh, "mcp.json");
+    writeFileSync(path, JSON.stringify({ mcpServers: { fs: { type: "stdio", command: "npx" } } }));
+    ensureExtensionConfigs(fresh);
+    const cfg = JSON.parse(readFileSync(path, "utf8"));
+    assert.ok(cfg.mcpServers.fs, "用户已配置的 server 不被清掉");
+  });
+
   it("web-search.json 用户已配置时不覆盖", () => {
     const fresh = join(agentDir, "user-wa");
     mkdirSync(fresh, { recursive: true });

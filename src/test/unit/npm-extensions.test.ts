@@ -1,14 +1,16 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { resolveNpmExtensionPaths, resolveExtensionEntry } from "../../npm-extensions.js";
 
 describe("resolveNpmExtensionPaths()", () => {
   it("解析出全部 npm 扩展的绝对入口路径", () => {
     const paths = resolveNpmExtensionPaths();
-    // 2 个 tintinweb 包 + #43 集成四包
-    assert.equal(paths.length, 6);
+    // 2 个 tintinweb 包 + #43 集成四包 + #49 pi-mcp-adapter
+    assert.equal(paths.length, 7);
     for (const p of paths) {
       assert.ok(existsSync(p), `入口文件应存在: ${p}`);
     }
@@ -26,6 +28,23 @@ describe("resolveNpmExtensionPaths()", () => {
     assert.ok(askUser.endsWith("@zhushanwen/pi-ask-user/index.ts"), `ask-user: ${askUser}`);
     assert.ok(btw.endsWith("@narumitw/pi-btw/dist/index.ts"), `btw: ${btw}`);
     assert.ok(webAccess.endsWith("pi-web-access/index.ts"), `web-access: ${webAccess}`);
+  });
+
+  it("#49 pi-mcp-adapter 入口与包内 pi.extensions 声明一致", () => {
+    const paths = resolveNpmExtensionPaths();
+    const adapter = paths[paths.length - 1];
+    assert.ok(adapter.endsWith("pi-mcp-adapter/index.ts"), `mcp-adapter: ${adapter}`);
+  });
+
+  it("#49 hapilon package.json 未设 piConfig（adapter getAgentDir 依赖此前提）", () => {
+    // pi-mcp-adapter 的 agent-dir.ts：若 PI_PACKAGE_DIR manifest 设了 piConfig.name，
+    // 它会改找 `${NAME}_CODING_AGENT_DIR`。hapilon 靠 PI_CODING_AGENT_DIR 精确寻址，
+    // 一旦未来设置 piConfig.name 而未同步导出新 env var，配置寻址会静默偏移。
+    // 此测试把该前提钉死——改名时此处先红，逼实现者同步处理。
+    const pkg = JSON.parse(
+      readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../package.json"), "utf8"),
+    ) as { piConfig?: { name?: string } };
+    assert.equal(pkg.piConfig, undefined, "package.json 出现 piConfig 时必须同步处理 pi-mcp-adapter 的 getAgentDir 寻址（见 issue #49）");
   });
 });
 
@@ -52,6 +71,41 @@ describe("resolveExtensionEntry()（fail fast 分支）", () => {
         err.message.includes("@tintinweb/pi-tasks") &&
         err.message.includes("dist/index.js") &&
         err.message.includes("npm install"),
+    );
+  });
+
+  it("#49 exports 锁死 package.json 时降级为包主入口寻址", () => {
+    // pi-mcp-adapter 的 exports 不含 ./package.json——主路径抛
+    // ERR_PACKAGE_PATH_NOT_EXPORTED，应降级到 resolve(包名) 再拼接。
+    // 用真实临时文件验证 existsSync 语义（入口必须真实存在）。
+    const tmp = mkdtempSync(join(tmpdir(), "hapilon-entry-fallback-"));
+    try {
+      const mainEntry = join(tmp, "index.ts");
+      writeFileSync(mainEntry, "export {};");
+      const resolve = (id: string) => {
+        if (id === "pi-mcp-adapter/package.json") {
+          const err = new Error(`Package subpath './package.json' is not defined by "exports"`) as Error & { code: string };
+          err.code = "ERR_PACKAGE_PATH_NOT_EXPORTED";
+          throw err;
+        }
+        return mainEntry;
+      };
+      const path = resolveExtensionEntry("pi-mcp-adapter", "index.ts", resolve);
+      assert.equal(path, mainEntry, "降级后从主入口目录拼出同一入口");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("#49 非 exports 锁定的 resolve 错误（包不存在）不降级、向上传播", () => {
+    assert.throws(
+      () =>
+        resolveExtensionEntry("pi-mcp-adapter", "index.ts", () => {
+          const err = new Error("Cannot find module 'pi-mcp-adapter/package.json'") as Error & { code: string };
+          err.code = "MODULE_NOT_FOUND";
+          throw err;
+        }),
+      /Cannot find module/,
     );
   });
 

@@ -29,6 +29,13 @@ const TASKS_CONFIG_DEFAULTS = { autoCascade: true };
 const WEB_ACCESS_CONFIG_DEFAULTS = { workflow: "none" };
 
 /**
+ * pi-mcp-adapter 预置（#49）：空 mcpServers 骨架——给用户与 agent 一个
+ * 明确的配置落点（写入用 hapi mcp add 或让 agent 按 system prompt 指引写，
+ * 见 #50）。仅当文件不存在时写，已有 server 配置永不触碰。
+ */
+const MCP_CONFIG_DEFAULTS = { mcpServers: {} };
+
+/**
  * 文件不存在时写入 defaults；存在时不碰（含解析失败——不覆盖用户数据）。
  * agentDir 不存在时创建（与 ensureQuietStartup 同模式）。
  */
@@ -48,4 +55,6 @@ export function ensureExtensionConfigs(agentDir: string): void {
   ensureJsonConfig(agentDir, "tasks-config.json", TASKS_CONFIG_DEFAULTS);
   // pi-web-access（#43）：workflow:none 不弹浏览器；fff/ask-user/btw 无必配项
   ensureJsonConfig(agentDir, "web-search.json", WEB_ACCESS_CONFIG_DEFAULTS);
+  // pi-mcp-adapter（#49）：空骨架给 mcp.json 一个明确落点；用户配置永不覆盖
+  ensureJsonConfig(agentDir, "mcp.json", MCP_CONFIG_DEFAULTS);
 }

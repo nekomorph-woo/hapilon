@@ -23,19 +23,32 @@ const NPM_EXTENSIONS: readonly [pkg: string, entry: string][] = [
   ["@zhushanwen/pi-ask-user", "index.ts"],
   ["@narumitw/pi-btw", "dist/index.ts"],
   ["pi-web-access", "index.ts"],
+  // #49 MCP 桥接（入口取自包内 pi.extensions 声明）
+  ["pi-mcp-adapter", "index.ts"],
 ];
 
 /**
  * 解析单个包的扩展入口（导出仅为可测试性）。
- * resolve 返回 undefined 表示包不存在——由调用方决定如何爆。
+ * resolve 抛错即包不存在或子路径被 exports 锁死——由降级逻辑与调用方处理。
  */
 export function resolveExtensionEntry(
   pkg: string,
   entry: string,
   resolve: (id: string) => string,
 ): string {
-  const pkgJsonPath = resolve(`${pkg}/package.json`);
-  const path = join(dirname(pkgJsonPath), entry);
+  // 主路径：resolve <pkg>/package.json 再拼入口。
+  // 部分包（如 pi-mcp-adapter，#49）用 exports 字段锁死子路径，
+  // `./package.json` 不在白名单 → ERR_PACKAGE_PATH_NOT_EXPORTED。
+  // 降级：resolve 包主入口（"." 总在 exports 白名单），从其目录拼接。
+  let pkgDir: string;
+  try {
+    pkgDir = dirname(resolve(`${pkg}/package.json`));
+  } catch (err) {
+    const locked = err instanceof Error && "code" in err && err.code === "ERR_PACKAGE_PATH_NOT_EXPORTED";
+    if (!locked) throw err;
+    pkgDir = dirname(resolve(pkg));
+  }
+  const path = join(pkgDir, entry);
   if (!existsSync(path)) {
     throw new Error(
       `[hapilon] npm 扩展入口缺失：${pkg} 应有 ${entry}，实际路径 ${path} 不存在。` +
