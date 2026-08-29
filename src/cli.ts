@@ -55,7 +55,6 @@ async function main(): Promise<void> {
   ensureQuietStartup(agentDirPath);
 
   const { getVersion } = await import("./help.js");
-  const { extensionNames } = await import("./extensions.js");
 
   const config = readHapilonConfig();
   const piArgs = injectDefaultArgs(args, config);
@@ -76,25 +75,43 @@ async function main(): Promise<void> {
     }
   }
 
-  // 自动扫描 hapilon 内置扩展，通过 -e 注入到 pi
-  const allExtensions = discoverExtensions();
-  const loadedExtensions = noSafety
-    ? allExtensions.filter(
-        (e) =>
-          !e.endsWith("/hpl-safety-gate/index.js") &&
-          !e.endsWith("/hpl-safety-gate.js") &&
-          !e.endsWith("/hpl-protected-paths/index.js") &&
-          !e.endsWith("/hpl-protected-paths.js"),
-      )
-    : allExtensions;
-  const extensionFlags = loadedExtensions.flatMap((e) => ["-e", e]);
+  // ── 安全门 settings 通道（#37）────────────────────────────────
+  // hpl-safety-gate / hpl-protected-paths 写入 settings.json，
+  // 父会话与 subagent 会话都会加载——安全规则无处不在。
+  // --no-safety 则从 settings 移除，同样作用于所有会话。
+  const safetySettings = await import("./safety-settings.js");
+  if (noSafety) {
+    safetySettings.removeSafetyExtensions(agentDirPath);
+  } else {
+    safetySettings.ensureSafetyExtensions(agentDirPath);
+  }
+
+  // 扩展默认配置预置（map #31）：文件不存在才写，用户改过永不覆盖
+  const { ensureExtensionConfigs } = await import("./ensure-extension-configs.js");
+  ensureExtensionConfigs(agentDirPath);
+
+  // 自动扫描 hapilon 内置扩展，通过 -e 注入到 pi（仅父会话生效）。
+  // 安全门走 settings 通道（上方），这里一律排除，避免重复加载。
+  const allExtensions = discoverExtensions().filter(
+    (e) => !safetySettings.isSafetyExtensionPath(e),
+  );
+  // 第三方 npm 扩展（#37）：与 hpl-* 同一 -e 通道注入。
+  // 走 node_modules 而非 pi install，保证 subagent session 不重新激活。
+  const { resolveNpmExtensionPaths } = await import("./npm-extensions.js");
+  const npmExtensions = resolveNpmExtensionPaths();
+  const extensionFlags = [...allExtensions, ...npmExtensions].flatMap((e) => ["-e", e]);
 
   // 构建统一的 Pi 环境变量（sandbox 与默认路径共用）
+  const { extensionNames: namesOf } = await import("./extensions.js");
+  // header 展示用：-e 注入的 + 安全门（--no-safety 时安全门已移除，如实不显示）
+  const displayedExtensions = noSafety
+    ? allExtensions
+    : [...allExtensions, ...safetySettings.safetyExtensionPaths()];
   const piEnv = {
     ...process.env,
     PI_CODING_AGENT_DIR: agentDirPath,
     PI_SKIP_VERSION_CHECK: "1",
-    HAPILON_EXTENSIONS: JSON.stringify(extensionNames(loadedExtensions)),
+    HAPILON_EXTENSIONS: JSON.stringify(namesOf(displayedExtensions)),
     HAPILON_VERSION: getVersion(),
   };
 

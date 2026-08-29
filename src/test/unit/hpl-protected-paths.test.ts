@@ -105,6 +105,13 @@ describe("hpl-protected-paths", () => {
     it("read ~/.kube/config → confirm", () => assert.strictEqual(classifyPath("~/.kube/config", "read"), "confirm"));
     it("read project.kubeconfig → confirm", () => assert.strictEqual(classifyPath("project.kubeconfig", "read"), "confirm"));
     it("read ~/.npmrc → confirm", () => assert.strictEqual(classifyPath("~/.npmrc", "read"), "confirm"));
+    // .env 读保护（issue #39）
+    it("read .env → confirm", () => assert.strictEqual(classifyPath(".env", "read"), "confirm"));
+    it("read .env.local → confirm", () => assert.strictEqual(classifyPath(".env.local", "read"), "confirm"));
+    it("read .env.production → confirm", () => assert.strictEqual(classifyPath(".env.production", "read"), "confirm"));
+    it("read config/.env → confirm", () => assert.strictEqual(classifyPath("config/.env", "read"), "confirm"));
+    it("read .env.example → allow（模板无 secret）", () => assert.strictEqual(classifyPath(".env.example", "read"), "allow"));
+    it("read .env.sample → allow（模板无 secret）", () => assert.strictEqual(classifyPath(".env.sample", "read"), "allow"));
   });
 
   // ─── 放行 ───────────────────────────────────────────────────────

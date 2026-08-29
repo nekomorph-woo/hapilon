@@ -124,6 +124,9 @@ Desktop.ini
 
 # --- Hapilon ---
 .hapilon/config.local.json
+# pi-tasks / pi-subagents 运行时数据（#37）
+.pi/tasks/
+.pi/subagent-schedules/
 
 # --- Claude ---
 .claude/settings.json
@@ -136,3 +139,4 @@ Desktop.ini
 
 # --- Fiber worktrees ---
 .fiber/worktrees/
+/.scratch/
