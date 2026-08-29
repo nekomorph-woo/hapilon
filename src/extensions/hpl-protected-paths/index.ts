@@ -22,6 +22,24 @@ export { classifyPath, expandTilde, resolveTarget } from "./classifier.js";
 // 加载时初始化项目信任缓存（issue #15）：本进程是 project trust 的消费方
 initProjectTrust(process.cwd());
 
+// subagent 会话探针（issue #39）：pi-subagents 用 AsyncLocalStorage 标记
+// 子会话构建/运行，探针在 tool_call 回调内实时求值即对应触发会话。
+// 该模块是 pi-subagents 的内部路径（非 exports 公共 API），上游重构可能
+// 破坏——不可得时退回 confirm 行为（多弹一次确认，安全侧），不硬崩。
+// 加载期预热：tool_call 到达时探针已就绪，避免首读竞态放行。
+let subagentProbe: (() => boolean) | undefined;
+import("@tintinweb/pi-subagents/dist/child-context.js")
+  .then((mod) => {
+    subagentProbe = mod.inChildSessionContext;
+  })
+  .catch(() => {
+    console.warn("[hpl-protected-paths] subagent 探针不可得，子会话敏感读取将走 confirm 流程");
+  });
+
+function inSubagentSession(): boolean {
+  return subagentProbe ? subagentProbe() : false;
+}
+
 /**
  * /allow 参数解析 — 纯函数，独立可测。
  *
@@ -114,6 +132,15 @@ export default function (pi: ExtensionAPI) {
 
       const verdict = classifyPath(filePath, "read", ctx.cwd);
       if (verdict !== "confirm") return;
+
+      // subagent 无人在场确认（issue #39）：confirm 框的 unavailable 分支
+      // 在子会话本就会 block，但语义上应显式区分——子会话内敏感读取一律
+      // 直接拦截，不走 confirm 流程。
+      if (inSubagentSession()) {
+        const reason = `🛡️ subagent 会话禁止读取敏感文件：${filePath}（如需读取请在主会话操作）`;
+        console.warn(`[hpl-protected-paths] ${reason}`);
+        return { block: true, reason };
+      }
 
       const result = await requestConfirm(
         ctx,
