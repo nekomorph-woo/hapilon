@@ -26,8 +26,12 @@
     "@anthropic-ai/sandbox-runtime": "^0.0.65",
     "@earendil-works/pi-coding-agent": "0.84.1",
     "@earendil-works/pi-tui": "0.84.1",
+    "@ff-labs/pi-fff": "^0.10.5",
+    "@narumitw/pi-btw": "^0.56.0",
     "@tintinweb/pi-subagents": "^0.16.1",
-    "@tintinweb/pi-tasks": "^0.7.3"
+    "@tintinweb/pi-tasks": "^0.7.3",
+    "@zhushanwen/pi-ask-user": "^7.0.15",
+    "pi-web-access": "^0.27.0"
   },
   "devDependencies": {
     "@types/node": "24.12.4",

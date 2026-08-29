@@ -11,8 +11,11 @@
 export const BLOCK_PATTERNS: Array<{ test: (cmd: string) => boolean; label: string }> = [
   // ── 文件系统破坏 ──
   {
-    // `-rf` 与目标之间允许插参（`rm -rf --one-file-system /` 等仍应 BLOCK），issue #6
-    test: (c) => /\b(?:sudo\s+)?rm\s+-rf\b(?:\s+[^\s]+)*\s+(\/|~|\/\*)/.test(c),
+    // `-rf` 与目标之间允许插参（`rm -rf --one-file-system /` 等仍应 BLOCK），issue #6。
+    // 目标必须是完整的 `/`、`~` 或 `/*`（token 边界 lookahead 锚定，#44）——
+    // 否则 `/private` 的开头 `/` 会被回溯当成根，任何绝对路径都被误拦。
+    test: (c) =>
+      /\b(?:sudo\s+)?rm\s+-rf\b(?:\s+[^\s]+)*?\s+(?:\/|~|\/\*)(?=\s|$)/.test(c),
     label: "rm -rf 根目录/home",
   },
   {
@@ -90,8 +93,11 @@ export const BLOCK_PATTERNS: Array<{ test: (cmd: string) => boolean; label: stri
 export const CONFIRM_PATTERNS: Array<{ test: (cmd: string) => boolean; label: string }> = [
   // ── 文件删除 ──
   {
-    // 排除与 BLOCK 规则同语义（含插参），避免「BLOCK 未覆盖则降级 confirm」的耦合缺口，issue #6
-    test: (c) => /\brm\s+-rf\b/.test(c) && !/\b(?:sudo\s+)?rm\s+-rf\b(?:\s+[^\s]+)*\s+(\/|~|\/\*)/.test(c),
+    // 排除与 BLOCK 规则同语义（含插参），避免「BLOCK 未覆盖则降级 confirm」的耦合缺口，issue #6。
+    // 排除式与 BLOCK 同步使用 token 边界锚定（#44），两式必须保持镜像。
+    test: (c) =>
+      /\brm\s+-rf\b/.test(c) &&
+      !/\b(?:sudo\s+)?rm\s+-rf\b(?:\s+[^\s]+)*?\s+(?:\/|~|\/\*)(?=\s|$)/.test(c),
     label: "rm -rf",
   },
   {
