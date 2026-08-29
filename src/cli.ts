@@ -86,6 +86,10 @@ async function main(): Promise<void> {
     safetySettings.ensureSafetyExtensions(agentDirPath);
   }
 
+  // 扩展默认配置预置（map #31）：文件不存在才写，用户改过永不覆盖
+  const { ensureExtensionConfigs } = await import("./ensure-extension-configs.js");
+  ensureExtensionConfigs(agentDirPath);
+
   // 自动扫描 hapilon 内置扩展，通过 -e 注入到 pi（仅父会话生效）。
   // 安全门走 settings 通道（上方），这里一律排除，避免重复加载。
   const allExtensions = discoverExtensions().filter(
