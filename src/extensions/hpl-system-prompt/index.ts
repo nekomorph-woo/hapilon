@@ -12,6 +12,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { assembleSystemPrompt, collectHapilonContext } from "./assemble.js";
+import { agentDir } from "../../hapilon-home.js";
 
 export default function hplSystemPrompt(pi: ExtensionAPI): void {
   const userHome = process.env.HOME;
@@ -37,6 +38,7 @@ export default function hplSystemPrompt(pi: ExtensionAPI): void {
         : { hapilonMd: [], hapilonRules: [] };
 
       // 全量组装
+      // 全量组装（agentDirPath 供 #50 MCP 环境段使用）
       const systemPrompt = assembleSystemPrompt({
         toolSnippets: opts.toolSnippets ?? {},
         selectedTools: opts.selectedTools,
@@ -47,6 +49,7 @@ export default function hplSystemPrompt(pi: ExtensionAPI): void {
         skills: opts.skills,
         hapilonMd: hapilonCtx.hapilonMd,
         hapilonRules: hapilonCtx.hapilonRules,
+        agentDirPath: agentDir(),
       });
 
       return { systemPrompt };

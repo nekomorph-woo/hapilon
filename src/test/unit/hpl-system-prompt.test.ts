@@ -286,6 +286,31 @@ describe("buildEnvironmentSection", () => {
     const result = buildEnvironmentSection("C:\\Users\\test");
     assert.ok(result.includes("C:/Users/test"), "反斜杠应归一化");
   });
+
+  it("#50 提供 agentDirPath 时注入 MCP 环境段（配置路径 + schema 摘要）", () => {
+    const result = buildEnvironmentSection("/home/user/project", "/home/user/.hapilon/agent");
+    assert.ok(result.includes("MCP servers"), "含 MCP 段");
+    assert.ok(
+      result.includes("/home/user/.hapilon/agent/mcp.json"),
+      "写明 mcp.json 绝对路径（agent 才不会猜 ~/.pi）",
+    );
+    assert.ok(result.includes('"mcpServers"'), "含 schema 摘要");
+    assert.ok(result.includes("never guess other locations"), "含禁止猜路径指引");
+  });
+
+  it("#50 不提供 agentDirPath 时不含 MCP 段（向后兼容）", () => {
+    const result = buildEnvironmentSection("/home/user/project");
+    assert.ok(!result.includes("MCP servers"));
+  });
+
+  it("#50 MCP 段 token 成本上界（<150 token ≈ 600 chars）", () => {
+    const result = buildEnvironmentSection("/home/user/project", "/home/user/.hapilon/agent");
+    const mcpPart = result.slice(result.indexOf("MCP servers"));
+    assert.ok(
+      mcpPart.length < 600,
+      `MCP 段 ${mcpPart.length} chars 超 600（约 150 token）上界`,
+    );
+  });
 });
 
 describe("buildContextSection", () => {
@@ -457,6 +482,17 @@ describe("assembleSystemPrompt", () => {
   it("边界条件: 空 hapilonRules 时不输出 rules section", () => {
     const result = assembleSystemPrompt({ ...defaultOpts, hapilonRules: [] });
     assert.ok(!result.includes("<hapilon_rules>"));
+  });
+
+  it("#50 assemble 传入 agentDirPath 时 environment 含 MCP 段", () => {
+    const result = assembleSystemPrompt({
+      ...defaultOpts,
+      agentDirPath: "/home/u/.hapilon/agent",
+    });
+    assert.ok(
+      result.includes("/home/u/.hapilon/agent/mcp.json"),
+      "MCP 配置路径进 final prompt",
+    );
   });
 
   it("异常路径: rules name 含 XML 特殊字符被转义", () => {

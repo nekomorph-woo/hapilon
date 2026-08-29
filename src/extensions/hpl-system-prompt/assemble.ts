@@ -24,6 +24,7 @@ import {
   ROLE_TEXT,
   CUSTOM_TOOLS_NOTE,
   buildPiDocText,
+  buildMcpSectionText,
   BUILTIN_GUIDELINES,
 } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
@@ -48,6 +49,8 @@ export interface AssembleOptions {
   skills?: SkillEntry[];
   hapilonMd: FileEntry[];
   hapilonRules: RuleEntry[];
+  /** agentDir 绝对路径——提供时 environment section 附加 MCP 环境段（#50） */
+  agentDirPath?: string;
 }
 
 // ── Individual builders ────────────────────────────────────────────────
@@ -165,9 +168,10 @@ export function buildAppendSection(appendSystemPrompt?: string): string {
   return `<additional_instructions>\n${appendSystemPrompt}\n</additional_instructions>`;
 }
 
-export function buildEnvironmentSection(cwd: string): string {
+export function buildEnvironmentSection(cwd: string, agentDirPath?: string): string {
   const normalized = cwd.replace(/\\/g, "/");
-  return `<environment>\nCurrent working directory: ${normalized}\n</environment>`;
+  const mcp = agentDirPath ? `\n${buildMcpSectionText(agentDirPath)}` : "";
+  return `<environment>\nCurrent working directory: ${normalized}${mcp}\n</environment>`;
 }
 
 // ── Assembly ───────────────────────────────────────────────────────────
@@ -209,6 +213,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     skills,
     hapilonMd,
     hapilonRules,
+    agentDirPath,
   } = opts;
 
   // 统一归一化：undefined = Pi 默认工具集（两个 builder 语义一致）
@@ -224,7 +229,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   const contextFilesSection = buildContextSection(contextFiles);
   const skillsSection = buildSkillsSection(skills);
   const appendSection = buildAppendSection(appendSystemPrompt);
-  const envSection = buildEnvironmentSection(cwd);
+  const envSection = buildEnvironmentSection(cwd, agentDirPath);
 
   // 记录元数据：各部分长度供 hpl-context-viewer /context 命令做 token 估算
   setLastMeta({
