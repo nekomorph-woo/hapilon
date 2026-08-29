@@ -18,6 +18,11 @@ import { dirname, join } from "node:path";
 const NPM_EXTENSIONS: readonly [pkg: string, entry: string][] = [
   ["@tintinweb/pi-tasks", "dist/index.js"],
   ["@tintinweb/pi-subagents", "dist/index.js"],
+  // #43 集成四包（入口取自各包 pi.extensions 声明，#42 原型验证过）
+  ["@ff-labs/pi-fff", "src/index.ts"],
+  ["@zhushanwen/pi-ask-user", "index.ts"],
+  ["@narumitw/pi-btw", "dist/index.ts"],
+  ["pi-web-access", "index.ts"],
 ];
 
 /**
