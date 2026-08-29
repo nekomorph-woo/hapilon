@@ -11,6 +11,7 @@
  *   name     — basename(resolved)
  */
 
+import { basename } from "node:path";
 import { homedir } from "node:os";
 
 // ─── 写保护 — 高危 block ─────────────────────────────────────────
@@ -87,4 +88,12 @@ export const READ_CONFIRM: Array<{ test: (resolved: string) => boolean; label: s
   { test: (r) => r === homedir() + "/.kube/config", label: "K8s 凭证" },
   { test: (r) => r.endsWith(".kubeconfig"), label: "kubeconfig" },
   { test: (r) => r === homedir() + "/.npmrc", label: "npm token" },
+  // 环境变量文件（issue #39）：secret 只该被应用运行时读取；
+  // agent 读了就进 LLM 上下文/transcript/API 日志。主会话 confirm，
+  // subagent 在 index.ts 另行 block。.env.example 例外（模板无 secret）。
+  {
+    test: (r, name = basename(r)) =>
+      /^\.env/.test(name) && !/^\.env\.example$/.test(name) && !/^\.env\.sample$/.test(name),
+    label: "env 文件",
+  },
 ];
