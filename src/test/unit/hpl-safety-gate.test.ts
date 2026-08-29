@@ -217,6 +217,21 @@ describe("hpl-safety-gate", () => {
       assert.strictEqual(classifyCommand("rm -rf ./node_modules"), "confirm");
     });
 
+    it("rm -rf 普通绝对路径 → confirm（#44：/private 开头不得误判为根目录）", () => {
+      assert.strictEqual(
+        classifyCommand("rm -rf /private/tmp/pi-github-repos/runtime-TOG0gd"),
+        "confirm",
+      );
+    });
+
+    it("rm -rf /private/tmp → confirm（#44）", () => {
+      assert.strictEqual(classifyCommand("rm -rf /private/tmp"), "confirm");
+    });
+
+    it("rm -rf ~/projects/x → confirm（#44：home 子路径不是 home 本身）", () => {
+      assert.strictEqual(classifyCommand("rm -rf ~/projects/x"), "confirm");
+    });
+
     it("git push --force origin main → confirm", () => {
       assert.strictEqual(
         classifyCommand("git push --force origin main"),

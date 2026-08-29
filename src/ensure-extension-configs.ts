@@ -22,6 +22,13 @@ const TASKS_CONFIG_DEFAULTS = { autoCascade: true };
  */
 
 /**
+ * pi-web-access 预置（#42 决策）：workflow 改 none——上游默认 summary-review
+ * 会在每次 web_search 时弹浏览器 curator 审查页，对终端工作流是打断；
+ * 需要人工审查时 /websearch 命令仍可手动开启。
+ */
+const WEB_ACCESS_CONFIG_DEFAULTS = { workflow: "none" };
+
+/**
  * 文件不存在时写入 defaults；存在时不碰（含解析失败——不覆盖用户数据）。
  * agentDir 不存在时创建（与 ensureQuietStartup 同模式）。
  */
@@ -39,4 +46,6 @@ function ensureJsonConfig(agentDir: string, filename: string, defaults: object):
  */
 export function ensureExtensionConfigs(agentDir: string): void {
   ensureJsonConfig(agentDir, "tasks-config.json", TASKS_CONFIG_DEFAULTS);
+  // pi-web-access（#43）：workflow:none 不弹浏览器；fff/ask-user/btw 无必配项
+  ensureJsonConfig(agentDir, "web-search.json", WEB_ACCESS_CONFIG_DEFAULTS);
 }

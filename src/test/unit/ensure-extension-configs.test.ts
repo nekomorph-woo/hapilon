@@ -1,6 +1,6 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureExtensionConfigs } from "../../ensure-extension-configs.js";
@@ -22,6 +22,25 @@ describe("ensureExtensionConfigs()", () => {
     assert.ok(existsSync(path));
     const cfg = JSON.parse(readFileSync(path, "utf8"));
     assert.equal(cfg.autoCascade, true);
+  });
+
+  it("首次调用写入 web-search.json（workflow: none，#42 决策：不弹 curator 浏览器）", () => {
+    ensureExtensionConfigs(agentDir);
+    const path = join(agentDir, "web-search.json");
+    assert.ok(existsSync(path));
+    const cfg = JSON.parse(readFileSync(path, "utf8"));
+    assert.equal(cfg.workflow, "none");
+  });
+
+  it("web-search.json 用户已配置时不覆盖", () => {
+    const fresh = join(agentDir, "user-wa");
+    mkdirSync(fresh, { recursive: true });
+    const path = join(fresh, "web-search.json");
+    writeFileSync(path, JSON.stringify({ workflow: "summary-review", provider: "exa" }));
+    ensureExtensionConfigs(fresh);
+    const cfg = JSON.parse(readFileSync(path, "utf8"));
+    assert.equal(cfg.workflow, "summary-review", "用户显式开启 curator 不被覆盖");
+    assert.equal(cfg.provider, "exa");
   });
 
   it("不写 subagents.json（无预置值，保持上游 missing-file-silent）", () => {

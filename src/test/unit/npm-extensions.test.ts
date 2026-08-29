@@ -5,11 +5,11 @@ import { dirname, join } from "node:path";
 import { resolveNpmExtensionPaths, resolveExtensionEntry } from "../../npm-extensions.js";
 
 describe("resolveNpmExtensionPaths()", () => {
-  it("解析出两个 npm 扩展的绝对入口路径", () => {
+  it("解析出全部 npm 扩展的绝对入口路径", () => {
     const paths = resolveNpmExtensionPaths();
-    assert.equal(paths.length, 2);
+    // 2 个 tintinweb 包 + #43 集成四包
+    assert.equal(paths.length, 6);
     for (const p of paths) {
-      assert.ok(p.endsWith("dist/index.js"), `入口应以 dist/index.js 结尾: ${p}`);
       assert.ok(existsSync(p), `入口文件应存在: ${p}`);
     }
   });
@@ -18,6 +18,14 @@ describe("resolveNpmExtensionPaths()", () => {
     const [tasks, subagents] = resolveNpmExtensionPaths();
     assert.ok(tasks.includes("@tintinweb/pi-tasks"), `第一个应是 pi-tasks: ${tasks}`);
     assert.ok(subagents.includes("@tintinweb/pi-subagents"), `第二个应是 pi-subagents: ${subagents}`);
+  });
+
+  it("#43 四包入口与各自 pi.extensions 声明一致", () => {
+    const [, , fff, askUser, btw, webAccess] = resolveNpmExtensionPaths();
+    assert.ok(fff.endsWith("@ff-labs/pi-fff/src/index.ts"), `fff: ${fff}`);
+    assert.ok(askUser.endsWith("@zhushanwen/pi-ask-user/index.ts"), `ask-user: ${askUser}`);
+    assert.ok(btw.endsWith("@narumitw/pi-btw/dist/index.ts"), `btw: ${btw}`);
+    assert.ok(webAccess.endsWith("pi-web-access/index.ts"), `web-access: ${webAccess}`);
   });
 });
 
