@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   // 与 TODO-1 spec 路由表「原样传给 pi」一致，hapilon 是 pi 的薄包装。
 
   // --mode 存在时抑制 hapilon banner，避免在非 TUI 模式下污染 stdout
-  const { hasFlag, readHapilonConfig, writeHapilonConfig, injectDefaultArgs } = await import(
+  const { hasFlag, readHapilonConfig, writeHapilonConfig, injectDefaultArgs, stripHapilonFlags } = await import(
     "./config-io.js"
   );
   const isNonInteractive =
@@ -57,7 +57,10 @@ async function main(): Promise<void> {
   const { getVersion } = await import("./help.js");
 
   const config = readHapilonConfig();
-  const piArgs = injectDefaultArgs(args, config);
+  // 自有 flag 剥离（#38）：--no-safety / --sandbox 是 hapilon 启动器语义，
+  // pi 不认识——不剥离 pi 直接报 Unknown option 退出。检测（hasFlag）在
+  // 剥离前的原始 args 上完成，piArgs 只装 pi 该看到的。
+  const piArgs = injectDefaultArgs(stripHapilonFlags(args), config);
 
   // 禁用 Pi 原生上下文识别（hpl-context 扩展已接管）
   piArgs.push("--no-context-files", "--no-skills");
@@ -142,7 +145,10 @@ async function main(): Promise<void> {
       await SandboxManager.initialize({
         filesystem: {
           denyRead: ["~/.ssh", "~/.aws", "~/.netrc"],
-          allowWrite: [".", "/tmp"],
+          // agentDir 必须可写：pi 运行时维护 settings.json 及其 .lock
+          // （#37 起 settings 还承载安全门通道，#38 修复 sandbox 路径的
+          // EPERM warning——沙箱挡住了 hapilon 自己的配置写入）
+          allowWrite: [".", "/tmp", agentDirPath],
           denyWrite: [".env", ".git/config"],
         },
         network: {

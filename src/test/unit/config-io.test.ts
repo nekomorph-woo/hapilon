@@ -7,6 +7,7 @@ import {
   readHapilonConfig,
   writeHapilonConfig,
   hasFlag,
+  stripHapilonFlags,
   injectDefaultArgs,
 } from "../../config-io.js";
 
@@ -253,6 +254,41 @@ describe("config-io", () => {
 
     it("包含 -- 分隔符后的 flag 仍返回 true", () => {
       assert.strictEqual(hasFlag(["--", "--model", "gpt-4o"], "--model"), true);
+    });
+  });
+
+  describe("stripHapilonFlags()（#38）", () => {
+    it("剥离裸 --no-safety", () => {
+      assert.deepStrictEqual(
+        stripHapilonFlags(["--no-safety", "-p", "hello"]),
+        ["-p", "hello"],
+      );
+    });
+
+    it("剥离 --sandbox=value 形式", () => {
+      assert.deepStrictEqual(
+        stripHapilonFlags(["--sandbox=full", "-p", "hi"]),
+        ["-p", "hi"],
+      );
+    });
+
+    it("两个自有 flag 都剥离，其余原样保留顺序", () => {
+      assert.deepStrictEqual(
+        stripHapilonFlags(["--model", "gpt-4o", "--sandbox", "--no-safety", "--mode", "json"]),
+        ["--model", "gpt-4o", "--mode", "json"],
+      );
+    });
+
+    it("无自有 flag 时原样返回", () => {
+      const args = ["-p", "hello", "--provider", "openai"];
+      assert.deepStrictEqual(stripHapilonFlags(args), args);
+    });
+
+    it("不误伤相似但不同的 flag（--no-safety-gate 不是自有 flag）", () => {
+      assert.deepStrictEqual(
+        stripHapilonFlags(["--no-safety-gate"]),
+        ["--no-safety-gate"],
+      );
     });
   });
 
