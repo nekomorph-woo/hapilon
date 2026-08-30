@@ -58,26 +58,33 @@ export function statsLine(): string {
 }
 
 let logDir: string | undefined;
-function logCompact(result: CompressResult, ref: string): void {
+let sessionMark = "unknown-session";
+
+/** 可观测统一出口：压缩/取回/开关切换全留痕（Make It Observable） */
+function logEvent(entry: Record<string, unknown>): void {
   if (!logDir) return;
   try {
     mkdirSync(logDir, { recursive: true });
     appendFileSync(
       join(logDir, "econ.jsonl"),
-      JSON.stringify({
-        event: "compact",
-        ref,
-        originalChars: result.originalChars,
-        compactChars: result.compactChars,
-        omittedLines: result.omittedLines,
-        fullOutputPath: result.fullOutputPath,
-      }) + "\n",
+      JSON.stringify({ ts: new Date().toISOString(), session: sessionMark, ...entry }) + "\n",
       "utf8",
     );
   } catch {
     // 统计日志失败不阻断主流程，但也不静默——warn 可见（Make It Observable）
     console.warn("[hpl-econ] 压缩统计写入失败（继续运行）");
   }
+}
+
+function logCompact(result: CompressResult, ref: string): void {
+  logEvent({
+    event: "compact",
+    ref,
+    originalChars: result.originalChars,
+    compactChars: result.compactChars,
+    omittedLines: result.omittedLines,
+    fullOutputPath: result.fullOutputPath,
+  });
 }
 
 /** cli.ts --no-econ 映射入口（json/rpc/-p 模式） */
@@ -98,6 +105,13 @@ function effectiveSettings(agentDirPath: string): EconSettings {
 export default function hplEcon(pi: ExtensionAPI): void {
   const agentDirPath = agentDir();
   logDir = join(agentDirPath, "logs");
+
+  pi.on("session_start", (event) => {
+    if (event.previousSessionFile) {
+      sessionMark = event.previousSessionFile.split("/").pop() ?? "unknown-session";
+    }
+    logEvent({ event: "session", reason: event.reason });
+  });
 
   const registry = new Map<string, { lines: string[]; fullOutputPath: string }>();
   let seq = 0;
@@ -139,6 +153,7 @@ export default function hplEcon(pi: ExtensionAPI): void {
       const cap = Math.min(to, from + 199, stored.lines.length);
       const slice = stored.lines.slice(from - 1, cap);
       recordRetrieval();
+      logEvent({ event: "retrieve", ref, from, to: cap, total: stored.lines.length, chars: slice.join("\n").length });
       return {
         content: [{ type: "text" as const, text: slice.join("\n") || "(empty range)" }],
         details: { ref, from, to: cap, total: stored.lines.length },
@@ -168,6 +183,7 @@ export default function hplEcon(pi: ExtensionAPI): void {
         if (!choice || choice === "Close") return;
         if (choice.includes("Compression")) {
           override.enabled = !s.enabled;
+          logEvent({ event: "toggle", enabled: override.enabled });
         } else if (choice.includes("Threshold")) {
           const labels = THRESHOLD_CHOICES.map((t) => `${Math.round(t / 1024)}KB`);
           const pick = await ui.select("Threshold", [...labels, "Back"]);
@@ -188,6 +204,7 @@ export default function hplEcon(pi: ExtensionAPI): void {
         } else if (choice.includes("Save as default")) {
           const s2 = effectiveSettings(agentDirPath);
           writeEconSettings(agentDirPath, s2);
+          logEvent({ event: "save_default", enabled: s2.enabled, threshold: s2.threshold, headLines: s2.headLines, tailLines: s2.tailLines });
           ui.notify(`Saved: enabled=${s2.enabled}, threshold=${Math.round(s2.threshold / 1024)}KB, retention=${s2.headLines}/${s2.tailLines}`);
           return;
         }
@@ -207,6 +224,9 @@ export default function hplEcon(pi: ExtensionAPI): void {
       .map((c) => (c.type === "text" && c.text ? c.text : ""))
       .join("\n");
     if (!shouldCompress(text, { threshold: s.threshold, headLines: s.headLines, tailLines: s.tailLines, storeDir: agentDirPath })) {
+      if (text.length > s.threshold / 4) {
+        logEvent({ event: "skip", chars: text.length, threshold: s.threshold });
+      }
       return undefined;
     }
 
