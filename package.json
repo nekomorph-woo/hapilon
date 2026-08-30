@@ -17,8 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test dist/test/**/*.test.js",
     "test:unit": "node --test dist/test/unit/**/*.test.js",
-    "test:integration": "node --test dist/test/integration/**/*.test.js",
-    "prepare": "npm install --no-save --include=dev && node_modules/.bin/tsc -p tsconfig.json && chmod +x dist/cli.js"
+    "test:integration": "node --test dist/test/integration/**/*.test.js"
   },
   "engines": {
     "node": ">=22.19.0"

@@ -93,7 +93,6 @@ local.properties
 
 # --- Build output ---
 out/
-dist/
 build/
 *.egg-info/
 *.egg
