@@ -17,7 +17,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test dist/test/**/*.test.js",
     "test:unit": "node --test dist/test/unit/**/*.test.js",
-    "test:integration": "node --test dist/test/integration/**/*.test.js"
+    "test:integration": "node --test dist/test/integration/**/*.test.js",
+    "prepare": "npm run build"
   },
   "engines": {
     "node": ">=22.19.0"
