@@ -18,7 +18,7 @@
     "test": "node --test dist/test/**/*.test.js",
     "test:unit": "node --test dist/test/unit/**/*.test.js",
     "test:integration": "node --test dist/test/integration/**/*.test.js",
-    "prepare": "npx -y -p typescript tsc -p tsconfig.json && chmod +x dist/cli.js"
+    "prepare": "tsc -p tsconfig.json && chmod +x dist/cli.js"
   },
   "engines": {
     "node": ">=22.19.0"
@@ -34,10 +34,10 @@
     "@tintinweb/pi-tasks": "^0.9.0",
     "@zhushanwen/pi-ask-user": "^7.0.15",
     "pi-mcp-adapter": "^2.31.0",
-    "pi-web-access": "^0.27.0"
+    "pi-web-access": "^0.27.0",
+    "typescript": "5.9.3"
   },
   "devDependencies": {
-    "@types/node": "24.12.4",
-    "typescript": "5.9.3"
+    "@types/node": "24.12.4"
   }
 }
