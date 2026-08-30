@@ -36,6 +36,12 @@ const WEB_ACCESS_CONFIG_DEFAULTS = { workflow: "none" };
 const MCP_CONFIG_DEFAULTS = { mcpServers: {} };
 
 /**
+ * hpl-econ 预置（#52）：组合甲默认。文件缺省时扩展自身回落同款默认，
+ * 这里播种实体文件让用户看得到、改得了。
+ */
+const ECON_CONFIG_DEFAULTS = { enabled: true, threshold: 8192, headLines: 40, tailLines: 20 };
+
+/**
  * 文件不存在时写入 defaults；存在时不碰（含解析失败——不覆盖用户数据）。
  * agentDir 不存在时创建（与 ensureQuietStartup 同模式）。
  */
@@ -57,4 +63,6 @@ export function ensureExtensionConfigs(agentDir: string): void {
   ensureJsonConfig(agentDir, "web-search.json", WEB_ACCESS_CONFIG_DEFAULTS);
   // pi-mcp-adapter（#49）：空骨架给 mcp.json 一个明确落点；用户配置永不覆盖
   ensureJsonConfig(agentDir, "mcp.json", MCP_CONFIG_DEFAULTS);
+  // hpl-econ（#52）：组合甲默认实体化
+  ensureJsonConfig(agentDir, "econ-config.json", ECON_CONFIG_DEFAULTS);
 }

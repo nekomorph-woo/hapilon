@@ -61,7 +61,7 @@ export function writeHapilonConfig(config: HapilonConfig): void {
 // ─── CLI arg helpers ─────────────────────────────────────────────────
 
 /** hapilon 自有 flag 注册表 —— pi 不认识、spawn 前必须剥离的参数 */
-export const HAPILON_FLAGS = ["--no-safety", "--sandbox"] as const;
+export const HAPILON_FLAGS = ["--no-safety", "--sandbox", "--no-econ"] as const;
 
 export function hasFlag(args: string[], flag: string): boolean {
   return args.some(

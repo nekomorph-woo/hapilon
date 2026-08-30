@@ -70,6 +70,14 @@ export default function hplContextViewer(pi: ExtensionAPI): void {
         const snapshot = collectContextSnapshot(input);
         const lines = renderContextLines(snapshot);
 
+        // hpl-econ 压缩统计（#52）：有压缩记录时追加一行
+        try {
+          const { statsLine } = await import("../hpl-econ/index.js");
+          lines.push("", statsLine());
+        } catch {
+          // hpl-econ 未加载时静默跳过（可选依赖）
+        }
+
         const totalInfo = `${formatTokens(snapshot.usage.tokens)} / ${formatTokens(snapshot.model.contextWindow)} tokens (${snapshot.usage.percent !== null ? snapshot.usage.percent.toFixed(1) + "%" : "?%"})`;
         const footer = `${snapshot.model.id} | ${totalInfo} | ↑↓ scroll | Esc close`;
 
