@@ -104,6 +104,13 @@ async function main(): Promise<void> {
   const npmExtensions = resolveNpmExtensionPaths();
   const extensionFlags = [...allExtensions, ...npmExtensions].flatMap((e) => ["-e", e]);
 
+  // --no-econ（#52）：单会话关闭 bash 输出压缩，映射为扩展的会话内覆盖
+  const noEcon = hasFlag(args, "--no-econ");
+  if (noEcon) {
+    const { setSessionDisabled } = await import("./extensions/hpl-econ/index.js");
+    setSessionDisabled(true);
+  }
+
   // 构建统一的 Pi 环境变量（sandbox 与默认路径共用）
   const { extensionNames: namesOf } = await import("./extensions.js");
   // header 展示用：-e 注入的 + 安全门（--no-safety 时安全门已移除，如实不显示）
