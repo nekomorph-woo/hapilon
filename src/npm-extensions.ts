@@ -25,6 +25,10 @@ const NPM_EXTENSIONS: readonly [pkg: string, entry: string][] = [
   ["pi-web-access", "index.ts"],
   // #49 MCP 桥接（入口取自包内 pi.extensions 声明）
   ["pi-mcp-adapter", "index.ts"],
+  // #55 极简编码规则（防御性编程减脂）。必须在末位：其 before_agent_start
+  // 是「尾部追加」语义，先于 hpl-system-prompt（全量替换）执行会被抹掉。
+  // 顺序由 npm-extensions.test.ts 的末位断言 + ponytail-load-order 集成测试钉死。
+  ["@dietrichgebert/ponytail", "pi-extension/index.js"],
 ];
 
 /**
@@ -37,16 +41,25 @@ export function resolveExtensionEntry(
   resolve: (id: string) => string,
 ): string {
   // 主路径：resolve <pkg>/package.json 再拼入口。
-  // 部分包（如 pi-mcp-adapter，#49）用 exports 字段锁死子路径，
+  // 部分包（如 pi-mcp-adapter，#49；ponytail，#55）用 exports 字段锁死子路径，
   // `./package.json` 不在白名单 → ERR_PACKAGE_PATH_NOT_EXPORTED。
-  // 降级：resolve 包主入口（"." 总在 exports 白名单），从其目录拼接。
+  // 降级：resolve 包主入口，从其目录**向上找包根**（含 package.json 的目录）
+  // 再拼接——主入口可能在深层子目录（ponytail 的主入口在 .opencode/plugins/），
+  // 直接 dirname 拼接会错位。
   let pkgDir: string;
   try {
     pkgDir = dirname(resolve(`${pkg}/package.json`));
   } catch (err) {
     const locked = err instanceof Error && "code" in err && err.code === "ERR_PACKAGE_PATH_NOT_EXPORTED";
     if (!locked) throw err;
-    pkgDir = dirname(resolve(pkg));
+    let dir = dirname(resolve(pkg));
+    while (dir !== dirname(dir) && !existsSync(join(dir, "package.json"))) {
+      dir = dirname(dir);
+    }
+    if (!existsSync(join(dir, "package.json"))) {
+      throw new Error(`[hapilon] npm 扩展降级寻址失败：${pkg} 找不到含 package.json 的包根`);
+    }
+    pkgDir = dir;
   }
   const path = join(pkgDir, entry);
   if (!existsSync(path)) {

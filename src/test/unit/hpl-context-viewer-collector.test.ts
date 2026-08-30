@@ -42,6 +42,7 @@ describe("collectContextSnapshot", () => {
         piDocumentation: 300,
         tools: 0,
         guidelines: 400,
+        codeStyle: 250,
         hapilonInstructions: 0,
         hapilonRules: 0,
         contextFiles: 0,
@@ -191,6 +192,7 @@ describe("token 统计不重复计算（issue #8）", () => {
         piDocumentation: 100,
         tools: 4000,
         guidelines: 100,
+        codeStyle: 250,
         hapilonInstructions: 800,
         hapilonRules: 2000,
         contextFiles: 3000,
@@ -207,8 +209,8 @@ describe("token 统计不重复计算（issue #8）", () => {
     const snapshot = collectContextSnapshot(baseInput);
     const spCat = snapshot.categories.find((c) => c.label === "System prompt");
     assert.ok(spCat, "存在 System prompt category");
-    // roleAndIdentity 100 + piDocumentation 100 + guidelines 100 + environment 100 = 400 chars → 100 tokens
-    assert.equal(spCat!.tokens, 100);
+    // roleAndIdentity 100 + piDocumentation 100 + guidelines 100 + codeStyle 250 + environment 100 = 650 chars → 163 tokens
+    assert.equal(spCat!.tokens, 163);
   });
 
   it("Rules 分类独立展示 hapilonRules", () => {

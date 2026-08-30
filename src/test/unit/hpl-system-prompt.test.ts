@@ -22,6 +22,7 @@ import {
 } from "../../extensions/hpl-system-prompt/sections.js";
 import {
   buildRoleSection,
+  buildCodeStyleSection,
   buildToolsSection,
   buildCustomToolsNote,
   buildGuidelinesSection,
@@ -131,6 +132,32 @@ describe("sections", () => {
 });
 
 // ── assemble.ts: individual builders ──────────────────────────────────
+
+describe("buildCodeStyleSection", () => {
+  it("正常路径: 包裹 <code_style> 标签且含三类注释白名单", () => {
+    const result = buildCodeStyleSection();
+    assert.ok(result.startsWith("<code_style>\n"), "以 code_style 开标签开头");
+    assert.ok(result.endsWith("\n</code_style>"), "以闭标签结尾");
+    // 三类白名单：功能简述 / 编写决策 / 重大 bug 修复
+    assert.ok(result.includes("what the code does"), "白名单一类: 功能简述");
+    assert.ok(result.includes("why"), "白名单二类: 编写决策（why）");
+    assert.ok(result.includes("bug fix"), "白名单三类: 重大 bug 修复");
+  });
+
+  it("正常路径: fail fast 正面表述与外部输入校验边界", () => {
+    const result = buildCodeStyleSection();
+    assert.ok(result.includes("Fail fast"), "正面表述 Fail fast");
+    assert.ok(result.includes("external APIs") || result.includes("external input"), "保留外部输入校验边界");
+    assert.ok(result.includes("swallow"), "禁止吞错误的表述存在");
+  });
+
+  it("正常路径: 静态文本无转义需求（常量拼接，无用户输入）", () => {
+    // buildCodeStyleSection 是零参数纯常量函数——若未来引入参数必须转义
+    const a = buildCodeStyleSection();
+    const b = buildCodeStyleSection();
+    assert.equal(a, b, "两次调用结果一致（纯常量）");
+  });
+});
 
 describe("buildRoleSection", () => {
   it("正常路径: 包裹 ROLE_TEXT 于 <role> 标签", () => {
@@ -408,6 +435,7 @@ describe("assembleSystemPrompt", () => {
     assert.ok(result.includes("<available_tools>"), "含 tools");
     assert.ok(result.includes("<custom_tools_note>"), "含 custom_tools_note");
     assert.ok(result.includes("<guidelines>"), "含 guidelines");
+    assert.ok(result.includes("<code_style>"), "含 code_style（#54）");
     assert.ok(result.includes("<pi_documentation>"), "含 pi_doc");
     assert.ok(result.includes("<hapilon_instructions>"), "含 hapilon_instructions");
     assert.ok(result.includes("# Test"), "含 HAPILON.md 内容");
@@ -424,12 +452,13 @@ describe("assembleSystemPrompt", () => {
       skills: [{ name: "s1", description: "skill one", filePath: "/s1/SKILL.md" }],
       appendSystemPrompt: "appended text",
     });
-    // 全部 11 个 section 标签
+    // 全部 12 个 section 标签
     const tags = [
       "<role>",
       "<available_tools>",
       "<custom_tools_note>",
       "<guidelines>",
+      "<code_style>",
       "<pi_documentation>",
       "<hapilon_instructions>",
       "<hapilon_rules>",
@@ -441,8 +470,13 @@ describe("assembleSystemPrompt", () => {
     for (const tag of tags) {
       assert.ok(result.includes(tag), `应包含 ${tag}`);
     }
-    // 顺序断言：role 最前，environment 最后
+    // 顺序断言：role 最前，environment 最后；code_style 紧随 guidelines
     assert.ok(result.indexOf("<role>") < result.indexOf("<available_tools>"), "role 在 tools 之前");
+    assert.ok(
+      result.indexOf("<code_style>") > result.indexOf("<guidelines>") &&
+        result.indexOf("<code_style>") < result.indexOf("<pi_documentation>"),
+      "code_style 位于 guidelines 与 pi_documentation 之间",
+    );
     assert.ok(
       result.indexOf("<environment>") > result.indexOf("<additional_instructions>"),
       "environment 收尾",

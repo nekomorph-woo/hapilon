@@ -26,6 +26,7 @@ import {
   buildPiDocText,
   buildMcpSectionText,
   BUILTIN_GUIDELINES,
+  CODE_STYLE_TEXT,
 } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
 
@@ -110,6 +111,11 @@ export function buildGuidelinesSection(
 
   const list = guidelines.map((g) => `- ${g}`).join("\n");
   return `<guidelines>\n${list}\n</guidelines>`;
+}
+
+export function buildCodeStyleSection(): string {
+  // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildRoleSection 同策略
+  return `<code_style>\n${CODE_STYLE_TEXT}\n</code_style>`;
 }
 
 export function buildPiDocSection(): string {
@@ -223,6 +229,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   const toolsSection = buildToolsSection(toolSnippets, tools);
   const customToolsNote = buildCustomToolsNote();
   const guidelinesSection = buildGuidelinesSection(promptGuidelines, tools);
+  const codeStyleSection = buildCodeStyleSection();
   const piDocSection = buildPiDocSection();
   const hapilonInstructions = buildHapilonInstructions(hapilonMd);
   const hapilonRulesSection = buildHapilonRules(hapilonRules);
@@ -240,6 +247,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
       piDocumentation: piDocSection.length,
       tools: toolsSection.length,
       guidelines: guidelinesSection.length,
+      codeStyle: codeStyleSection.length,
       hapilonInstructions: hapilonInstructions.length,
       hapilonRules: hapilonRulesSection.length,
       contextFiles: contextFilesSection.length,
@@ -255,6 +263,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     toolsSection,
     customToolsNote,
     guidelinesSection,
+    codeStyleSection,
     piDocSection,
     hapilonInstructions,
     hapilonRulesSection,
