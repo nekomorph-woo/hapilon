@@ -16,6 +16,7 @@ export interface SystemPromptMeta {
     piDocumentation: number;
     tools: number;
     guidelines: number;
+    codeStyle: number;
     hapilonInstructions: number;
     hapilonRules: number;
     contextFiles: number;

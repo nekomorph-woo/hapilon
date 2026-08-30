@@ -82,3 +82,31 @@ export function buildMcpSectionText(agentDirPath: string): string {
     `discovers servers on demand`
   );
 }
+
+/**
+ * 代码风格约束（#54）：注释白名单 + fail fast。
+ *
+ * 背景：LLM 默认写长篇注释与厚重防御性编程。社区实证（anthropics/
+ * claude-code#65961）：单条规则会被默认 verbose 倾向压过，需要成体系的
+ * section 约束。措辞要点：
+ * - 注释只允许三类高价值注释（功能简述 / 编写决策 / 重大 bug 修复）
+ * - fail fast 用正面表述（让异常浮出），并显式保留外部输入校验边界——
+ *   纯否定式规则效果差，边界缺失会被模型过度泛化删掉业务防御
+ * - 英文书写（与 prompt 其余部分一致），token 成本 ~250
+ */
+export const CODE_STYLE_TEXT = `Code style rules for this project:
+
+## Comments
+
+Write comments only when they carry one of three kinds of value; otherwise write none:
+1. Functionality summary - one short line above a non-obvious block or function saying what the code does.
+2. Design decision (optional) - why it is written this way instead of another way: the tradeoff, the constraint, the rejected alternative.
+3. Major bug fix - what the bug was, its root cause, and why this fix closes it.
+
+Never write comments that restate the code, narrate obvious steps, or pad with textbook explanations. If a comment could be deleted without losing information the code does not already express, delete it.
+
+## Defensive programming
+
+Fail fast: let errors surface loudly. Make invalid states unrepresentable. Never swallow errors (empty catch, silent fallback values, catch-and-continue) - a swallowed error hides the real problem and resurfaces worse.
+
+Keep input validation at trust boundaries (user input, network, files, process boundaries, external APIs). Do not defensively re-validate internal data or guard against states that cannot occur: if the type system or preceding code already guarantees it, trust it and move on.`;

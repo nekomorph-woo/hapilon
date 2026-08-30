@@ -24,6 +24,7 @@ describe("metadata", () => {
       piDocumentation: 500,
       tools: 300,
       guidelines: 400,
+      codeStyle: 250,
       hapilonInstructions: 0,
       hapilonRules: 800,
       contextFiles: 0,
