@@ -18,7 +18,7 @@
     "test": "node --test dist/test/**/*.test.js",
     "test:unit": "node --test dist/test/unit/**/*.test.js",
     "test:integration": "node --test dist/test/integration/**/*.test.js",
-    "prepare": "tsc -p tsconfig.json && chmod +x dist/cli.js"
+    "prepare": "node_modules/.bin/tsc -p tsconfig.json && chmod +x dist/cli.js"
   },
   "engines": {
     "node": ">=22.19.0"
