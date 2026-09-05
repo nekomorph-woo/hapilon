@@ -1,5 +1,10 @@
 import { existsSync, readFileSync, writeFileSync, chmodSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { Data, Effect } from "effect";
+
+export class AuthWriteError extends Data.TaggedError("AuthWriteError")<{
+  message: string;
+}> {}
 
 // ─── Provider Definitions ────────────────────────────────────────────
 
@@ -47,13 +52,24 @@ export const ALL_PROVIDERS: ProviderDef[] = [
 // ─── Config File Helpers ─────────────────────────────────────────────
 
 /** 以 Pi 原生格式（{type, key}）写入 auth.json */
+export const writeAuthFileNativeEffect = (
+  agentDir: string,
+  auth: Record<string, { type: string; key: string }>,
+): Effect.Effect<void, AuthWriteError> => Effect.try({
+  try: () => {
+    const path = join(agentDir, "auth.json");
+    writeFileSync(path, JSON.stringify(auth, null, 2) + "\n", "utf8");
+    chmodSync(path, 0o600);
+  },
+  catch: (err) => new AuthWriteError({ message: err instanceof Error ? err.message : String(err) }),
+});
+
 export function writeAuthFileNative(
   agentDir: string,
   auth: Record<string, { type: string; key: string }>,
 ): void {
-  const path = join(agentDir, "auth.json");
-  writeFileSync(path, JSON.stringify(auth, null, 2) + "\n", "utf8");
-  chmodSync(path, 0o600);
+  const result = Effect.runSync(Effect.either(writeAuthFileNativeEffect(agentDir, auth)));
+  if (result._tag === "Left") throw new Error(result.left.message);
 }
 
 /**
@@ -87,17 +103,26 @@ export function ensureSettingsFile(agentDir: string): void {
  * - 已为 true → 不写文件（幂等）
  * - JSON 解析失败 或 解析结果非对象 → console.warn + 不动原文件
  */
-export function ensureQuietStartup(agentDir: string): void {
+export const ensureQuietStartupEffect = (agentDir: string): Effect.Effect<void, AuthWriteError> => Effect.gen(function* () {
   const path = join(agentDir, "settings.json");
 
   if (!existsSync(agentDir)) {
-    mkdirSync(agentDir, { recursive: true, mode: 0o700 });
-    writeFileSync(path, JSON.stringify({ quietStartup: true }, null, 2) + "\n", "utf8");
+    yield* Effect.try({
+      try: () => mkdirSync(agentDir, { recursive: true, mode: 0o700 }),
+      catch: (err) => new AuthWriteError({ message: err instanceof Error ? err.message : String(err) }),
+    });
+    yield* Effect.try({
+      try: () => writeFileSync(path, JSON.stringify({ quietStartup: true }, null, 2) + "\n", "utf8"),
+      catch: (err) => new AuthWriteError({ message: err instanceof Error ? err.message : String(err) }),
+    });
     return;
   }
 
   if (!existsSync(path)) {
-    writeFileSync(path, JSON.stringify({ quietStartup: true }, null, 2) + "\n", "utf8");
+    yield* Effect.try({
+      try: () => writeFileSync(path, JSON.stringify({ quietStartup: true }, null, 2) + "\n", "utf8"),
+      catch: (err) => new AuthWriteError({ message: err instanceof Error ? err.message : String(err) }),
+    });
     return;
   }
 
@@ -121,7 +146,15 @@ export function ensureQuietStartup(agentDir: string): void {
   }
 
   existing.quietStartup = true;
-  writeFileSync(path, JSON.stringify(existing, null, 2) + "\n", "utf8");
+  yield* Effect.try({
+    try: () => writeFileSync(path, JSON.stringify(existing, null, 2) + "\n", "utf8"),
+    catch: (err) => new AuthWriteError({ message: err instanceof Error ? err.message : String(err) }),
+  });
+});
+
+export function ensureQuietStartup(agentDir: string): void {
+  const result = Effect.runSync(Effect.either(ensureQuietStartupEffect(agentDir)));
+  if (result._tag === "Left") throw new Error(result.left.message);
 }
 
 // ─── Shared Semver Helpers ────────────────────────────────────────────
@@ -157,7 +190,7 @@ export function semverGte(v1: string, v2: string): boolean {
 
 const MODELS_TEMPLATE = `{\n  "_guide": "Custom providers only. The 33 built-in providers (DeepSeek, OpenAI, Anthropic, etc.) are always available once auth is configured in auth.json. Add custom entries here only for self-hosted models (Ollama, vLLM, LM Studio) or proxy overrides. Docs: https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md",\n  "providers": {}\n}\n`;
 
-export function writeSkeletonFiles(agentDir: string): void {
+export const writeSkeletonFilesEffect = (agentDir: string): Effect.Effect<void, AuthWriteError> => Effect.gen(function* () {
   const skeletons: Record<string, string> = {
     "auth.json": "{}",
     "settings.json": "{}",
@@ -166,18 +199,31 @@ export function writeSkeletonFiles(agentDir: string): void {
   for (const [name, content] of Object.entries(skeletons)) {
     const p = join(agentDir, name);
     if (!existsSync(p)) {
-      writeFileSync(p, content + "\n", "utf8");
-      if (name === "auth.json") chmodSync(p, 0o600);
+      yield* Effect.try({
+        try: () => writeFileSync(p, content + "\n", "utf8"),
+        catch: (err) => new AuthWriteError({ message: err instanceof Error ? err.message : String(err) }),
+      });
+      if (name === "auth.json") {
+        yield* Effect.try({
+          try: () => chmodSync(p, 0o600),
+          catch: (err) => new AuthWriteError({ message: err instanceof Error ? err.message : String(err) }),
+        });
+      }
     }
   }
+});
+
+export function writeSkeletonFiles(agentDir: string): void {
+  const result = Effect.runSync(Effect.either(writeSkeletonFilesEffect(agentDir)));
+  if (result._tag === "Left") throw new Error(result.left.message);
 }
 
 // ─── Auth File Reader ──────────────────────────────────────────────────
 
 /** 读取并解析 auth.json，不存在或损坏时返回 {} */
-export function readAuthFile(
+export const readAuthFileEffect = (
   agentDir: string,
-): Record<string, { type: string; key: string }> {
+): Effect.Effect<Record<string, { type: string; key: string }>, never> => Effect.sync(() => {
   const path = join(agentDir, "auth.json");
   if (!existsSync(path)) return {};
   try {
@@ -208,6 +254,16 @@ export function readAuthFile(
     );
     return {};
   }
+});
+
+export function readAuthFile(
+  agentDir: string,
+): Record<string, { type: string; key: string }> {
+  const result = Effect.runSync(Effect.either(readAuthFileEffect(agentDir))) as
+    | { _tag: "Left"; left: { message: string } }
+    | { _tag: "Right"; right: Record<string, { type: string; key: string }> };
+  if (result._tag === "Left") throw new Error(result.left.message);
+  return result.right;
 }
 
 // ─── Key Masking ───────────────────────────────────────────────────────

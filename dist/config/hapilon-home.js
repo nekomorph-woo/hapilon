@@ -40,7 +40,10 @@ export function hapilonHome() {
 /** ~/.hapilon/agent/（pi 配置目录）——单一来源，替代各处重复 join */
 export const agentDirEffect = Effect.map(hapilonHomeEffect, (base) => join(base, "agent"));
 export function agentDir() {
-    return Effect.runSync(agentDirEffect);
+    const result = Effect.runSync(Effect.either(agentDirEffect));
+    if (result._tag === "Left")
+        throw new Error(result.left.message);
+    return result.right;
 }
 /** Create ~/.hapilon/ subdirectories with 0700 permissions */
 export const ensureHapilonDirsEffect = Effect.gen(function* () {
@@ -75,5 +78,8 @@ export function ensureHapilonDirs() {
 /** 返回 ~/.hapilon/config.json 的完整路径 */
 export const configFilePathEffect = Effect.map(hapilonHomeEffect, (base) => join(base, "config.json"));
 export function configFilePath() {
-    return Effect.runSync(configFilePathEffect);
+    const result = Effect.runSync(Effect.either(configFilePathEffect));
+    if (result._tag === "Left")
+        throw new Error(result.left.message);
+    return result.right;
 }

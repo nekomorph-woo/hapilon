@@ -7,6 +7,12 @@ import { Effect } from "effect";
 import { ensureHapilonDirsEffect, hapilonHome, hapilonHomeEffect } from "../../config/hapilon-home.js";
 import { readHapilonConfigEffect, writeHapilonConfigEffect } from "../../config/config-io.js";
 import { resolvePiCliEffect } from "../../providers/pi-cli-path.js";
+import {
+  ensureQuietStartupEffect,
+  writeAuthFileNativeEffect,
+  writeSkeletonFilesEffect,
+} from "../../providers/providers.js";
+import { ensureExtensionConfigsEffect } from "../../extensions/ensure-configs.js";
 
 describe("Effect 核心 API", () => {
   let tmpBase: string;
@@ -80,6 +86,42 @@ describe("Effect 核心 API", () => {
     );
     assert.equal(caught, "caught");
     process.env.HAPILON_HOME = tmpBase;
+  });
+
+  it("providers 的写入 Effects 失败走 AuthWriteError Fail 通道", () => {
+    const blocked = join(tmpBase, "blocked-provider");
+    writeFileSync(blocked, "file");
+    const effects = [
+      writeAuthFileNativeEffect(blocked, {}),
+      ensureQuietStartupEffect(blocked),
+      writeSkeletonFilesEffect(blocked),
+    ];
+
+    for (const effect of effects) {
+      const exit = Effect.runSyncExit(effect);
+      assert.equal(exit._tag, "Failure");
+      if (exit._tag === "Failure") assert.equal(exit.cause._tag, "Fail");
+      assert.equal(
+        Effect.runSync(effect.pipe(Effect.catchTag("AuthWriteError", () => Effect.succeed("caught")))),
+        "caught",
+      );
+    }
+  });
+
+  it("ensureExtensionConfigsEffect 失败走 ConfigWriteError Fail 通道", () => {
+    const blocked = join(tmpBase, "blocked-config");
+    writeFileSync(blocked, "file");
+    const exit = Effect.runSyncExit(ensureExtensionConfigsEffect(blocked));
+    assert.equal(exit._tag, "Failure");
+    if (exit._tag === "Failure") assert.equal(exit.cause._tag, "Fail");
+    assert.equal(
+      Effect.runSync(
+        ensureExtensionConfigsEffect(blocked).pipe(
+          Effect.catchTag("ConfigWriteError", () => Effect.succeed("caught")),
+        ),
+      ),
+      "caught",
+    );
   });
 
   it("resolvePiCliEffect 成功返回存在的路径", () => {

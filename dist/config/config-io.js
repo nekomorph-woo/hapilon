@@ -45,7 +45,10 @@ export const readHapilonConfigEffect = Effect.sync(() => {
     }
 });
 export function readHapilonConfig() {
-    return Effect.runSync(readHapilonConfigEffect);
+    const result = Effect.runSync(Effect.either(readHapilonConfigEffect));
+    if (result._tag === "Left")
+        throw new Error(result.left.message);
+    return result.right;
 }
 export const writeHapilonConfigEffect = (config) => Effect.gen(function* () {
     const path = yield* configFilePathEffect.pipe(Effect.mapError((error) => new ConfigWriteError({ message: error.message })));

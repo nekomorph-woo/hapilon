@@ -1,6 +1,7 @@
 import { readdirSync, statSync, existsSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Effect } from "effect";
 /**
  * 扫描扩展目录，返回所有扩展入口文件的绝对路径。
  *
@@ -11,7 +12,7 @@ import { fileURLToPath } from "node:url";
  * @param dir 扩展目录路径。默认 `dist/extensions/`（相对于当前模块位置）
  * @returns 排序后的扩展入口文件绝对路径数组；目录不存在则返回 []
  */
-export function discoverExtensions(dir) {
+function discoverExtensionsSync(dir) {
     const extDir = dir ?? dirname(fileURLToPath(import.meta.url));
     if (!existsSync(extDir))
         return [];
@@ -34,6 +35,13 @@ export function discoverExtensions(dir) {
         }
     }
     return extensions;
+}
+export const discoverExtensionsEffect = (dir) => Effect.sync(() => discoverExtensionsSync(dir));
+export function discoverExtensions(dir) {
+    const result = Effect.runSync(Effect.either(discoverExtensionsEffect(dir)));
+    if (result._tag === "Left")
+        throw new Error(result.left.message);
+    return result.right;
 }
 /**
  * 从扩展文件路径列表中提取人类可读的扩展名。

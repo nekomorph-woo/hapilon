@@ -1,5 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { Effect } from "effect";
+import { ConfigWriteError } from "../config/config-io.js";
 /**
  * 扩展默认配置（map #31 决策）：
  *
@@ -38,24 +40,35 @@ const ECON_CONFIG_DEFAULTS = { enabled: true, threshold: 8192, headLines: 40, ta
  * 文件不存在时写入 defaults；存在时不碰（含解析失败——不覆盖用户数据）。
  * agentDir 不存在时创建（与 ensureQuietStartup 同模式）。
  */
-function ensureJsonConfig(agentDir, filename, defaults) {
+const ensureJsonConfigEffect = (agentDir, filename, defaults) => Effect.gen(function* () {
     if (!existsSync(agentDir)) {
-        mkdirSync(agentDir, { recursive: true, mode: 0o700 });
+        yield* Effect.try({
+            try: () => mkdirSync(agentDir, { recursive: true, mode: 0o700 }),
+            catch: (err) => new ConfigWriteError({ message: err instanceof Error ? err.message : String(err) }),
+        });
     }
     const path = join(agentDir, filename);
     if (existsSync(path))
         return;
-    writeFileSync(path, JSON.stringify(defaults, null, 2) + "\n", "utf8");
-}
+    yield* Effect.try({
+        try: () => writeFileSync(path, JSON.stringify(defaults, null, 2) + "\n", "utf8"),
+        catch: (err) => new ConfigWriteError({ message: err instanceof Error ? err.message : String(err) }),
+    });
+});
 /**
  * 预置扩展的全局默认配置（幂等，首次启动生效）。
  */
-export function ensureExtensionConfigs(agentDir) {
-    ensureJsonConfig(agentDir, "tasks-config.json", TASKS_CONFIG_DEFAULTS);
+export const ensureExtensionConfigsEffect = (agentDir) => Effect.gen(function* () {
+    yield* ensureJsonConfigEffect(agentDir, "tasks-config.json", TASKS_CONFIG_DEFAULTS);
     // pi-web-access（#43）：workflow:none 不弹浏览器；fff/ask-user/btw 无必配项
-    ensureJsonConfig(agentDir, "web-search.json", WEB_ACCESS_CONFIG_DEFAULTS);
+    yield* ensureJsonConfigEffect(agentDir, "web-search.json", WEB_ACCESS_CONFIG_DEFAULTS);
     // pi-mcp-adapter（#49）：空骨架给 mcp.json 一个明确落点；用户配置永不覆盖
-    ensureJsonConfig(agentDir, "mcp.json", MCP_CONFIG_DEFAULTS);
+    yield* ensureJsonConfigEffect(agentDir, "mcp.json", MCP_CONFIG_DEFAULTS);
     // hpl-econ（#52）：组合甲默认实体化
-    ensureJsonConfig(agentDir, "econ-config.json", ECON_CONFIG_DEFAULTS);
+    yield* ensureJsonConfigEffect(agentDir, "econ-config.json", ECON_CONFIG_DEFAULTS);
+});
+export function ensureExtensionConfigs(agentDir) {
+    const result = Effect.runSync(Effect.either(ensureExtensionConfigsEffect(agentDir)));
+    if (result._tag === "Left")
+        throw new Error(result.left.message);
 }

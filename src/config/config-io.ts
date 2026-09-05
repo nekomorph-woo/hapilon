@@ -55,7 +55,11 @@ export const readHapilonConfigEffect: Effect.Effect<HapilonConfig, never> = Effe
 });
 
 export function readHapilonConfig(): HapilonConfig {
-  return Effect.runSync(readHapilonConfigEffect);
+  const result = Effect.runSync(Effect.either(readHapilonConfigEffect)) as
+    | { _tag: "Left"; left: { message: string } }
+    | { _tag: "Right"; right: HapilonConfig };
+  if (result._tag === "Left") throw new Error(result.left.message);
+  return result.right;
 }
 
 export const writeHapilonConfigEffect = (config: HapilonConfig): Effect.Effect<void, ConfigWriteError> => Effect.gen(function* () {

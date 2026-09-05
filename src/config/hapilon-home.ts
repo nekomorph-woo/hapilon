@@ -56,7 +56,9 @@ export const agentDirEffect: Effect.Effect<string, HapilonHomeError> = Effect.ma
 );
 
 export function agentDir(): string {
-  return Effect.runSync(agentDirEffect);
+  const result = Effect.runSync(Effect.either(agentDirEffect));
+  if (result._tag === "Left") throw new Error(result.left.message);
+  return result.right;
 }
 
 /** Create ~/.hapilon/ subdirectories with 0700 permissions */
@@ -97,5 +99,7 @@ export const configFilePathEffect: Effect.Effect<string, HapilonHomeError> = Eff
 );
 
 export function configFilePath(): string {
-  return Effect.runSync(configFilePathEffect);
+  const result = Effect.runSync(Effect.either(configFilePathEffect));
+  if (result._tag === "Left") throw new Error(result.left.message);
+  return result.right;
 }
