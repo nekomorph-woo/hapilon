@@ -1,7 +1,7 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { hapilonHome, ensureHapilonDirs, configFilePath } from "../../hapilon-home.js";
 
@@ -37,6 +37,24 @@ describe("hapilon-home", () => {
       process.env.HAPILON_HOME = "";
       const home = hapilonHome();
       assert.ok(home.endsWith(".hapilon"), "空字符串时应回退到默认值");
+    });
+
+    it("~/ 前缀应展开为用户 home（shell env 赋值不展开 tilde）", () => {
+      process.env.HAPILON_HOME = "~/hapilon-test";
+      const home = hapilonHome();
+      assert.ok(!home.includes("~"), "路径不应含字面 ~");
+      assert.ok(home.startsWith(homedir()), `应展开到用户 home 下，得到: ${home}`);
+      assert.ok(home.endsWith("hapilon-test"));
+    });
+
+    it("单独 ~ 应展开为用户 home", () => {
+      process.env.HAPILON_HOME = "~";
+      assert.strictEqual(hapilonHome(), homedir());
+    });
+
+    it("相对路径应抛错（防止随启动目录漂移）", () => {
+      process.env.HAPILON_HOME = "relative/path";
+      assert.throws(() => hapilonHome(), /绝对路径/);
     });
   });
 

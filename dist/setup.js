@@ -134,8 +134,13 @@ export function doctor() {
             if (keys.length > 0) {
                 for (const id of keys) {
                     const entry = auth[id];
-                    const masked = maskKey(entry.key);
-                    console.log(`  ✅ ${id}: ${masked}`);
+                    // oauth 型条目（access/refresh）无 key 字段，显示类型而非脱敏值
+                    if (typeof entry?.key === "string") {
+                        console.log(`  ✅ ${id}: ${maskKey(entry.key)}`);
+                    }
+                    else {
+                        console.log(`  ✅ ${id}: (oauth，${entry?.type ?? "未知类型"})`);
+                    }
                 }
             }
             else {

@@ -1,10 +1,29 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, isAbsolute } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
+/**
+ * 展开路径开头的 ~ 与 ~/（env 赋值如 `HAPILON_HOME=~/x` 在 shell 中不展开，
+ * 实测 zsh env 前缀、doctor 显示均会带字面 ~）。
+ * 其余路径原样返回。
+ */
+function expandTilde(p) {
+    if (p === "~")
+        return homedir();
+    if (p.startsWith("~/"))
+        return join(homedir(), p.slice(2));
+    return p;
+}
 /** Resolve HAPILON_HOME, defaulting to ~/.hapilon/ */
 export function hapilonHome() {
     const env = process.env.HAPILON_HOME;
-    return env && env.length > 0 ? env : join(homedir(), ".hapilon");
+    if (env && env.length > 0) {
+        const expanded = expandTilde(env);
+        if (!isAbsolute(expanded)) {
+            throw new Error(`HAPILON_HOME 必须是绝对路径（收到 "${env}"）。相对路径会随启动目录漂移，请改用绝对路径或 ~/ 前缀。`);
+        }
+        return expanded;
+    }
+    return join(homedir(), ".hapilon");
 }
 /** ~/.hapilon/agent/（pi 配置目录）——单一来源，替代各处重复 join */
 export function agentDir() {
