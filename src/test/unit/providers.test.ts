@@ -16,7 +16,7 @@ import {
   parseSemver,
   COMMON,
   ALL_PROVIDERS,
-} from "../../providers.js";
+} from "../../providers/providers.js";
 
 describe("providers", () => {
   let tmpDir: string;

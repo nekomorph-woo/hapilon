@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveNpmExtensionPaths, resolveExtensionEntry } from "../../npm-extensions.js";
+import { resolveNpmExtensionPaths, resolveExtensionEntry } from "../../extensions/npm-extensions.js";
 
 describe("resolveNpmExtensionPaths()", () => {
   it("解析出全部 npm 扩展的绝对入口路径", () => {

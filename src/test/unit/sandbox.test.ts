@@ -7,7 +7,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { bwrapInstalled, bwrapInstallHint } from "../../sandbox.js";
+import { bwrapInstalled, bwrapInstallHint } from "../../safety/sandbox.js";
 
 describe("bwrapInstalled", () => {
   it("spawnSync 返回 status 0 → true", () => {

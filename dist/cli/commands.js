@@ -89,7 +89,7 @@ export const COMMANDS = [
             },
         ],
         handler: async (args) => {
-            const { handleConfig } = await import("./config/handlers.js");
+            const { handleConfig } = await import("../config/handlers.js");
             await handleConfig(args);
         },
     },
@@ -115,7 +115,7 @@ export const COMMANDS = [
             },
         ],
         handler: async (args) => {
-            const { handleMcp } = await import("./mcp/handlers.js");
+            const { handleMcp } = await import("../mcp/handlers.js");
             await handleMcp(args.slice(1));
         },
     },

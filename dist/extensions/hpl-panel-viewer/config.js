@@ -6,7 +6,7 @@
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { configFilePath } from "../../hapilon-home.js";
+import { configFilePath } from "../../config/hapilon-home.js";
 import { config, DEFAULT_KEYS, DEFAULT_MAX_LINES } from "./shared.js";
 function readRaw() {
     const path = configFilePath();

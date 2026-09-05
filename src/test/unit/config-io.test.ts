@@ -9,7 +9,7 @@ import {
   hasFlag,
   stripHapilonFlags,
   injectDefaultArgs,
-} from "../../config-io.js";
+} from "../../config/config-io.js";
 
 describe("config-io", () => {
   let tmpBase: string;

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverExtensions, extensionNames } from "../../extensions.js";
+import { discoverExtensions, extensionNames } from "../../extensions/loader.js";
 describe("discoverExtensions()", () => {
     let tmpBase;
     before(() => {

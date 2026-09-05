@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
  */
 export function discoverExtensions(dir?: string): string[] {
   const extDir =
-    dir ?? join(dirname(fileURLToPath(import.meta.url)), "extensions");
+    dir ?? dirname(fileURLToPath(import.meta.url));
 
   if (!existsSync(extDir)) return [];
 

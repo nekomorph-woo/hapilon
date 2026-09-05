@@ -2,8 +2,11 @@
  * hpl-panel-viewer 单元测试 — panels.ts + config.ts
  */
 
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   isExpandable, collectExpandables, patternMatches, titleOfLines,
   panelTitle, findNewestPanel, decorateExpandable,
@@ -11,6 +14,25 @@ import {
 import { panelMarker } from "../../extensions/hpl-panel-viewer/shared.js";
 import { applyPopConfig, loadPopConfig } from "../../extensions/hpl-panel-viewer/config.js";
 import { config as popConfig } from "../../extensions/hpl-panel-viewer/shared.js";
+
+let tmpBase: string;
+const ORIGINAL_ENV = process.env.HAPILON_HOME;
+
+before(() => {
+  tmpBase = mkdtempSync(join(tmpdir(), "hapilon-pop-test-"));
+  process.env.HAPILON_HOME = tmpBase;
+});
+
+after(() => {
+  if (ORIGINAL_ENV !== undefined) {
+    process.env.HAPILON_HOME = ORIGINAL_ENV;
+  } else {
+    delete process.env.HAPILON_HOME;
+  }
+  try {
+    rmSync(tmpBase, { recursive: true, force: true });
+  } catch { /* ignore cleanup errors */ }
+});
 
 describe("isExpandable", () => {
   it("有 setExpanded 方法的对象返回 true", () => {

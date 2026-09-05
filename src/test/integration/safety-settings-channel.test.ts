@@ -14,12 +14,12 @@ import { join } from "node:path";
 describe("settings 通道安全门生命周期（#37）", () => {
   let tmpBase: string;
   const ORIGINAL_ENV = process.env.HAPILON_HOME;
-  let safetySettings: typeof import("../../safety-settings.js");
+  let safetySettings: typeof import("../../safety/safety-settings.js");
 
   before(async () => {
     tmpBase = mkdtempSync(join(tmpdir(), "hapilon-safety-channel-"));
     process.env.HAPILON_HOME = tmpBase;
-    safetySettings = await import("../../safety-settings.js");
+    safetySettings = await import("../../safety/safety-settings.js");
   });
 
   after(() => {

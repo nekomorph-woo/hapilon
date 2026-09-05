@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { homedir } from "node:os";
 import { classifyPath, expandTilde, resolveTarget, parseAllowArgs, } from "../../extensions/hpl-protected-paths/index.js";
 import protectedPathsExtension from "../../extensions/hpl-protected-paths/index.js";
-import { addTrust, isSessionTrusted, clearSessionTrust } from "../../trust-store.js";
+import { addTrust, isSessionTrusted, clearSessionTrust } from "../../config/trust-store.js";
 const home = homedir();
 describe("hpl-protected-paths", () => {
     describe("expandTilde()", () => {

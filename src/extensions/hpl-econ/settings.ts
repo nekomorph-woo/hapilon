@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { agentDir } from "../../hapilon-home.js";
+import { agentDir } from "../../config/hapilon-home.js";
 
 /**
  * settings.ts — hpl-econ 参数读取（issue #52 组合甲默认）。

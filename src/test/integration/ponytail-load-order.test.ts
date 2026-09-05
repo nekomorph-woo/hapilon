@@ -27,7 +27,7 @@ import {
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import hplSystemPromptEntry from "../../extensions/hpl-system-prompt/index.js";
-import { resolveNpmExtensionPaths } from "../../npm-extensions.js";
+import { resolveNpmExtensionPaths } from "../../extensions/npm-extensions.js";
 
 const CWD = process.cwd();
 

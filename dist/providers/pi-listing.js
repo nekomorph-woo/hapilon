@@ -5,7 +5,7 @@
  */
 import { spawn } from "node:child_process";
 import { resolvePiCli } from "./pi-cli-path.js";
-import { agentDir } from "./hapilon-home.js";
+import { agentDir } from "../config/hapilon-home.js";
 /**
  * 解析 pi --list-models 输出的表格。
  * 表头行（provider model context ...）跳过；targetProvider 时只留该 provider 行。

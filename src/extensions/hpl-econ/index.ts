@@ -5,7 +5,7 @@ import type {
   ExtensionContext,
   AgentToolUpdateCallback,
 } from "@earendil-works/pi-coding-agent";
-import { agentDir } from "../../hapilon-home.js";
+import { agentDir } from "../../config/hapilon-home.js";
 import { shouldCompress, compressOutput, type CompressResult } from "./compress.js";
 import {
   readEconSettings,

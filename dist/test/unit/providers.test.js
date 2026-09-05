@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, readFileSync, statSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeAuthFileNative, writeSkeletonFiles, readAuthFile, mergeAuthEntries, ensureSettingsFile, ensureQuietStartup, maskKey, findProviderDef, semverGte, parseSemver, COMMON, ALL_PROVIDERS, } from "../../providers.js";
+import { writeAuthFileNative, writeSkeletonFiles, readAuthFile, mergeAuthEntries, ensureSettingsFile, ensureQuietStartup, maskKey, findProviderDef, semverGte, parseSemver, COMMON, ALL_PROVIDERS, } from "../../providers/providers.js";
 describe("providers", () => {
     let tmpDir;
     before(() => {

@@ -12,7 +12,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { assembleSystemPrompt, collectHapilonContext } from "./assemble.js";
-import { agentDir } from "../../hapilon-home.js";
+import { agentDir } from "../../config/hapilon-home.js";
 
 export default function hplSystemPrompt(pi: ExtensionAPI): void {
   const userHome = process.env.HOME;

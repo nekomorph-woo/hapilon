@@ -3,8 +3,8 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline";
-import { ensureHapilonDirs, hapilonHome } from "./hapilon-home.js";
-import { resolvePiCli } from "./pi-cli-path.js";
+import { ensureHapilonDirs, hapilonHome } from "../config/hapilon-home.js";
+import { resolvePiCli } from "../providers/pi-cli-path.js";
 import {
   COMMON,
   ALL_PROVIDERS,
@@ -15,7 +15,7 @@ import {
   ensureSettingsFile,
   maskKey,
   semverGte,
-} from "./providers.js";
+} from "../providers/providers.js";
 
 // ─── OAuth guide ──────────────────────────────────────────────────────
 
@@ -141,7 +141,7 @@ export async function setupInteractive(): Promise<void> {
 
 export function doctor(): void {
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  const pkgPath = join(__dirname, "..", "package.json");
+  const pkgPath = join(__dirname, "..", "..", "package.json");
   let version = "unknown";
   try {
     version = JSON.parse(readFileSync(pkgPath, "utf8")).version;

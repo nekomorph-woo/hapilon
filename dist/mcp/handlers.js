@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline/promises";
-import { agentDir } from "../hapilon-home.js";
+import { agentDir } from "../config/hapilon-home.js";
 import { addMcpServer, loadMcpServers, mcpConfigPath, removeMcpServer, McpConfigError, } from "./config-store.js";
 /**
  * `hapi mcp` 子命令（#50 通道 B）：人不手写 mcp.json。

@@ -7,7 +7,7 @@ import { COMMANDS, GLOBAL_FLAGS, type CommandDef } from "./commands.js";
 
 export function getVersion(): string {
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  const pkgPath = join(__dirname, "..", "package.json");
+  const pkgPath = join(__dirname, "..", "..", "package.json");
   try {
     return JSON.parse(readFileSync(pkgPath, "utf8")).version;
   } catch {

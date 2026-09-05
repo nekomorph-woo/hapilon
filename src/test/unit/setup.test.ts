@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { setupQuick, doctor } from "../../setup.js";
+import { setupQuick, doctor } from "../../cli/setup.js";
 
 describe("setup", () => {
   let tmpBase: string;
@@ -47,7 +47,7 @@ describe("setup", () => {
   });
 
   describe("setupInteractive()", () => {
-    const SETUP_PATH = join(process.cwd(), "dist", "setup.js");
+    const SETUP_PATH = join(process.cwd(), "dist", "cli", "setup.js");
 
     it("空输入时创建空 auth.json", () => {
       // 对所有问题回答 "n"

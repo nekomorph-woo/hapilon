@@ -13,11 +13,11 @@ import {
   writeAuthFileNative,
   maskKey,
   findProviderDef,
-} from "../providers.js";
-import { readHapilonConfig, writeHapilonConfig } from "../config-io.js";
-import { agentDir } from "../hapilon-home.js";
+} from "../providers/providers.js";
+import { readHapilonConfig, writeHapilonConfig } from "./config-io.js";
+import { agentDir } from "./hapilon-home.js";
 import { question, yesno } from "./prompts.js";
-import { listModelsForProvider, type ParsedModel } from "../pi-listing.js";
+import { listModelsForProvider, type ParsedModel } from "../providers/pi-listing.js";
 
 // ─── config show ─────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseModelsTable } from "../../pi-listing.js";
+import { parseModelsTable } from "../../providers/pi-listing.js";
 
 const SAMPLE_OUTPUT = `provider  model              context  max-out  thinking  images
 deepseek  deepseek-chat      128K     32K      no        no

@@ -6,7 +6,7 @@
 
 import { spawn } from "node:child_process";
 import { resolvePiCli } from "./pi-cli-path.js";
-import { agentDir } from "./hapilon-home.js";
+import { agentDir } from "../config/hapilon-home.js";
 
 /** pi --list-models 输出表格的一行 */
 export interface ParsedModel {

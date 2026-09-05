@@ -15,7 +15,7 @@ import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { classifyCommand } from "./classifier.js";
 import { hasSensitiveReadArg, sensitiveReadLabels } from "./sensitive-args.js";
 import { requestConfirm } from "../hpl-protected-paths/confirm.js";
-import { addTrust, isTrusted, initProjectTrust } from "../../trust-store.js";
+import { addTrust, isTrusted, initProjectTrust } from "../../config/trust-store.js";
 
 // subagent 会话探针（issue #47 分级依赖）：与 hpl-protected-paths 同款。
 // bash 读敏感文件时 subagent block、主会话 confirm——与 #39 read 分级一致。

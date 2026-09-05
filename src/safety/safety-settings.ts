@@ -40,7 +40,7 @@ export function isSafetyExtensionPath(path: string): boolean {
 
 /** 当前构建中安全门扩展的绝对入口路径 */
 export function safetyExtensionPaths(): string[] {
-  const base = join(distDir(), "extensions");
+  const base = join(distDir(), "..", "extensions");
   return SAFETY_EXTENSION_SUFFIXES.map((suffix) => join(base, basename(dirname(suffix)), "index.js"));
 }
 

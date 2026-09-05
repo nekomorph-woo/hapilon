@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
  * @returns 排序后的扩展入口文件绝对路径数组；目录不存在则返回 []
  */
 export function discoverExtensions(dir) {
-    const extDir = dir ?? join(dirname(fileURLToPath(import.meta.url)), "extensions");
+    const extDir = dir ?? dirname(fileURLToPath(import.meta.url));
     if (!existsSync(extDir))
         return [];
     const entries = readdirSync(extDir).sort();

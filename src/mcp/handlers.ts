@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline/promises";
-import { agentDir } from "../hapilon-home.js";
+import { agentDir } from "../config/hapilon-home.js";
 import {
   addMcpServer,
   loadMcpServers,

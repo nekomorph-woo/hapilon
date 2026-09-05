@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { agentDir } from "../../hapilon-home.js";
+import { agentDir } from "../../config/hapilon-home.js";
 import { shouldCompress, compressOutput } from "./compress.js";
 import { readEconSettings, writeEconSettings, envDisabled, THRESHOLD_CHOICES, RETENTION_CHOICES, } from "./settings.js";
 const override = {};

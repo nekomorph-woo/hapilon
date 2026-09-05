@@ -6,11 +6,11 @@
  */
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline";
-import { ALL_PROVIDERS, readAuthFile, writeAuthFileNative, maskKey, findProviderDef, } from "../providers.js";
-import { readHapilonConfig, writeHapilonConfig } from "../config-io.js";
-import { agentDir } from "../hapilon-home.js";
+import { ALL_PROVIDERS, readAuthFile, writeAuthFileNative, maskKey, findProviderDef, } from "../providers/providers.js";
+import { readHapilonConfig, writeHapilonConfig } from "./config-io.js";
+import { agentDir } from "./hapilon-home.js";
 import { question, yesno } from "./prompts.js";
-import { listModelsForProvider } from "../pi-listing.js";
+import { listModelsForProvider } from "../providers/pi-listing.js";
 // ─── config show ─────────────────────────────────────────────────────
 function configShow() {
     const config = readHapilonConfig();
