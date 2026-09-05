@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sandbox-verify.sh — SOP-4 沙箱验证（docs/distribution-sop.md）
+# sandbox-verify.sh — 发版前沙箱验证（README「沙箱验证」）
 #
 # 在不动本机 npm 全局环境与 ~/.hapilon 的前提下，验证「tarball → 安装 → 运行」链路：
 #   1. npm pack 出 tarball

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# release.sh — SOP-1 发版全流程（docs/distribution-sop.md）
+# release.sh — 发版全流程（README「发版打包流程」）
 #
 # 用法：
 #   ./scripts/release.sh <patch|minor> "<一句话内容>"
