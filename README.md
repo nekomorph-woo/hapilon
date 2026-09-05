@@ -26,7 +26,15 @@ hapilon          # 或 hapi —— 进入 TUI
 
 ## 发版打包流程
 
-每次发布版本时，在开发机上打包并附到 GitHub Release。
+以下流程已脚本化（`scripts/release.sh`，细节见 `docs/distribution-sop.md`）：
+
+```bash
+./scripts/release.sh <patch|minor> "<一句话内容>"
+```
+
+自动完成：版本号升级 → build + 全量测试门禁（不绿即中止回滚）→ commit（含 dist）→ 附注 tag → push（HTTPS 失败自动回退 ssh）→ `npm pack` → `gh release create` 附 tarball → 清理。加 `--dry-run` 只打印将执行的命令。
+
+手动流程（等价）：
 
 ### 1. 构建并测试
 
@@ -65,20 +73,11 @@ npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v<X.Y.
 
 ### 沙箱验证（可选，不动开发机环境）
 
-发布前想在本地验证安装链路时，把 npm 的全局目录与缓存重定向到临时沙箱：
+发布前验证「tarball → 安装 → 运行」链路，npm 全局目录、缓存、HOME 全部重定向到临时沙箱：
 
 ```bash
-ISOL=~/.hapilon-install-sandbox
-rm -rf $ISOL && mkdir -p $ISOL/prefix $ISOL/cache
-env NPM_CONFIG_PREFIX=$ISOL/prefix NPM_CONFIG_CACHE=$ISOL/cache \
-  npm install -g /tmp/hapilon-<版本>.tgz
-
-# 试运行（node 用开发机的即可，包在沙箱里）
-node $ISOL/prefix/lib/node_modules/hapilon/dist/cli.js --version
-node $ISOL/prefix/lib/node_modules/hapilon/dist/cli.js doctor
-
-# 验证完清理
-rm -rf $ISOL
+./scripts/sandbox-verify.sh          # 打包 + 沙箱安装 + 双 bin/版本/doctor 验证 + 清理
+./scripts/sandbox-verify.sh --keep   # 保留沙箱目录供检查
 ```
 
 ## 常用命令
@@ -102,6 +101,19 @@ npm run dev        # build + 启动
 npm run typecheck
 npm test           # 全量（build 后跑 dist 测试）
 ```
+
+### 开发版隔离运行（devhapi）
+
+开发中的 hapilon 与正式安装版数据隔离：`scripts/setup-dev-alias.sh` 向 shell rc 幂等写入 `devhapi` 别名，数据目录指向 `~/.hapilon-dev`，不影响正式版的 `~/.hapilon`：
+
+```bash
+npm install && npm run build   # 换机器克隆后先构建
+./scripts/setup-dev-alias.sh   # 写入别名（幂等，重复执行只更新）
+source ~/.zshrc                # 或重开终端
+devhapi setup && devhapi doctor
+```
+
+可选参数：`--alias <名>`、`--home <数据目录>`、`--rc <文件>`、`--remove` 移除。
 
 - 源码 `src/`，扩展在 `src/extensions/`（`hpl-*` 自研 + npm 集成，见 `src/npm-extensions.ts` 的接线表）
 - 工作流约定见 `CLAUDE.md` 与 `.claude/rules/`

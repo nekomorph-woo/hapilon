@@ -26,7 +26,9 @@ tarball 是构建完成的完整快照，两条坑都绕开。
 
 ## SOP-1 发版（开发机，每次发布跑一遍）
 
-前置：源码改动已全部合入 main；`../dist` 与 `src/` 一致（改过源码必须先 `npm run build` 并提交 dist——dist 已入库）。
+前置：源码改动已全部合入 main；`dist/` 与 `src/` 一致（改过源码必须先 `npm run build` 并提交 dist——dist 已入库）。
+
+> **快捷方式**：以下全部步骤已脚本化为 `./scripts/release.sh <patch|minor> "<一句话内容>"`（测试门禁、HTTPS push 失败回退 ssh、失败回滚版本号均已内置；`--dry-run` 可预演）。手动流程保留如下，供理解每步做什么或脚本异常时人工接管。
 
 ### 步骤
 
@@ -138,6 +140,8 @@ npm install -g "https://github.com/nekomorph-woo/hapilon/releases/latest/downloa
 ## SOP-4 沙箱验证（开发机，可选——发布前自测安装链路）
 
 目的：在不动开发机 npm 全局环境的前提下，完整验证一次「tarball → 安装 → 运行」。
+
+> **快捷方式**：`./scripts/sandbox-verify.sh` 一键完成打包 + 沙箱安装 + 验证 + 清理（`--keep` 保留沙箱供检查）。手动流程保留如下。
 
 ```bash
 ISOL=~/.hapilon-install-sandbox
