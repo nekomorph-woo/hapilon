@@ -9,7 +9,8 @@
  *   - block 路径 → isSessionTrusted() 检查（仅 session）
  *
  */
-import { readProjectConfig, writeProjectLocalConfig, readProjectLocalConfig } from "./project-config.js";
+import { readProjectConfigEffect, readProjectLocalConfigEffect, writeProjectLocalConfigEffect } from "./project-config.js";
+import { Effect } from "effect";
 // ─── Session 级信任（内存）──────────────────────────────────────────
 const sessionTrust = new Map();
 // ─── Session API ─────────────────────────────────────────────────────
@@ -40,7 +41,7 @@ export function listSessionTrust() {
 // ─── Project API ─────────────────────────────────────────────────────
 /** 仅读本地 config.local.json 的 allow（不合并团队 config.json） */
 function loadLocalAllow(cwd) {
-    const local = readProjectLocalConfig(cwd);
+    const local = Effect.runSync(readProjectLocalConfigEffect(cwd));
     const allow = local.allow;
     if (allow && typeof allow === "object" && !Array.isArray(allow)) {
         return allow;
@@ -49,7 +50,7 @@ function loadLocalAllow(cwd) {
 }
 /** 读合并后的 allow（用于检查：含团队 config.json + 本地） */
 function loadMergedAllow(cwd) {
-    const config = readProjectConfig(cwd);
+    const config = Effect.runSync(readProjectConfigEffect(cwd));
     const allow = config.allow;
     if (allow && typeof allow === "object" && !Array.isArray(allow)) {
         return allow;
@@ -57,12 +58,7 @@ function loadMergedAllow(cwd) {
     return {};
 }
 function saveLocalAllow(allow, cwd) {
-    try {
-        writeProjectLocalConfig({ allow }, cwd);
-    }
-    catch (err) {
-        console.warn("写入项目级信任配置失败:", err instanceof Error ? err.message : String(err));
-    }
+    Effect.runSync(writeProjectLocalConfigEffect({ allow }, cwd));
 }
 // ─── Project trust 内存缓存（issue #15）──────────────────────────────
 // cwd → merged allow 快照。initProjectTrust 加载一次，此后检查走缓存；

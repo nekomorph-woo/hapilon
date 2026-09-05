@@ -16,6 +16,8 @@ import { ensureExtensionConfigsEffect } from "../../extensions/ensure-configs.js
 import { removeSafetyExtensionsEffect } from "../../safety/safety-settings.js";
 import { bwrapInstalledEffect } from "../../safety/sandbox.js";
 import { addMcpServer, addMcpServerEffect, McpConfigError, loadMcpServersEffect } from "../../mcp/config-store.js";
+import { listModelsForProvider, listModelsForProviderEffect, PiListingError } from "../../providers/pi-listing.js";
+import { readProjectConfigEffect, writeProjectLocalConfigEffect } from "../../config/project-config.js";
 
 describe("Effect 核心 API", () => {
   let tmpBase: string;
@@ -179,5 +181,67 @@ describe("Effect 核心 API", () => {
     const exit = Effect.runSyncExit(loadMcpServersEffect(dir));
     assert.equal(exit._tag, "Failure");
     if (exit._tag === "Failure") assert.equal(exit.cause._tag, "Fail");
+  });
+
+  it("listModelsForProviderEffect 非法 HAPILON_HOME 走 Fail 通道", async () => {
+    process.env.HAPILON_HOME = "relative/path";
+    const exit = Effect.runSyncExit(listModelsForProviderEffect("openai"));
+    assert.equal(exit._tag, "Failure");
+    if (exit._tag === "Failure") assert.equal(exit.cause._tag, "Fail");
+    await assert.rejects(listModelsForProvider("openai"), (err: unknown) => {
+      assert.ok(err instanceof PiListingError);
+      assert.match(err.message, /无法启动 pi:/);
+      return true;
+    });
+    process.env.HAPILON_HOME = tmpBase;
+  });
+
+  it("readProjectConfigEffect 完成三级合并，写入失败降级为 Success", () => {
+    const project = join(tmpBase, "project");
+    const projectHapilon = join(project, ".hapilon");
+    mkdirSync(projectHapilon, { recursive: true });
+    writeFileSync(join(tmpBase, "config.json"), JSON.stringify({ defaultProvider: "user", defaultModel: "base" }));
+    writeFileSync(join(projectHapilon, "config.json"), JSON.stringify({ defaultProvider: "shared" }));
+    writeFileSync(join(projectHapilon, "config.local.json"), JSON.stringify({ defaultModel: "local" }));
+    process.env.HAPILON_HOME = tmpBase;
+    assert.deepEqual(Effect.runSync(readProjectConfigEffect(project)), {
+      defaultProvider: "shared",
+      defaultModel: "local",
+    });
+
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
+    try {
+      const blocked = join(tmpBase, "project-file");
+      writeFileSync(blocked, "file");
+      const exit = Effect.runSyncExit(writeProjectLocalConfigEffect({ defaultModel: "ignored" }, blocked));
+      assert.equal(exit._tag, "Success");
+      assert.ok(warnings.some((warning) => warning.includes("写入项目级配置失败:")));
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  it("Effect.async 中断后迟到的 resume 不产生 unhandled rejection", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const delayed = Effect.async<void, never>((resume) => {
+        setTimeout(() => resume(Effect.succeed(undefined)), 25);
+      });
+      const result = await Effect.runPromise(
+        delayed.pipe(
+          Effect.timeout("1 millis"),
+          Effect.catchAll(() => Effect.succeed("interrupted")),
+        ),
+      );
+      assert.equal(result, "interrupted");
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      assert.deepEqual(unhandled, []);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 });

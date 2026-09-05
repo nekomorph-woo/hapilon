@@ -12,7 +12,8 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { readHapilonConfig } from "./config-io.js";
+import { readHapilonConfigEffect } from "./config-io.js";
+import { Effect } from "effect";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -51,6 +52,9 @@ function readJSON(path: string): Record<string, unknown> | null {
   }
 }
 
+const readJSONEffect = (path: string): Effect.Effect<Record<string, unknown> | null, never> =>
+  Effect.sync(() => readJSON(path));
+
 // ─── Deep merge (shallow — config fields are flat) ──────────────────
 
 function mergeConfig(
@@ -69,8 +73,11 @@ function mergeConfig(
 /**
  * 读取项目级 config.local.json（不含合并，纯本地配置）。
  */
+export const readProjectLocalConfigEffect = (cwd?: string): Effect.Effect<Record<string, unknown>, never> =>
+  Effect.map(readJSONEffect(projectLocalConfigPath(cwd)), (config) => config ?? {});
+
 export function readProjectLocalConfig(cwd?: string): Record<string, unknown> {
-  return readJSON(projectLocalConfigPath(cwd)) ?? {};
+  return Effect.runSync(readProjectLocalConfigEffect(cwd));
 }
 
 // ─── Core API ────────────────────────────────────────────────────────
@@ -80,32 +87,36 @@ export function readProjectLocalConfig(cwd?: string): Record<string, unknown> {
  *
  * 优先级：project config.local.json > project config.json > user config.json
  */
-export function readProjectConfig(cwd?: string): ProjectConfig {
+export const readProjectConfigEffect = (cwd?: string): Effect.Effect<ProjectConfig, never> => Effect.gen(function* () {
   // L1: user-level baseline
-  const userConfig = readHapilonConfig() as Record<string, unknown>;
+  const userConfig = yield* readHapilonConfigEffect as Effect.Effect<Record<string, unknown>, never>;
 
   // L2: project config.json
   const sharedPath = projectConfigPath(cwd);
-  const sharedJson = readJSON(sharedPath);
+  const sharedJson = yield* readJSONEffect(sharedPath);
 
   // L3: project config.local.json
   const localPath = projectLocalConfigPath(cwd);
-  const localJson = readJSON(localPath);
+  const localJson = yield* readJSONEffect(localPath);
 
   let result = { ...userConfig };
   if (sharedJson) result = mergeConfig(result, sharedJson);
   if (localJson) result = mergeConfig(result, localJson);
 
   return result as ProjectConfig;
+});
+
+export function readProjectConfig(cwd?: string): ProjectConfig {
+  return Effect.runSync(readProjectConfigEffect(cwd));
 }
 
 /**
  * 更新项目级 config.local.json 的指定字段，保留已有其他字段。
  */
-export function writeProjectLocalConfig(
+export const writeProjectLocalConfigEffect = (
   partial: Partial<ProjectConfig>,
   cwd?: string,
-): void {
+): Effect.Effect<void, never> => Effect.sync(() => {
   try {
     const hapDir = projectHapilonDir(cwd);
     if (!existsSync(hapDir)) {
@@ -120,4 +131,11 @@ export function writeProjectLocalConfig(
   } catch (err) {
     console.warn("写入项目级配置失败:", err instanceof Error ? err.message : String(err));
   }
+});
+
+export function writeProjectLocalConfig(
+  partial: Partial<ProjectConfig>,
+  cwd?: string,
+): void {
+  Effect.runSync(writeProjectLocalConfigEffect(partial, cwd));
 }

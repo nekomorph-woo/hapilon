@@ -7,6 +7,11 @@
 import { spawn } from "node:child_process";
 import { resolvePiCli } from "./pi-cli-path.js";
 import { agentDir } from "../config/hapilon-home.js";
+import { Cause, Data, Effect, Option } from "effect";
+
+export class PiListingError extends Data.TaggedError("PiListingError")<{
+  message: string;
+}> {}
 
 /** pi --list-models 输出表格的一行 */
 export interface ParsedModel {
@@ -43,52 +48,68 @@ export function parseModelsTable(
 }
 
 /** spawn `pi --list-models`，按 provider 过滤并解析（失败 reject 带 stderr） */
+export const listModelsForProviderEffect = (providerId: string): Effect.Effect<ParsedModel[], PiListingError> => Effect.gen(function* () {
+  const piCli = yield* Effect.try({
+    // 有意统一为“无法启动 pi:”前缀，补充启动上下文并与同族错误保持一致。
+    try: () => resolvePiCli(),
+    catch: (err) => new PiListingError({ message: `无法启动 pi: ${err instanceof Error ? err.message : String(err)}` }),
+  });
+  const piAgentDir = yield* Effect.try({
+    try: () => agentDir(),
+    catch: (err) => new PiListingError({ message: `无法启动 pi: ${err instanceof Error ? err.message : String(err)}` }),
+  });
+
+  return yield* Effect.async<ParsedModel[], PiListingError>((resume) => {
+    try {
+      const child = spawn(process.execPath, [piCli, "--list-models"], {
+        cwd: process.cwd(),
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          PI_CODING_AGENT_DIR: piAgentDir,
+        },
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      child.stdout.on("data", (d: Buffer) => {
+        stdout += d.toString("utf8");
+      });
+      child.stderr.on("data", (d: Buffer) => {
+        stderr += d.toString("utf8");
+      });
+
+      child.on("error", (err) =>
+        resume(Effect.fail(new PiListingError({ message: `无法启动 pi: ${err.message}` }))),
+      );
+      child.on("exit", (code) => {
+        if (code !== 0) {
+          resume(Effect.fail(new PiListingError({ message: `pi --list-models 失败 (exit ${code}): ${stderr}` })));
+          return;
+        }
+        try {
+          resume(Effect.succeed(parseModelsTable(stdout, providerId)));
+        } catch (err) {
+          resume(Effect.fail(new PiListingError({
+            message: `解析 pi --list-models 输出失败: ${err instanceof Error ? err.message : String(err)}`,
+          })));
+        }
+      });
+    } catch (err) {
+      resume(Effect.fail(new PiListingError({ message: `无法启动 pi: ${err instanceof Error ? err.message : String(err)}` })));
+    }
+  });
+});
+
+/** Promise 兼容包装：调用侧继续 await，失败保留 PiListingError 实例。 */
 export function listModelsForProvider(
   providerId: string,
 ): Promise<ParsedModel[]> {
-  const piCli = resolvePiCli();
-
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [piCli, "--list-models"], {
-      cwd: process.cwd(),
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        PI_CODING_AGENT_DIR: agentDir(),
-      },
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (d: Buffer) => {
-      stdout += d.toString("utf8");
-    });
-    child.stderr.on("data", (d: Buffer) => {
-      stderr += d.toString("utf8");
-    });
-
-    child.on("error", (err) =>
-      reject(new Error(`无法启动 pi: ${err.message}`)),
-    );
-    child.on("exit", (code) => {
-      if (code !== 0) {
-        reject(
-          new Error(
-            `pi --list-models 失败 (exit ${code}): ${stderr}`,
-          ),
-        );
-        return;
-      }
-      try {
-        resolve(parseModelsTable(stdout, providerId));
-      } catch (e) {
-        reject(
-          new Error(
-            `解析 pi --list-models 输出失败: ${(e as Error).message}`,
-          ),
-        );
-      }
-    });
+  return Effect.runPromiseExit(listModelsForProviderEffect(providerId)).then((exit) => {
+    if (exit._tag === "Success") return exit.value;
+    const failure = Cause.failureOption(exit.cause);
+    if (Option.isSome(failure)) return Promise.reject(failure.value);
+    return Promise.reject(new Error(String(exit.cause)));
   });
 }
