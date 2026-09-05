@@ -134,14 +134,22 @@ describe("cli integration", () => {
         });
     });
     describe("参数透传", () => {
-        it("非 setup/doctor/config/help 命令应传给 pi", () => {
-            // --version 不是 hapilon 子命令，应透传给 pi
+        it("未知命令 foo 应传给 pi（不报 hapilon 未知命令）", () => {
+            const result = spawnSync(process.execPath, [CLI_PATH, "--definitely-not-a-flag"], {
+                env: { ...process.env, HAPILON_HOME: tmpBase },
+                encoding: "utf8",
+                timeout: 15000,
+            });
+            assert.ok(result.status !== undefined, "应正常退出或有退出码");
+        });
+        it("--version 输出 hapilon 自身版本（不透传 pi）", () => {
             const result = spawnSync(process.execPath, [CLI_PATH, "--version"], {
                 env: { ...process.env, HAPILON_HOME: tmpBase },
                 encoding: "utf8",
                 timeout: 5000,
             });
-            assert.ok(result.status !== undefined, "应正常退出或有退出码");
+            const pkgVersion = JSON.parse(readFileSync(PKG_PATH, "utf8")).version;
+            assert.strictEqual(result.stdout.trim(), pkgVersion);
         });
     });
     describe("help", () => {

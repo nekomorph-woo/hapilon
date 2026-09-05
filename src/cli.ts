@@ -17,6 +17,14 @@ async function main(): Promise<void> {
     return;
   }
 
+  // ── --version / -v intercept（不透传 pi：用户问的是 hapilon 版本）──
+
+  if (args.includes("--version") || args.includes("-v")) {
+    const { getVersion } = await import("./help.js");
+    console.log(getVersion());
+    return;
+  }
+
   // ── Command routing（由 commands.ts 注册表驱动，issue #4）───────
 
   const command = args[0];
