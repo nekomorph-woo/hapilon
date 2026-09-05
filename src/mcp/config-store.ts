@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { Data, Effect } from "effect";
 
 /**
  * mcp.json 配置存取（#50 通道 B 的存储层）。
@@ -10,7 +11,9 @@ import { join } from "node:path";
  * McpConfigError（Fail Fast——写坏配置文件比拒绝写入更糟）。
  */
 
-export class McpConfigError extends Error {}
+export class McpConfigError extends Data.TaggedError("McpConfigError")<{
+  message: string;
+}> {}
 
 /** stdio transport：本地子进程 server（command + args + env） */
 export interface StdioServerDef {
@@ -41,75 +44,91 @@ export function mcpConfigPath(agentDir: string): string {
   return join(agentDir, "mcp.json");
 }
 
-export function loadMcpServers(agentDir: string): Record<string, ServerEntry> {
+export const loadMcpServersEffect = (agentDir: string): Effect.Effect<Record<string, ServerEntry>, McpConfigError> => Effect.gen(function* () {
   const path = mcpConfigPath(agentDir);
   if (!existsSync(path)) return {};
-  let cfg: unknown;
-  try {
-    cfg = JSON.parse(readFileSync(path, "utf8"));
-  } catch (err) {
-    throw new McpConfigError(
-      `mcp.json 解析失败（${path}）：${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  const cfg = yield* Effect.try({
+    try: () => JSON.parse(readFileSync(path, "utf8")),
+    catch: (err) => new McpConfigError({
+      message: `mcp.json 解析失败（${path}）：${err instanceof Error ? err.message : String(err)}`,
+    }),
+  });
   const servers = (cfg as { mcpServers?: unknown })?.mcpServers;
   if (typeof servers !== "object" || servers === null || Array.isArray(servers)) {
-    throw new McpConfigError(
-      `mcp.json 缺少 mcpServers 对象（${path}）。期望 {"mcpServers": {...}}。`,
-    );
+    return yield* Effect.fail(new McpConfigError({
+      message: `mcp.json 缺少 mcpServers 对象（${path}）。期望 {"mcpServers": {...}}。`,
+    }));
   }
   return servers as Record<string, ServerEntry>;
+});
+
+export function loadMcpServers(agentDir: string): Record<string, ServerEntry> {
+  const result = Effect.runSync(Effect.either(loadMcpServersEffect(agentDir)));
+  if (result._tag === "Left") throw result.left;
+  return result.right;
 }
 
-function validate(def: UnvalidatedServerDef): ServerDef {
+const validateEffect = (def: UnvalidatedServerDef): Effect.Effect<ServerDef, McpConfigError> => Effect.gen(function* () {
   if (typeof def.name !== "string" || !def.name || /[\s/\\]/.test(def.name)) {
-    throw new McpConfigError(`非法 server 名："${String(def.name)}"（不能为空，不能含空白或路径分隔符）`);
+    return yield* Effect.fail(new McpConfigError({ message: `非法 server 名："${String(def.name)}"（不能为空，不能含空白或路径分隔符）` }));
   }
   if (def.type !== "stdio" && def.type !== "http") {
-    throw new McpConfigError(`非法 transport 类型："${String(def.type)}"（支持 stdio / http）`);
+    return yield* Effect.fail(new McpConfigError({ message: `非法 transport 类型："${String(def.type)}"（支持 stdio / http）` }));
   }
   if (def.type === "stdio" && (!def.command || typeof def.command !== "string")) {
-    throw new McpConfigError(`stdio server "${def.name}" 缺 command`);
+    return yield* Effect.fail(new McpConfigError({ message: `stdio server "${def.name}" 缺 command` }));
   }
   if (def.type === "http" && (!def.url || typeof def.url !== "string")) {
-    throw new McpConfigError(`http server "${def.name}" 缺 url`);
+    return yield* Effect.fail(new McpConfigError({ message: `http server "${def.name}" 缺 url` }));
   }
   return def as unknown as ServerDef;
-}
+});
 
 /**
  * 添加 server（读-改-写保留既有配置）。同名存在时抛错——
  * 覆盖用户手写的 server 定义是破坏性动作，应显式 remove 后再加。
  */
-export function addMcpServer(agentDir: string, def: UnvalidatedServerDef): void {
-  const v = validate(def);
+export const addMcpServerEffect = (agentDir: string, def: UnvalidatedServerDef): Effect.Effect<void, McpConfigError> => Effect.gen(function* () {
+  const v = yield* validateEffect(def);
   if (!existsSync(agentDir)) {
-    mkdirSync(agentDir, { recursive: true, mode: 0o700 });
+    yield* Effect.try({
+      try: () => mkdirSync(agentDir, { recursive: true, mode: 0o700 }),
+      catch: (err) => new McpConfigError({ message: err instanceof Error ? err.message : String(err) }),
+    });
   }
-  const servers = loadMcpServers(agentDir);
+  const servers = yield* loadMcpServersEffect(agentDir);
   if (v.name in servers) {
-    throw new McpConfigError(
-      `server "${v.name}" 已存在于 ${mcpConfigPath(agentDir)}。先 hapi mcp remove ${v.name} 再添加。`,
-    );
+    return yield* Effect.fail(new McpConfigError({
+      message: `server "${v.name}" 已存在于 ${mcpConfigPath(agentDir)}。先 hapi mcp remove ${v.name} 再添加。`,
+    }));
   }
   const { name, ...entry } = v;
   servers[name] = entry;
-  writeFileSync(
-    mcpConfigPath(agentDir),
-    JSON.stringify({ mcpServers: servers }, null, 2) + "\n",
-    "utf8",
-  );
+  yield* Effect.try({
+    try: () => writeFileSync(mcpConfigPath(agentDir), JSON.stringify({ mcpServers: servers }, null, 2) + "\n", "utf8"),
+    catch: (err) => new McpConfigError({ message: err instanceof Error ? err.message : String(err) }),
+  });
+});
+
+export function addMcpServer(agentDir: string, def: UnvalidatedServerDef): void {
+  const result = Effect.runSync(Effect.either(addMcpServerEffect(agentDir, def)));
+  if (result._tag === "Left") throw result.left;
 }
 
 /** 删除 server；不存在返回 false（调用方决定如何呈现） */
-export function removeMcpServer(agentDir: string, name: string): boolean {
-  const servers = loadMcpServers(agentDir);
+export const removeMcpServerEffect = (agentDir: string, name: string): Effect.Effect<boolean, McpConfigError> => Effect.gen(function* () {
+  const servers = yield* loadMcpServersEffect(agentDir);
   if (!(name in servers)) return false;
   delete servers[name];
-  writeFileSync(
-    mcpConfigPath(agentDir),
-    JSON.stringify({ mcpServers: servers }, null, 2) + "\n",
-    "utf8",
-  );
+  yield* Effect.try({
+    try: () => writeFileSync(mcpConfigPath(agentDir), JSON.stringify({ mcpServers: servers }, null, 2) + "\n", "utf8"),
+    catch: (err) => new McpConfigError({ message: err instanceof Error ? err.message : String(err) }),
+  });
   return true;
+});
+
+export function removeMcpServer(agentDir: string, name: string): boolean {
+  const result = Effect.runSync(Effect.either(removeMcpServerEffect(agentDir, name)));
+  if (result._tag === "Left") throw result.left;
+  return result.right;
 }

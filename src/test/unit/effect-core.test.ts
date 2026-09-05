@@ -1,6 +1,6 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -13,6 +13,9 @@ import {
   writeSkeletonFilesEffect,
 } from "../../providers/providers.js";
 import { ensureExtensionConfigsEffect } from "../../extensions/ensure-configs.js";
+import { removeSafetyExtensionsEffect } from "../../safety/safety-settings.js";
+import { bwrapInstalledEffect } from "../../safety/sandbox.js";
+import { addMcpServer, addMcpServerEffect, McpConfigError, loadMcpServersEffect } from "../../mcp/config-store.js";
 
 describe("Effect 核心 API", () => {
   let tmpBase: string;
@@ -127,5 +130,54 @@ describe("Effect 核心 API", () => {
   it("resolvePiCliEffect 成功返回存在的路径", () => {
     const path = Effect.runSync(resolvePiCliEffect);
     assert.ok(existsSync(path), `路径应存在: ${path}`);
+  });
+
+  it("sandbox 探测异常按 never 语义降级为 false", () => {
+    const result = Effect.runSync(bwrapInstalledEffect(() => {
+      throw new Error("spawn failed");
+    }));
+    assert.equal(result, false);
+  });
+
+  it("removeSafetyExtensionsEffect 写入失败走 Fail 通道", () => {
+    const blocked = join(tmpBase, "blocked-safety");
+    writeFileSync(blocked, "file");
+    const exit = Effect.runSyncExit(removeSafetyExtensionsEffect(blocked));
+    assert.equal(exit._tag, "Failure");
+    if (exit._tag === "Failure") assert.equal(exit.cause._tag, "Fail");
+    assert.equal(
+      Effect.runSync(
+        removeSafetyExtensionsEffect(blocked).pipe(
+          Effect.catchTag("SafetySettingsError", () => Effect.succeed("caught")),
+        ),
+      ),
+      "caught",
+    );
+  });
+
+  it("MCP 校验失败走 McpConfigError Fail 通道且同步包装保留实例类型", () => {
+    const def = { name: "bad/name", type: "stdio" } as { name: string; type: string } & Record<string, unknown>;
+    const exit = Effect.runSyncExit(addMcpServerEffect(tmpBase, def));
+    assert.equal(exit._tag, "Failure");
+    if (exit._tag === "Failure") assert.equal(exit.cause._tag, "Fail");
+    assert.equal(
+      Effect.runSync(
+        addMcpServerEffect(tmpBase, def).pipe(
+          Effect.catchTag("McpConfigError", () => Effect.succeed("caught")),
+        ),
+      ),
+      "caught",
+    );
+    assert.throws(() => addMcpServer(tmpBase, def), McpConfigError);
+  });
+
+  it("loadMcpServersEffect 损坏配置走 McpConfigError Fail 通道", () => {
+    const dir = join(tmpBase, "mcp-bad");
+    const path = join(dir, "mcp.json");
+    mkdirSync(dir);
+    writeFileSync(path, "bad json");
+    const exit = Effect.runSyncExit(loadMcpServersEffect(dir));
+    assert.equal(exit._tag, "Failure");
+    if (exit._tag === "Failure") assert.equal(exit.cause._tag, "Fail");
   });
 });

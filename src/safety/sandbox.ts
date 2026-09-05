@@ -9,20 +9,27 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { Effect } from "effect";
 
 /**
  * 检测 bwrap 是否可用（`which bwrap`，PATH 外不可见则视为缺失）。
  * spawnFn 可注入（测试用）；默认走真实 spawnSync。
  */
+export const bwrapInstalledEffect = (
+  spawnFn: typeof spawnSync = spawnSync,
+): Effect.Effect<boolean, never> => Effect.try({
+  try: () => spawnFn("which", ["bwrap"], { stdio: "ignore" }).status === 0,
+  catch: (err) => err,
+}).pipe(Effect.catchAll(() => Effect.succeed(false)));
+
 export function bwrapInstalled(
   spawnFn: typeof spawnSync = spawnSync,
 ): boolean {
-  try {
-    const r = spawnFn("which", ["bwrap"], { stdio: "ignore" });
-    return r.status === 0;
-  } catch {
-    return false;
-  }
+  const result = Effect.runSync(Effect.either(bwrapInstalledEffect(spawnFn))) as
+    | { _tag: "Left"; left: { message: string } }
+    | { _tag: "Right"; right: boolean };
+  if (result._tag === "Left") throw new Error(result.left.message);
+  return result.right;
 }
 
 /** bwrap 缺失时的发行版安装提示（纯文本，供测试断言） */

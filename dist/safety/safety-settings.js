@@ -1,6 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Data, Effect } from "effect";
+export class SafetySettingsError extends Data.TaggedError("SafetySettingsError") {
+}
 /**
  * 安全门 settings 通道（#37）：
  *
@@ -61,17 +64,24 @@ export function partitionSafetyEntries(extensions) {
  * - settings.json 解析失败 → console.warn + 不动原文件（不吞掉用户数据）
  * - 已包含正确条目 → 不写文件
  */
-export function ensureSafetyExtensions(agentDir) {
+export const ensureSafetyExtensionsEffect = (agentDir) => Effect.gen(function* () {
     const paths = safetyExtensionPaths();
     for (const p of paths) {
         if (!existsSync(p)) {
-            throw new Error(`[hapilon] 安全门扩展缺失：${p} 不存在。请重新 npm run build——` +
-                `安全门必须随 hapilon 一起安装，否则子代理将不受保护。`);
+            return yield* Effect.fail(new SafetySettingsError({
+                message: `[hapilon] 安全门扩展缺失：${p} 不存在。请重新 npm run build——` +
+                    `安全门必须随 hapilon 一起安装，否则子代理将不受保护。`,
+            }));
         }
     }
-    applySettingsExtensions(agentDir, (settings, others) => {
+    yield* applySettingsExtensionsEffect(agentDir, (settings, others) => {
         settings.extensions = [...others, ...paths];
     });
+});
+export function ensureSafetyExtensions(agentDir) {
+    const result = Effect.runSync(Effect.either(ensureSafetyExtensionsEffect(agentDir)));
+    if (result._tag === "Left")
+        throw new Error(result.left.message);
 }
 /**
  * 从 <agentDir>/settings.json 移除安全门扩展条目（幂等合并写）。
@@ -80,14 +90,20 @@ export function ensureSafetyExtensions(agentDir) {
  * settings.json 解析失败时 warn + 不动原文件——此时宁可保守（继续带门运行），
  * 也不能把解析失败的文件覆写掉。
  */
+export const removeSafetyExtensionsEffect = (agentDir) => applySettingsExtensionsEffect(agentDir, (settings, others) => {
+    settings.extensions = others;
+});
 export function removeSafetyExtensions(agentDir) {
-    applySettingsExtensions(agentDir, (settings, others) => {
-        settings.extensions = others;
-    });
+    const result = Effect.runSync(Effect.either(removeSafetyExtensionsEffect(agentDir)));
+    if (result._tag === "Left")
+        throw new Error(result.left.message);
 }
-function applySettingsExtensions(agentDir, apply) {
+const applySettingsExtensionsEffect = (agentDir, apply) => Effect.gen(function* () {
     if (!existsSync(agentDir)) {
-        mkdirSync(agentDir, { recursive: true, mode: 0o700 });
+        yield* Effect.try({
+            try: () => mkdirSync(agentDir, { recursive: true, mode: 0o700 }),
+            catch: (err) => new SafetySettingsError({ message: err instanceof Error ? err.message : String(err) }),
+        });
     }
     const path = join(agentDir, "settings.json");
     let settings = {};
@@ -111,5 +127,8 @@ function applySettingsExtensions(agentDir, apply) {
     if (JSON.stringify(settings.extensions) === before) {
         return; // 幂等：无变化不写
     }
-    writeFileSync(path, JSON.stringify(settings, null, 2) + "\n", "utf8");
-}
+    yield* Effect.try({
+        try: () => writeFileSync(path, JSON.stringify(settings, null, 2) + "\n", "utf8"),
+        catch: (err) => new SafetySettingsError({ message: err instanceof Error ? err.message : String(err) }),
+    });
+});
