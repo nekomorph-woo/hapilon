@@ -18,6 +18,7 @@ import { bwrapInstalledEffect } from "../../safety/sandbox.js";
 import { addMcpServer, addMcpServerEffect, McpConfigError, loadMcpServersEffect } from "../../mcp/config-store.js";
 import { listModelsForProvider, listModelsForProviderEffect, PiListingError } from "../../providers/pi-listing.js";
 import { readProjectConfigEffect, writeProjectLocalConfigEffect } from "../../config/project-config.js";
+import { prepareStartupEffect } from "../../cli/startup.js";
 
 describe("Effect 核心 API", () => {
   let tmpBase: string;
@@ -243,5 +244,18 @@ describe("Effect 核心 API", () => {
     } finally {
       process.off("unhandledRejection", onUnhandled);
     }
+  });
+
+  it("prepareStartupEffect 组装完整 PiLaunchPlan", async () => {
+    process.env.HAPILON_HOME = tmpBase;
+    const plan = await Effect.runPromise(prepareStartupEffect(["--print", "--no-safety", "--sandbox"]));
+    assert.ok(existsSync(plan.piCli));
+    assert.equal(plan.isNonInteractive, true);
+    assert.equal(plan.useSandbox, true);
+    assert.ok(plan.piArgs.includes("--no-context-files"));
+    assert.ok(plan.piArgs.includes("--no-skills"));
+    assert.ok(!plan.piArgs.includes("--no-safety"));
+    assert.ok(plan.extensionFlags.includes("-e"));
+    assert.equal(plan.piEnv.PI_CODING_AGENT_DIR, join(tmpBase, "agent"));
   });
 });

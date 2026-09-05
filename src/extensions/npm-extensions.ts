@@ -1,6 +1,11 @@
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { Data, Effect } from "effect";
+
+export class NpmExtensionError extends Data.TaggedError("NpmExtensionError")<{
+  message: string;
+}> {}
 
 /**
  * npm 扩展接线（#37）：
@@ -80,9 +85,24 @@ export function resolveExtensionEntry(
  * @returns 入口绝对路径数组（与 NPM_EXTENSIONS 声明顺序一致）
  */
 export function resolveNpmExtensionPaths(): string[] {
-  // 从本模块位置解析（dist/npm-extensions.js），锚定 hapilon 的 node_modules
-  const require = createRequire(import.meta.url);
-  return NPM_EXTENSIONS.map(([pkg, entry]) =>
-    resolveExtensionEntry(pkg, entry, (id) => require.resolve(id)),
-  );
+  const result = Effect.runSync(Effect.either(resolveNpmExtensionPathsEffect));
+  if (result._tag === "Left") throw new Error(result.left.message);
+  return result.right;
 }
+
+export const resolveExtensionEntryEffect = (
+  pkg: string,
+  entry: string,
+  resolve: (id: string) => string,
+): Effect.Effect<string, NpmExtensionError> => Effect.try({
+  try: () => resolveExtensionEntry(pkg, entry, resolve),
+  catch: (err) => new NpmExtensionError({ message: err instanceof Error ? err.message : String(err) }),
+});
+
+export const resolveNpmExtensionPathsEffect: Effect.Effect<string[], NpmExtensionError> = Effect.gen(function* () {
+  const require = createRequire(import.meta.url);
+  return yield* Effect.forEach(
+    NPM_EXTENSIONS,
+    ([pkg, entry]) => resolveExtensionEntryEffect(pkg, entry, (id) => require.resolve(id)),
+  );
+});
