@@ -26,7 +26,7 @@ tarball 是构建完成的完整快照，两条坑都绕开。
 
 ## SOP-1 发版（开发机，每次发布跑一遍）
 
-前置：源码改动已全部合入 main；`dist/` 与 `src/` 一致（改过源码必须先 `npm run build` 并提交 dist——dist 已入库）。
+前置：源码改动已全部合入 main；`../dist` 与 `src/` 一致（改过源码必须先 `npm run build` 并提交 dist——dist 已入库）。
 
 ### 步骤
 
@@ -108,7 +108,7 @@ hapilon           # 或 hapi —— 同一程序的双入口
 ### 说明
 
 - 用户数据（密钥、sessions、扩展配置）全部在本机 `~/.hapilon/`，与安装目录分离——多台机器各自独立，**不需要也不应该在机器间同步这个目录**
-- `hapilon` 与 `hapi` 是同一 `dist/cli.js` 的两个 bin 别名，npm 全局安装时自动创建，行为完全一致
+- `hapilon` 与 `hapi` 是同一 `../dist/cli.js` 的两个 bin 别名，npm 全局安装时自动创建，行为完全一致
 
 ---
 
