@@ -1,8 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Data, Effect } from "effect";
 
-export function resolvePiCli(): string {
+export class PiCliNotFoundError extends Data.TaggedError("PiCliNotFoundError")<{
+  message: string;
+}> {}
+
+function findPiCli(): string | undefined {
   const entryUrl = import.meta.resolve(
     "@earendil-works/pi-coding-agent",
   );
@@ -21,10 +26,24 @@ export function resolvePiCli(): string {
     }
     const parent = dirname(dir);
     if (parent === dir) {
-      throw new Error(
-        "Cannot locate pi-coding-agent CLI",
-      );
+      return undefined;
     }
     dir = parent;
   }
+}
+
+export const resolvePiCliEffect: Effect.Effect<string, PiCliNotFoundError> = Effect.gen(function* () {
+  const path = yield* Effect.sync(findPiCli);
+  if (path === undefined) {
+    return yield* Effect.fail(new PiCliNotFoundError({ message: "Cannot locate pi-coding-agent CLI" }));
+  }
+  return path;
+});
+
+export function resolvePiCli(): string {
+  const result = Effect.runSync(Effect.either(resolvePiCliEffect));
+  if (result._tag === "Left") {
+    throw new Error(result.left.message);
+  }
+  return result.right;
 }

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { configFilePath } from "./hapilon-home.js";
+import { configFilePath, configFilePathEffect } from "./hapilon-home.js";
+import { Data, Effect } from "effect";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -10,9 +11,13 @@ export interface HapilonConfig {
   safetyNoticeShown?: boolean;
 }
 
+export class ConfigWriteError extends Data.TaggedError("ConfigWriteError")<{
+  message: string;
+}> {}
+
 // ─── Config file I/O ─────────────────────────────────────────────────
 
-export function readHapilonConfig(): HapilonConfig {
+export const readHapilonConfigEffect: Effect.Effect<HapilonConfig, never> = Effect.sync(() => {
   const path = configFilePath();
   if (!existsSync(path)) return {};
   try {
@@ -47,15 +52,36 @@ export function readHapilonConfig(): HapilonConfig {
     );
     return {};
   }
+});
+
+export function readHapilonConfig(): HapilonConfig {
+  return Effect.runSync(readHapilonConfigEffect);
 }
 
+export const writeHapilonConfigEffect = (config: HapilonConfig): Effect.Effect<void, ConfigWriteError> => Effect.gen(function* () {
+  const path = yield* configFilePathEffect.pipe(
+    Effect.mapError((error) => new ConfigWriteError({ message: error.message })),
+  );
+  yield* Effect.try({
+    try: () => {
+    const parent = dirname(path);
+    if (!existsSync(parent)) {
+      mkdirSync(parent, { recursive: true, mode: 0o700 });
+    }
+    writeFileSync(path, JSON.stringify(config, null, 2) + "\n", "utf8");
+    },
+    catch: (err) => {
+    const detail = err instanceof Error ? err.message : String(err);
+      return new ConfigWriteError({ message: detail });
+    },
+  });
+});
+
 export function writeHapilonConfig(config: HapilonConfig): void {
-  const path = configFilePath();
-  const parent = dirname(path);
-  if (!existsSync(parent)) {
-    mkdirSync(parent, { recursive: true, mode: 0o700 });
+  const result = Effect.runSync(Effect.either(writeHapilonConfigEffect(config)));
+  if (result._tag === "Left") {
+    throw new Error(result.left.message);
   }
-  writeFileSync(path, JSON.stringify(config, null, 2) + "\n", "utf8");
 }
 
 // ─── CLI arg helpers ─────────────────────────────────────────────────

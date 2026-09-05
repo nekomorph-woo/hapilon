@@ -1,8 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { configFilePath } from "./hapilon-home.js";
+import { configFilePath, configFilePathEffect } from "./hapilon-home.js";
+import { Data, Effect } from "effect";
+export class ConfigWriteError extends Data.TaggedError("ConfigWriteError") {
+}
 // ─── Config file I/O ─────────────────────────────────────────────────
-export function readHapilonConfig() {
+export const readHapilonConfigEffect = Effect.sync(() => {
     const path = configFilePath();
     if (!existsSync(path))
         return {};
@@ -40,14 +43,31 @@ export function readHapilonConfig() {
         console.warn(`Warning: config.json 读取或解析失败 (${detail})，将以空配置处理`);
         return {};
     }
+});
+export function readHapilonConfig() {
+    return Effect.runSync(readHapilonConfigEffect);
 }
+export const writeHapilonConfigEffect = (config) => Effect.gen(function* () {
+    const path = yield* configFilePathEffect.pipe(Effect.mapError((error) => new ConfigWriteError({ message: error.message })));
+    yield* Effect.try({
+        try: () => {
+            const parent = dirname(path);
+            if (!existsSync(parent)) {
+                mkdirSync(parent, { recursive: true, mode: 0o700 });
+            }
+            writeFileSync(path, JSON.stringify(config, null, 2) + "\n", "utf8");
+        },
+        catch: (err) => {
+            const detail = err instanceof Error ? err.message : String(err);
+            return new ConfigWriteError({ message: detail });
+        },
+    });
+});
 export function writeHapilonConfig(config) {
-    const path = configFilePath();
-    const parent = dirname(path);
-    if (!existsSync(parent)) {
-        mkdirSync(parent, { recursive: true, mode: 0o700 });
+    const result = Effect.runSync(Effect.either(writeHapilonConfigEffect(config)));
+    if (result._tag === "Left") {
+        throw new Error(result.left.message);
     }
-    writeFileSync(path, JSON.stringify(config, null, 2) + "\n", "utf8");
 }
 // ─── CLI arg helpers ─────────────────────────────────────────────────
 /** hapilon 自有 flag 注册表 —— pi 不认识、spawn 前必须剥离的参数 */
