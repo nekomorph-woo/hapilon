@@ -1,6 +1,6 @@
 {
   "name": "hapilon",
-  "version": "0.1.0-alpha",
+  "version": "0.2.0",
   "description": "A multi-provider coding agent powered by Pi",
   "private": true,
   "type": "module",
