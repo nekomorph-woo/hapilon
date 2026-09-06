@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import hplModelTiers from "../../extensions/hpl-model-tiers/index.js";
 
-describe("hpl-model-tiers /tiers 命令", () => {
+describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
   let home: string;
   const originalHome = process.env.HAPILON_HOME;
 
@@ -56,5 +56,38 @@ describe("hpl-model-tiers /tiers 命令", () => {
       low: ["deepseek-chat"],
     });
     assert.match(notices.at(-1)!, /\/reload/);
+
+    // 同一用例顺序验证 Esc：避免测试之间共享 HAPILON_HOME 造成环境变量竞态。
+    const initial = JSON.stringify({ mid: ["glm-*"], low: ["deepseek-chat"] });
+    writeFileSync(join(home, "model-tiers.json"), initial);
+    const before = readFileSync(join(home, "model-tiers.json"), "utf8");
+    const cancelCommands = new Map<string, { handler: Function }>();
+    hplModelTiers({
+      registerCommand: (name: string, definition: { handler: Function }) => cancelCommands.set(name, definition),
+      on: () => {},
+    } as never);
+
+    const cancelSelections: Array<string | undefined> = ["high", "添加模型", "anthropic/claude-opus-4", undefined];
+    const cancelNotices: string[] = [];
+    await cancelCommands.get("tiers")!.handler("", {
+      cwd: home,
+      ui: {
+        select: async (_title: string, options: string[]) => {
+          const next = cancelSelections.shift();
+          assert.ok(next === undefined || options.includes(next), `${next} 应在候选项中`);
+          return next;
+        },
+        notify: (message: string) => cancelNotices.push(message),
+      },
+      modelRegistry: {
+        getAvailable: () => [
+          { provider: "anthropic", id: "claude-opus-4" },
+          { provider: "zhipu", id: "glm-4" },
+        ],
+      },
+    });
+
+    assert.equal(readFileSync(join(home, "model-tiers.json"), "utf8"), before);
+    assert.ok(cancelNotices.some((message) => message.includes("已取消，本次改动未保存")));
   });
 });

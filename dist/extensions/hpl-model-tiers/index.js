@@ -197,7 +197,11 @@ async function addModels(ctx, tiers, tier) {
     let changed = false;
     while (available.length > 0) {
         const selected = await ctx.ui.select("添加模型（可连续选择）", [...available, "完成"]);
-        if (!selected || selected === "完成")
+        if (selected === undefined) {
+            ctx.ui.notify("已取消，本次改动未保存", "info");
+            return;
+        }
+        if (selected === "完成")
             break;
         const index = available.indexOf(selected);
         if (index < 0)
