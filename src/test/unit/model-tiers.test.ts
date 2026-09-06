@@ -30,6 +30,7 @@ describe("hpl-model-tiers 模型解析与 Pi settings 合并", () => {
 
   afterEach(() => {
     rmSync(join(home, "model-tiers.json"), { force: true });
+    rmSync(join(home, "model-tiers-resolved.json"), { force: true });
     rmSync(join(home, "agent"), { recursive: true, force: true });
     rmSync(join(project, ".hapilon"), { recursive: true, force: true });
     resetTierModels();
@@ -93,6 +94,9 @@ describe("hpl-model-tiers 模型解析与 Pi settings 合并", () => {
     assert.deepEqual(settings.enabledModels, ["custom/*", "glm-*", "anthropic/claude-opus-*"]);
     assert.equal(settings.defaultProvider, "anthropic");
     assert.equal(settings.defaultModel, "claude-opus-4");
+    const resolved = JSON.parse(readFileSync(join(home, "model-tiers-resolved.json"), "utf8"));
+    assert.deepEqual(resolved.high, [{ provider: "anthropic", id: "claude-opus-4" }]);
+    assert.deepEqual(resolved.mid, [{ provider: "zhipu", id: "glm-4" }]);
   });
 
   it("同一输入二轮幂等：第二轮不写 settings", async () => {

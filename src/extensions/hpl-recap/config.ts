@@ -1,0 +1,65 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { Effect } from "effect";
+import { hapilonHome } from "../../config/hapilon-home.js";
+
+export interface RecapConfig {
+  enabled: boolean;
+  idleMinutes: number;
+  maxContextChars: number;
+}
+
+export const RECAP_DEFAULTS: RecapConfig = {
+  enabled: true,
+  idleMinutes: 3,
+  maxContextChars: 8000,
+};
+
+export function recapConfigPath(): string {
+  return join(hapilonHome(), "recap-config.json");
+}
+
+function validPositiveNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+export const readRecapConfigEffect: Effect.Effect<RecapConfig, never> = Effect.try({
+  try: () => {
+    const path = recapConfigPath();
+    if (!existsSync(path)) return { ...RECAP_DEFAULTS };
+
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      console.warn(`[hpl-recap] ${path} 顶层必须是对象，使用默认配置。`);
+      return { ...RECAP_DEFAULTS };
+    }
+
+    const raw = parsed as Record<string, unknown>;
+    const enabled = raw.enabled === undefined
+      ? RECAP_DEFAULTS.enabled
+      : typeof raw.enabled === "boolean"
+        ? raw.enabled
+        : (console.warn("[hpl-recap] enabled 非布尔值，使用默认值。"), RECAP_DEFAULTS.enabled);
+    const idleMinutes = raw.idleMinutes === undefined
+      ? RECAP_DEFAULTS.idleMinutes
+      : validPositiveNumber(raw.idleMinutes)
+        ? raw.idleMinutes
+        : (console.warn("[hpl-recap] idleMinutes 非正有限数，使用默认值。"), RECAP_DEFAULTS.idleMinutes);
+    const maxContextChars = raw.maxContextChars === undefined
+      ? RECAP_DEFAULTS.maxContextChars
+      : Number.isInteger(raw.maxContextChars) && validPositiveNumber(raw.maxContextChars)
+        ? raw.maxContextChars
+        : (console.warn("[hpl-recap] maxContextChars 非正整数，使用默认值。"), RECAP_DEFAULTS.maxContextChars);
+    return { enabled, idleMinutes, maxContextChars };
+  },
+  catch: (error) => error,
+}).pipe(
+  Effect.catchAll((error) => Effect.sync(() => {
+    console.warn(`[hpl-recap] 配置读取失败，使用默认配置：${String(error)}`);
+    return { ...RECAP_DEFAULTS };
+  })),
+);
+
+export function readRecapConfig(): RecapConfig {
+  return Effect.runSync(readRecapConfigEffect);
+}

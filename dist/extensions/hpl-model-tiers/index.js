@@ -87,6 +87,20 @@ function writeSettings(path, settings) {
         mkdirSync(parent, { recursive: true, mode: 0o700 });
     writeFileSync(path, JSON.stringify(settings, null, 2) + "\n", "utf8");
 }
+const writeResolvedTiersEffect = (home, matched) => Effect.try({
+    try: () => {
+        const resolved = {
+            high: matched.high.map(({ provider, id, name, reasoning }) => ({ provider, id, name, reasoning })),
+            mid: matched.mid.map(({ provider, id, name, reasoning }) => ({ provider, id, name, reasoning })),
+            low: matched.low.map(({ provider, id, name, reasoning }) => ({ provider, id, name, reasoning })),
+        };
+        mkdirSync(home, { recursive: true, mode: 0o700 });
+        writeFileSync(join(home, "model-tiers-resolved.json"), JSON.stringify(resolved, null, 2) + "\n", "utf8");
+    },
+    catch: (error) => error,
+}).pipe(Effect.catchAll((error) => Effect.sync(() => {
+    console.warn(`[hpl-model-tiers] resolved tiers 写入失败，继续启动：${String(error)}`);
+})));
 function sameStrings(left, right) {
     return Array.isArray(left) && left.length === right.length && left.every((value, index) => value === right[index]);
 }
@@ -97,10 +111,11 @@ const emptyResult = () => ({
 });
 export const applyModelTiersEffect = (cwd, available) => Effect.gen(function* () {
     const tiers = yield* readModelTiersEffect(cwd);
-    const settingsPath = yield* Effect.try({
-        try: () => join(hapilonHome(), "agent", "settings.json"),
+    const home = yield* Effect.try({
+        try: () => hapilonHome(),
         catch: (error) => error,
     });
+    const settingsPath = join(home, "agent", "settings.json");
     const settings = yield* Effect.try({
         try: () => readSettings(settingsPath),
         catch: (error) => error,
@@ -108,6 +123,7 @@ export const applyModelTiersEffect = (cwd, available) => Effect.gen(function* ()
     const baseResult = resolveTierModels(tiers, available, Array.isArray(settings?.enabledModels)
         ? settings.enabledModels.filter((value) => typeof value === "string")
         : undefined);
+    yield* writeResolvedTiersEffect(home, baseResult.matched);
     if (!settings)
         return { ...baseResult, settingsChanged: false };
     const hasTierPatterns = MODEL_TIERS.some((tier) => tiers[tier].length > 0);

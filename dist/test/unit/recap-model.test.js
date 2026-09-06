@@ -1,0 +1,70 @@
+import { describe, it, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Effect } from "effect";
+import { recapModelLabel, selectRecapModel } from "../../extensions/hpl-recap/model.js";
+import { readResolvedTiersEffect } from "../../extensions/hpl-recap/resolved.js";
+const low = { provider: "fast", id: "flash", name: "Flash", reasoning: false };
+const reasoningMid = { provider: "work", id: "think", reasoning: true };
+const plainMid = { provider: "work", id: "plain", reasoning: false };
+const current = { provider: "current", id: "active", reasoning: true };
+const all = [low, reasoningMid, plainMid];
+const emptyTiers = { high: [], mid: [], low: [] };
+describe("hpl-recap 模型选择", () => {
+    let home;
+    const originalHome = process.env.HAPILON_HOME;
+    before(() => {
+        home = mkdtempSync(join(tmpdir(), "hapilon-recap-resolved-"));
+        process.env.HAPILON_HOME = home;
+    });
+    after(() => {
+        if (originalHome === undefined)
+            delete process.env.HAPILON_HOME;
+        else
+            process.env.HAPILON_HOME = originalHome;
+        rmSync(home, { recursive: true, force: true });
+    });
+    it("优先 resolved low 档匹配模型", () => {
+        const result = selectRecapModel(all, current, { high: [], mid: [reasoningMid], low: [low] });
+        assert.equal(result.model, low);
+        assert.equal(result.degraded, false);
+    });
+    it("low 无匹配时选 resolved mid 非推理模型", () => {
+        const result = selectRecapModel([reasoningMid, plainMid], current, {
+            high: [],
+            mid: [reasoningMid, plainMid],
+            low: [{ provider: "missing", id: "model" }],
+        });
+        assert.equal(result.model, plainMid);
+        assert.equal(result.degraded, true);
+        assert.equal(result.reason, "recap 模型降级：low 档无可用模型");
+    });
+    it("mid 也无匹配时降级当前模型，再无当前模型则无结果", () => {
+        const fallback = selectRecapModel([], current, emptyTiers);
+        assert.equal(fallback.model, current);
+        assert.equal(fallback.degraded, true);
+        const none = selectRecapModel([], undefined, emptyTiers);
+        assert.equal(none.model, undefined);
+        assert.match(none.reason ?? "", /当前模型也不可用/);
+    });
+    it("从 model-tiers-resolved.json 读取解析后的模型清单", () => {
+        writeFileSync(join(home, "model-tiers-resolved.json"), JSON.stringify({
+            high: [],
+            mid: [reasoningMid, plainMid],
+            low: [low],
+        }));
+        const resolved = Effect.runSync(readResolvedTiersEffect);
+        const result = selectRecapModel(all, current, resolved);
+        assert.equal(result.model, low);
+        assert.equal(recapModelLabel(low), "Flash");
+    });
+    it("resolved 文件缺失时按空档走降级链", () => {
+        rmSync(join(home, "model-tiers-resolved.json"), { force: true });
+        const resolved = Effect.runSync(readResolvedTiersEffect);
+        const result = selectRecapModel([], current, resolved);
+        assert.equal(result.model, current);
+        assert.equal(result.degraded, true);
+    });
+});
