@@ -20,6 +20,7 @@ describe("metadata", () => {
             hapilonInstructions: 0,
             hapilonRules: 800,
             contextFiles: 0,
+            externalDirectories: 0,
             skills: 0,
             customToolsNote: 150,
             additionalData: 0,

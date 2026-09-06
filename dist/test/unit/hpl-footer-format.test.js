@@ -84,20 +84,20 @@ describe("aggregateUsage — usage 累加", () => {
 describe("buildStatsLeft — 第 2 行左侧", () => {
     it("正常路径: 完整统计行格式", () => {
         const line = buildStatsLeft({ input: 2200, output: 1200, cacheHitRate: 86.6 }, 41.2, 1000000, "[HOT]");
-        assert.equal(line, "↑ 2.2k ↓ 1.2k  | hit 86.6%  | ctx 41.2%/1m [HOT]");
+        assert.equal(line, "↑ 2.2k ↓ 1.2k  • hit 86.6%  • ctx 41.2%/1m [HOT]");
     });
     it("spec #21 验收样例: 整数输入走既有 toFixed(1) 格式（5.0k / 34.0%）", () => {
         const line = buildStatsLeft({ input: 2200, output: 5000, cacheHitRate: 87.3 }, 34, 200000, "[HOT]");
         // 尾零是 formatTokens / 百分比既有 toFixed(1) 格式；trim 尾零留作 backlog
-        assert.equal(line, "↑ 2.2k ↓ 5.0k  | hit 87.3%  | ctx 34.0%/200k [HOT]");
+        assert.equal(line, "↑ 2.2k ↓ 5.0k  • hit 87.3%  • ctx 34.0%/200k [HOT]");
     });
     it("边界条件: 0 值项跳过（up/down/hit 均可省略）", () => {
         const line = buildStatsLeft({ input: 0, output: 0 }, 0.3, 1000000, "[HOT]");
-        assert.equal(line, " | ctx 0.3%/1m [HOT]");
+        assert.equal(line, " • ctx 0.3%/1m [HOT]");
     });
     it("异常路径: 占用未知（null）时百分比显示 ?", () => {
         const line = buildStatsLeft({ input: 100, output: 0 }, null, 200000, "[HOT]");
-        assert.equal(line, "↑ 100  | ctx ?/200k [HOT]");
+        assert.equal(line, "↑ 100  • ctx ?/200k [HOT]");
     });
 });
 describe("visibleWidth / layoutLine — ANSI 宽度与布局", () => {

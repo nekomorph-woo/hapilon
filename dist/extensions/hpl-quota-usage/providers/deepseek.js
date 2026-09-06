@@ -23,3 +23,16 @@ export function parseQuotaLines(payload) {
     return fields;
 }
 export const parseDeepSeekQuota = parseQuotaLines;
+export function parseSnapshot(payload, now) {
+    const root = asRecord(payload);
+    const balances = Array.isArray(root?.balance_infos) ? root.balance_infos : [];
+    let balanceCny;
+    for (const item of balances) {
+        const balance = asRecord(item);
+        if (balance?.currency === "CNY" && balance.total_balance !== undefined) {
+            const amount = Number(balance.total_balance);
+            balanceCny = Number.isFinite(amount) ? String(Math.round(amount)) : String(balance.total_balance);
+        }
+    }
+    return { provider: "deepseek", balanceCny, windows: [], timestamp: now };
+}

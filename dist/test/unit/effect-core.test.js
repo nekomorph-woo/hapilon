@@ -15,7 +15,7 @@ import { bwrapInstalledEffect } from "../../safety/sandbox.js";
 import { addMcpServer, addMcpServerEffect, McpConfigError, loadMcpServersEffect } from "../../mcp/config-store.js";
 import { listModelsForProvider, listModelsForProviderEffect, PiListingError } from "../../providers/pi-listing.js";
 import { readProjectConfigEffect, writeProjectLocalConfigEffect } from "../../config/project-config.js";
-import { prepareStartupEffect } from "../../cli/startup.js";
+import { prepareStartupEffect, discoverHerdrPiExtension } from "../../cli/startup.js";
 import { collectUpwardEffect, discoverSkillPathsEffect, listFilesEffect, readHapilonMdEffect, readRulesEffect, } from "../../shared/files.js";
 import { ECON_DEFAULTS, writeEconSettingsEffect } from "../../extensions/hpl-econ/settings.js";
 import { storeFullOutputEffect } from "../../extensions/hpl-econ/compress.js";
@@ -204,8 +204,15 @@ describe("Effect 核心 API", () => {
             process.off("unhandledRejection", onUnhandled);
         }
     });
+    it("discoverHerdrPiExtension — 存在/缺失/自定义 agentDir 三分支", () => {
+        const fakeAgentDir = join(tmpBase, "fake-pi-agent");
+        mkdirSync(join(fakeAgentDir, "extensions"), { recursive: true });
+        const herdrExt = join(fakeAgentDir, "extensions", "herdr-agent-state.ts");
+        writeFileSync(herdrExt, "// fake herdr extension\n");
+        assert.equal(discoverHerdrPiExtension(fakeAgentDir), herdrExt);
+        assert.equal(discoverHerdrPiExtension(join(tmpBase, "no-such-agent")), undefined);
+    });
     it("prepareStartupEffect 组装完整 PiLaunchPlan", async () => {
-        process.env.HAPILON_HOME = tmpBase;
         writeFileSync(join(tmpBase, "config.json"), JSON.stringify({ defaultProvider: "startup-provider", defaultModel: "startup-model" }));
         const plan = await Effect.runPromise(prepareStartupEffect(["--print", "--no-safety", "--sandbox"]));
         assert.ok(existsSync(plan.piCli));

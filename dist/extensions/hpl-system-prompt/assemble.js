@@ -16,6 +16,8 @@ import { wrapSystemPrompt } from "./xml.js";
 import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildMcpSectionText, BUILTIN_GUIDELINES, CODE_STYLE_TEXT, } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
+import { getAddedDirs } from "../hpl-add-dir/bridge.js";
+import { buildContextInjection } from "../hpl-add-dir/context.js";
 // ── Individual builders ────────────────────────────────────────────────
 export function buildRoleSection() {
     return `<role>\n${ROLE_TEXT}\n</role>`;
@@ -113,6 +115,14 @@ export function buildAppendSection(appendSystemPrompt) {
         return "";
     return `<additional_instructions>\n${appendSystemPrompt}\n</additional_instructions>`;
 }
+/** 外部目录（/add-dir）注入内容由 hpl-add-dir 经 bridge 提供；此处条件拼接 + XML 转义（Spec §3.9）。 */
+export function buildExternalDirsSection() {
+    const dirs = getAddedDirs();
+    if (dirs.length === 0)
+        return "";
+    const body = xmlEscape(buildContextInjection(dirs).trim());
+    return `<external_directories>\n${body}\n</external_directories>`;
+}
 export function buildEnvironmentSection(cwd, agentDirPath) {
     const normalized = cwd.replace(/\\/g, "/");
     const mcp = agentDirPath ? `\n${buildMcpSectionText(agentDirPath)}` : "";
@@ -151,6 +161,7 @@ export function assembleSystemPrompt(opts) {
     const hapilonInstructions = buildHapilonInstructions(hapilonMd);
     const hapilonRulesSection = buildHapilonRules(hapilonRules);
     const contextFilesSection = buildContextSection(contextFiles);
+    const externalDirsSection = buildExternalDirsSection();
     const skillsSection = buildSkillsSection(skills);
     const appendSection = buildAppendSection(appendSystemPrompt);
     const envSection = buildEnvironmentSection(cwd, agentDirPath);
@@ -167,6 +178,7 @@ export function assembleSystemPrompt(opts) {
             hapilonInstructions: hapilonInstructions.length,
             hapilonRules: hapilonRulesSection.length,
             contextFiles: contextFilesSection.length,
+            externalDirectories: externalDirsSection.length,
             skills: skillsSection.length,
             customToolsNote: customToolsNote.length,
             additionalData: appendSection.length,
@@ -184,6 +196,7 @@ export function assembleSystemPrompt(opts) {
         hapilonInstructions,
         hapilonRulesSection,
         contextFilesSection,
+        externalDirsSection,
         skillsSection,
         appendSection,
         envSection,

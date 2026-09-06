@@ -35,7 +35,7 @@ describe("hpl-quota-usage provider 分发", () => {
         assert.equal(calls, 1);
         assert.equal(result.fields[0]?.value, "未找到该 provider 的凭证，请先 /login");
     });
-    it("zai 国际侧分发到 api.z.ai 并复用 GLM quota 解析", async () => {
+    it("zai 国际侧分发到 api.z.ai quota/limit 并解析 limits 结构", async () => {
         const originalFetch = globalThis.fetch;
         let url = "";
         globalThis.fetch = (async (input) => {
@@ -43,14 +43,18 @@ describe("hpl-quota-usage provider 分发", () => {
             return {
                 ok: true,
                 status: 200,
-                json: async () => ({ data: { planName: "Z.AI Coding Plan", quota: 1234, usedQuota: 12, remainingQuota: 1222 } }),
+                json: async () => ({
+                    code: 200,
+                    msg: "Operation successful",
+                    data: { limits: [{ type: "TOKENS_LIMIT", unit: 3, number: 5, percentage: 42, nextResetTime: 1788708538082 }] },
+                }),
             };
         });
         try {
             const fields = await Effect.runPromise(queryQuotaEffect("zai", { apiKey: "zai-key" }));
             assert.equal(url, GLM_QUOTA_ENDPOINT_INTL);
-            assert.ok(fields.some((item) => item.label === "计划" && item.value === "Z.AI Coding Plan"));
-            assert.ok(fields.some((item) => item.label === "剩余额度" && item.value === "1222"));
+            assert.equal(GLM_QUOTA_ENDPOINT_INTL, "https://api.z.ai/api/monitor/usage/quota/limit");
+            assert.ok(fields.some((item) => item.label === "Token 用量（5 小时窗口）" && item.value.includes("42%")));
         }
         finally {
             globalThis.fetch = originalFetch;
@@ -69,9 +73,10 @@ describe("hpl-quota-usage provider 分发", () => {
     });
 });
 describe("hpl-quota-usage 命令", () => {
-    it("注册 quota-usage，并把凭证缺失结果送入 FloatingPane fallback", async () => {
+    it("注册 quota-usage，无任何凭证时提示且不发请求", async () => {
         const commands = new Map();
         hplQuotaUsage({
+            on: () => { },
             registerCommand: (name, definition) => commands.set(name, definition),
         });
         assert.ok(commands.has("quota-usage"));
@@ -80,10 +85,65 @@ describe("hpl-quota-usage 命令", () => {
             mode: "rpc",
             hasUI: false,
             model: makeModel("deepseek"),
-            modelRegistry: { getApiKeyAndHeaders: async () => ({ ok: false, error: "missing" }) },
+            modelRegistry: {
+                getAll: () => [],
+                getAvailable: () => [],
+                getProviderAuthStatus: () => ({ configured: false }),
+            },
             ui: { notify: (message) => notifications.push(message) },
         });
-        assert.match(notifications[0], /Quota Usage — deepseek/);
-        assert.match(notifications[0], /未找到该 provider 的凭证，请先 \/login/);
+        assert.match(notifications[0], /Quota Usage — all providers/);
+        assert.match(notifications[0], /没有已配置凭证的可查询 provider/);
+    });
+    it("全 provider 视图：有凭证的 provider 分区展示，当前 provider 置顶", async () => {
+        const originalFetch = globalThis.fetch;
+        const fetchedUrls = [];
+        globalThis.fetch = (async (input) => {
+            const url = String(input);
+            fetchedUrls.push(url);
+            if (url.includes("deepseek.com")) {
+                return { ok: true, status: 200, json: async () => ({ is_available: true, balance_infos: [{ currency: "CNY", total_balance: "12" }] }) };
+            }
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({ code: 200, data: { limits: [{ type: "TOKENS_LIMIT", unit: 3, number: 5, percentage: 30, nextResetTime: Date.now() + 3600_000 }] } }),
+            };
+        });
+        try {
+            const commands = new Map();
+            hplQuotaUsage({
+                on: () => { },
+                registerCommand: (name, definition) => commands.set(name, definition),
+            });
+            const notifications = [];
+            const deepseekModel = makeModel("deepseek");
+            const zaiModel = makeModel("zai");
+            await commands.get("quota-usage").handler("", {
+                mode: "rpc",
+                hasUI: false,
+                model: zaiModel,
+                modelRegistry: {
+                    getAll: () => [deepseekModel, zaiModel],
+                    getAvailable: () => [deepseekModel, zaiModel],
+                    getProviderAuthStatus: (provider) => ({ configured: provider === "deepseek" || provider === "zai" }),
+                    getApiKeyAndHeaders: async (model) => model.provider === "deepseek"
+                        ? { ok: true, apiKey: "ds-key" }
+                        : { ok: true, apiKey: "zai-key" },
+                },
+                ui: { notify: (message) => notifications.push(message) },
+            });
+            const text = notifications.join("\n");
+            // 当前 provider zai 分区在前
+            assert.ok(text.indexOf("▌ zai（当前）") < text.indexOf("▌ deepseek"));
+            assert.match(text, /已用 30%/);
+            assert.match(text, /CNY 总余额: 12/);
+            // 两家端点都被请求
+            assert.ok(fetchedUrls.some((u) => u.includes("deepseek.com")));
+            assert.ok(fetchedUrls.some((u) => u.includes("api.z.ai")));
+        }
+        finally {
+            globalThis.fetch = originalFetch;
+        }
     });
 });

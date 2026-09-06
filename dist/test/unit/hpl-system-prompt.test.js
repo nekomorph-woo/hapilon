@@ -5,7 +5,7 @@
  * + sections.ts (文本常量) + assemble.ts (各 section builder)
  * + index.ts (before_agent_start handler 注册与降级路径)
  */
-import { describe, it, before, after } from "node:test";
+import { describe, it, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,8 +13,9 @@ import { join } from "node:path";
 import { xmlEscape } from "../../shared/format.js";
 import { wrapSystemPrompt } from "../../extensions/hpl-system-prompt/xml.js";
 import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, BUILTIN_GUIDELINES, } from "../../extensions/hpl-system-prompt/sections.js";
-import { buildRoleSection, buildCodeStyleSection, buildToolsSection, buildCustomToolsNote, buildGuidelinesSection, buildPiDocSection, buildHapilonInstructions, buildHapilonRules, buildContextSection, buildSkillsSection, buildAppendSection, buildEnvironmentSection, assembleSystemPrompt, collectHapilonContext, } from "../../extensions/hpl-system-prompt/assemble.js";
+import { buildRoleSection, buildCodeStyleSection, buildToolsSection, buildCustomToolsNote, buildGuidelinesSection, buildPiDocSection, buildHapilonInstructions, buildHapilonRules, buildContextSection, buildSkillsSection, buildAppendSection, buildExternalDirsSection, buildEnvironmentSection, assembleSystemPrompt, collectHapilonContext, } from "../../extensions/hpl-system-prompt/assemble.js";
 import hplSystemPrompt from "../../extensions/hpl-system-prompt/index.js";
+import { setAddedDirs, resetAddedDirs } from "../../extensions/hpl-add-dir/bridge.js";
 import { getLastMeta as getSpMeta, clearLastMeta as clearSpMeta } from "../../extensions/hpl-system-prompt/metadata.js";
 // ── shared/format.ts: xmlEscape ────────────────────────────────────────
 describe("xmlEscape", () => {
@@ -306,6 +307,41 @@ describe("buildAppendSection", () => {
         assert.equal(buildAppendSection(undefined), "");
         assert.equal(buildAppendSection(""), "");
         assert.equal(buildAppendSection("   "), "");
+    });
+});
+// ── assemble.ts: buildExternalDirsSection（hpl-add-dir bridge 接线）──
+describe("buildExternalDirsSection", () => {
+    afterEach(() => resetAddedDirs());
+    it("bridge 无目录 → 空字符串", () => {
+        assert.equal(buildExternalDirsSection(), "");
+    });
+    it("有目录 → external_directories 包裹 label/路径/转义后的 HAPILON.md 内容", () => {
+        const dir = mkdtempSync(join(tmpdir(), "hpl-ext-dirs-test-"));
+        writeFileSync(join(dir, "HAPILON.md"), "外部约定 <tag> & \"quote\"");
+        setAddedDirs([{ absolutePath: dir, label: "ext-proj", addedAt: 0 }]);
+        const result = buildExternalDirsSection();
+        assert.ok(result.startsWith("<external_directories>"));
+        assert.ok(result.endsWith("</external_directories>"));
+        assert.ok(result.includes("### 📁 ext-proj"));
+        assert.ok(result.includes(xmlEscape("外部约定 <tag> & \"quote\"")), "内容经 XML 转义");
+        rmSync(dir, { recursive: true, force: true });
+    });
+    it("assembleSystemPrompt 纳入该 section 并记录 meta", () => {
+        const dir = mkdtempSync(join(tmpdir(), "hpl-ext-dirs-test-"));
+        writeFileSync(join(dir, "HAPILON.md"), "外部目录约定");
+        setAddedDirs([{ absolutePath: dir, label: "ext-proj", addedAt: 0 }]);
+        const opts = {
+            toolSnippets: { read: "Read" },
+            selectedTools: ["read"],
+            cwd: "/test/project",
+            hapilonMd: [],
+            hapilonRules: [],
+        };
+        const result = assembleSystemPrompt(opts);
+        assert.ok(result.includes("<external_directories>"));
+        const meta = getSpMeta();
+        assert.ok(meta && meta.sections.externalDirectories > 0);
+        rmSync(dir, { recursive: true, force: true });
     });
 });
 // ── assemble.ts: assembleSystemPrompt ─────────────────────────────────
