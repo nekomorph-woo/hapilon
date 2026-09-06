@@ -6,14 +6,15 @@
  */
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline";
-import { ALL_PROVIDERS, readAuthFile, writeAuthFileNative, maskKey, findProviderDef, } from "../providers/providers.js";
-import { readHapilonConfig, writeHapilonConfig } from "./config-io.js";
+import { Effect } from "effect";
+import { ALL_PROVIDERS, readAuthFileEffect, writeAuthFileNativeEffect, maskKey, findProviderDef, } from "../providers/providers.js";
+import { readHapilonConfigEffect, writeHapilonConfigEffect } from "./config-io.js";
 import { agentDir } from "./hapilon-home.js";
 import { question, yesno } from "./prompts.js";
 import { listModelsForProvider } from "../providers/pi-listing.js";
 // ─── config show ─────────────────────────────────────────────────────
 function configShow() {
-    const config = readHapilonConfig();
+    const config = Effect.runSync(readHapilonConfigEffect);
     if (config.defaultProvider && config.defaultModel) {
         console.log(`默认: --provider ${config.defaultProvider} --model ${config.defaultModel}`);
     }
@@ -40,7 +41,7 @@ async function configSetDefaultInteractive() {
     });
     try {
         // 1. 列出已配 auth 的 provider
-        const auth = readAuthFile(agentDir());
+        const auth = Effect.runSync(readAuthFileEffect(agentDir()));
         const configuredIds = Object.keys(auth);
         if (configuredIds.length === 0) {
             console.log("未配置任何 provider。使用 hapilon config provider add <id> 添加");
@@ -88,10 +89,10 @@ async function configSetDefaultInteractive() {
         }
         const selectedModel = models[modelIdx].model;
         // 6. 保存
-        writeHapilonConfig({
+        Effect.runSync(writeHapilonConfigEffect({
             defaultProvider: selectedProvider,
             defaultModel: selectedModel,
-        });
+        }));
         console.log(`\n✅ 已保存: defaultProvider=${selectedProvider}, defaultModel=${selectedModel}`);
     }
     finally {
@@ -99,17 +100,17 @@ async function configSetDefaultInteractive() {
     }
 }
 function configUnsetDefault() {
-    const config = readHapilonConfig();
+    const config = Effect.runSync(readHapilonConfigEffect);
     if (!config.defaultProvider && !config.defaultModel) {
         console.log("未设置默认配置，无需清除");
         return;
     }
-    writeHapilonConfig({});
+    Effect.runSync(writeHapilonConfigEffect({}));
     console.log("已清除默认配置");
 }
 // ─── config provider list ────────────────────────────────────────────
 function configProviderList() {
-    const auth = readAuthFile(agentDir());
+    const auth = Effect.runSync(readAuthFileEffect(agentDir()));
     const ids = Object.keys(auth);
     if (ids.length === 0) {
         console.log("未配置任何 provider");
@@ -169,7 +170,7 @@ async function configProviderAdd(targetId) {
             selectedId = picked;
         }
         const def = findProviderDef(selectedId);
-        const auth = readAuthFile(agentDir());
+        const auth = Effect.runSync(readAuthFileEffect(agentDir()));
         if (auth[selectedId]) {
             const confirm = await yesno(rl, `${def.name} (${selectedId}) 已配置，是否覆盖？`);
             if (!confirm) {
@@ -183,7 +184,7 @@ async function configProviderAdd(targetId) {
             return;
         }
         auth[selectedId] = { type: "api_key", key };
-        writeAuthFileNative(agentDir(), auth);
+        Effect.runSync(writeAuthFileNativeEffect(agentDir(), auth));
         console.log(`✅ ${def.name} (${selectedId}) 已配置`);
     }
     finally {
@@ -205,7 +206,7 @@ async function configProviderRemove(targetId) {
         let selectedId = targetId;
         // 未提供 <id> → 列出已配置的 provider 让用户选
         if (!selectedId) {
-            const auth = readAuthFile(agentDir());
+            const auth = Effect.runSync(readAuthFileEffect(agentDir()));
             const configuredIds = Object.keys(auth).sort();
             if (configuredIds.length === 0) {
                 console.log("未配置任何 provider，无需删除");
@@ -222,7 +223,7 @@ async function configProviderRemove(targetId) {
             }
             selectedId = picked;
         }
-        const auth = readAuthFile(agentDir());
+        const auth = Effect.runSync(readAuthFileEffect(agentDir()));
         if (!auth[selectedId]) {
             console.error(`错误: ${selectedId} 未配置`);
             return;
@@ -235,7 +236,7 @@ async function configProviderRemove(targetId) {
             return;
         }
         delete auth[selectedId];
-        writeAuthFileNative(agentDir(), auth);
+        Effect.runSync(writeAuthFileNativeEffect(agentDir(), auth));
         console.log(`已删除 ${name} (${selectedId})`);
     }
     finally {

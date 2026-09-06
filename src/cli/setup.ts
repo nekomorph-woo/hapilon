@@ -3,14 +3,15 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline";
-import { ensureHapilonDirs, hapilonHome } from "../config/hapilon-home.js";
-import { resolvePiCli } from "../providers/pi-cli-path.js";
+import { Effect } from "effect";
+import { ensureHapilonDirsEffect, hapilonHome } from "../config/hapilon-home.js";
+import { resolvePiCliEffect } from "../providers/pi-cli-path.js";
 import {
   COMMON,
   ALL_PROVIDERS,
-  writeAuthFileNative,
-  writeSkeletonFiles,
-  readAuthFile,
+  writeAuthFileNativeEffect,
+  writeSkeletonFilesEffect,
+  readAuthFileEffect,
   mergeAuthEntries,
   ensureSettingsFile,
   maskKey,
@@ -39,8 +40,8 @@ function printOAuthGuide(): void {
 // ─── Setup ───────────────────────────────────────────────────────────
 
 export function setupQuick(): void {
-  const dirs = ensureHapilonDirs();
-  writeSkeletonFiles(dirs.agent);
+  const dirs = Effect.runSync(ensureHapilonDirsEffect);
+  Effect.runSync(writeSkeletonFilesEffect(dirs.agent));
   console.log(`Created ~/.hapilon/ skeleton at ${dirs.base}`);
   console.log("Run `hapilon setup` (without --quick) for interactive provider configuration.");
   printOAuthGuide();
@@ -60,10 +61,10 @@ export async function setupInteractive(): Promise<void> {
     return done ? "" : value;
   }
 
-  const dirs = ensureHapilonDirs();
+  const dirs = Effect.runSync(ensureHapilonDirsEffect);
 
   // issue #1: 先读已有配置，交互提示"已配置"状态，写入时增量合并
-  const existingAuth = readAuthFile(dirs.agent);
+  const existingAuth = Effect.runSync(readAuthFileEffect(dirs.agent));
 
   const yesno = async (q: string): Promise<boolean> => {
     const a = (await question(q + "（y/N）")).trim().toLowerCase();
@@ -117,7 +118,7 @@ export async function setupInteractive(): Promise<void> {
 
   // issue #1: 增量合并——已有条目（含 OAuth token）保留，本次输入覆盖同名条目
   const auth = mergeAuthEntries(existingAuth, collected);
-  writeAuthFileNative(dirs.agent, auth);
+  Effect.runSync(writeAuthFileNativeEffect(dirs.agent, auth));
   ensureSettingsFile(dirs.agent);
 
   const names = Object.keys(collected).map(
@@ -188,7 +189,7 @@ export function doctor(): void {
 
   // pi binary 可解析检查（issue #14）
   try {
-    const piCli = resolvePiCli();
+    const piCli = Effect.runSync(resolvePiCliEffect);
     console.log(`pi binary:           ${existsSync(piCli) ? "✅" : "⚠ 解析到但文件缺失"} ${piCli}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

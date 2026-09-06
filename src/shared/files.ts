@@ -7,6 +7,11 @@
 
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname, resolve, basename, sep } from "node:path";
+import { Data, Effect } from "effect";
+
+export class ReadHapilonMdError extends Data.TaggedError("ReadHapilonMdError")<{
+  message: string;
+}> {}
 
 /** 文件条目：路径 + 内容 */
 export interface FileEntry {
@@ -70,6 +75,9 @@ export function listFiles(dir: string, pattern: string): string[] {
   }
 }
 
+export const listFilesEffect = (dir: string, pattern: string): Effect.Effect<string[], never> =>
+  Effect.sync(() => listFiles(dir, pattern));
+
 /**
  * 从 startDir 逐级向上遍历目录树，在每层检查 `<dir>/.hapilon/<relative>`：
  * 若存在则收集其路径（文件或目录均可，目录供后续 listFiles 扫描）。
@@ -106,10 +114,26 @@ export function collectUpward(startDir: string, home: string, relative: string):
   return results;
 }
 
+export const collectUpwardEffect = (
+  startDir: string,
+  home: string,
+  relative: string,
+): Effect.Effect<string[], never> => Effect.sync(() => collectUpward(startDir, home, relative));
+
 /** 读取 HAPILON.md 文件，失败直接抛出（Fail Fast） */
 export function readHapilonMd(paths: string[]): FileEntry[] {
-  return paths.map((p) => ({ path: p, content: readFileSync(p, "utf8") }));
+  const result = Effect.runSync(Effect.either(readHapilonMdEffect(paths)));
+  if (result._tag === "Left") throw result.left;
+  return result.right;
 }
+
+export const readHapilonMdEffect = (paths: string[]): Effect.Effect<FileEntry[], ReadHapilonMdError> =>
+  Effect.try({
+    try: () => paths.map((p) => ({ path: p, content: readFileSync(p, "utf8") })),
+    catch: (err) => new ReadHapilonMdError({
+      message: err instanceof Error ? err.message : String(err),
+    }),
+  });
 
 /**
  * 扫描规则目录，读取所有 .md 文件并解析 alwaysApply frontmatter。
@@ -121,6 +145,10 @@ export function readHapilonMd(paths: string[]): FileEntry[] {
  * - frontmatter 格式不合法：不跳过——按无 frontmatter 处理，原文全文作为规则内容收录
  */
 export function readRules(dirPaths: string[]): RuleEntry[] {
+  return Effect.runSync(readRulesEffect(dirPaths));
+}
+
+export const readRulesEffect = (dirPaths: string[]): Effect.Effect<RuleEntry[], never> => Effect.sync(() => {
   const rules: RuleEntry[] = [];
   for (const dp of dirPaths) {
     for (const file of listFiles(dp, "*.md")) {
@@ -135,7 +163,7 @@ export function readRules(dirPaths: string[]): RuleEntry[] {
     }
   }
   return rules;
-}
+});
 
 /**
  * 扫描技能目录，返回所有包含 SKILL.md 的子目录中的 SKILL.md 绝对路径。
@@ -143,6 +171,10 @@ export function readRules(dirPaths: string[]): RuleEntry[] {
  * frontmatter 校验、名称去重和渐进式披露。
  */
 export function discoverSkillPaths(dirs: string[]): string[] {
+  return Effect.runSync(discoverSkillPathsEffect(dirs));
+}
+
+export const discoverSkillPathsEffect = (dirs: string[]): Effect.Effect<string[], never> => Effect.sync(() => {
   const paths: string[] = [];
   for (const dir of dirs) {
     if (!existsSync(dir)) continue;
@@ -157,4 +189,4 @@ export function discoverSkillPaths(dirs: string[]): string[] {
     }
   }
   return paths;
-}
+});

@@ -1,10 +1,11 @@
 import { createInterface } from "node:readline/promises";
+import { Effect } from "effect";
 import { agentDir } from "../config/hapilon-home.js";
 import {
-  addMcpServer,
-  loadMcpServers,
+  addMcpServerEffect,
+  loadMcpServersEffect,
   mcpConfigPath,
-  removeMcpServer,
+  removeMcpServerEffect,
   McpConfigError,
   type UnvalidatedServerDef,
 } from "./config-store.js";
@@ -91,7 +92,8 @@ async function cmdAdd(args: string[]): Promise<void> {
   }
 
   try {
-    addMcpServer(agentDir(), def);
+    const result = Effect.runSync(Effect.either(addMcpServerEffect(agentDir(), def)));
+    if (result._tag === "Left") throw result.left;
   } catch (err) {
     if (err instanceof McpConfigError) {
       console.error(`✗ ${err.message}`);
@@ -104,7 +106,9 @@ async function cmdAdd(args: string[]): Promise<void> {
 }
 
 function cmdList(): void {
-  const servers = loadMcpServers(agentDir());
+  const result = Effect.runSync(Effect.either(loadMcpServersEffect(agentDir())));
+  if (result._tag === "Left") throw result.left;
+  const servers = result.right;
   const names = Object.keys(servers);
   if (!names.length) {
     console.log("（无 MCP server。用 hapi mcp add 添加，或在会话里让 agent 添加。）");
@@ -132,7 +136,9 @@ async function cmdRemove(name: string | undefined, skipConfirm: boolean): Promis
     }
   }
   try {
-    const removed = removeMcpServer(agentDir(), name);
+    const result = Effect.runSync(Effect.either(removeMcpServerEffect(agentDir(), name)));
+    if (result._tag === "Left") throw result.left;
+    const removed = result.right;
     console.log(removed ? `✓ 已删除 "${name}"。重启会话生效。` : `✗ "${name}" 不存在于 ${mcpConfigPath(agentDir())}`);
     if (!removed) process.exit(1);
   } catch (err) {

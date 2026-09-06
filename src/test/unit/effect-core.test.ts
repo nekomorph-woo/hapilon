@@ -19,6 +19,13 @@ import { addMcpServer, addMcpServerEffect, McpConfigError, loadMcpServersEffect 
 import { listModelsForProvider, listModelsForProviderEffect, PiListingError } from "../../providers/pi-listing.js";
 import { readProjectConfigEffect, writeProjectLocalConfigEffect } from "../../config/project-config.js";
 import { prepareStartupEffect } from "../../cli/startup.js";
+import {
+  collectUpwardEffect,
+  discoverSkillPathsEffect,
+  listFilesEffect,
+  readHapilonMdEffect,
+  readRulesEffect,
+} from "../../shared/files.js";
 
 describe("Effect 核心 API", () => {
   let tmpBase: string;
@@ -257,5 +264,38 @@ describe("Effect 核心 API", () => {
     assert.ok(!plan.piArgs.includes("--no-safety"));
     assert.ok(plan.extensionFlags.includes("-e"));
     assert.equal(plan.piEnv.PI_CODING_AGENT_DIR, join(tmpBase, "agent"));
+  });
+
+  it("readHapilonMdEffect 读取失败走 ReadHapilonMdError Fail 通道", () => {
+    const missing = join(tmpBase, "missing-HAPILON.md");
+    const exit = Effect.runSyncExit(readHapilonMdEffect([missing]));
+    assert.equal(exit._tag, "Failure");
+    if (exit._tag === "Failure") assert.equal(exit.cause._tag, "Fail");
+    assert.equal(
+      Effect.runSync(
+        readHapilonMdEffect([missing]).pipe(
+          Effect.catchTag("ReadHapilonMdError", () => Effect.succeed("caught")),
+        ),
+      ),
+      "caught",
+    );
+  });
+
+  it("规则和目录扫描 Effects 保持 warn 降级并以 Success 返回", () => {
+    const rulesDir = join(tmpBase, "effect-rules");
+    const skillsDir = join(tmpBase, "effect-skills");
+    mkdirSync(rulesDir, { recursive: true });
+    mkdirSync(join(skillsDir, "demo"), { recursive: true });
+    writeFileSync(join(rulesDir, "always.md"), "---\nalwaysApply: true\n---\n正文\n", { flag: "w" });
+    writeFileSync(join(rulesDir, "skip.md"), "---\nalwaysApply: false\n---\n跳过\n");
+    writeFileSync(join(skillsDir, "demo", "SKILL.md"), "# demo\n");
+
+    const rules = Effect.runSync(readRulesEffect([rulesDir]));
+    assert.deepEqual(rules, [{ name: "always", content: "正文\n" }]);
+    assert.equal(Effect.runSync(listFilesEffect(join(tmpBase, "not-there"), "*.md")).length, 0);
+    assert.deepEqual(Effect.runSync(discoverSkillPathsEffect([skillsDir])), [
+      join(skillsDir, "demo", "SKILL.md"),
+    ]);
+    assert.deepEqual(Effect.runSync(collectUpwardEffect(tmpBase, tmpBase, "rules")), []);
   });
 });
