@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isTrusted, isSessionTrusted, addTrust, clearSessionTrust, listSessionTrust, initProjectTrust, } from "../../trust-store.js";
+import { isTrusted, isSessionTrusted, addTrust, clearSessionTrust, listSessionTrust, initProjectTrust, } from "../../config/trust-store.js";
 describe("trust-store", () => {
     let tmpBase;
     const ORIGINAL_ENV = process.env.HAPILON_HOME;

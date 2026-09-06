@@ -19,7 +19,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createExtensionRuntime, createEventBus, discoverAndLoadExtensions, ExtensionRunner, } from "@earendil-works/pi-coding-agent";
 import hplSystemPromptEntry from "../../extensions/hpl-system-prompt/index.js";
-import { resolveNpmExtensionPaths } from "../../npm-extensions.js";
+import { resolveNpmExtensionPaths } from "../../extensions/npm-extensions.js";
 const CWD = process.cwd();
 /** runner 构造依赖的 stub（本测试只触发 before_agent_start） */
 const stub = (() => ({}));

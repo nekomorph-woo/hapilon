@@ -9,8 +9,63 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import * as childProcess from "node:child_process";
 import * as path from "node:path";
+import { Data, Effect } from "effect";
 import { scanDirContext, resolveDir, dirExists, type DirContext } from "./context.js";
 import type { CommandOps } from "./commands.js";
+
+export class SearchExternalError extends Data.TaggedError("SearchExternalError")<{
+  message: string;
+}> {}
+
+type SearchSpawn = (
+  command: string,
+  args: string[],
+  options: childProcess.SpawnOptions,
+) => childProcess.ChildProcess;
+
+export const searchExternalFilesEffect = (
+  _dir: string,
+  findArgs: string[],
+  signal?: AbortSignal,
+  spawnFn: SearchSpawn = childProcess.spawn as SearchSpawn,
+  timeoutMs = 10_000,
+): Effect.Effect<string[], SearchExternalError> => Effect.async((resume) => {
+  let settled = false;
+  const child = spawnFn("find", findArgs, {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const cleanup = () => {
+    if (timeout !== undefined) clearTimeout(timeout);
+    signal?.removeEventListener("abort", onAbort);
+  };
+  const finish = (effect: Effect.Effect<string[], SearchExternalError>) => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    resume(effect);
+  };
+  const onAbort = () => {
+    child.kill();
+    finish(Effect.fail(new SearchExternalError({ message: "search_external_files aborted" })));
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+  // 迁移自基线 spawnSync({ timeout: 10_000 })：find 卡住时 kill 并返回空结果。
+  timeout = setTimeout(() => {
+    child.kill();
+    finish(Effect.succeed([]));
+  }, timeoutMs);
+  child.stdout?.on("data", (data: Buffer) => { stdout += data.toString("utf8"); });
+  child.on("error", (err) => finish(Effect.fail(new SearchExternalError({
+    message: err instanceof Error ? err.message : String(err),
+  }))));
+  child.on("exit", () => {
+    const files = stdout.trim() ? stdout.trim().split("\n").filter(Boolean) : [];
+    // find 的非零退出码仍保留 stdout，和原 spawnSync 分支一致。
+    finish(Effect.succeed(files));
+  });
+});
 
 // ─── 工具注册 ─────────────────────────────────────────────────────────
 
@@ -156,7 +211,7 @@ export function registerTools(pi: ExtensionAPI, ops: CommandOps): void {
           const remaining = maxResults - totalFound;
           if (remaining <= 0) break;
 
-          // 使用数组参数的 spawnSync，避免 shell 注入
+          // 使用数组参数的 Effect.async spawn，避免 shell 注入并支持中断
           const hasSlash = pattern.includes("/");
           const findFlag = hasSlash ? "-path" : "-name";
           const findArgs = [
@@ -166,12 +221,11 @@ export function registerTools(pi: ExtensionAPI, ops: CommandOps): void {
             findFlag, pattern,
             "-type", "f",
           ];
-          const result = childProcess.spawnSync("find", findArgs, {
-            encoding: "utf-8",
-            timeout: 10_000,
-          });
-          const output = (result.stdout ?? "").trim();
-          const allFiles = output ? output.split("\n").filter(Boolean) : [];
+          const allFiles = await Effect.runPromise(
+            searchExternalFilesEffect(dir.absolutePath, findArgs, signal).pipe(
+              Effect.catchTag("SearchExternalError", () => Effect.succeed([])),
+            ),
+          );
           const files = allFiles.slice(0, remaining);
 
           if (files.length > 0) {

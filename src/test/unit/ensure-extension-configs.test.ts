@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureExtensionConfigs } from "../../ensure-extension-configs.js";
+import { ensureExtensionConfigs } from "../../extensions/ensure-configs.js";
 
 describe("ensureExtensionConfigs()", () => {
   let agentDir: string;

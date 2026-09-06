@@ -5,7 +5,7 @@
  * 而设置的，本扩展运行在同一进程内，若沿用 Pi 的 getLatestPiRelease 会恒返回
  * undefined。此处必须自行 fetch。
  */
-import { parseSemver } from "../../providers.js";
+import { parseSemver } from "../../providers/providers.js";
 const LATEST_VERSION_URL = "https://pi.dev/api/latest-version";
 const TIMEOUT_MS = 3000;
 export function isNewerPiVersion(latest, current) {

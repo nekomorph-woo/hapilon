@@ -17,7 +17,7 @@ describe("settings 通道安全门生命周期（#37）", () => {
     before(async () => {
         tmpBase = mkdtempSync(join(tmpdir(), "hapilon-safety-channel-"));
         process.env.HAPILON_HOME = tmpBase;
-        safetySettings = await import("../../safety-settings.js");
+        safetySettings = await import("../../safety/safety-settings.js");
     });
     after(() => {
         if (ORIGINAL_ENV === undefined) {

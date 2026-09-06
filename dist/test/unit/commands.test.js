@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { COMMANDS, GLOBAL_FLAGS } from "../../commands.js";
+import { COMMANDS, GLOBAL_FLAGS } from "../../cli/commands.js";
 describe("commands", () => {
     it("所有命令有 name 和 description", () => {
         for (const cmd of COMMANDS) {

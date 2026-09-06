@@ -1,8 +1,9 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { agentDir } from "../../hapilon-home.js";
+import { Effect } from "effect";
+import { agentDir } from "../../config/hapilon-home.js";
 import { shouldCompress, compressOutput } from "./compress.js";
-import { readEconSettings, writeEconSettings, envDisabled, THRESHOLD_CHOICES, RETENTION_CHOICES, } from "./settings.js";
+import { readEconSettingsEffect, writeEconSettingsEffect, envDisabled, THRESHOLD_CHOICES, RETENTION_CHOICES, } from "./settings.js";
 const override = {};
 /** 压缩统计（/context 与 /econ Status 汇报） */
 export const stats = {
@@ -25,14 +26,14 @@ let sessionMark = "unknown-session";
 function logEvent(entry) {
     if (!logDir)
         return;
-    try {
-        mkdirSync(logDir, { recursive: true });
-        appendFileSync(join(logDir, "econ.jsonl"), JSON.stringify({ ts: new Date().toISOString(), session: sessionMark, ...entry }) + "\n", "utf8");
-    }
-    catch {
+    const dir = logDir;
+    Effect.runSync(Effect.sync(() => {
+        mkdirSync(dir, { recursive: true });
+        appendFileSync(join(dir, "econ.jsonl"), JSON.stringify({ ts: new Date().toISOString(), session: sessionMark, ...entry }) + "\n", "utf8");
+    }).pipe(Effect.catchAll(() => Effect.sync(() => {
         // 统计日志失败不阻断主流程，但也不静默——warn 可见（Make It Observable）
         console.warn("[hpl-econ] 压缩统计写入失败（继续运行）");
-    }
+    }))));
 }
 function logCompact(result, ref) {
     logEvent({
@@ -49,7 +50,7 @@ export function setSessionDisabled(disabled) {
     override.enabled = !disabled;
 }
 function effectiveSettings(agentDirPath) {
-    const base = readEconSettings(agentDirPath);
+    const base = Effect.runSync(readEconSettingsEffect(agentDirPath));
     return {
         enabled: override.enabled ?? base.enabled,
         threshold: override.threshold ?? base.threshold,
@@ -149,7 +150,9 @@ export default function hplEcon(pi) {
                 }
                 else if (choice.includes("Save as default")) {
                     const s2 = effectiveSettings(agentDirPath);
-                    writeEconSettings(agentDirPath, s2);
+                    const saveResult = Effect.runSync(Effect.either(writeEconSettingsEffect(agentDirPath, s2)));
+                    if (saveResult._tag === "Left")
+                        throw new Error(saveResult.left.message);
                     logEvent({ event: "save_default", enabled: s2.enabled, threshold: s2.threshold, headLines: s2.headLines, tailLines: s2.tailLines });
                     ui.notify(`Saved: enabled=${s2.enabled}, threshold=${Math.round(s2.threshold / 1024)}KB, retention=${s2.headLines}/${s2.tailLines}`);
                     return;

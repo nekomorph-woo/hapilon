@@ -6,9 +6,12 @@
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { configFilePath } from "../../hapilon-home.js";
+import { configFilePath } from "../../config/hapilon-home.js";
 import { config, DEFAULT_KEYS, DEFAULT_MAX_LINES } from "./shared.js";
-function readRaw() {
+import { Data, Effect } from "effect";
+export class PopConfigError extends Data.TaggedError("PopConfigError") {
+}
+const readRaw = () => {
     const path = configFilePath();
     if (!existsSync(path))
         return {};
@@ -18,16 +21,18 @@ function readRaw() {
     catch {
         return {};
     }
-}
-function writeRaw(data) {
-    const path = configFilePath();
-    const parent = dirname(path);
-    if (!existsSync(parent))
-        mkdirSync(parent, { recursive: true, mode: 0o700 });
-    writeFileSync(path, JSON.stringify(data, null, 2) + "\n", "utf8");
-}
-/** 从 ~/.hapilon/config.json 加载 pop 配置 */
-export function loadPopConfig() {
+};
+const writeRawEffect = (data) => Effect.try({
+    try: () => {
+        const path = configFilePath();
+        const parent = dirname(path);
+        if (!existsSync(parent))
+            mkdirSync(parent, { recursive: true, mode: 0o700 });
+        writeFileSync(path, JSON.stringify(data, null, 2) + "\n", "utf8");
+    },
+    catch: (err) => new PopConfigError({ message: err instanceof Error ? err.message : String(err) }),
+});
+export const loadPopConfigEffect = Effect.sync(() => {
     const raw = readRaw();
     const pop = (raw.pop ?? {});
     config.include = Array.isArray(pop.include) ? pop.include : [];
@@ -35,9 +40,8 @@ export function loadPopConfig() {
     config.keys = Array.isArray(pop.keys) && pop.keys.length ? pop.keys : [...DEFAULT_KEYS];
     const ml = pop.maxLines ?? DEFAULT_MAX_LINES;
     config.maxLines = Number.isInteger(ml) && ml >= 0 ? ml : DEFAULT_MAX_LINES;
-}
-/** 保存 pop 配置到 ~/.hapilon/config.json（不覆盖其他字段） */
-export function savePopConfig() {
+});
+export const savePopConfigEffect = () => Effect.gen(function* () {
     const raw = readRaw();
     raw.pop = {
         include: config.include,
@@ -45,7 +49,17 @@ export function savePopConfig() {
         keys: config.keys,
         maxLines: config.maxLines,
     };
-    writeRaw(raw);
+    yield* writeRawEffect(raw);
+});
+/** 从 ~/.hapilon/config.json 加载 pop 配置 */
+export function loadPopConfig() {
+    Effect.runSync(loadPopConfigEffect);
+}
+/** 保存 pop 配置到 ~/.hapilon/config.json（不覆盖其他字段） */
+export function savePopConfig() {
+    const result = Effect.runSync(Effect.either(savePopConfigEffect()));
+    if (result._tag === "Left")
+        throw new Error(result.left.message);
 }
 /**
  * 应用一个配置操作，返回一行结果文本。

@@ -8,7 +8,7 @@ import {
   removeSafetyExtensions,
   partitionSafetyEntries,
   safetyExtensionPaths,
-} from "../../safety-settings.js";
+} from "../../safety/safety-settings.js";
 
 function readExtensions(agentDir: string): unknown {
   const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));

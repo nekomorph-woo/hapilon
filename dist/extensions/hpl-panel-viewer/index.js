@@ -9,13 +9,14 @@
  *   全局快捷键 Shift+Alt+↓ / Ctrl+Q
  *   mouse wheel 滚动
  */
+import { Effect } from "effect";
 import { state, POP_ICON } from "./shared.js";
 import { improvePanelAppearance, findNewestPanel } from "./panels.js";
 import { launchViewer } from "./viewer.js";
 import { attachInputListener } from "./input.js";
-import { loadPopConfig, applyPopConfig } from "./config.js";
+import { loadPopConfigEffect, applyPopConfig } from "./config.js";
 export default function hplPanelViewer(pi) {
-    loadPopConfig();
+    Effect.runSync(loadPopConfigEffect);
     pi.on("session_start", (_event, ctx) => {
         if (ctx?.hasUI !== true)
             return;

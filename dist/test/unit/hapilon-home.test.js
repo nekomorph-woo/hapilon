@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
-import { hapilonHome, ensureHapilonDirs, configFilePath } from "../../hapilon-home.js";
+import { hapilonHome, ensureHapilonDirs, configFilePath } from "../../config/hapilon-home.js";
 describe("hapilon-home", () => {
     describe("hapilonHome()", () => {
         const ORIGINAL_ENV = process.env.HAPILON_HOME;

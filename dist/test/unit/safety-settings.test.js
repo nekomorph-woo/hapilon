@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureSafetyExtensions, removeSafetyExtensions, partitionSafetyEntries, safetyExtensionPaths, } from "../../safety-settings.js";
+import { ensureSafetyExtensions, removeSafetyExtensions, partitionSafetyEntries, safetyExtensionPaths, } from "../../safety/safety-settings.js";
 function readExtensions(agentDir) {
     const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
     return raw.extensions;

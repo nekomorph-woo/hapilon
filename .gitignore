@@ -121,6 +121,9 @@ Desktop.ini
 .env.local
 .env.*.local
 
+# --- hapilon 项目级本地配置（trust-store 等运行时写入，永不入库）---
+.hapilon/
+
 # --- Claude ---
 .claude/settings.json
 .claude/settings.local.json

@@ -1,5 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { Data, Effect } from "effect";
+
+export class EconStoreError extends Data.TaggedError("EconStoreError")<{
+  message: string;
+}> {}
 
 /**
  * compress.ts — hpl-econ 压缩核心（纯函数，无事件依赖）。
@@ -35,6 +40,20 @@ export function shouldCompress(text: string, params: EconParams): boolean {
   return text.length > params.threshold;
 }
 
+export const storeFullOutputEffect = (
+  storeDir: string,
+  ref: string,
+  full: string,
+): Effect.Effect<string, EconStoreError> => Effect.try({
+  try: () => {
+    mkdirSync(storeDir, { recursive: true });
+    const fullOutputPath = join(storeDir, `${ref}.log`);
+    writeFileSync(fullOutputPath, full, "utf8");
+    return fullOutputPath;
+  },
+  catch: (err) => new EconStoreError({ message: err instanceof Error ? err.message : String(err) }),
+});
+
 export function compressOutput(
   full: string,
   ref: string,
@@ -49,9 +68,9 @@ export function compressOutput(
   // 保留区仍各自呈现（模型看到两份相同的片段，总长仍远小于原文）。
   const omitted = Math.max(0, lines.length - params.headLines - params.tailLines);
 
-  mkdirSync(params.storeDir, { recursive: true });
-  const fullOutputPath = join(params.storeDir, `${ref}.log`);
-  writeFileSync(fullOutputPath, full, "utf8");
+  const stored = Effect.runSync(Effect.either(storeFullOutputEffect(params.storeDir, ref, full)));
+  if (stored._tag === "Left") throw stored.left;
+  const fullOutputPath = stored.right;
 
   const notices = [
     `[... ${omitted} lines omitted — full output saved to ${fullOutputPath}]`,

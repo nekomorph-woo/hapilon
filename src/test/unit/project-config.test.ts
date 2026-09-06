@@ -12,7 +12,7 @@ import {
   projectHapilonDir,
   readProjectConfig,
   writeProjectLocalConfig,
-} from "../../project-config.js";
+} from "../../config/project-config.js";
 
 describe("project-config", () => {
   let tmpBase: string;

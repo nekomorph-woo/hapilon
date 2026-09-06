@@ -17,7 +17,7 @@ import {
   parseAllowArgs,
 } from "../../extensions/hpl-protected-paths/index.js";
 import protectedPathsExtension from "../../extensions/hpl-protected-paths/index.js";
-import { addTrust, isSessionTrusted, clearSessionTrust } from "../../trust-store.js";
+import { addTrust, isSessionTrusted, clearSessionTrust } from "../../config/trust-store.js";
 
 const home = homedir();
 

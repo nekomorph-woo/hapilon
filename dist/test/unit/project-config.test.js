@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { projectHapilonDir, readProjectConfig, writeProjectLocalConfig, } from "../../project-config.js";
+import { projectHapilonDir, readProjectConfig, writeProjectLocalConfig, } from "../../config/project-config.js";
 describe("project-config", () => {
     let tmpBase;
     const ORIGINAL_ENV = process.env.HAPILON_HOME;

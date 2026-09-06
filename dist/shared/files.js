@@ -6,6 +6,9 @@
  */
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname, resolve, basename, sep } from "node:path";
+import { Data, Effect } from "effect";
+export class ReadHapilonMdError extends Data.TaggedError("ReadHapilonMdError") {
+}
 /** 行锚定的 frontmatter 匹配：--- 必须独占一行 */
 const FRONTMATTER_RE = /^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)/;
 /** 拆分 YAML frontmatter 与正文；无 frontmatter 时返回 undefined + 原始内容 */
@@ -54,6 +57,7 @@ export function listFiles(dir, pattern) {
         return [];
     }
 }
+export const listFilesEffect = (dir, pattern) => Effect.sync(() => listFiles(dir, pattern));
 /**
  * 从 startDir 逐级向上遍历目录树，在每层检查 `<dir>/.hapilon/<relative>`：
  * 若存在则收集其路径（文件或目录均可，目录供后续 listFiles 扫描）。
@@ -92,10 +96,20 @@ export function collectUpward(startDir, home, relative) {
     results.reverse(); // 全局/祖先在前，近层在后
     return results;
 }
+export const collectUpwardEffect = (startDir, home, relative) => Effect.sync(() => collectUpward(startDir, home, relative));
 /** 读取 HAPILON.md 文件，失败直接抛出（Fail Fast） */
 export function readHapilonMd(paths) {
-    return paths.map((p) => ({ path: p, content: readFileSync(p, "utf8") }));
+    const result = Effect.runSync(Effect.either(readHapilonMdEffect(paths)));
+    if (result._tag === "Left")
+        throw result.left;
+    return result.right;
 }
+export const readHapilonMdEffect = (paths) => Effect.try({
+    try: () => paths.map((p) => ({ path: p, content: readFileSync(p, "utf8") })),
+    catch: (err) => new ReadHapilonMdError({
+        message: err instanceof Error ? err.message : String(err),
+    }),
+});
 /**
  * 扫描规则目录，读取所有 .md 文件并解析 alwaysApply frontmatter。
  * 返回 alwaysApply 为 true（默认）的规则；文件名为规则名（去后缀）。
@@ -106,6 +120,9 @@ export function readHapilonMd(paths) {
  * - frontmatter 格式不合法：不跳过——按无 frontmatter 处理，原文全文作为规则内容收录
  */
 export function readRules(dirPaths) {
+    return Effect.runSync(readRulesEffect(dirPaths));
+}
+export const readRulesEffect = (dirPaths) => Effect.sync(() => {
     const rules = [];
     for (const dp of dirPaths) {
         for (const file of listFiles(dp, "*.md")) {
@@ -122,13 +139,16 @@ export function readRules(dirPaths) {
         }
     }
     return rules;
-}
+});
 /**
  * 扫描技能目录，返回所有包含 SKILL.md 的子目录中的 SKILL.md 绝对路径。
  * Pi 的 loadSkillsFromPaths() 接收这些路径并解析 SKILL.md，自动处理
  * frontmatter 校验、名称去重和渐进式披露。
  */
 export function discoverSkillPaths(dirs) {
+    return Effect.runSync(discoverSkillPathsEffect(dirs));
+}
+export const discoverSkillPathsEffect = (dirs) => Effect.sync(() => {
     const paths = [];
     for (const dir of dirs) {
         if (!existsSync(dir))
@@ -147,4 +167,4 @@ export function discoverSkillPaths(dirs) {
         }
     }
     return paths;
-}
+});

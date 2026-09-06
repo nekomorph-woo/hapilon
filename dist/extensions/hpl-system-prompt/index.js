@@ -10,7 +10,7 @@
  * 组装逻辑由 assemble.ts 完成；降级策略确保任何异常时回退到 Pi 原始 prompt。
  */
 import { assembleSystemPrompt, collectHapilonContext } from "./assemble.js";
-import { agentDir } from "../../hapilon-home.js";
+import { agentDir } from "../../config/hapilon-home.js";
 export default function hplSystemPrompt(pi) {
     const userHome = process.env.HOME;
     if (!userHome) {

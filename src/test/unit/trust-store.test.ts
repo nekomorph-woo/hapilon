@@ -15,7 +15,7 @@ import {
   clearSessionTrust,
   listSessionTrust,
   initProjectTrust,
-} from "../../trust-store.js";
+} from "../../config/trust-store.js";
 
 describe("trust-store", () => {
   let tmpBase: string;

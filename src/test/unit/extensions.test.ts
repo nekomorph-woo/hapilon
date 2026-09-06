@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverExtensions, extensionNames } from "../../extensions.js";
+import { discoverExtensions, extensionNames } from "../../extensions/loader.js";
 
 describe("discoverExtensions()", () => {
   let tmpBase: string;
@@ -86,6 +86,18 @@ describe("discoverExtensions()", () => {
 
     const result = discoverExtensions(dir);
     assert.deepStrictEqual(result, []);
+  });
+
+  it("忽略 extensions 顶层的 hapilon 内部模块", () => {
+    const dir = join(tmpBase, "internal-modules");
+    mkdirSync(dir);
+    for (const name of ["ensure-configs.js", "loader.js", "npm-extensions.js"]) {
+      writeFileSync(join(dir, name), "// internal module");
+    }
+    writeFileSync(join(dir, "real-extension.js"), "// extension");
+
+    const result = discoverExtensions(dir);
+    assert.deepStrictEqual(result.map((path) => path.split("/").pop()), ["real-extension.js"]);
   });
 });
 

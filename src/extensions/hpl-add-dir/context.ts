@@ -8,6 +8,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { Effect } from "effect";
 
 // ─── 类型 ────────────────────────────────────────────────────────────
 
@@ -69,12 +70,15 @@ export function readFileSafe(filePath: string): string | null {
   }
 }
 
+export const readFileSafeEffect = (filePath: string): Effect.Effect<string | null, never> =>
+  Effect.sync(() => readFileSafe(filePath));
+
 // ─── 扫描 ─────────────────────────────────────────────────────────────
 
 /**
  * 扫描目录中的 HAPILON.md（根 + .pi/ 子目录）和扩展提示。
  */
-export function scanDirContext(dir: string): DirContext {
+const scanDirContextSync = (dir: string): DirContext => {
   const ctx: DirContext = {
     hapilonMd: null,
     extensionPaths: [],
@@ -117,6 +121,13 @@ export function scanDirContext(dir: string): DirContext {
   return ctx;
 }
 
+export const scanDirContextEffect = (dir: string): Effect.Effect<DirContext, never> =>
+  Effect.sync(() => scanDirContextSync(dir));
+
+export function scanDirContext(dir: string): DirContext {
+  return Effect.runSync(scanDirContextEffect(dir));
+}
+
 // ─── 上下文注入缓存 ──────────────────────────────────────────
 
 let contextCache: { dirs: string; injection: string } | null = null;
@@ -133,7 +144,7 @@ export function invalidateContextCache(): void {
  * 根据所有已添加目录构建系统提示注入。
  * 按目录列表缓存——仅当目录变化时重新扫描。
  */
-export function buildContextInjection(dirs: AddedDir[]): string {
+const buildContextInjectionSync = (dirs: AddedDir[]): string => {
   if (dirs.length === 0) return "";
 
   // 缓存键：排序后的绝对路径
@@ -175,4 +186,11 @@ export function buildContextInjection(dirs: AddedDir[]): string {
   const injection = sections.join("\n");
   contextCache = { dirs: cacheKey, injection };
   return injection;
+}
+
+export const buildContextInjectionEffect = (dirs: AddedDir[]): Effect.Effect<string, never> =>
+  Effect.sync(() => buildContextInjectionSync(dirs));
+
+export function buildContextInjection(dirs: AddedDir[]): string {
+  return Effect.runSync(buildContextInjectionEffect(dirs));
 }
