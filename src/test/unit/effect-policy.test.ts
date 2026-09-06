@@ -7,7 +7,7 @@ const signals = (overrides: Partial<ProjectSignals> = {}): ProjectSignals => ({
   effectInstalled: false,
   effectImportsFound: false,
   packageManager: undefined,
-  hasAgentsMd: false,
+  hasHapilonMd: false,
   isGreenfield: false,
   isScriptTask: false,
   ...overrides,
@@ -16,12 +16,12 @@ const signals = (overrides: Partial<ProjectSignals> = {}): ProjectSignals => ({
 describe("decideEffectMode 决策表", () => {
   it("非 TypeScript 项目始终 disabled", () => {
     assert.equal(decideEffectMode(signals({ language: "javascript", effectInstalled: true, isGreenfield: true })), "disabled");
-    assert.equal(decideEffectMode(signals({ language: "other", effectImportsFound: true, hasAgentsMd: true })), "disabled");
+    assert.equal(decideEffectMode(signals({ language: "other", effectImportsFound: true, hasHapilonMd: true })), "disabled");
   });
 
   it("已安装 Effect 的 TypeScript 项目 required", () => {
     assert.equal(decideEffectMode(signals({ effectInstalled: true })), "required");
-    assert.equal(decideEffectMode(signals({ effectInstalled: true, hasAgentsMd: false, isGreenfield: false })), "required");
+    assert.equal(decideEffectMode(signals({ effectInstalled: true, hasHapilonMd: false, isGreenfield: false })), "required");
   });
 
   it("检测到 Effect import 即 required，独立于安装信号", () => {
@@ -32,11 +32,11 @@ describe("decideEffectMode 决策表", () => {
     assert.equal(decideEffectMode(signals({ effectInstalled: true, effectImportsFound: true })), "required");
   });
 
-  it("AGENTS.md 优先于 greenfield，返回 respect-project", () => {
-    assert.equal(decideEffectMode(signals({ hasAgentsMd: true, isGreenfield: true })), "respect-project");
+  it("HAPILON.md 优先于 greenfield，返回 respect-project", () => {
+    assert.equal(decideEffectMode(signals({ hasHapilonMd: true, isGreenfield: true })), "respect-project");
   });
 
-  it("无 AGENTS.md 的全新 TypeScript 项目 prefer", () => {
+  it("无 HAPILON.md 的全新 TypeScript 项目 prefer", () => {
     assert.equal(decideEffectMode(signals({ isGreenfield: true })), "prefer");
   });
 

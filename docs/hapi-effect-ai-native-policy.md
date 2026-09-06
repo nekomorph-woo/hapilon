@@ -87,7 +87,7 @@ export interface ProjectSignals {
   readonly effectInstalled: boolean;        // package.json dependencies/devDependencies 含 effect
   readonly effectImportsFound: boolean;     // src 源码 import 到 effect 包
   readonly packageManager: "npm" | "pnpm" | "yarn" | "bun" | undefined;  // lockfile 判定
-  readonly hasAgentsMd: boolean;            // AGENTS.md / CLAUDE.md 存在（架构已有主）
+  readonly hasHapilonMd: boolean;            // HAPILON.md 存在（hapilon 架构指示文档，架构已有主）
   readonly isGreenfield: boolean;           // 无 src/（或等价源码目录）且无 lockfile
   readonly isScriptTask: boolean;           // 见 2.5
 }
@@ -103,7 +103,7 @@ export const inspectProjectEffect: Effect.Effect<ProjectSignals, never> = Effect
 ```
 
 设计约束：
-1. **廉价**：只读 `package.json`、`tsconfig.json`、lockfile、AGENTS.md/CLAUDE.md 存在性、
+1. **廉价**：只读 `package.json`、`tsconfig.json`、lockfile、HAPILON.md 存在性、
    src 下两层的 import 扫描。禁止全仓库递归扫描（大仓库扫描成本不可控）。
 2. **永不失败**：错误通道 `never`——任何探测失败降级为保守值（false/undefined），
    policy 决策不能因为一个探测失败而炸掉会话。
@@ -129,9 +129,9 @@ export function decideEffectMode(signals: ProjectSignals): EffectMode {
   // 规则 2：项目已在用 Effect → 必须遵循其现有 Effect 惯用法
   if (signals.effectInstalled || signals.effectImportsFound) return "required";
 
-  // 规则 3：项目有明确架构指示（AGENTS.md/CLAUDE.md）→ 遵守原架构
-  //   注意顺序：在 greenfield 判定之前——有 AGENTS.md 的"空"仓库不算 greenfield
-  if (signals.hasAgentsMd) return "respect-project";
+  // 规则 3：项目有明确架构指示（HAPILON.md）→ 遵守原架构
+  //   注意顺序：在 greenfield 判定之前——有 HAPILON.md 的"空"仓库不算 greenfield
+  if (signals.hasHapilonMd) return "respect-project";
 
   // 规则 4：全新 TS 项目 → 可推荐 Effect
   if (signals.isGreenfield) return "prefer";
@@ -310,7 +310,7 @@ reviewer 盯的点（时序、让位规则、disabled 不注入）。
 ```text
 [ ] 非 TS 项目：/suggest-dirs 类任意任务，prompt 中零 Effect 字样
 [ ] 已用 Effect 的 TS 项目：required 模式，动态段含项目实际 effect 版本
-[ ] 有 AGENTS.md 的普通 TS 项目：respect-project 段，无 Effect 推荐
+[ ] 有 HAPILON.md 的普通 TS 项目：respect-project 段，无 Effect 推荐
 [ ] 全新 TS 项目：prefer 模式段含「explain before adding」约束
 [ ] 覆盖文件 .hapilon/effect-policy.json: disabled → 任何信号都不注入
 [ ] 覆盖文件非法 mode → warn + 自动判定兜底
@@ -358,8 +358,8 @@ reviewer-claude 审查（对照本文档 + 功能基线）→ func-check 缺失�
 |----------|------|------|
 | language ≠ typescript | disabled | 无 |
 | effectInstalled ∨ effectImportsFound | required | 动态段（含版本） |
-| hasAgentsMd（无 effect） | respect-project | 短段 |
-| isGreenfield（无 AGENTS.md） | prefer | prefer 段 |
+| hasHapilonMd（无 effect） | respect-project | 短段 |
+| isGreenfield（无 HAPILON.md） | prefer | prefer 段 |
 | 其余 | respect-project | 短段 |
 | 用户覆盖文件 mode=disabled | disabled | 无（最高优先级） |
 | 用户覆盖文件非法值 | warn + 自动判定 | — |

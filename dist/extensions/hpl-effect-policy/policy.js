@@ -8,7 +8,7 @@ export function decideEffectMode(signals) {
         return "disabled";
     if (signals.effectInstalled || signals.effectImportsFound)
         return "required";
-    if (signals.hasAgentsMd)
+    if (signals.hasHapilonMd)
         return "respect-project";
     if (signals.isGreenfield)
         return "prefer";

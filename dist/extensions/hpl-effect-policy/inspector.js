@@ -6,7 +6,7 @@ const EMPTY_SIGNALS = {
     effectInstalled: false,
     effectImportsFound: false,
     packageManager: undefined,
-    hasAgentsMd: false,
+    hasHapilonMd: false,
     isGreenfield: false,
     isScriptTask: false,
 };
@@ -96,7 +96,9 @@ function inspectProjectSync(cwd) {
         if (!pkg)
             return { ...EMPTY_SIGNALS };
         const source = sourceScan(cwd);
-        const hasAgentsMd = exists(join(cwd, "AGENTS.md")) || exists(join(cwd, "CLAUDE.md"));
+        // hapilon 的架构指示文档是 HAPILON.md（hpl-system-prompt 同款祖先遍历语义）；
+        // AGENTS.md/CLAUDE.md 被内核 --no-context-files 恒关闭，不是 hapilon 的信号源
+        const hasHapilonMd = exists(join(cwd, "HAPILON.md"));
         const manager = packageManager(cwd);
         const dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
         const hasEffect = Object.hasOwn(dependencies, "effect");
@@ -106,9 +108,9 @@ function inspectProjectSync(cwd) {
             effectInstalled: hasEffect,
             effectImportsFound: hasEffectImport(source.files),
             packageManager: manager,
-            hasAgentsMd,
+            hasHapilonMd,
             // A genuinely empty scan is greenfield; an unreadable scan is conservative false.
-            isGreenfield: manager === undefined && !hasAgentsMd && !source.failed && source.files.length === 0,
+            isGreenfield: manager === undefined && !hasHapilonMd && !source.failed && source.files.length === 0,
             isScriptTask: false,
         };
     }

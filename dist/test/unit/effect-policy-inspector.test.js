@@ -20,7 +20,7 @@ describe("inspectProjectEffect", () => {
         writeFileSync(join(dir, "tsconfig.json"), "{}");
         writeFileSync(join(dir, "src", "x.ts"), 'import { Effect } from "effect";');
         const result = inspectProject(dir);
-        assert.deepEqual(result, { language: "typescript", effectInstalled: true, effectImportsFound: true, packageManager: undefined, hasAgentsMd: false, isGreenfield: false, isScriptTask: false });
+        assert.deepEqual(result, { language: "typescript", effectInstalled: true, effectImportsFound: true, packageManager: undefined, hasHapilonMd: false, isGreenfield: false, isScriptTask: false });
         clean(dir);
     });
     it("普通 TypeScript 项目无 Effect", () => {
@@ -37,7 +37,7 @@ describe("inspectProjectEffect", () => {
     });
     it("无 package.json 降级为 other 且所有信号保守", () => {
         const dir = mkdtempSync(join(tmpdir(), "hpl-effect-inspector-"));
-        assert.deepEqual(inspectProject(dir), { language: "other", effectInstalled: false, effectImportsFound: false, packageManager: undefined, hasAgentsMd: false, isGreenfield: false, isScriptTask: false });
+        assert.deepEqual(inspectProject(dir), { language: "other", effectInstalled: false, effectImportsFound: false, packageManager: undefined, hasHapilonMd: false, isGreenfield: false, isScriptTask: false });
         clean(dir);
     });
     it("lockfile 按 npm > pnpm > yarn > bun 优先，单个分别识别", () => {
@@ -56,15 +56,16 @@ describe("inspectProjectEffect", () => {
         clean(dir);
         clean(empty);
     });
-    it("AGENTS.md 或 CLAUDE.md 存在即 hasAgentsMd", () => {
+    it("HAPILON.md 存在即 hasHapilonMd（AGENTS/CLAUDE 不是 hapilon 信号源）", () => {
+        const hap = repo({});
+        writeFileSync(join(hap, "HAPILON.md"), "rules");
+        assert.equal(inspectProject(hap).hasHapilonMd, true);
+        clean(hap);
         const agents = repo({});
         writeFileSync(join(agents, "AGENTS.md"), "rules");
-        assert.equal(inspectProject(agents).hasAgentsMd, true);
+        writeFileSync(join(agents, "CLAUDE.md"), "rules");
+        assert.equal(inspectProject(agents).hasHapilonMd, false);
         clean(agents);
-        const claude = repo({});
-        writeFileSync(join(claude, "CLAUDE.md"), "rules");
-        assert.equal(inspectProject(claude).hasAgentsMd, true);
-        clean(claude);
     });
     it("import 扫描只到两层：src/x 与 src/b/c 扫到，src/b/c/d 不扫", () => {
         const dir = repo({});

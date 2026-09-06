@@ -15,7 +15,7 @@ export interface ProjectSignals {
   readonly effectInstalled: boolean;
   readonly effectImportsFound: boolean;
   readonly packageManager: "npm" | "pnpm" | "yarn" | "bun" | undefined;
-  readonly hasAgentsMd: boolean;
+  readonly hasHapilonMd: boolean;
   readonly isGreenfield: boolean;
   readonly isScriptTask: boolean;
 }
@@ -23,7 +23,7 @@ export interface ProjectSignals {
 export function decideEffectMode(signals: ProjectSignals): EffectMode {
   if (signals.language !== "typescript") return "disabled";
   if (signals.effectInstalled || signals.effectImportsFound) return "required";
-  if (signals.hasAgentsMd) return "respect-project";
+  if (signals.hasHapilonMd) return "respect-project";
   if (signals.isGreenfield) return "prefer";
   return "respect-project";
 }

@@ -12,7 +12,7 @@ const signals = {
     effectInstalled: false,
     effectImportsFound: false,
     packageManager: undefined,
-    hasAgentsMd: false,
+    hasHapilonMd: false,
     isGreenfield: false,
     isScriptTask: false,
 };
