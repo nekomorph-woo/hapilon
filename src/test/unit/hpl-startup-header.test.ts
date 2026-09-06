@@ -15,6 +15,7 @@ import {
   buildRightColumn,
   centerLines,
   createStartupHeader,
+  shortenWorkspacePath,
   type HeaderData,
 } from "../../extensions/hpl-startup-header/content.js";
 
@@ -336,6 +337,8 @@ describe("buildLeftColumn()", () => {
     modelProvider: "zai",
     modelName: "glm-5",
     cwd: "/tmp",
+    homeDir: "/Users/test",
+    addedDirsCount: 0,
     extensions: undefined,
     piUpdate: undefined,
   };
@@ -359,6 +362,8 @@ describe("buildRightColumn()", () => {
     modelProvider: "zai",
     modelName: "glm-5",
     cwd: "/tmp",
+    homeDir: "/Users/test",
+    addedDirsCount: 0,
     extensions: ["ext-a", "ext-b"],
     piUpdate: "0.81.0",
   };
@@ -428,6 +433,8 @@ describe("buildHeaderLines()", () => {
     modelProvider: "zai",
     modelName: "glm-5-turbo",
     cwd: "/Volumes/Under_M2/morphiiouo/hapilon",
+    homeDir: "/Users/test",
+    addedDirsCount: 0,
     extensions: ["hpl-context", "hpl-footer", "hpl-panel-viewer"],
     piUpdate: "0.80.10",
   };
@@ -439,7 +446,7 @@ describe("buildHeaderLines()", () => {
     assert.ok(text.includes("Welcome back!"), "包含欢迎语");
     assert.ok(text.includes("zai"), "包含 provider");
     assert.ok(text.includes("glm-5-turbo"), "包含模型名");
-    assert.ok(text.includes(baseData.cwd), "包含 workspace 路径");
+    assert.ok(text.includes("/Volumes/Under_M2/…/hapilon"), "包含压缩后的 workspace 路径");
     assert.ok(text.includes("Extensions (3)"), "包含 Extensions 计数头");
     assert.ok(text.includes("──"), "含分隔线");
   });

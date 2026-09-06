@@ -9,9 +9,31 @@
  * 配合 cli.ts 的 quietStartup + PI_SKIP_VERSION_CHECK + 环境变量传递。
  */
 import { VERSION } from "@earendil-works/pi-coding-agent";
+import { homedir } from "node:os";
 import { createStartupHeader } from "./content.js";
 import { fetchLatestPiVersion } from "./version-check.js";
+import { buildWorkspacePaneContent, readAddedWorkspaceDirs } from "./workspace.js";
+import { showFloatingPane } from "../../shared/floating-pane/index.js";
 export default function hplStartupHeader(pi) {
+    pi.registerCommand("workspace", {
+        description: "Show the current workspace and added directories",
+        handler: async (_args, ctx) => {
+            const workspace = {
+                cwd: ctx.cwd,
+                homeDir: homedir(),
+                addedDirs: readAddedWorkspaceDirs(ctx.sessionManager.getBranch()),
+            };
+            const content = buildWorkspacePaneContent(workspace.cwd, workspace.addedDirs);
+            await showFloatingPane(ctx, {
+                title: "Workspace",
+                lines: content.lines,
+                lineStyles: content.lineStyles,
+                footer: `${ctx.model?.id ?? "no model"} | Esc close`,
+                width: 90,
+                maxHeight: 85,
+            });
+        },
+    });
     pi.on("session_start", (_event, ctx) => {
         if (!ctx.hasUI || ctx.mode !== "tui")
             return;

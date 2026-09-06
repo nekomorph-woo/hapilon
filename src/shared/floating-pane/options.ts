@@ -10,7 +10,7 @@ export interface FloatingPaneOptions {
   /** 内容行（支持 ANSI color codes） */
   lines: string[];
   /** 内容行主题槽位；与 lines 按索引对应，未提供时保持原始文本。 */
-  lineStyles?: Array<Extract<ThemeColor, "text" | "warning" | "error"> | undefined>;
+  lineStyles?: Array<Extract<ThemeColor, "text" | "muted" | "warning" | "error"> | undefined>;
   /** 底部状态行 */
   footer?: string;
   /** 浮层宽度，默认 "90%"（如 70、80、"80%"） */
