@@ -35,17 +35,17 @@ function recapLines(
 ): string[] {
   const timestamp = now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
   const lines = [
-    ctx.ui.theme.fg("muted", `Recap · ${timestamp} · ${recapModelLabel(model)}`),
+    ctx.ui.theme.fg("muted", `※ recap · ${timestamp} · ${recapModelLabel(model)}`),
   ];
   if (degradedReason) lines.push(ctx.ui.theme.fg("muted", degradedReason));
-  lines.push(...text.slice(0, 200).split(/\r?\n/).map((line) => ctx.ui.theme.fg("customMessageText", line)));
+  lines.push(...text.slice(0, 200).split(/\r?\n/).map((line) => ctx.ui.theme.fg("muted", line)));
   return lines;
 }
 
 function failureLines(ctx: ExtensionContext, reason: string): string[] {
   return [
-    ctx.ui.theme.fg("muted", `Recap · ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`),
-    ctx.ui.theme.fg("customMessageText", `上次 recap 失败：${reason}`),
+    ctx.ui.theme.fg("muted", `※ recap · ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`),
+    ctx.ui.theme.fg("muted", `上次 recap 失败：${reason}`),
   ];
 }
 
