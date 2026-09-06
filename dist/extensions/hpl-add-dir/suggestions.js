@@ -17,6 +17,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { Effect } from "effect";
 import { resolveDir, dirExists, fileExists, readFileSafe } from "./context.js";
 // ---------------------------------------------------------------------------
 // 常量
@@ -806,7 +807,7 @@ function scoreCandidates(candidates, _cwd) {
 // ---------------------------------------------------------------------------
 // 主入口
 // ---------------------------------------------------------------------------
-export function suggestDirectories(options) {
+const suggestDirectoriesSync = (options) => {
     const { cwd, alreadyAdded = [], maxResults = 10 } = options;
     if (!dirExists(cwd))
         return [];
@@ -869,4 +870,8 @@ export function suggestDirectories(options) {
         return true;
     })
         .slice(0, maxResults);
+};
+export const suggestDirectoriesEffect = (options) => Effect.sync(() => suggestDirectoriesSync(options));
+export function suggestDirectories(options) {
+    return Effect.runSync(suggestDirectoriesEffect(options));
 }

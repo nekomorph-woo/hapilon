@@ -7,6 +7,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { Effect } from "effect";
 // ─── 共享辅助函数 ──────────────────────────────────────────────────────
 /** 只注入 HAPILON.md——hapilon 受控上下文体系（AGENTS/CLAUDE 由 --no-context-files 关闭） */
 const CONTEXT_FILES = ["HAPILON.md"];
@@ -46,11 +47,12 @@ export function readFileSafe(filePath) {
         return null;
     }
 }
+export const readFileSafeEffect = (filePath) => Effect.sync(() => readFileSafe(filePath));
 // ─── 扫描 ─────────────────────────────────────────────────────────────
 /**
  * 扫描目录中的 HAPILON.md（根 + .pi/ 子目录）和扩展提示。
  */
-export function scanDirContext(dir) {
+const scanDirContextSync = (dir) => {
     const ctx = {
         hapilonMd: null,
         extensionPaths: [],
@@ -91,6 +93,10 @@ export function scanDirContext(dir) {
         }
     }
     return ctx;
+};
+export const scanDirContextEffect = (dir) => Effect.sync(() => scanDirContextSync(dir));
+export function scanDirContext(dir) {
+    return Effect.runSync(scanDirContextEffect(dir));
 }
 // ─── 上下文注入缓存 ──────────────────────────────────────────
 let contextCache = null;
@@ -105,7 +111,7 @@ export function invalidateContextCache() {
  * 根据所有已添加目录构建系统提示注入。
  * 按目录列表缓存——仅当目录变化时重新扫描。
  */
-export function buildContextInjection(dirs) {
+const buildContextInjectionSync = (dirs) => {
     if (dirs.length === 0)
         return "";
     // 缓存键：排序后的绝对路径
@@ -141,4 +147,8 @@ export function buildContextInjection(dirs) {
     const injection = sections.join("\n");
     contextCache = { dirs: cacheKey, injection };
     return injection;
+};
+export const buildContextInjectionEffect = (dirs) => Effect.sync(() => buildContextInjectionSync(dirs));
+export function buildContextInjection(dirs) {
+    return Effect.runSync(buildContextInjectionEffect(dirs));
 }

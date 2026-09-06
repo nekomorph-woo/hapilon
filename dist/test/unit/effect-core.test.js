@@ -1,8 +1,9 @@
-import { describe, it, before, after } from "node:test";
+import { describe, it, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as childProcess from "node:child_process";
 import { Effect } from "effect";
 import { ensureHapilonDirsEffect, hapilonHome, hapilonHomeEffect } from "../../config/hapilon-home.js";
 import { readHapilonConfigEffect, writeHapilonConfigEffect } from "../../config/config-io.js";
@@ -16,6 +17,10 @@ import { listModelsForProvider, listModelsForProviderEffect, PiListingError } fr
 import { readProjectConfigEffect, writeProjectLocalConfigEffect } from "../../config/project-config.js";
 import { prepareStartupEffect } from "../../cli/startup.js";
 import { collectUpwardEffect, discoverSkillPathsEffect, listFilesEffect, readHapilonMdEffect, readRulesEffect, } from "../../shared/files.js";
+import { ECON_DEFAULTS, writeEconSettingsEffect } from "../../extensions/hpl-econ/settings.js";
+import { config as popConfig } from "../../extensions/hpl-panel-viewer/shared.js";
+import { loadPopConfigEffect, savePopConfigEffect } from "../../extensions/hpl-panel-viewer/config.js";
+import { searchExternalFilesEffect } from "../../extensions/hpl-add-dir/tools.js";
 describe("Effect 核心 API", () => {
     let tmpBase;
     const originalEnv = process.env.HAPILON_HOME;
@@ -31,6 +36,10 @@ describe("Effect 核心 API", () => {
             delete process.env.HAPILON_HOME;
         }
         rmSync(tmpBase, { recursive: true, force: true });
+    });
+    afterEach(() => {
+        // 每个测试结束都恢复临时 home，避免断言失败或新增测试泄漏全局环境。
+        process.env.HAPILON_HOME = tmpBase;
     });
     it("hapilonHomeEffect 与同步版返回一致", () => {
         assert.equal(Effect.runSync(hapilonHomeEffect), hapilonHome());
@@ -227,5 +236,36 @@ describe("Effect 核心 API", () => {
             join(skillsDir, "demo", "SKILL.md"),
         ]);
         assert.deepEqual(Effect.runSync(collectUpwardEffect(tmpBase, tmpBase, "rules")), []);
+    });
+    it("hpl-econ 与 panel 配置写入失败走 Fail 通道", () => {
+        const blocked = join(tmpBase, "blocked-extension-config");
+        writeFileSync(blocked, "file");
+        const econExit = Effect.runSyncExit(writeEconSettingsEffect(blocked, ECON_DEFAULTS));
+        assert.equal(econExit._tag, "Failure");
+        if (econExit._tag === "Failure")
+            assert.equal(econExit.cause._tag, "Fail");
+        assert.equal(Effect.runSync(writeEconSettingsEffect(blocked, ECON_DEFAULTS).pipe(Effect.catchTag("EconConfigError", () => Effect.succeed("caught")))), "caught");
+        process.env.HAPILON_HOME = blocked;
+        const popExit = Effect.runSyncExit(savePopConfigEffect());
+        assert.equal(popExit._tag, "Failure");
+        if (popExit._tag === "Failure")
+            assert.equal(popExit.cause._tag, "Fail");
+        assert.equal(Effect.runSync(savePopConfigEffect().pipe(Effect.catchTag("PopConfigError", () => Effect.succeed("caught")))), "caught");
+        process.env.HAPILON_HOME = tmpBase;
+        Effect.runSync(loadPopConfigEffect);
+        assert.ok(Array.isArray(popConfig.keys));
+    });
+    it("hpl-add-dir searchExternalFilesEffect 使用 Effect.async 返回文件", async () => {
+        const dir = join(tmpBase, "search-root");
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "needle.txt"), "found");
+        const files = await Effect.runPromise(searchExternalFilesEffect(dir, [dir, "-name", "needle.txt", "-type", "f"]));
+        assert.deepEqual(files, [join(dir, "needle.txt")]);
+    });
+    it("hpl-add-dir 搜索超时 kill 子进程并返回空结果", async () => {
+        const started = Date.now();
+        const files = await Effect.runPromise(searchExternalFilesEffect(tmpBase, [], undefined, (_command, _args, options) => childProcess.spawn(process.execPath, ["-e", "setTimeout(() => {}, 1000)"], { ...options, stdio: ["ignore", "pipe", "pipe"] }), 10));
+        assert.deepEqual(files, []);
+        assert.ok(Date.now() - started < 500, "超时后不应继续等待子进程");
     });
 });

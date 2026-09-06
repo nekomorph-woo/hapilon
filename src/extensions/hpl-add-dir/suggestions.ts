@@ -18,6 +18,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { Effect } from "effect";
 import { resolveDir, dirExists, fileExists, readFileSafe } from "./context.js";
 
 // ---------------------------------------------------------------------------
@@ -861,7 +862,7 @@ function scoreCandidates(candidates: Candidate[], _cwd: string): Suggestion[] {
 // 主入口
 // ---------------------------------------------------------------------------
 
-export function suggestDirectories(options: SuggestOptions): Suggestion[] {
+const suggestDirectoriesSync = (options: SuggestOptions): Suggestion[] => {
   const { cwd, alreadyAdded = [], maxResults = 10 } = options;
 
   if (!dirExists(cwd)) return [];
@@ -920,4 +921,11 @@ export function suggestDirectories(options: SuggestOptions): Suggestion[] {
       return true;
     })
     .slice(0, maxResults);
+}
+
+export const suggestDirectoriesEffect = (options: SuggestOptions): Effect.Effect<Suggestion[], never> =>
+  Effect.sync(() => suggestDirectoriesSync(options));
+
+export function suggestDirectories(options: SuggestOptions): Suggestion[] {
+  return Effect.runSync(suggestDirectoriesEffect(options));
 }

@@ -11,14 +11,15 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Effect } from "effect";
 import { state, POP_ICON } from "./shared.js";
 import { improvePanelAppearance, findNewestPanel } from "./panels.js";
 import { launchViewer } from "./viewer.js";
 import { attachInputListener } from "./input.js";
-import { loadPopConfig, applyPopConfig } from "./config.js";
+import { loadPopConfigEffect, applyPopConfig } from "./config.js";
 
 export default function hplPanelViewer(pi: ExtensionAPI): void {
-  loadPopConfig();
+  Effect.runSync(loadPopConfigEffect);
 
   pi.on("session_start", (_event, ctx) => {
     if (ctx?.hasUI !== true) return;

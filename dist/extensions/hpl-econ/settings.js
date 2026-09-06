@@ -1,5 +1,8 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { Data, Effect } from "effect";
+export class EconConfigError extends Data.TaggedError("EconConfigError") {
+}
 /** 组合甲 · 稳妥默认（issue #52 实测裁决） */
 export const ECON_DEFAULTS = {
     enabled: true,
@@ -18,7 +21,7 @@ export function econConfigPath(agentDirPath) {
     return join(agentDirPath, "econ-config.json");
 }
 /** 读配置；文件缺失/损坏时逐字段回落默认（损坏时 warn 一次，不吞——Fail Fast 交给调用方决定） */
-export function readEconSettings(agentDirPath) {
+const readEconSettingsSync = (agentDirPath) => {
     const path = econConfigPath(agentDirPath);
     if (!existsSync(path))
         return { ...ECON_DEFAULTS };
@@ -35,13 +38,25 @@ export function readEconSettings(agentDirPath) {
         console.warn(`[hpl-econ] econ-config.json 解析失败，使用默认参数：${err instanceof Error ? err.message : String(err)}`);
         return { ...ECON_DEFAULTS };
     }
+};
+export const readEconSettingsEffect = (agentDirPath) => Effect.sync(() => readEconSettingsSync(agentDirPath));
+export function readEconSettings(agentDirPath) {
+    return Effect.runSync(readEconSettingsEffect(agentDirPath));
 }
 /** 写配置（/econ 菜单「Save as default」）；目录不存在时创建 */
+export const writeEconSettingsEffect = (agentDirPath, settings) => Effect.try({
+    try: () => {
+        if (!existsSync(agentDirPath)) {
+            mkdirSync(agentDirPath, { recursive: true, mode: 0o700 });
+        }
+        writeFileSync(econConfigPath(agentDirPath), JSON.stringify(settings, null, 2) + "\n", "utf8");
+    },
+    catch: (err) => new EconConfigError({ message: err instanceof Error ? err.message : String(err) }),
+});
 export function writeEconSettings(agentDirPath, settings) {
-    if (!existsSync(agentDirPath)) {
-        mkdirSync(agentDirPath, { recursive: true, mode: 0o700 });
-    }
-    writeFileSync(econConfigPath(agentDirPath), JSON.stringify(settings, null, 2) + "\n", "utf8");
+    const result = Effect.runSync(Effect.either(writeEconSettingsEffect(agentDirPath, settings)));
+    if (result._tag === "Left")
+        throw new Error(result.left.message);
 }
 /** env 通道：HAPILON_ECON_OFF=1 时旁路（脚本化场景） */
 export function envDisabled() {

@@ -1,6 +1,11 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { agentDir } from "../../config/hapilon-home.js";
+import { Data, Effect } from "effect";
+
+export class EconConfigError extends Data.TaggedError("EconConfigError")<{
+  message: string;
+}> {}
 
 /**
  * settings.ts — hpl-econ 参数读取（issue #52 组合甲默认）。
@@ -41,7 +46,7 @@ export function econConfigPath(agentDirPath: string): string {
 }
 
 /** 读配置；文件缺失/损坏时逐字段回落默认（损坏时 warn 一次，不吞——Fail Fast 交给调用方决定） */
-export function readEconSettings(agentDirPath: string): EconSettings {
+const readEconSettingsSync = (agentDirPath: string): EconSettings => {
   const path = econConfigPath(agentDirPath);
   if (!existsSync(path)) return { ...ECON_DEFAULTS };
   try {
@@ -63,12 +68,30 @@ export function readEconSettings(agentDirPath: string): EconSettings {
   }
 }
 
+export const readEconSettingsEffect = (agentDirPath: string): Effect.Effect<EconSettings, never> =>
+  Effect.sync(() => readEconSettingsSync(agentDirPath));
+
+export function readEconSettings(agentDirPath: string): EconSettings {
+  return Effect.runSync(readEconSettingsEffect(agentDirPath));
+}
+
 /** 写配置（/econ 菜单「Save as default」）；目录不存在时创建 */
+export const writeEconSettingsEffect = (
+  agentDirPath: string,
+  settings: EconSettings,
+): Effect.Effect<void, EconConfigError> => Effect.try({
+  try: () => {
+    if (!existsSync(agentDirPath)) {
+      mkdirSync(agentDirPath, { recursive: true, mode: 0o700 });
+    }
+    writeFileSync(econConfigPath(agentDirPath), JSON.stringify(settings, null, 2) + "\n", "utf8");
+  },
+  catch: (err) => new EconConfigError({ message: err instanceof Error ? err.message : String(err) }),
+});
+
 export function writeEconSettings(agentDirPath: string, settings: EconSettings): void {
-  if (!existsSync(agentDirPath)) {
-    mkdirSync(agentDirPath, { recursive: true, mode: 0o700 });
-  }
-  writeFileSync(econConfigPath(agentDirPath), JSON.stringify(settings, null, 2) + "\n", "utf8");
+  const result = Effect.runSync(Effect.either(writeEconSettingsEffect(agentDirPath, settings)));
+  if (result._tag === "Left") throw new Error(result.left.message);
 }
 
 /** env 通道：HAPILON_ECON_OFF=1 时旁路（脚本化场景） */
