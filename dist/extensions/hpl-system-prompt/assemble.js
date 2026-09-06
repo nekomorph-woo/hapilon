@@ -15,6 +15,7 @@ import { xmlEscape } from "../../shared/format.js";
 import { wrapSystemPrompt } from "./xml.js";
 import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildMcpSectionText, BUILTIN_GUIDELINES, CODE_STYLE_TEXT, } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
+import { getPolicySection } from "../hpl-effect-policy/bridge.js";
 // ── Individual builders ────────────────────────────────────────────────
 export function buildRoleSection() {
     return `<role>\n${ROLE_TEXT}\n</role>`;
@@ -28,6 +29,10 @@ export function buildToolsSection(toolSnippets, selectedTools) {
 }
 export function buildCustomToolsNote() {
     return `<custom_tools_note>\n${CUSTOM_TOOLS_NOTE}\n</custom_tools_note>`;
+}
+/** Policy 文本由 hpl-effect-policy 生成；此处只负责条件拼接。 */
+export function buildCodingPolicySection(text) {
+    return text;
 }
 export function buildGuidelinesSection(promptGuidelines, selectedTools) {
     const guidelines = [];
@@ -139,6 +144,7 @@ export function assembleSystemPrompt(opts) {
     const roleSection = buildRoleSection();
     const toolsSection = buildToolsSection(toolSnippets, tools);
     const customToolsNote = buildCustomToolsNote();
+    const codingPolicySection = getPolicySection();
     const guidelinesSection = buildGuidelinesSection(promptGuidelines, tools);
     const codeStyleSection = buildCodeStyleSection();
     const piDocSection = buildPiDocSection();
@@ -171,6 +177,7 @@ export function assembleSystemPrompt(opts) {
         roleSection,
         toolsSection,
         customToolsNote,
+        ...(codingPolicySection ? [buildCodingPolicySection(codingPolicySection)] : []),
         guidelinesSection,
         codeStyleSection,
         piDocSection,

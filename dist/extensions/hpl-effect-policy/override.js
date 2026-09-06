@@ -52,6 +52,15 @@ export const resolveEffectModeEffect = (projectCwd) => Effect.gen(function* () {
     const signals = yield* inspectProjectEffect(projectCwd);
     return decideEffectMode(signals);
 });
+/** 一次 inspector 扫描同时返回裁决结果与扫描事实，供 prompt 注入使用。 */
+export const resolveWithSignalsEffect = (projectCwd) => Effect.gen(function* () {
+    const signals = yield* inspectProjectEffect(projectCwd);
+    const override = yield* readPolicyOverrideEffect(projectCwd);
+    return {
+        mode: override ?? decideEffectMode(signals),
+        signals,
+    };
+});
 export function readPolicyOverride(projectCwd) {
     return Effect.runSync(readPolicyOverrideEffect(projectCwd));
 }

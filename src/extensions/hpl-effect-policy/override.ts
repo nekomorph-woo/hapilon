@@ -60,6 +60,18 @@ export const resolveEffectModeEffect = (
   return decideEffectMode(signals);
 });
 
+/** 一次 inspector 扫描同时返回裁决结果与扫描事实，供 prompt 注入使用。 */
+export const resolveWithSignalsEffect = (
+  projectCwd: string,
+): Effect.Effect<{ mode: EffectMode; signals: import("./policy.js").ProjectSignals }, never> => Effect.gen(function* () {
+  const signals = yield* inspectProjectEffect(projectCwd);
+  const override = yield* readPolicyOverrideEffect(projectCwd);
+  return {
+    mode: override ?? decideEffectMode(signals),
+    signals,
+  };
+});
+
 export function readPolicyOverride(projectCwd: string): EffectMode | undefined {
   return Effect.runSync(readPolicyOverrideEffect(projectCwd));
 }

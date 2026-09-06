@@ -29,6 +29,7 @@ import {
   CODE_STYLE_TEXT,
 } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
+import { getPolicySection } from "../hpl-effect-policy/bridge.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -74,6 +75,11 @@ export function buildToolsSection(
 
 export function buildCustomToolsNote(): string {
   return `<custom_tools_note>\n${CUSTOM_TOOLS_NOTE}\n</custom_tools_note>`;
+}
+
+/** Policy 文本由 hpl-effect-policy 生成；此处只负责条件拼接。 */
+export function buildCodingPolicySection(text: string): string {
+  return text;
 }
 
 export function buildGuidelinesSection(
@@ -228,6 +234,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   const roleSection = buildRoleSection();
   const toolsSection = buildToolsSection(toolSnippets, tools);
   const customToolsNote = buildCustomToolsNote();
+  const codingPolicySection = getPolicySection();
   const guidelinesSection = buildGuidelinesSection(promptGuidelines, tools);
   const codeStyleSection = buildCodeStyleSection();
   const piDocSection = buildPiDocSection();
@@ -262,6 +269,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     roleSection,
     toolsSection,
     customToolsNote,
+    ...(codingPolicySection ? [buildCodingPolicySection(codingPolicySection)] : []),
     guidelinesSection,
     codeStyleSection,
     piDocSection,
