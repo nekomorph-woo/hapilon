@@ -67,7 +67,7 @@ describe("patternMatches", () => {
 });
 describe("titleOfLines", () => {
     it("取第一个非空行，去 ANSI + marker", () => {
-        assert.equal(titleOfLines(["\x1b[32m▶ test title\x1b[0m", "  "]), "test title");
+        assert.equal(titleOfLines(["\x1b[32m▸ test title\x1b[0m", "  "]), "test title");
     });
     it("全空返回空串", () => {
         assert.equal(titleOfLines(["  ", ""]), "");
@@ -101,9 +101,9 @@ describe("findNewestPanel", () => {
     });
 });
 describe("panelMarker", () => {
-    it("折叠返回 ▶，展开返回 ▼", () => {
-        assert.equal(panelMarker(false), "▶");
-        assert.equal(panelMarker(true), "▼");
+    it("折叠返回 ▸，展开返回 ▾", () => {
+        assert.equal(panelMarker(false), "▸");
+        assert.equal(panelMarker(true), "▾");
     });
 });
 describe("decorateExpandable marker", () => {
@@ -119,32 +119,32 @@ describe("decorateExpandable marker", () => {
         };
         return comp;
     }
-    it("折叠面板首行注入 ▶", () => {
+    it("折叠面板首行注入 ▸", () => {
         const comp = makePanel(false);
         assert.equal(decorateExpandable(comp, theme), true);
         const lines = comp.render(80);
-        assert.ok(lines[0].startsWith("▶ "), `实际: ${lines[0]}`);
+        assert.ok(lines[0].startsWith("▸ "), `实际: ${lines[0]}`);
     });
-    it("展开面板首行注入 ▼", () => {
+    it("展开面板首行注入 ▾", () => {
         const comp = makePanel(true);
         decorateExpandable(comp, theme);
         const lines = comp.render(80);
-        assert.ok(lines[0].startsWith("▼ "), `实际: ${lines[0]}`);
+        assert.ok(lines[0].startsWith("▾ "), `实际: ${lines[0]}`);
     });
     it("setExpanded 切换后 marker 跟随状态", () => {
         const comp = makePanel(false);
         decorateExpandable(comp, theme);
-        assert.ok(comp.render(80)[0].startsWith("▶ "));
+        assert.ok(comp.render(80)[0].startsWith("▸ "));
         comp.setExpanded(true);
-        assert.ok(comp.render(80)[0].startsWith("▼ "), `实际: ${comp.render(80)[0]}`);
+        assert.ok(comp.render(80)[0].startsWith("▾ "), `实际: ${comp.render(80)[0]}`);
     });
-    it("折叠截断时 footer 显示当前状态 ▼", () => {
+    it("折叠截断时 footer 显示当前状态 ▾", () => {
         popConfig.maxLines = 5;
         const comp = makePanel(false, 10);
         decorateExpandable(comp, theme);
         const lines = comp.render(80);
         assert.ok(lines.length <= 6, `行数: ${lines.length}`);
-        assert.ok(lines[lines.length - 1].includes("▼"), `实际: ${lines[lines.length - 1]}`);
+        assert.ok(lines[lines.length - 1].includes("▾"), `实际: ${lines[lines.length - 1]}`);
     });
 });
 describe("applyPopConfig", () => {

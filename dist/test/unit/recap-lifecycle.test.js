@@ -41,7 +41,7 @@ function makeExtension() {
     return { ctx, handlers, widgets, getCompleteCount: () => completeCount };
 }
 function fire(test, event, payload = {}) {
-    test.handlers.get(event)?.(payload, test.ctx);
+    return test.handlers.get(event)?.(payload, test.ctx);
 }
 function wait(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -80,6 +80,11 @@ describe("hpl-recap session 生命周期", () => {
         await wait(100);
         assert.equal(test.getCompleteCount(), 1);
         assert.ok(test.widgets.some((item) => item.key === "hpl-recap" && Array.isArray(item.content)));
+        const widgetCountBeforeInput = test.widgets.length;
+        const inputResult = fire(test, "input", { type: "input", text: "新问题", source: "interactive" });
+        assert.equal(inputResult, undefined, "input handler 不拦截用户输入");
+        assert.equal(test.widgets.length, widgetCountBeforeInput + 1);
+        assert.equal(test.widgets.at(-1)?.content, undefined, "新输入清除旧 recap widget");
         fire(test, "session_shutdown", { reason: "quit" });
         const countAfterShutdown = test.getCompleteCount();
         assert.equal(test.widgets.at(-1)?.content, undefined);

@@ -35,16 +35,16 @@ function recapLines(
 ): string[] {
   const timestamp = now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
   const lines = [
-    ctx.ui.theme.fg("customMessageLabel", `Recap · ${timestamp} · ${recapModelLabel(model)}`),
+    ctx.ui.theme.fg("muted", `Recap · ${timestamp} · ${recapModelLabel(model)}`),
   ];
-  if (degradedReason) lines.push(ctx.ui.theme.fg("customMessageLabel", degradedReason));
+  if (degradedReason) lines.push(ctx.ui.theme.fg("muted", degradedReason));
   lines.push(...text.slice(0, 200).split(/\r?\n/).map((line) => ctx.ui.theme.fg("customMessageText", line)));
   return lines;
 }
 
 function failureLines(ctx: ExtensionContext, reason: string): string[] {
   return [
-    ctx.ui.theme.fg("customMessageLabel", `Recap · ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`),
+    ctx.ui.theme.fg("muted", `Recap · ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`),
     ctx.ui.theme.fg("customMessageText", `上次 recap 失败：${reason}`),
   ];
 }
@@ -145,6 +145,11 @@ export default function hplRecap(pi: ExtensionAPI): void {
   pi.on("agent_settled", activity);
   pi.on("message_end", activity);
   pi.on("turn_end", activity);
+
+  pi.on("input", (_event, inputCtx) => {
+    // 新输入意味着旧 recap 已过时；返回 undefined 让 Pi 继续处理输入。
+    inputCtx.ui.setWidget(WIDGET_KEY, undefined);
+  });
 
   pi.on("session_shutdown", (_event, shutdownCtx) => {
     sessionActive = false;

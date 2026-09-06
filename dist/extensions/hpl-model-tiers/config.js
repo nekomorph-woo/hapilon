@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
@@ -65,3 +65,16 @@ export const readModelTiersEffect = (cwd) => Effect.try({
 export function readModelTiers(cwd) {
     return Effect.runSync(readModelTiersEffect(cwd));
 }
+/** 交互编辑器的全局写回通道；失败只 warning，不让命令炸掉会话。 */
+export const saveModelTiersEffect = (tiers) => Effect.try({
+    try: () => {
+        const home = hapilonHome();
+        mkdirSync(home, { recursive: true, mode: 0o700 });
+        writeFileSync(join(home, "model-tiers.json"), JSON.stringify(tiers, null, 2) + "\n", "utf8");
+        return true;
+    },
+    catch: (error) => error,
+}).pipe(Effect.catchAll((error) => Effect.sync(() => {
+    console.warn(`[hpl-model-tiers] 保存 model-tiers.json 失败：${String(error)}`);
+    return false;
+})));

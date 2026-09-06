@@ -2,10 +2,16 @@ import { Effect } from "effect";
 import { fetchJsonEffect } from "./common.js";
 import { asRecord, field, firstValue, unknownField, type QuotaAuth, type QuotaField } from "../types.js";
 
-export const GLM_QUOTA_ENDPOINT = "https://open.bigmodel.cn/api/monitor/usage/quota";
+export const GLM_QUOTA_ENDPOINT_CN = "https://open.bigmodel.cn/api/monitor/usage/quota";
+export const GLM_QUOTA_ENDPOINT_INTL = "https://api.z.ai/api/monitor/usage/quota";
+/** 向后兼容的默认 endpoint：GLM 中国区。 */
+export const GLM_QUOTA_ENDPOINT = GLM_QUOTA_ENDPOINT_CN;
 
-export function fetchQuotaEffect(auth: QuotaAuth): Effect.Effect<unknown, Error> {
-  return fetchJsonEffect(GLM_QUOTA_ENDPOINT, auth);
+export function fetchQuotaEffect(
+  auth: QuotaAuth,
+  endpoint = GLM_QUOTA_ENDPOINT_CN,
+): Effect.Effect<unknown, Error> {
+  return fetchJsonEffect(endpoint, auth);
 }
 
 export function parseQuotaLines(payload: unknown): QuotaField[] {

@@ -7,12 +7,14 @@
  */
 import { visibleWidth, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 export class FloatingPane {
+    static MIN_VISIBLE_ROWS = 8;
     theme;
     lines;
     title;
     footer;
     doneCb;
     lineStyles;
+    maxHeightPercent;
     scrollOffset = 0;
     innerW = 60;
     visibleRows = 20;
@@ -24,6 +26,9 @@ export class FloatingPane {
         this.title = options.title;
         this.footer = options.footer ?? "";
         this.lineStyles = options.lineStyles;
+        this.maxHeightPercent = typeof options.maxHeight === "number" && Number.isFinite(options.maxHeight)
+            ? Math.max(1, Math.min(100, options.maxHeight))
+            : 85;
         this.doneCb = done;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this.termRows = _tui?.terminal?.rows ?? 40;
@@ -65,8 +70,9 @@ export class FloatingPane {
     invalidate() { }
     render(width) {
         const th = this.theme;
-        this.innerW = Math.max(20, width - 2);
-        this.visibleRows = Math.max(6, Math.floor(this.termRows * 0.85) - 4);
+        // render(width) 接收的是浮层实际可用列数；向下取整并预留左右边框，
+        // 避免宽度为小数或标题过长时把右边框挤出一列。
+        this.innerW = Math.max(1, Math.floor(width) - 2);
         this.wrappedLines = [];
         for (let index = 0; index < this.lines.length; index++) {
             const line = this.lineStyles?.[index]
@@ -81,6 +87,10 @@ export class FloatingPane {
                 this.wrappedLines.push(...wrapped);
             }
         }
+        // 内容少时收缩到最小可读高度，内容多时才使用 maxHeight 上限；
+        // 不再按终端高度无条件补满大量空行。
+        const maxRows = Math.max(1, Math.floor(this.termRows * this.maxHeightPercent / 100) - 2 - (this.footer ? 1 : 0));
+        this.visibleRows = Math.min(maxRows, Math.max(FloatingPane.MIN_VISIBLE_ROWS, this.wrappedLines.length));
         const maxScroll = Math.max(0, this.wrappedLines.length - this.visibleRows);
         if (this.scrollOffset > maxScroll)
             this.scrollOffset = maxScroll;
@@ -88,7 +98,7 @@ export class FloatingPane {
         while (visible.length < this.visibleRows)
             visible.push("");
         const result = [];
-        const titleStr = ` ${this.title} `;
+        const titleStr = truncateToWidth(` ${this.title} `, this.innerW, "", true);
         const titleW = visibleWidth(titleStr);
         result.push(th.fg("border", "╭") +
             th.fg("accent", titleStr) +

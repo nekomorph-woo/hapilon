@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
 import { MODEL_TIERS, setTierModels, type ModelTier, type TierModels } from "./bridge.js";
-import { readModelTiersEffect } from "./config.js";
+import { readModelTiersEffect, saveModelTiersEffect } from "./config.js";
 
 export interface AvailableModel {
   provider: string;
@@ -199,6 +199,13 @@ export const applyModelTiersEffect = (
 );
 
 export default function hplModelTiers(pi: ExtensionAPI): void {
+  pi.registerCommand("tiers", {
+    description: "Interactively edit high/mid/low model tiers",
+    handler: async (_args, ctx) => {
+      await handleTiersCommand(ctx);
+    },
+  });
+
   pi.on("session_start", (_event, ctx) => {
     const result = Effect.runSync(Effect.try({
       try: () => ctx.modelRegistry.getAvailable(),
@@ -216,4 +223,84 @@ export default function hplModelTiers(pi: ExtensionAPI): void {
       `[hpl-model-tiers] high=${result.tiers.high.length} mid=${result.tiers.mid.length} low=${result.tiers.low.length}${reloadHint}`,
     );
   });
+}
+
+const TIER_OPERATIONS = ["添加模型", "移除模型", "查看当前", "清空档位"] as const;
+
+function modelOption(model: AvailableModel): string {
+  return `${model.provider}/${model.id}`;
+}
+
+async function saveEditedTiers(ctx: ExtensionCommandContext, tiers: TierModels, tier: ModelTier): Promise<void> {
+  const saved = await Effect.runPromise(saveModelTiersEffect(tiers));
+  if (saved) {
+    ctx.ui.notify(`已保存 ${tier} 档位；请执行 /reload 使配置生效。`, "info");
+  } else {
+    ctx.ui.notify("保存 model-tiers.json 失败，请检查 HAPILON_HOME 权限。", "error");
+  }
+}
+
+async function addModels(
+  ctx: ExtensionCommandContext,
+  tiers: TierModels,
+  tier: ModelTier,
+): Promise<void> {
+  const chosen = new Set(tiers[tier]);
+  const available = ctx.modelRegistry.getAvailable()
+    .map((model) => modelOption(model))
+    .filter((option) => !chosen.has(option));
+  if (available.length === 0) {
+    ctx.ui.notify("没有可添加的可用模型。", "warning");
+    return;
+  }
+
+  let changed = false;
+  while (available.length > 0) {
+    const selected = await ctx.ui.select("添加模型（可连续选择）", [...available, "完成"]);
+    if (!selected || selected === "完成") break;
+    const index = available.indexOf(selected);
+    if (index < 0) break;
+    tiers[tier].push(selected);
+    available.splice(index, 1);
+    changed = true;
+  }
+  if (changed) await saveEditedTiers(ctx, tiers, tier);
+}
+
+async function handleTiersCommand(ctx: ExtensionCommandContext): Promise<void> {
+  const tiers = yieldTiers(ctx.cwd);
+  const tier = await ctx.ui.select("选择模型档位", [...MODEL_TIERS]);
+  if (!tier || !MODEL_TIERS.includes(tier as ModelTier)) return;
+  const operation = await ctx.ui.select("选择操作", [...TIER_OPERATIONS]);
+  if (!operation) return;
+
+  const selectedTier = tier as ModelTier;
+  if (operation === "查看当前") {
+    const values = tiers[selectedTier];
+    ctx.ui.notify(`${selectedTier} 当前配置：${values.length > 0 ? values.join(", ") : "（空）"}`, "info");
+    return;
+  }
+  if (operation === "清空档位") {
+    tiers[selectedTier] = [];
+    await saveEditedTiers(ctx, tiers, selectedTier);
+    return;
+  }
+  if (operation === "添加模型") {
+    await addModels(ctx, tiers, selectedTier);
+    return;
+  }
+
+  const configured = [...tiers[selectedTier]];
+  if (configured.length === 0) {
+    ctx.ui.notify("该档位当前为空。", "warning");
+    return;
+  }
+  const selected = await ctx.ui.select("选择要移除的模型", [...configured, "取消"]);
+  if (!selected || selected === "取消") return;
+  tiers[selectedTier] = configured.filter((value) => value !== selected);
+  await saveEditedTiers(ctx, tiers, selectedTier);
+}
+
+function yieldTiers(cwd: string): TierModels {
+  return Effect.runSync(readModelTiersEffect(cwd));
 }

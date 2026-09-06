@@ -6,6 +6,7 @@ import hplQuotaUsage, {
   loadQuotaEffect,
   queryQuotaEffect,
 } from "../../extensions/hpl-quota-usage/index.js";
+import { GLM_QUOTA_ENDPOINT_INTL } from "../../extensions/hpl-quota-usage/providers/glm.js";
 
 function makeModel(provider: string) {
   return { provider, id: "test-model", name: "Test model" } as never;
@@ -16,7 +17,7 @@ describe("hpl-quota-usage provider 分发", () => {
     assert.equal(isSupportedProvider("deepseek"), true);
     assert.equal(isSupportedProvider("zai-coding-cn"), true);
     assert.equal(isSupportedProvider("openai-codex"), true);
-    assert.equal(isSupportedProvider("zai"), false);
+    assert.equal(isSupportedProvider("zai"), true);
     assert.equal(isSupportedProvider("anthropic"), false);
   });
 
@@ -41,6 +42,27 @@ describe("hpl-quota-usage provider 分发", () => {
     const result = await Effect.runPromise(loadQuotaEffect(ctx, makeModel("deepseek")));
     assert.equal(calls, 1);
     assert.equal(result.fields[0]?.value, "未找到该 provider 的凭证，请先 /login");
+  });
+
+  it("zai 国际侧分发到 api.z.ai 并复用 GLM quota 解析", async () => {
+    const originalFetch = globalThis.fetch;
+    let url = "";
+    globalThis.fetch = (async (input) => {
+      url = String(input);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { planName: "Z.AI Coding Plan", quota: 1234, usedQuota: 12, remainingQuota: 1222 } }),
+      } as Response;
+    }) as typeof fetch;
+    try {
+      const fields = await Effect.runPromise(queryQuotaEffect("zai", { apiKey: "zai-key" }));
+      assert.equal(url, GLM_QUOTA_ENDPOINT_INTL);
+      assert.ok(fields.some((item) => item.label === "计划" && item.value === "Z.AI Coding Plan"));
+      assert.ok(fields.some((item) => item.label === "剩余额度" && item.value === "1222"));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("网络失败通过 Effect 降级为错误行，不向调用方抛出", async () => {

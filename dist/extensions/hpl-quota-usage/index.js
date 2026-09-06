@@ -1,10 +1,10 @@
 import { Effect } from "effect";
 import { showFloatingPane } from "../../shared/floating-pane/index.js";
 import { fetchQuotaEffect as fetchDeepSeekQuota, parseQuotaLines as parseDeepSeekQuota } from "./providers/deepseek.js";
-import { fetchQuotaEffect as fetchGlmQuota, parseQuotaLines as parseGlmQuota } from "./providers/glm.js";
+import { fetchQuotaEffect as fetchGlmQuota, parseQuotaLines as parseGlmQuota, GLM_QUOTA_ENDPOINT_INTL, } from "./providers/glm.js";
 import { fetchQuotaEffect as fetchCodexQuota, parseQuotaLines as parseCodexQuota } from "./providers/codex.js";
 import { field } from "./types.js";
-const SUPPORTED_PROVIDERS = new Set(["deepseek", "zai-coding-cn", "openai-codex"]);
+const SUPPORTED_PROVIDERS = new Set(["deepseek", "zai", "zai-coding-cn", "openai-codex"]);
 export function isSupportedProvider(provider) {
     return SUPPORTED_PROVIDERS.has(provider);
 }
@@ -14,6 +14,8 @@ export function queryQuotaEffect(provider, auth) {
             return fetchDeepSeekQuota(auth).pipe(Effect.map(parseDeepSeekQuota));
         case "zai-coding-cn":
             return fetchGlmQuota(auth).pipe(Effect.map(parseGlmQuota));
+        case "zai":
+            return fetchGlmQuota(auth, GLM_QUOTA_ENDPOINT_INTL).pipe(Effect.map(parseGlmQuota));
         case "openai-codex":
             return fetchCodexQuota(auth).pipe(Effect.map(parseCodexQuota));
         default:
