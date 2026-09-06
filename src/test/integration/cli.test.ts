@@ -92,7 +92,7 @@ describe("cli integration", () => {
         encoding: "utf8",
       });
 
-      assert.ok(result.stdout.includes("Created ~/.hapilon/"), "应输出创建成功信息");
+      assert.ok(result.stdout.includes(`Created ${tmpBase}/`), "应输出实际配置目录创建成功信息");
       assert.ok(result.stdout.includes("setup"), "应提示交互式 setup");
     });
 

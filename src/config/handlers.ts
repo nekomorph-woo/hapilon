@@ -19,6 +19,7 @@ import { readHapilonConfigEffect, writeHapilonConfigEffect } from "./config-io.j
 import { agentDir } from "./hapilon-home.js";
 import { question, yesno } from "./prompts.js";
 import { listModelsForProvider, type ParsedModel } from "../providers/pi-listing.js";
+import { deriveCliIdentity } from "../cli/identity.js";
 
 // ─── config show ─────────────────────────────────────────────────────
 
@@ -39,7 +40,7 @@ function configShow(): void {
     );
   } else {
     console.log(
-      "未设置默认配置。使用 hapilon config default --set 设置",
+      `未设置默认配置。使用 ${deriveCliIdentity().cliName} config default --set 设置`,
     );
   }
 }
@@ -65,7 +66,7 @@ async function configSetDefaultInteractive(): Promise<void> {
 
     if (configuredIds.length === 0) {
       console.log(
-        "未配置任何 provider。使用 hapilon config provider add <id> 添加",
+        `未配置任何 provider。使用 ${deriveCliIdentity().cliName} config provider add <id> 添加`,
       );
       return;
     }
@@ -359,7 +360,7 @@ export async function handleConfig(args: string[]): Promise<void> {
     } else {
       console.error("请指定 --set 或 --unset");
       console.error(
-        "用法: hapilon config default --set | --unset",
+        `用法: ${deriveCliIdentity().cliName} config default --set | --unset`,
       );
       process.exit(1);
     }
@@ -376,7 +377,7 @@ export async function handleConfig(args: string[]): Promise<void> {
       await configProviderRemove(args[3]);
     } else {
       console.error(
-        "用法: hapilon config provider list | add <id> | remove <id>",
+        `用法: ${deriveCliIdentity().cliName} config provider list | add <id> | remove <id>`,
       );
       process.exit(1);
     }
@@ -384,6 +385,6 @@ export async function handleConfig(args: string[]): Promise<void> {
   }
 
   console.error(`未知 config 子命令: ${subcommand}`);
-  console.error("输入 hapilon help config 查看帮助");
+  console.error(`输入 ${deriveCliIdentity().cliName} help config 查看帮助`);
   process.exit(1);
 }

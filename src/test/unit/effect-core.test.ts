@@ -277,6 +277,7 @@ describe("Effect 核心 API", () => {
     assert.ok(!plan.piArgs.includes("--no-safety"));
     assert.ok(plan.extensionFlags.includes("-e"));
     assert.equal(plan.piEnv.PI_CODING_AGENT_DIR, join(tmpBase, "agent"));
+    assert.equal(plan.piEnv.PONYTAIL_HIDE_STATUS, "1");
   });
 
   it("readHapilonMdEffect 读取失败走 ReadHapilonMdError Fail 通道", () => {

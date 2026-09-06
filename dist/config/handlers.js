@@ -12,6 +12,7 @@ import { readHapilonConfigEffect, writeHapilonConfigEffect } from "./config-io.j
 import { agentDir } from "./hapilon-home.js";
 import { question, yesno } from "./prompts.js";
 import { listModelsForProvider } from "../providers/pi-listing.js";
+import { deriveCliIdentity } from "../cli/identity.js";
 // ─── config show ─────────────────────────────────────────────────────
 function configShow() {
     const config = Effect.runSync(readHapilonConfigEffect);
@@ -25,7 +26,7 @@ function configShow() {
         console.log(`默认 model: ${config.defaultModel}（provider 未设置）`);
     }
     else {
-        console.log("未设置默认配置。使用 hapilon config default --set 设置");
+        console.log(`未设置默认配置。使用 ${deriveCliIdentity().cliName} config default --set 设置`);
     }
 }
 // ─── config default ──────────────────────────────────────────────────
@@ -44,7 +45,7 @@ async function configSetDefaultInteractive() {
         const auth = Effect.runSync(readAuthFileEffect(agentDir()));
         const configuredIds = Object.keys(auth);
         if (configuredIds.length === 0) {
-            console.log("未配置任何 provider。使用 hapilon config provider add <id> 添加");
+            console.log(`未配置任何 provider。使用 ${deriveCliIdentity().cliName} config provider add <id> 添加`);
             return;
         }
         console.log("\n已配置 auth 的 Provider:");
@@ -260,7 +261,7 @@ export async function handleConfig(args) {
         }
         else {
             console.error("请指定 --set 或 --unset");
-            console.error("用法: hapilon config default --set | --unset");
+            console.error(`用法: ${deriveCliIdentity().cliName} config default --set | --unset`);
             process.exit(1);
         }
         return;
@@ -277,12 +278,12 @@ export async function handleConfig(args) {
             await configProviderRemove(args[3]);
         }
         else {
-            console.error("用法: hapilon config provider list | add <id> | remove <id>");
+            console.error(`用法: ${deriveCliIdentity().cliName} config provider list | add <id> | remove <id>`);
             process.exit(1);
         }
         return;
     }
     console.error(`未知 config 子命令: ${subcommand}`);
-    console.error("输入 hapilon help config 查看帮助");
+    console.error(`输入 ${deriveCliIdentity().cliName} help config 查看帮助`);
     process.exit(1);
 }

@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { COMMANDS, GLOBAL_FLAGS, type CommandDef } from "./commands.js";
 import { readVersionEffect } from "./version.js";
+import { deriveCliIdentity } from "./identity.js";
 
 // ─── Version ─────────────────────────────────────────────────────────
 
@@ -33,11 +34,13 @@ function formatSubcommands(
 
 export function printHelp(): void {
   const version = getVersion();
-  console.log(`hapilon v${version} — Pi Coding Agent 启动器
+  const identity = deriveCliIdentity();
+  const commandForms = identity.isDev ? identity.cliName : "hapilon | hapi";
+  console.log(`${identity.cliName} v${version} — Pi Coding Agent 启动器
 
 用法:
-  hapilon | hapi [options]          启动 Pi TUI 交互
-  hapilon | hapi <command> [args]   执行子命令
+  ${commandForms} [options]          启动 Pi TUI 交互
+  ${commandForms} <command> [args]   执行子命令
 
 命令:`);
 
@@ -56,8 +59,8 @@ export function printHelp(): void {
   ${GLOBAL_FLAGS.map((f) => `${f.name.padEnd(13)}${f.description}`).join("\n  ")}
   其余选项透传给 Pi Coding Agent
 
-hapi 是 hapilon 的别名，二者完全等价。
-使用 hapilon help <command> 查看具体命令详情。`);
+${identity.isDev ? "devhapi 是当前仓库的开发启动别名。" : "hapi 是 hapilon 的别名，二者完全等价。"}
+使用 ${identity.cliName} help <command> 查看具体命令详情。`);
 }
 
 // ─── Command-specific Help ───────────────────────────────────────────
@@ -66,13 +69,14 @@ export function printHelpFor(commandName: string): void {
   const cmd = COMMANDS.find((c) => c.name === commandName);
 
   if (!cmd) {
+    const { cliName } = deriveCliIdentity();
     console.error(`未知命令: ${commandName}`);
-    console.error("输入 hapilon help 查看可用命令");
+    console.error(`输入 ${cliName} help 查看可用命令`);
     return;
   }
 
   const version = getVersion();
-  console.log(`hapilon v${version} > ${cmd.name}`);
+  console.log(`${deriveCliIdentity().cliName} v${version} > ${cmd.name}`);
 
   if (cmd.usage) {
     console.log(`\n用法:\n  ${cmd.usage}`);

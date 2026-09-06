@@ -10,6 +10,7 @@ import { ensureSafetyExtensionsEffect, isSafetyExtensionPath, removeSafetyExtens
 import { discoverExtensionsEffect, extensionNames } from "../extensions/loader.js";
 import { ensureExtensionConfigsEffect } from "../extensions/ensure-configs.js";
 import { resolveNpmExtensionPathsEffect } from "../extensions/npm-extensions.js";
+import { deriveCliIdentity } from "./identity.js";
 export class StartupError extends Data.TaggedError("StartupError") {
 }
 const toStartupError = (error) => new StartupError({ message: error instanceof Error ? error.message : String(error) });
@@ -20,8 +21,9 @@ export const prepareStartupEffect = (args) => Effect.gen(function* () {
     const noSafety = hasFlag(args, "--no-safety");
     const noEcon = hasFlag(args, "--no-econ");
     const piCli = yield* resolvePiCliEffect.pipe(Effect.mapError(toStartupError));
-    if (!existsSync(agentDirPath)) {
-        console.warn("~/.hapilon/ not configured. Run `hapilon setup` to configure providers.");
+    if (!existsSync(agentDirPath) && !isNonInteractive) {
+        const identity = deriveCliIdentity();
+        console.warn(`${identity.homeDisplay}/ not configured. Run \`${identity.cliName} setup\` to configure providers.`);
     }
     yield* ensureQuietStartupEffect(agentDirPath).pipe(Effect.mapError(toStartupError));
     const config = yield* readHapilonConfigEffect;
@@ -62,6 +64,8 @@ export const prepareStartupEffect = (args) => Effect.gen(function* () {
         PI_SKIP_VERSION_CHECK: "1",
         HAPILON_EXTENSIONS: JSON.stringify(extensionNames(displayedExtensions)),
         HAPILON_VERSION: getVersion(),
+        // 隐藏 ponytail footer 指示器；ponytail ruleset 仍保持激活。
+        PONYTAIL_HIDE_STATUS: "1",
     };
     return {
         piCli,

@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   hapilonLogo,
+  isLogoLine,
   drawBox,
   layoutColumns,
   parseExtensionsEnv,
@@ -13,6 +14,7 @@ import {
   buildLeftColumn,
   buildRightColumn,
   centerLines,
+  createStartupHeader,
   type HeaderData,
 } from "../../extensions/hpl-startup-header/content.js";
 
@@ -26,6 +28,32 @@ describe("hapilonLogo()", () => {
     for (const line of hapilonLogo()) {
       assert.ok(line.length > 0, "每行不应为空字符串");
     }
+  });
+});
+
+describe("logo 主题渲染", () => {
+  it("实心块 logo 行使用 accent 主题槽位", () => {
+    assert.equal(isLogoLine(hapilonLogo()[1]!), true);
+    assert.equal(isLogoLine("  Welcome back!"), false);
+
+    const colors: string[] = [];
+    const theme = {
+      fg: (color: string, text: string) => {
+        colors.push(color);
+        return `<${color}>${text}`;
+      },
+      bold: (text: string) => text,
+    } as never;
+    const component = createStartupHeader(
+      { cwd: "/tmp/project" },
+      {} as never,
+      theme,
+      { expanded: false },
+    );
+
+    const rendered = component.render(80);
+    assert.ok(rendered.some((line) => line.startsWith("<accent>") && /█/.test(line)));
+    assert.ok(colors.includes("accent"));
   });
 });
 

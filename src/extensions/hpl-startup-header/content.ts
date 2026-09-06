@@ -44,6 +44,11 @@ export function hapilonLogo(): string[] {
   ];
 }
 
+/** logo 专用 accent 通道，交给 Pi 主题在明暗终端中选择可读颜色。 */
+export function isLogoLine(line: string): boolean {
+  return /[▗▖▐▛█▜▝▘]/.test(line);
+}
+
 // ─── Box Drawing ──────────────────────────────────────────────────────
 
 const H_BAR = "─";
@@ -321,6 +326,10 @@ export function createStartupHeader(
         if (line.length === 0) return line;
 
         let colored = line;
+
+        if (isLogoLine(colored)) {
+          return theme.fg("accent", colored);
+        }
 
         // Hyperlink: replace raw URL with clickable link (includes its own dim)
         if (hasLinks && colored.includes("pi.dev/changelog")) {

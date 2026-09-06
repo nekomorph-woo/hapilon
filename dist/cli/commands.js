@@ -2,6 +2,8 @@
 // Single source of truth for hapilon CLI commands.
 // Used by help.ts for help text display and cli.ts for routing.
 // handler 内 lazy import，保持启动开销不增加。
+import { deriveCliIdentity } from "./identity.js";
+const cliIdentity = deriveCliIdentity();
 export const GLOBAL_FLAGS = [
     {
         name: "--help, -h",
@@ -19,8 +21,8 @@ export const GLOBAL_FLAGS = [
 export const COMMANDS = [
     {
         name: "setup",
-        description: "初始化 ~/.hapilon/ 和 provider 认证",
-        usage: "hapilon setup [--quick]",
+        description: `初始化 ${cliIdentity.homeDisplay}/ 和 provider 认证`,
+        usage: `${cliIdentity.cliName} setup [--quick]`,
         subcommands: [
             {
                 name: "--quick",
@@ -41,7 +43,7 @@ export const COMMANDS = [
     {
         name: "doctor",
         description: "诊断 hapilon 配置状态（版本、目录、provider 认证）",
-        usage: "hapilon doctor",
+        usage: `${cliIdentity.cliName} doctor`,
         handler: async () => {
             const { doctor } = await import("./setup.js");
             doctor();
@@ -122,7 +124,7 @@ export const COMMANDS = [
     {
         name: "help",
         description: "显示帮助信息",
-        usage: "hapilon help [command]",
+        usage: `${cliIdentity.cliName} help [command]`,
         handler: async (args) => {
             const { printHelp, printHelpFor } = await import("./help.js");
             const cmdName = args[1];
