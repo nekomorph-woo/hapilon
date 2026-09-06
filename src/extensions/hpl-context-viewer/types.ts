@@ -20,6 +20,7 @@ export interface SystemPromptMeta {
     hapilonInstructions: number;
     hapilonRules: number;
     contextFiles: number;
+    externalDirectories: number;
     skills: number;
     customToolsNote: number;
     additionalData: number;

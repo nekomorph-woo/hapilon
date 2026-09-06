@@ -30,6 +30,8 @@ import {
 } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
+import { getAddedDirs } from "../hpl-add-dir/bridge.js";
+import { buildContextInjection } from "../hpl-add-dir/context.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -180,6 +182,14 @@ export function buildAppendSection(appendSystemPrompt?: string): string {
   return `<additional_instructions>\n${appendSystemPrompt}\n</additional_instructions>`;
 }
 
+/** 外部目录（/add-dir）注入内容由 hpl-add-dir 经 bridge 提供；此处条件拼接 + XML 转义（Spec §3.9）。 */
+export function buildExternalDirsSection(): string {
+  const dirs = getAddedDirs();
+  if (dirs.length === 0) return "";
+  const body = xmlEscape(buildContextInjection(dirs).trim());
+  return `<external_directories>\n${body}\n</external_directories>`;
+}
+
 export function buildEnvironmentSection(cwd: string, agentDirPath?: string): string {
   const normalized = cwd.replace(/\\/g, "/");
   const mcp = agentDirPath ? `\n${buildMcpSectionText(agentDirPath)}` : "";
@@ -241,6 +251,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   const hapilonInstructions = buildHapilonInstructions(hapilonMd);
   const hapilonRulesSection = buildHapilonRules(hapilonRules);
   const contextFilesSection = buildContextSection(contextFiles);
+  const externalDirsSection = buildExternalDirsSection();
   const skillsSection = buildSkillsSection(skills);
   const appendSection = buildAppendSection(appendSystemPrompt);
   const envSection = buildEnvironmentSection(cwd, agentDirPath);
@@ -258,6 +269,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
       hapilonInstructions: hapilonInstructions.length,
       hapilonRules: hapilonRulesSection.length,
       contextFiles: contextFilesSection.length,
+      externalDirectories: externalDirsSection.length,
       skills: skillsSection.length,
       customToolsNote: customToolsNote.length,
       additionalData: appendSection.length,
@@ -276,6 +288,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     hapilonInstructions,
     hapilonRulesSection,
     contextFilesSection,
+    externalDirsSection,
     skillsSection,
     appendSection,
     envSection,
