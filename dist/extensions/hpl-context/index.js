@@ -9,7 +9,7 @@
  */
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import { collectUpwardEffect, discoverSkillPathsEffect, } from "../../shared/files.js";
@@ -18,6 +18,8 @@ import { getEffectPolicyMode } from "../hpl-effect-policy/bridge.js";
 const NPM_SKILL_DIRS = [
     ["@dietrichgebert/ponytail", "skills"],
 ];
+/** 仅这些 skill 受 Effect policy 门槛约束；其它内置 skill 无条件暴露。 */
+const POLICY_GATED_SKILLS = new Set(["effect-typescript"]);
 const HAPILON_MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 function resolvePackageRootSync(startDir) {
     let probe = startDir;
@@ -37,11 +39,16 @@ export const resolveHapilonSkillsDirEffect = (startDir = HAPILON_MODULE_DIR) => 
     const dir = join(root, "resources", "skills");
     return existsSync(dir) ? dir : null;
 });
-const discoverBuiltInSkillsEffect = () => Effect.sync(() => {
+export const discoverBuiltInSkillsEffect = (skillsDirOverride) => Effect.sync(() => {
     try {
-        const skillsDir = Effect.runSync(resolveHapilonSkillsDirEffect());
-        const skill = skillsDir ? join(skillsDir, "effect-typescript", "SKILL.md") : "";
-        return skill && existsSync(skill) ? [skill] : [];
+        const skillsDir = skillsDirOverride ?? Effect.runSync(resolveHapilonSkillsDirEffect());
+        if (!skillsDir)
+            return [];
+        const mode = getEffectPolicyMode();
+        return Effect.runSync(discoverSkillPathsEffect([skillsDir])).filter((skillPath) => {
+            const skillName = basename(dirname(skillPath));
+            return !POLICY_GATED_SKILLS.has(skillName) || mode === "prefer" || mode === "required";
+        });
     }
     catch {
         return [];
@@ -98,11 +105,8 @@ export default function hplContext(pi) {
         for (const [pkg, dir] of NPM_SKILL_DIRS) {
             skillPaths.push(...Effect.runSync(discoverNpmSkillsEffect(pkg, dir, (id) => req.resolve(id))));
         }
-        // 与 coding_policy 段对称：仅 prefer/required 暴露 Effect skill。
-        const mode = getEffectPolicyMode();
-        if (mode === "prefer" || mode === "required") {
-            skillPaths.push(...Effect.runSync(discoverBuiltInSkillsEffect()));
-        }
+        // 内置 skill 按 skill 粒度应用 policy；通用 skill 不受 Effect policy 影响。
+        skillPaths.push(...Effect.runSync(discoverBuiltInSkillsEffect()));
         return { skillPaths };
     });
 }

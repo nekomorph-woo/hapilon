@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getEffectPolicyMode, resetPolicySection, setPolicySection } from "../../extensions/hpl-effect-policy/bridge.js";
-import hplContext, { resolveHapilonSkillsDirEffect } from "../../extensions/hpl-context/index.js";
+import hplContext, { discoverBuiltInSkillsEffect, resolveHapilonSkillsDirEffect, } from "../../extensions/hpl-context/index.js";
 import { Effect } from "effect";
 const ORIGINAL_HOME = process.env.HOME;
 afterEach(() => {
@@ -51,6 +51,31 @@ describe("Policy R6 effect-typescript skill", () => {
         finally {
             rmSync(home, { recursive: true, force: true });
             rmSync(cwd, { recursive: true, force: true });
+        }
+    });
+    it("按 skill 粒度应用门槛：通用 skill 无条件收集，Effect skill 仍受 policy 约束", () => {
+        const root = mkdtempSync(join(tmpdir(), "hapilon-r6-mixed-skills-"));
+        const skillsDir = join(root, "skills");
+        mkdirSync(join(skillsDir, "generic-skill"), { recursive: true });
+        mkdirSync(join(skillsDir, "effect-typescript"), { recursive: true });
+        writeFileSync(join(skillsDir, "generic-skill", "SKILL.md"), "---\nname: generic-skill\ndescription: generic\n---\n");
+        writeFileSync(join(skillsDir, "effect-typescript", "SKILL.md"), "---\nname: effect-typescript\ndescription: effect\n---\n");
+        try {
+            for (const mode of ["disabled", "respect-project"]) {
+                setPolicySection(undefined, mode);
+                const paths = Effect.runSync(discoverBuiltInSkillsEffect(skillsDir));
+                assert.ok(paths.some((path) => path.endsWith("generic-skill/SKILL.md")));
+                assert.ok(!paths.some((path) => path.endsWith("effect-typescript/SKILL.md")));
+            }
+            for (const mode of ["prefer", "required"]) {
+                setPolicySection("policy", mode);
+                const paths = Effect.runSync(discoverBuiltInSkillsEffect(skillsDir));
+                assert.ok(paths.some((path) => path.endsWith("generic-skill/SKILL.md")));
+                assert.ok(paths.some((path) => path.endsWith("effect-typescript/SKILL.md")));
+            }
+        }
+        finally {
+            rmSync(root, { recursive: true, force: true });
         }
     });
     it("从 dist 模块位置向上解析包根，资源缺失时静默跳过", () => {
