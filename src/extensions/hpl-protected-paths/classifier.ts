@@ -9,6 +9,7 @@
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
+import { Effect } from "effect";
 import { WRITE_BLOCK, WRITE_CONFIRM, READ_CONFIRM } from "./rules.js";
 
 export type PathVerdict = "block" | "confirm" | "allow";
@@ -20,7 +21,7 @@ export function expandTilde(p: string): string {
   return p;
 }
 
-export function resolveTarget(targetPath: string, cwd: string): string {
+const resolveTargetSync = (targetPath: string, cwd: string): string => {
   if (!targetPath) return resolve(cwd);
   const expanded = expandTilde(targetPath);
   const absPath = resolve(cwd, expanded);
@@ -32,6 +33,14 @@ export function resolveTarget(targetPath: string, cwd: string): string {
     console.warn("路径解析异常 (realpath):", code ?? String(err), "→ 回退到未解析路径");
     return absPath;
   }
+}
+
+/** realpath 失败时沿用 ENOENT 回退及 warning 降级，故错误通道为 never。 */
+export const resolveTargetEffect = (targetPath: string, cwd: string): Effect.Effect<string, never> =>
+  Effect.sync(() => resolveTargetSync(targetPath, cwd));
+
+export function resolveTarget(targetPath: string, cwd: string): string {
+  return Effect.runSync(resolveTargetEffect(targetPath, cwd));
 }
 
 export function classifyPath(

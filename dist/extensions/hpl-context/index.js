@@ -7,10 +7,11 @@
  *       由 before_agent_start 全量接管 system prompt 组装。
  *
  */
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { collectUpward, discoverSkillPaths, } from "../../shared/files.js";
+import { Effect } from "effect";
+import { collectUpwardEffect, discoverSkillPathsEffect, } from "../../shared/files.js";
 /** npm 扩展自带 skills 的接线表（#55）：包名 → 包内 skills 目录 */
 const NPM_SKILL_DIRS = [
     ["@dietrichgebert/ponytail", "skills"],
@@ -46,38 +47,30 @@ export default function hplContext(pi) {
     // 使用 event.cwd（会话工作目录）而非 process.cwd()，与 hpl-system-prompt 一致
     pi.on("resources_discover", (event) => {
         const skillPaths = userHome
-            ? discoverSkillPaths(collectUpward(event.cwd, userHome, "agents/skills"))
+            ? Effect.runSync(Effect.flatMap(collectUpwardEffect(event.cwd, userHome, "agents/skills"), (dirs) => Effect.map(Effect.forEach(dirs, (dir) => discoverSkillPathsEffect([dir])), (paths) => paths.flat())))
             : [];
         // npm 扩展自带 skills（#55）：从模块位置解析（不依赖 cwd）。
         // 单个 SKILL.md 文件路径——Pi loadSkills 支持文件级条目。
         // 包缺失/布局变更时静默跳过：skill 是增强，不应炸掉上下文发现。
         const req = createRequire(import.meta.url);
         for (const [pkg, dir] of NPM_SKILL_DIRS) {
-            try {
-                const pkgDir = resolveNpmPkgDir(pkg, (id) => req.resolve(id));
-                if (!pkgDir)
-                    continue;
-                const skillsDir = join(pkgDir, dir);
-                if (!existsSync(skillsDir))
-                    continue;
-                for (const entry of readdirSyncSafe(skillsDir)) {
-                    const skillMd = join(skillsDir, entry, "SKILL.md");
-                    if (existsSync(skillMd))
-                        skillPaths.push(skillMd);
-                }
-            }
-            catch {
-                // 静默跳过（见上）
-            }
+            skillPaths.push(...Effect.runSync(discoverNpmSkillsEffect(pkg, dir, (id) => req.resolve(id))));
         }
         return { skillPaths };
     });
 }
-function readdirSyncSafe(dir) {
+const discoverNpmSkillsEffect = (pkg, relativeDir, resolveModule) => Effect.sync(() => {
     try {
-        return readdirSync(dir);
+        const pkgDir = resolveNpmPkgDir(pkg, resolveModule);
+        if (!pkgDir)
+            return [];
+        const skillsDir = join(pkgDir, relativeDir);
+        if (!existsSync(skillsDir))
+            return [];
+        return Effect.runSync(discoverSkillPathsEffect([skillsDir]));
     }
     catch {
+        // skills 是增强能力，布局/包缺失时静默跳过。
         return [];
     }
-}
+});

@@ -21,6 +21,7 @@ import { ECON_DEFAULTS, writeEconSettingsEffect } from "../../extensions/hpl-eco
 import { config as popConfig } from "../../extensions/hpl-panel-viewer/shared.js";
 import { loadPopConfigEffect, savePopConfigEffect } from "../../extensions/hpl-panel-viewer/config.js";
 import { searchExternalFilesEffect } from "../../extensions/hpl-add-dir/tools.js";
+import { resolveTargetEffect } from "../../extensions/hpl-protected-paths/classifier.js";
 describe("Effect 核心 API", () => {
     let tmpBase;
     const originalEnv = process.env.HAPILON_HOME;
@@ -267,5 +268,9 @@ describe("Effect 核心 API", () => {
         const files = await Effect.runPromise(searchExternalFilesEffect(tmpBase, [], undefined, (_command, _args, options) => childProcess.spawn(process.execPath, ["-e", "setTimeout(() => {}, 1000)"], { ...options, stdio: ["ignore", "pipe", "pipe"] }), 10));
         assert.deepEqual(files, []);
         assert.ok(Date.now() - started < 500, "超时后不应继续等待子进程");
+    });
+    it("hpl-protected-paths resolveTargetEffect 对不存在路径降级为绝对路径", () => {
+        const target = join(tmpBase, "not-created", "secret.txt");
+        assert.equal(Effect.runSync(resolveTargetEffect(target, tmpBase)), target);
     });
 });
