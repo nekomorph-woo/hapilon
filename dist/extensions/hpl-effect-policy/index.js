@@ -15,7 +15,7 @@ export default function hplEffectPolicy(pi) {
                 return {};
             }
             const { mode, signals } = Effect.runSync(resolveWithSignalsEffect(opts.cwd));
-            setPolicySection(buildPolicySectionText(mode, signals));
+            setPolicySection(buildPolicySectionText(mode, signals), mode);
             return {};
         }
         catch (err) {

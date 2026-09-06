@@ -11,6 +11,7 @@
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -18,11 +19,43 @@ import {
   collectUpwardEffect,
   discoverSkillPathsEffect,
 } from "../../shared/files.js";
+import { getEffectPolicyMode } from "../hpl-effect-policy/bridge.js";
 
 /** npm 扩展自带 skills 的接线表（#55）：包名 → 包内 skills 目录 */
 const NPM_SKILL_DIRS: readonly [pkg: string, dir: string][] = [
   ["@dietrichgebert/ponytail", "skills"],
 ];
+
+const HAPILON_MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+
+function resolvePackageRootSync(startDir: string): string | null {
+  let probe = startDir;
+  while (true) {
+    if (existsSync(join(probe, "package.json"))) return probe;
+    const parent = dirname(probe);
+    if (parent === probe) return null;
+    probe = parent;
+  }
+}
+
+export const resolveHapilonSkillsDirEffect = (
+  startDir = HAPILON_MODULE_DIR,
+): Effect.Effect<string | null, never> => Effect.sync(() => {
+  const root = resolvePackageRootSync(startDir);
+  if (!root) return null;
+  const dir = join(root, "resources", "skills");
+  return existsSync(dir) ? dir : null;
+});
+
+const discoverBuiltInSkillsEffect = (): Effect.Effect<string[], never> => Effect.sync(() => {
+  try {
+    const skillsDir = Effect.runSync(resolveHapilonSkillsDirEffect());
+    const skill = skillsDir ? join(skillsDir, "effect-typescript", "SKILL.md") : "";
+    return skill && existsSync(skill) ? [skill] : [];
+  } catch {
+    return [];
+  }
+});
 
 /**
  * 解析 npm 扩展的包根目录。包根含 package.json——部分包 exports 锁死
@@ -85,6 +118,12 @@ export default function hplContext(pi: ExtensionAPI): void {
     const req = createRequire(import.meta.url);
     for (const [pkg, dir] of NPM_SKILL_DIRS) {
       skillPaths.push(...Effect.runSync(discoverNpmSkillsEffect(pkg, dir, (id) => req.resolve(id))));
+    }
+
+    // 与 coding_policy 段对称：仅 prefer/required 暴露 Effect skill。
+    const mode = getEffectPolicyMode();
+    if (mode === "prefer" || mode === "required") {
+      skillPaths.push(...Effect.runSync(discoverBuiltInSkillsEffect()));
     }
 
     return { skillPaths };
