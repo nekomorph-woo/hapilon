@@ -29,7 +29,7 @@ const NPM_SKILL_DIRS: readonly [pkg: string, dir: string][] = [
  * ./package.json 子路径（如 ponytail），降级为 resolve 主入口后向上找包根
  * （与 npm-extensions.ts resolveExtensionEntry 同策略）。
  */
-export function resolveNpmPkgDir(pkg: string, resolve: (id: string) => string): string | null {
+const resolveNpmPkgDirSync = (pkg: string, resolve: (id: string) => string): string | null => {
   let dir: string;
   try {
     dir = dirname(resolve(`${pkg}/package.json`));
@@ -42,6 +42,21 @@ export function resolveNpmPkgDir(pkg: string, resolve: (id: string) => string): 
     dir = probe;
   }
   return dir;
+}
+
+export const resolveNpmPkgDirEffect = (
+  pkg: string,
+  resolveModule: (id: string) => string,
+): Effect.Effect<string | null, never> => Effect.sync(() => {
+  try {
+    return resolveNpmPkgDirSync(pkg, resolveModule);
+  } catch {
+    return null;
+  }
+});
+
+export function resolveNpmPkgDir(pkg: string, resolveModule: (id: string) => string): string | null {
+  return Effect.runSync(resolveNpmPkgDirEffect(pkg, resolveModule));
 }
 
 export default function hplContext(pi: ExtensionAPI): void {
@@ -82,7 +97,7 @@ const discoverNpmSkillsEffect = (
   resolveModule: (id: string) => string,
 ): Effect.Effect<string[], never> => Effect.sync(() => {
   try {
-    const pkgDir = resolveNpmPkgDir(pkg, resolveModule);
+    const pkgDir = Effect.runSync(resolveNpmPkgDirEffect(pkg, resolveModule));
     if (!pkgDir) return [];
     const skillsDir = join(pkgDir, relativeDir);
     if (!existsSync(skillsDir)) return [];

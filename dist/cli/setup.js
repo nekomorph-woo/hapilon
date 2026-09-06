@@ -1,11 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline";
 import { Effect } from "effect";
 import { ensureHapilonDirsEffect, hapilonHome } from "../config/hapilon-home.js";
 import { resolvePiCliEffect } from "../providers/pi-cli-path.js";
+import { readVersionEffect } from "./version.js";
 import { COMMON, ALL_PROVIDERS, writeAuthFileNativeEffect, writeSkeletonFilesEffect, readAuthFileEffect, mergeAuthEntries, ensureSettingsFile, maskKey, semverGte, } from "../providers/providers.js";
 // ─── OAuth guide ──────────────────────────────────────────────────────
 const OAUTH_PROVIDERS = [
@@ -113,13 +113,7 @@ export async function setupInteractive() {
 }
 // ─── Doctor ──────────────────────────────────────────────────────────
 export function doctor() {
-    const __dirname = dirname(fileURLToPath(import.meta.url));
-    const pkgPath = join(__dirname, "..", "..", "package.json");
-    let version = "unknown";
-    try {
-        version = JSON.parse(readFileSync(pkgPath, "utf8")).version;
-    }
-    catch { /* ignore */ }
+    const version = Effect.runSync(readVersionEffect);
     console.log(`hapilon v${version}`);
     console.log(`Node.js ${process.version}  ${semverGte(process.version, "v22.19.0") ? "✅" : "❌ 需要 >=22.19"}`);
     const home = hapilonHome();

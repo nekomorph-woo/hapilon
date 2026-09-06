@@ -1,19 +1,11 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { Effect } from "effect";
 import { COMMANDS, GLOBAL_FLAGS, type CommandDef } from "./commands.js";
+import { readVersionEffect } from "./version.js";
 
 // ─── Version ─────────────────────────────────────────────────────────
 
 export function getVersion(): string {
-  const __dirname = dirname(fileURLToPath(import.meta.url));
-  const pkgPath = join(__dirname, "..", "..", "package.json");
-  try {
-    return JSON.parse(readFileSync(pkgPath, "utf8")).version;
-  } catch {
-    console.warn("Warning: 无法读取版本号");
-    return "unknown";
-  }
+  return Effect.runSync(readVersionEffect);
 }
 
 // ─── Formatting ──────────────────────────────────────────────────────

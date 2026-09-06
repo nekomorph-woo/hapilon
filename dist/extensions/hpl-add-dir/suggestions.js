@@ -19,6 +19,18 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { Effect } from "effect";
 import { resolveDir, dirExists, fileExists, readFileSafe } from "./context.js";
+export function readDirEntriesEffect(dir, options) {
+    return Effect.sync(() => {
+        try {
+            if (options?.withFileTypes)
+                return fs.readdirSync(dir, { withFileTypes: true });
+            return fs.readdirSync(dir);
+        }
+        catch {
+            return [];
+        }
+    });
+}
 // ---------------------------------------------------------------------------
 // 常量
 // ---------------------------------------------------------------------------
@@ -73,7 +85,7 @@ function hasExtensions(dir) {
     if (!dirExists(full))
         return false;
     try {
-        const entries = fs.readdirSync(full, { withFileTypes: true });
+        const entries = Effect.runSync(readDirEntriesEffect(full, { withFileTypes: true }));
         return entries.some(e => (e.isFile() && e.name.endsWith(".ts")) ||
             (e.isDirectory() && fileExists(path.join(full, e.name, "index.ts"))));
     }
@@ -146,7 +158,7 @@ function findWorkspaceRoot(cwd) {
         // 每层预扫描一次目录内容，避免大量单独的 stat 调用
         let dirFiles;
         try {
-            dirFiles = new Set(fs.readdirSync(current));
+            dirFiles = new Set(Effect.runSync(readDirEntriesEffect(current)));
         }
         catch {
             const parent = path.dirname(current);
@@ -222,7 +234,7 @@ function collectSiblings(cwd) {
     const cwdGitRoot = findGitRoot(cwd);
     const siblings = [];
     try {
-        const entries = fs.readdirSync(parent, { withFileTypes: true });
+        const entries = Effect.runSync(readDirEntriesEffect(parent, { withFileTypes: true }));
         for (const entry of entries) {
             if (!entry.isDirectory())
                 continue;
@@ -360,7 +372,7 @@ function collectComposerPaths(cwd) {
                         const baseDir = resolveDir(urlPath.slice(0, -2), cwd);
                         if (dirExists(baseDir)) {
                             try {
-                                const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+                                const entries = Effect.runSync(readDirEntriesEffect(baseDir, { withFileTypes: true }));
                                 for (const entry of entries) {
                                     if (!entry.isDirectory() || entry.name.startsWith("."))
                                         continue;
@@ -494,7 +506,7 @@ function collectWorkspaceMembers(cwd) {
                     const baseDir = path.join(wsRoot, pattern.slice(0, -2));
                     if (dirExists(baseDir)) {
                         try {
-                            const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+                            const entries = Effect.runSync(readDirEntriesEffect(baseDir, { withFileTypes: true }));
                             for (const entry of entries) {
                                 if (!entry.isDirectory() || entry.name.startsWith("."))
                                     continue;
@@ -544,7 +556,7 @@ function collectWorkspaceMembers(cwd) {
                 const baseDir = path.join(wsRoot, pattern.slice(0, -2));
                 if (dirExists(baseDir)) {
                     try {
-                        const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+                        const entries = Effect.runSync(readDirEntriesEffect(baseDir, { withFileTypes: true }));
                         for (const entry of entries) {
                             if (!entry.isDirectory() || entry.name.startsWith("."))
                                 continue;
@@ -588,7 +600,7 @@ function collectWorkspaceMembers(cwd) {
                     const baseDir = path.join(wsRoot, pattern.slice(0, -2));
                     if (dirExists(baseDir)) {
                         try {
-                            const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+                            const entries = Effect.runSync(readDirEntriesEffect(baseDir, { withFileTypes: true }));
                             for (const entry of entries) {
                                 if (!entry.isDirectory() || entry.name.startsWith("."))
                                     continue;
@@ -671,7 +683,7 @@ function collectWorkspaceMembers(cwd) {
     }
     // --- .NET solution (.sln) ---
     try {
-        const slnFiles = fs.readdirSync(wsRoot).filter(f => f.endsWith(".sln"));
+        const slnFiles = Effect.runSync(readDirEntriesEffect(wsRoot)).filter(f => f.endsWith(".sln"));
         for (const slnFile of slnFiles.slice(0, 1)) { // 只处理第一个 .sln
             const slnContent = readFileSafe(path.join(wsRoot, slnFile));
             if (!slnContent)
@@ -709,7 +721,7 @@ function collectWorkspaceMembers(cwd) {
                     const baseDir = path.join(wsRoot, pattern.slice(0, -2));
                     if (dirExists(baseDir)) {
                         try {
-                            const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+                            const entries = Effect.runSync(readDirEntriesEffect(baseDir, { withFileTypes: true }));
                             for (const entry of entries) {
                                 if (!entry.isDirectory() || entry.name.startsWith("."))
                                     continue;
@@ -816,7 +828,7 @@ const suggestDirectoriesSync = (options) => {
     // 预扫描一次 cwd 内容，避免每个收集器里重复 statSync
     let cwdFiles;
     try {
-        cwdFiles = new Set(fs.readdirSync(cwd));
+        cwdFiles = new Set(Effect.runSync(readDirEntriesEffect(cwd)));
     }
     catch {
         cwdFiles = new Set();

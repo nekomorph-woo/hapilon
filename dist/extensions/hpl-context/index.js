@@ -21,7 +21,7 @@ const NPM_SKILL_DIRS = [
  * ./package.json 子路径（如 ponytail），降级为 resolve 主入口后向上找包根
  * （与 npm-extensions.ts resolveExtensionEntry 同策略）。
  */
-export function resolveNpmPkgDir(pkg, resolve) {
+const resolveNpmPkgDirSync = (pkg, resolve) => {
     let dir;
     try {
         dir = dirname(resolve(`${pkg}/package.json`));
@@ -36,6 +36,17 @@ export function resolveNpmPkgDir(pkg, resolve) {
         dir = probe;
     }
     return dir;
+};
+export const resolveNpmPkgDirEffect = (pkg, resolveModule) => Effect.sync(() => {
+    try {
+        return resolveNpmPkgDirSync(pkg, resolveModule);
+    }
+    catch {
+        return null;
+    }
+});
+export function resolveNpmPkgDir(pkg, resolveModule) {
+    return Effect.runSync(resolveNpmPkgDirEffect(pkg, resolveModule));
 }
 export default function hplContext(pi) {
     const userHome = process.env.HOME;
@@ -61,7 +72,7 @@ export default function hplContext(pi) {
 }
 const discoverNpmSkillsEffect = (pkg, relativeDir, resolveModule) => Effect.sync(() => {
     try {
-        const pkgDir = resolveNpmPkgDir(pkg, resolveModule);
+        const pkgDir = Effect.runSync(resolveNpmPkgDirEffect(pkg, resolveModule));
         if (!pkgDir)
             return [];
         const skillsDir = join(pkgDir, relativeDir);

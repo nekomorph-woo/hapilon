@@ -28,10 +28,12 @@ import {
   readRulesEffect,
 } from "../../shared/files.js";
 import { ECON_DEFAULTS, writeEconSettingsEffect } from "../../extensions/hpl-econ/settings.js";
+import { storeFullOutputEffect } from "../../extensions/hpl-econ/compress.js";
 import { config as popConfig } from "../../extensions/hpl-panel-viewer/shared.js";
 import { loadPopConfigEffect, savePopConfigEffect } from "../../extensions/hpl-panel-viewer/config.js";
 import { searchExternalFilesEffect } from "../../extensions/hpl-add-dir/tools.js";
 import { resolveTargetEffect } from "../../extensions/hpl-protected-paths/classifier.js";
+import { readDirEntriesEffect } from "../../extensions/hpl-add-dir/suggestions.js";
 
 describe("Effect 核心 API", () => {
   let tmpBase: string;
@@ -369,5 +371,23 @@ describe("Effect 核心 API", () => {
   it("hpl-protected-paths resolveTargetEffect 对不存在路径降级为绝对路径", () => {
     const target = join(tmpBase, "not-created", "secret.txt");
     assert.equal(Effect.runSync(resolveTargetEffect(target, tmpBase)), target);
+  });
+
+  it("hpl-econ storeFullOutputEffect 失败走 EconStoreError Fail 通道", () => {
+    const blocked = join(tmpBase, "blocked-econ-store");
+    writeFileSync(blocked, "file");
+    const exit = Effect.runSyncExit(storeFullOutputEffect(blocked, "ref", "output"));
+    assert.equal(exit._tag, "Failure");
+    if (exit._tag === "Failure") assert.equal(exit.cause._tag, "Fail");
+    assert.equal(
+      Effect.runSync(storeFullOutputEffect(blocked, "ref", "output").pipe(
+        Effect.catchTag("EconStoreError", () => Effect.succeed("caught")),
+      )),
+      "caught",
+    );
+  });
+
+  it("hpl-add-dir readDirEntriesEffect 读取失败按 never 降级为空数组", () => {
+    assert.deepEqual(Effect.runSync(readDirEntriesEffect(join(tmpBase, "no-such-dir"))), []);
   });
 });
