@@ -6,6 +6,10 @@ export default function hplEffectPolicy(pi) {
     pi.on("before_agent_start", (event) => {
         try {
             const opts = event.systemPromptOptions;
+            if (!opts || typeof opts.cwd !== "string" || opts.cwd.trim().length === 0) {
+                setPolicySection(undefined);
+                return {};
+            }
             if (opts.customPrompt) {
                 setPolicySection(undefined);
                 return {};

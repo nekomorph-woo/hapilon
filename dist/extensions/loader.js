@@ -2,6 +2,13 @@ import { readdirSync, statSync, existsSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
+// 这些是 extensions 目录下供其它模块导入的内部实现，不是 Pi 扩展入口。
+// 分包后它们会编译为顶层 .js；明确排除以免被单文件扩展规则误发现。
+const INTERNAL_EXTENSION_MODULES = new Set([
+    "ensure-configs.js",
+    "loader.js",
+    "npm-extensions.js",
+]);
 /**
  * 扫描扩展目录，返回所有扩展入口文件的绝对路径。
  *
@@ -20,7 +27,7 @@ function discoverExtensionsSync(dir) {
     const extensions = [];
     for (const entry of entries) {
         // 跳过隐藏文件和 .gitkeep
-        if (entry.startsWith("."))
+        if (entry.startsWith(".") || INTERNAL_EXTENSION_MODULES.has(entry))
             continue;
         const fullPath = join(extDir, entry);
         const stat = statSync(fullPath);

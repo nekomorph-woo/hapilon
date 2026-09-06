@@ -115,4 +115,16 @@ describe("Effect policy R4 注入与桥接", () => {
     assert.doesNotThrow(() => handlers[0]({ systemPromptOptions: undefined }));
     assert.equal(getPolicySection(), undefined);
   });
+
+  it("缺失或空 cwd 时直接清空 bridge，不进入裁决管线", () => {
+    setPolicySection("stale");
+    const handlers: Array<(event: any) => unknown> = [];
+    hplEffectPolicy({ on: ((_name: string, handler: (event: any) => unknown) => handlers.push(handler)) } as unknown as ExtensionAPI);
+    assert.deepEqual(handlers[0]({ systemPromptOptions: {} }), {});
+    assert.equal(getPolicySection(), undefined);
+
+    setPolicySection("stale");
+    assert.deepEqual(handlers[0]({ systemPromptOptions: { cwd: "   " } }), {});
+    assert.equal(getPolicySection(), undefined);
+  });
 });
