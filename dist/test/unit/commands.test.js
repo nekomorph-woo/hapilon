@@ -20,14 +20,14 @@ describe("commands", () => {
         assert.ok(nameSet.has("config"), "应包含 config");
         assert.ok(nameSet.has("help"), "应包含 help");
     });
-    it("config 有 show/default/provider 子命令", () => {
+    it("config 有 show/provider 子命令且不再提供 hapilon default", () => {
         const config = COMMANDS.find((c) => c.name === "config");
         assert.ok(config, "应存在 config 命令");
         assert.ok(config.subcommands, "config 应有子命令");
         const subNames = config.subcommands.map((s) => s.name);
         assert.ok(subNames.includes("show"), "config 应有 show 子命令");
-        assert.ok(subNames.includes("default"), "config 应有 default 子命令");
         assert.ok(subNames.includes("provider"), "config 应有 provider 子命令");
+        assert.ok(!subNames.includes("default"), "config 不应再有 hapilon default 子命令");
     });
     it("子命令也有 description", () => {
         for (const cmd of COMMANDS) {

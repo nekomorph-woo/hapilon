@@ -231,13 +231,13 @@ describe("cli integration", () => {
         });
     });
     describe("config", () => {
-        it("hapilon config show 不设置默认时提示", () => {
+        it("hapilon config show 提示默认模型由 Pi 原生 settings 管理", () => {
             const result = spawnSync(process.execPath, [CLI_PATH, "config", "show"], {
                 env: { ...process.env, HAPILON_HOME: tmpBase },
                 encoding: "utf8",
             });
             assert.strictEqual(result.status, 0, `config show 应成功退出: ${result.stderr}`);
-            assert.ok(result.stdout.includes("未设置") || result.stdout.includes("default"), "应提示未设置默认");
+            assert.ok(result.stdout.includes("Pi 原生"), "应提示由 Pi 原生 settings 管理");
         });
         it("hapilon config provider list 显示空列表", () => {
             const result = spawnSync(process.execPath, [CLI_PATH, "config", "provider", "list"], {
@@ -246,14 +246,6 @@ describe("cli integration", () => {
             });
             assert.strictEqual(result.status, 0, `config provider list 应成功退出: ${result.stderr}`);
             assert.ok(result.stdout.includes("未配置"), "应提示未配置任何 provider");
-        });
-        it("hapilon config default --unset 无默认时提示", () => {
-            const result = spawnSync(process.execPath, [CLI_PATH, "config", "default", "--unset"], {
-                env: { ...process.env, HAPILON_HOME: tmpBase },
-                encoding: "utf8",
-            });
-            assert.strictEqual(result.status, 0, `config default --unset 应成功退出: ${result.stderr}`);
-            assert.ok(result.stdout.includes("无需清除"), "应提示无需清除");
         });
         it("config provider add 写入 auth.json", () => {
             const result = spawnSync(process.execPath, ["-e", `
@@ -325,37 +317,15 @@ describe("cli integration", () => {
             const auth = JSON.parse(readFileSync(join(tmpBase, "agent", "auth.json"), "utf8"));
             assert.deepStrictEqual(auth.deepseek, { type: "api_key", key: "sk-existing" }, "取消时原 key 应保留");
         });
-        it("config default --set 交互式设置默认模型（需 pi 已安装）", () => {
-            // Pre-populate auth for deepseek so it appears in provider list
-            writeFileSync(join(tmpBase, "agent", "auth.json"), JSON.stringify({ deepseek: { type: "api_key", key: "sk-test" } }) + "\n");
-            const result = spawnSync(process.execPath, ["-e", `
-        process.env.HAPILON_HOME = "${tmpBase}";
-        Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
-        import("${CONFIG_PATH}").then(m => m.handleConfig(["config","default","--set"]));
-      `], {
-                input: "1\n1\n",
-                encoding: "utf8",
-                timeout: 30000, // pi --list-models may take a moment
-            });
-            // Should have written config.json
-            const configPath = join(tmpBase, "config.json");
-            if (existsSync(configPath)) {
-                const config = JSON.parse(readFileSync(configPath, "utf8"));
-                assert.strictEqual(config.defaultProvider, "deepseek", "应设置 deepseek 为默认 provider");
-                assert.ok(typeof config.defaultModel === "string", "应设置默认 model");
-            }
-            // If pi is not installed, this test will fail at listModelsForProvider
-            // which is acceptable (requires pi dependency)
-        });
-        it("config show 显示已设置的默认配置", () => {
+        it("config show 不再显示 hapilon 旧默认字段", () => {
             writeFileSync(join(tmpBase, "config.json"), JSON.stringify({ defaultProvider: "deepseek", defaultModel: "deepseek-chat" }) + "\n");
             const result = spawnSync(process.execPath, [CLI_PATH, "config", "show"], {
                 env: { ...process.env, HAPILON_HOME: tmpBase },
                 encoding: "utf8",
             });
             assert.strictEqual(result.status, 0);
-            assert.ok(result.stdout.includes("deepseek"), "应显示 deepseek");
-            assert.ok(result.stdout.includes("deepseek-chat"), "应显示 deepseek-chat");
+            assert.ok(!result.stdout.includes("deepseek"), "不应再显示 hapilon 旧默认 provider");
+            assert.ok(!result.stdout.includes("deepseek-chat"), "不应再显示 hapilon 旧默认 model");
         });
     });
 });

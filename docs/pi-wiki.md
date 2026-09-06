@@ -1381,12 +1381,12 @@ hapilon 是 Pi Coding Agent 的 CLI wrapper，设计要点：
 |------|---------|---------|
 | 配置目录 | `~/.pi/agent/` | `~/.hapilon/agent/`（通过 `PI_CODING_AGENT_DIR` 隔离） |
 | Provider 配置 | `~/.pi/agent/auth.json` | `~/.hapilon/agent/auth.json` |
-| Settings | `~/.pi/agent/settings.json` | Pi 原生格式，hapilon 不操作 |
-| 默认模型 | Pi 原生 `settings.json` 中 | hapilon 自有 `~/.hapilon/config.json` + CLI 参数注入 |
+| Settings | `~/.pi/agent/settings.json` | Pi 原生格式；启动仅迁移旧默认值 |
+| 默认模型 | Pi 原生 `settings.json` 中 | Pi 原生 `~/.hapilon/agent/settings.json`；旧版 hapilon 字段启动时一次性迁移 |
 | 管理命令 | `/login`, `/settings` 等 | `hapilon config`, `hapilon setup`, `hapilon doctor` |
 | 启动方式 | 直接 `pi` | `hapilon` → spawn `pi` |
 
-hapilon 的设计原则是**不修改 Pi 原生文件格式**，而是通过 CLI 参数注入和环境变量隔离来实现扩展。
+hapilon 的默认模型统一使用 Pi 原生 settings；仅在升级时把旧版 hapilon 配置迁移一次，其他扩展仍通过环境变量隔离与 CLI 参数透传实现。
 
 ---
 

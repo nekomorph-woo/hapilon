@@ -1,6 +1,6 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,8 +8,9 @@ import {
   writeHapilonConfig,
   hasFlag,
   stripHapilonFlags,
-  injectDefaultArgs,
+  migrateLegacyDefaultsEffect,
 } from "../../config/config-io.js";
+import { Effect } from "effect";
 
 describe("config-io", () => {
   let tmpBase: string;
@@ -292,70 +293,47 @@ describe("config-io", () => {
     });
   });
 
-  describe("injectDefaultArgs()", () => {
-    it("有两者默认且用户均未传 → 注入两者", () => {
-      const result = injectDefaultArgs(["hello"], {
-        defaultProvider: "deepseek",
-        defaultModel: "deepseek-chat",
-      });
-      assert.deepStrictEqual(result, [
-        "--model", "deepseek-chat",
-        "--provider", "deepseek",
-        "hello",
-      ]);
-    });
-
-    it("用户传了 --provider → 不注入 provider，但注入 model", () => {
-      const result = injectDefaultArgs(["--provider", "openai", "hello"], {
-        defaultProvider: "deepseek",
-        defaultModel: "deepseek-chat",
-      });
-      assert.deepStrictEqual(result, [
-        "--model", "deepseek-chat",
-        "--provider", "openai",
-        "hello",
-      ]);
-    });
-
-    it("用户传了 --model → 不注入 model，但注入 provider", () => {
-      const result = injectDefaultArgs(["--model", "gpt-4o", "hello"], {
-        defaultProvider: "deepseek",
-        defaultModel: "deepseek-chat",
-      });
-      assert.deepStrictEqual(result, [
-        "--provider", "deepseek",
-        "--model", "gpt-4o",
-        "hello",
-      ]);
-    });
-
-    it("用户传了两者 → 都不注入", () => {
-      const result = injectDefaultArgs(
-        ["--provider", "openai", "--model", "gpt-4o", "hello"],
-        { defaultProvider: "deepseek", defaultModel: "deepseek-chat" },
+  describe("migrateLegacyDefaultsEffect()", () => {
+    it("迁移旧默认值、保留原生 settings 其他字段并清理旧 config 字段", () => {
+      writeFileSync(
+        join(tmpBase, "config.json"),
+        JSON.stringify({ defaultProvider: "deepseek", defaultModel: "deepseek-chat", safetyNoticeShown: true }) + "\n",
       );
-      assert.deepStrictEqual(result, [
-        "--provider", "openai",
-        "--model", "gpt-4o",
-        "hello",
-      ]);
-    });
+      mkdirSync(join(tmpBase, "agent"), { recursive: true });
+      writeFileSync(join(tmpBase, "agent", "settings.json"), JSON.stringify({ theme: "dark" }) + "\n");
 
-    it("config 为空 → 不修改 args", () => {
-      const result = injectDefaultArgs(["hello", "world"], {});
-      assert.deepStrictEqual(result, ["hello", "world"]);
-    });
+      const migrated = Effect.runSync(migrateLegacyDefaultsEffect);
 
-    it("用户传 --provider=xxx 格式 → 不注入 provider", () => {
-      const result = injectDefaultArgs(["--provider=openai", "hello"], {
+      assert.equal(migrated, true);
+      assert.deepStrictEqual(JSON.parse(readFileSync(join(tmpBase, "agent", "settings.json"), "utf8")), {
+        theme: "dark",
         defaultProvider: "deepseek",
         defaultModel: "deepseek-chat",
       });
-      assert.deepStrictEqual(result, [
-        "--model", "deepseek-chat",
-        "--provider=openai",
-        "hello",
-      ]);
+      assert.deepStrictEqual(JSON.parse(readFileSync(join(tmpBase, "config.json"), "utf8")), {
+        safetyNoticeShown: true,
+      });
+    });
+
+    it("不覆盖已有 Pi 原生默认值，迁移后再次执行幂等", () => {
+      writeFileSync(
+        join(tmpBase, "config.json"),
+        JSON.stringify({ defaultProvider: "legacy-provider", defaultModel: "legacy-model" }) + "\n",
+      );
+      mkdirSync(join(tmpBase, "agent"), { recursive: true });
+      writeFileSync(
+        join(tmpBase, "agent", "settings.json"),
+        JSON.stringify({ defaultProvider: "native-provider", defaultModel: "native-model", theme: "light" }) + "\n",
+      );
+
+      assert.equal(Effect.runSync(migrateLegacyDefaultsEffect), true);
+      assert.equal(Effect.runSync(migrateLegacyDefaultsEffect), false);
+      assert.deepStrictEqual(JSON.parse(readFileSync(join(tmpBase, "agent", "settings.json"), "utf8")), {
+        defaultProvider: "native-provider",
+        defaultModel: "native-model",
+        theme: "light",
+      });
+      assert.deepStrictEqual(JSON.parse(readFileSync(join(tmpBase, "config.json"), "utf8")), {});
     });
   });
 });

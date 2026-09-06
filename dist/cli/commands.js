@@ -55,21 +55,7 @@ export const COMMANDS = [
         subcommands: [
             {
                 name: "show",
-                description: "展示当前默认 provider 和模型配置",
-            },
-            {
-                name: "default",
-                description: "设置或清除默认 provider 和模型",
-                subcommands: [
-                    {
-                        name: "--set",
-                        description: "交互式选择默认 provider 和模型",
-                    },
-                    {
-                        name: "--unset",
-                        description: "清除默认 provider 和模型配置",
-                    },
-                ],
+                description: "查看配置说明（默认模型由 Pi 原生 settings 管理）",
             },
             {
                 name: "provider",

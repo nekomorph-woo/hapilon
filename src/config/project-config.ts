@@ -18,7 +18,9 @@ import { Effect } from "effect";
 // ─── Types ───────────────────────────────────────────────────────────
 
 export interface ProjectConfig {
+  /** @deprecated 默认模型现由 Pi 原生 settings.json 管理，仅为旧项目配置兼容保留。 */
   defaultProvider?: string;
+  /** @deprecated 默认模型现由 Pi 原生 settings.json 管理，仅为旧项目配置兼容保留。 */
   defaultModel?: string;
   safetyNoticeShown?: boolean;
   /** 项目级允许列表：{ "<toolName>": ["<pattern>", ...] } */

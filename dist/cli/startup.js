@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Data, Effect } from "effect";
 import { getVersion } from "./help.js";
-import { hasFlag, injectDefaultArgs, readHapilonConfigEffect, writeHapilonConfigEffect, stripHapilonFlags } from "../config/config-io.js";
+import { hasFlag, migrateLegacyDefaultsEffect, readHapilonConfigEffect, writeHapilonConfigEffect, stripHapilonFlags } from "../config/config-io.js";
 import { hapilonHomeEffect } from "../config/hapilon-home.js";
 import { ensureQuietStartupEffect } from "../providers/providers.js";
 import { resolvePiCliEffect } from "../providers/pi-cli-path.js";
@@ -26,8 +26,9 @@ export const prepareStartupEffect = (args) => Effect.gen(function* () {
         console.warn(`${identity.homeDisplay}/ not configured. Run \`${identity.cliName} setup\` to configure providers.`);
     }
     yield* ensureQuietStartupEffect(agentDirPath).pipe(Effect.mapError(toStartupError));
+    yield* migrateLegacyDefaultsEffect;
     const config = yield* readHapilonConfigEffect;
-    const piArgs = injectDefaultArgs(stripHapilonFlags(args), config);
+    const piArgs = stripHapilonFlags(args);
     piArgs.push("--no-context-files", "--no-skills");
     if (!config.safetyNoticeShown && !isNonInteractive) {
         console.log("\n🛡️  hapilon 安全扩展已激活：");

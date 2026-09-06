@@ -46,7 +46,12 @@ export function hapilonLogo(): string[] {
 
 /** logo 专用 accent 通道，交给 Pi 主题在明暗终端中选择可读颜色。 */
 export function isLogoLine(line: string): boolean {
-  return /[▗▖▐▛█▜▝▘]/.test(line);
+  const inner = line.startsWith("│") && line.endsWith("│")
+    ? line.slice(1, -1)
+    : line;
+  // 宽屏布局把左右列拼在同一行；这类行不能整行染成 logo accent。
+  if (inner.includes("│")) return false;
+  return /^\s*[▗▖▐▛█▜▝▘]/.test(inner);
 }
 
 // ─── Box Drawing ──────────────────────────────────────────────────────
@@ -133,6 +138,59 @@ export function layoutColumns(
     result.push(lp + sep + rp);
   }
   return result;
+}
+
+function isExtensionListLine(line: string, extensions: string[] | undefined): boolean {
+  if (!extensions || extensions.length === 0) return false;
+  const inner = line.startsWith(V) && line.endsWith(V)
+    ? line.slice(1, -1)
+    : line;
+  const separator = inner.indexOf(" │ ");
+  const right = separator >= 0 ? inner.slice(separator + 3) : inner;
+  const trimmedRight = right.trimEnd();
+  return extensions.some((extension) => trimmedRight === `  ${extension}`);
+}
+
+function colorStartupLine(
+  line: string,
+  theme: Theme,
+  hasLinks: boolean,
+): string {
+  let colored = line;
+
+  // Hyperlink: replace raw URL with clickable link (includes its own dim)
+  if (hasLinks && colored.includes("pi.dev/changelog")) {
+    colored = colored.replace(
+      "pi.dev/changelog",
+      hyperlink("pi.dev/changelog", "https://pi.dev/changelog"),
+    );
+  }
+
+  // Headers — bold
+  if (
+    colored.includes("Tips for getting started") ||
+    colored.includes("Extensions (")
+  ) {
+    return theme.fg("text", theme.bold(colored));
+  }
+  // Divider — dim
+  if (colored.trim().match(/^─+$/)) {
+    return theme.fg("dim", colored);
+  }
+  // ctrl+o 提示保持 dim。
+  if (colored.includes("ctrl+o for")) {
+    return theme.fg("dim", colored);
+  }
+  // 其余缩进行（Tips 内容 / 快捷键）保持 dim。
+  if (/^  \S/.test(colored)) {
+    return theme.fg("dim", colored);
+  }
+  // Changelog line — dim (the raw text before hyperlink replacement)
+  if (colored.includes("pi.dev/")) {
+    return theme.fg("dim", colored);
+  }
+  // Body
+  return theme.fg("text", colored);
 }
 
 // ─── Env Helper ───────────────────────────────────────────────────────
@@ -339,30 +397,32 @@ export function createStartupHeader(
           );
         }
 
-        // Headers — bold
+        // 宽屏 logo 与右栏同行时，只给左段上 accent，右段继续走原分类管线。
+        const columnSeparator = colored.indexOf(" │ ");
         if (
-          colored.includes("Tips for getting started") ||
-          colored.includes("Extensions (")
+          columnSeparator >= 1 &&
+          isLogoLine(colored.slice(1, columnSeparator))
         ) {
-          return theme.fg("text", theme.bold(colored));
+          const logoPart = theme.fg("accent", colored.slice(0, columnSeparator));
+          const rightPart = colored.slice(columnSeparator);
+          return logoPart + (
+            isExtensionListLine(colored, data.extensions)
+              ? theme.fg("muted", rightPart)
+              : colorStartupLine(rightPart, theme, false)
+          );
         }
-        // Divider — dim
-        if (colored.trim().match(/^─+$/)) {
-          return theme.fg("dim", colored);
+
+        // 宽屏扩展名行只降低右栏，左栏保留原有 text/body 分类。
+        if (columnSeparator >= 0 && isExtensionListLine(colored, data.extensions)) {
+          return colorStartupLine(colored.slice(0, columnSeparator), theme, false) +
+            theme.fg("muted", colored.slice(columnSeparator));
         }
-        // Metadata — dim：ctrl+o 提示 + 缩进内容行（扩展名列表 / Tips 内容 / 快捷键）
-        if (
-          colored.includes("ctrl+o for") ||
-          /^  \S/.test(colored)
-        ) {
-          return theme.fg("dim", colored);
+
+        // 扩展名是次要信息，但在暗色主题中需比 dim 更亮一档。
+        if (isExtensionListLine(colored, data.extensions)) {
+          return theme.fg("muted", colored);
         }
-        // Changelog line — dim (the raw text before hyperlink replacement)
-        if (colored.includes("pi.dev/")) {
-          return theme.fg("dim", colored);
-        }
-        // Body
-        return theme.fg("text", colored);
+        return colorStartupLine(colored, theme, false);
       });
     },
 
