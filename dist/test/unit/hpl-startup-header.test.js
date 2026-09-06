@@ -282,7 +282,6 @@ describe("buildLeftColumn()", () => {
         modelName: "glm-5",
         cwd: "/tmp",
         homeDir: "/Users/test",
-        addedDirsCount: 0,
         extensions: undefined,
         piUpdate: undefined,
     };
@@ -304,7 +303,6 @@ describe("buildRightColumn()", () => {
         modelName: "glm-5",
         cwd: "/tmp",
         homeDir: "/Users/test",
-        addedDirsCount: 0,
         extensions: ["ext-a", "ext-b"],
         piUpdate: "0.81.0",
     };
@@ -365,7 +363,6 @@ describe("buildHeaderLines()", () => {
         modelName: "glm-5-turbo",
         cwd: "/Volumes/Under_M2/morphiiouo/hapilon",
         homeDir: "/Users/test",
-        addedDirsCount: 0,
         extensions: ["hpl-context", "hpl-footer", "hpl-panel-viewer"],
         piUpdate: "0.80.10",
     };

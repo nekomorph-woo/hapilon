@@ -8,7 +8,6 @@ import type { TUI } from "@earendil-works/pi-tui";
 import { hyperlink, getCapabilities } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
-import { readAddedWorkspaceDirs, type WorkspaceEntry } from "./workspace.js";
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -18,7 +17,6 @@ export interface HeaderData {
   modelName: string | undefined;
   cwd: string;
   homeDir: string;
-  addedDirsCount?: number;
   extensions: string[] | undefined;
   piUpdate: string | undefined;
 }
@@ -185,11 +183,6 @@ function colorStartupLine(
   if (colored.includes("ctrl+o for")) {
     return theme.fg("dim", colored);
   }
-  // 判据对 boxed 行（│ 前缀）也要命中：trimStart 剥不掉边框字符，先剥 V。
-  const bare = colored.startsWith(V) && colored.endsWith(V) ? colored.slice(1, -1) : colored;
-  if (bare.trimStart().startsWith("※ +") && bare.includes(" dirs")) {
-    return theme.fg("muted", colored);
-  }
   // 其余缩进行（Tips 内容 / 快捷键）保持 dim。
   if (/^  \S/.test(colored)) {
     return theme.fg("dim", colored);
@@ -254,7 +247,7 @@ export function centerLines(lines: string[], maxWidth: number): string[] {
 }
 
 /**
- * 将 workspace 路径压缩为 header 友好格式；完整路径仍由 /workspace 展示。
+ * 将 workspace 路径压缩为 header 友好格式。
  * home 下保留 ~ 和首段、末两段；其它绝对路径保留根下前两段和末段，
  * 使 /Volumes/Under_M2 这类工作盘锚点仍然可辨认。
  */
@@ -299,9 +292,6 @@ export function buildLeftColumn(data: HeaderData): string[] {
   }
 
   left.push(shortenWorkspacePath(data.cwd, data.homeDir));
-  if ((data.addedDirsCount ?? 0) > 0) {
-    left.push(`※ +${data.addedDirsCount} dirs`);
-  }
 
   return left;
 }
@@ -377,7 +367,6 @@ export function createStartupHeader(
   ctx: {
     model?: { provider?: string; name?: string; id?: string } | undefined;
     cwd: string;
-    sessionManager?: { getBranch(): readonly WorkspaceEntry[] };
   },
   _tui: TUI,
   theme: Theme,
@@ -396,9 +385,6 @@ export function createStartupHeader(
         modelName,
         cwd: ctx.cwd,
         homeDir: homedir(),
-        addedDirsCount: readAddedWorkspaceDirs(
-          ctx.sessionManager?.getBranch() ?? [],
-        ).length,
         extensions: parseExtensionsEnv(
           process.env["HAPILON_EXTENSIONS"],
         ),
@@ -456,21 +442,6 @@ export function createStartupHeader(
               ? theme.fg("muted", rightPart)
             : colorStartupLine(rightPart, theme, false)
           );
-        }
-
-        // 宽屏目录计数行与右栏拼合时，仅降低左段，不影响右栏信息层级。
-        const leftPart = columnSeparator >= 0 ? colored.slice(0, columnSeparator) : colored;
-        // 剥 V 边框后判定（trimStart 不剥边框字符，boxed 行需先去 │）。
-        const bareLeft = leftPart.startsWith(V) && leftPart.endsWith(V) ? leftPart.slice(1, -1) : leftPart;
-        if (bareLeft.trimStart().startsWith("※ +") && bareLeft.includes(" dirs")) {
-          if (columnSeparator >= 0) {
-            return theme.fg("muted", leftPart) + colorStartupLine(
-              colored.slice(columnSeparator),
-              theme,
-              false,
-            );
-          }
-          return theme.fg("muted", colored);
         }
 
         // 宽屏扩展名行只降低右栏，左栏保留原有 text/body 分类。

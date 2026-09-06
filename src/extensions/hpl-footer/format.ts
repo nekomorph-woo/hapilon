@@ -101,9 +101,9 @@ export function buildStatsLeft(
   const parts: string[] = [];
   if (stats.input) parts.push(`↑ ${formatTokens(stats.input)}`);
   if (stats.output) parts.push(`↓ ${formatTokens(stats.output)}`);
-  if (stats.cacheHitRate !== undefined) parts.push(`hit ${stats.cacheHitRate.toFixed(1)}%`);
+  if (stats.cacheHitRate !== undefined) parts.push(` | hit ${stats.cacheHitRate.toFixed(1)}%`);
   const percentStr = ctxPercent === null ? "?" : `${ctxPercent.toFixed(1)}%`;
-  parts.push(`ctx ${percentStr}/${formatWindow(ctxWindow)}`);
+  parts.push(` | ctx ${percentStr}/${formatWindow(ctxWindow)}`);
   parts.push(ding);
   return parts.join(" ");
 }

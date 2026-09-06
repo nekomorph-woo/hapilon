@@ -84,9 +84,9 @@ export function buildStatsLeft(stats, ctxPercent, ctxWindow, ding) {
     if (stats.output)
         parts.push(`↓ ${formatTokens(stats.output)}`);
     if (stats.cacheHitRate !== undefined)
-        parts.push(`hit ${stats.cacheHitRate.toFixed(1)}%`);
+        parts.push(` | hit ${stats.cacheHitRate.toFixed(1)}%`);
     const percentStr = ctxPercent === null ? "?" : `${ctxPercent.toFixed(1)}%`;
-    parts.push(`ctx ${percentStr}/${formatWindow(ctxWindow)}`);
+    parts.push(` | ctx ${percentStr}/${formatWindow(ctxWindow)}`);
     parts.push(ding);
     return parts.join(" ");
 }
