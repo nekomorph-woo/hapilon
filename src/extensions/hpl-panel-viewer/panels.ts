@@ -140,7 +140,10 @@ export function decorateExpandable(comp: any, theme: Theme): boolean {
     }
 
     // 注入状态 marker（▸ 折叠 / ▾ 展开）到第一行，继承原行背景色
-    const firstIdx = lines.findIndex((l: unknown) => typeof l === "string" && l.trim().length > 0);
+    // 可见字符判定必须剥离 ANSI 序列：纯背景条行（只有 bg 色码+空格）不算内容行，
+    // 否则 marker 注入到视觉空行、与真实文字行分离（实测 bug）
+    const stripAnsi = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
+    const firstIdx = lines.findIndex((l: unknown) => typeof l === "string" && stripAnsi(l).trim().length > 0);
     if (firstIdx >= 0) {
       const orig = lines[firstIdx] as string;
       // 从原行提取 background ANSI code（如 \x1b[48;2;...m）
