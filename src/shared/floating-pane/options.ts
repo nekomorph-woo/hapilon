@@ -1,3 +1,5 @@
+import type { ThemeColor } from "@earendil-works/pi-coding-agent";
+
 /**
  * options.ts — FloatingPane 配置类型
  */
@@ -7,6 +9,8 @@ export interface FloatingPaneOptions {
   title: string;
   /** 内容行（支持 ANSI color codes） */
   lines: string[];
+  /** 内容行主题槽位；与 lines 按索引对应，未提供时保持原始文本。 */
+  lineStyles?: Array<Extract<ThemeColor, "text" | "warning" | "error"> | undefined>;
   /** 底部状态行 */
   footer?: string;
   /** 浮层宽度，默认 "90%"（如 70、80、"80%"） */

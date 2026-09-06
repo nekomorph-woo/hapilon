@@ -43,6 +43,19 @@ describe("FloatingPane", () => {
             const result = pane.render(80);
             assert.ok(result.some((l) => l.includes("No content")), "空内容显示提示");
         });
+        it("按 lineStyles 使用 text/warning/error 主题槽位", () => {
+            const pane = new FloatingPane(null, {
+                fg: (name, text) => `<${name}>${text}</${name}>`,
+            }, null, () => { }, {
+                title: "Styled",
+                lines: ["normal", "warning", "error"],
+                lineStyles: ["text", "warning", "error"],
+            });
+            const result = pane.render(80).join("\n");
+            assert.match(result, /<text>normal<\/text>/);
+            assert.match(result, /<warning>warning<\/warning>/);
+            assert.match(result, /<error>error<\/error>/);
+        });
     });
     describe("handleInput", () => {
         it("正常路径: Esc 关闭", () => {

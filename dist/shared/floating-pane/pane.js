@@ -12,6 +12,7 @@ export class FloatingPane {
     title;
     footer;
     doneCb;
+    lineStyles;
     scrollOffset = 0;
     innerW = 60;
     visibleRows = 20;
@@ -22,6 +23,7 @@ export class FloatingPane {
         this.lines = options.lines.length > 0 ? options.lines : ["No content"];
         this.title = options.title;
         this.footer = options.footer ?? "";
+        this.lineStyles = options.lineStyles;
         this.doneCb = done;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this.termRows = _tui?.terminal?.rows ?? 40;
@@ -66,7 +68,10 @@ export class FloatingPane {
         this.innerW = Math.max(20, width - 2);
         this.visibleRows = Math.max(6, Math.floor(this.termRows * 0.85) - 4);
         this.wrappedLines = [];
-        for (const line of this.lines) {
+        for (let index = 0; index < this.lines.length; index++) {
+            const line = this.lineStyles?.[index]
+                ? this.theme.fg(this.lineStyles[index], this.lines[index])
+                : this.lines[index];
             const plainLen = visibleWidth(line);
             if (plainLen <= this.innerW - 1) {
                 this.wrappedLines.push(line);
