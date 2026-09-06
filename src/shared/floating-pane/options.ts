@@ -13,8 +13,8 @@ export interface FloatingPaneOptions {
   lineStyles?: Array<Extract<ThemeColor, "text" | "muted" | "warning" | "error"> | undefined>;
   /** 底部状态行 */
   footer?: string;
-  /** 浮层宽度，默认 "90%"（如 70、80、"80%"） */
-  width?: number | string;
+  /** 浮层宽度：数字列数、百分比字符串，或 "fit-content"（按内容最宽行自适应，上限终端宽），默认 "90%" */
+  width?: number | string | "fit-content";
   /** 浮层最大高度（终端百分比），默认 85 */
   maxHeight?: number;
 }

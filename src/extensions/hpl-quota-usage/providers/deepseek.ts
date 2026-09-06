@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { fetchJsonEffect } from "./common.js";
 import { asRecord, field, UNKNOWN, unknownField, valueText, type QuotaAuth, type QuotaField } from "../types.js";
+import type { QuotaSnapshot } from "../snapshot.js";
 
 export const DEEPSEEK_BALANCE_ENDPOINT = "https://api.deepseek.com/user/balance";
 
@@ -30,3 +31,17 @@ export function parseQuotaLines(payload: unknown): QuotaField[] {
 }
 
 export const parseDeepSeekQuota = parseQuotaLines;
+
+export function parseSnapshot(payload: unknown, now: number): QuotaSnapshot {
+  const root = asRecord(payload);
+  const balances = Array.isArray(root?.balance_infos) ? root.balance_infos : [];
+  let balanceCny: string | undefined;
+  for (const item of balances) {
+    const balance = asRecord(item);
+    if (balance?.currency === "CNY" && balance.total_balance !== undefined) {
+      const amount = Number(balance.total_balance);
+      balanceCny = Number.isFinite(amount) ? String(Math.round(amount)) : String(balance.total_balance);
+    }
+  }
+  return { provider: "deepseek", balanceCny, windows: [], timestamp: now };
+}
