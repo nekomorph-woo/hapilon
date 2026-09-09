@@ -225,10 +225,32 @@ export default function hplModelTiers(pi: ExtensionAPI): void {
   });
 }
 
-const TIER_OPERATIONS = ["添加模型", "移除模型", "查看当前", "清空档位"] as const;
+const TIER_OPERATIONS = ["添加模型", "移除模型", "清空档位"] as const;
 
 function modelOption(model: AvailableModel): string {
   return `${model.provider}/${model.id}`;
+}
+
+/** 三档现状 + 候选逻辑速览，进入操作菜单前先展示。 */
+async function showTiersOverview(ctx: ExtensionCommandContext, tiers: TierModels): Promise<void> {
+  const current = ctx.model;
+  const currentKey = current ? `${current.provider}/${current.id}` : undefined;
+  const sections: string[] = ["Tiers 候选现状"];
+  for (const tier of MODEL_TIERS) {
+    const values = tiers[tier];
+    const list = values.length > 0
+      ? values.map((value) => {
+          const star = value === currentKey ? "  ◀ 当前使用" : "";
+          return `\n   ${value}${star}`;
+        }).join("")
+      : "（空）";
+    sections.push(`${tier}: ${list}`);
+  }
+  sections.push(
+    "消费方：recap 总结用 low（缺则 mid 非推理 → mid → 当前模型）；",
+    "default 兜底取 high[0]；三档并集进 /model 选择器。",
+  );
+  ctx.ui.notify(sections.join("\n"), "info");
 }
 
 async function saveEditedTiers(ctx: ExtensionCommandContext, tiers: TierModels, tier: ModelTier): Promise<void> {
@@ -273,17 +295,13 @@ async function addModels(
 
 async function handleTiersCommand(ctx: ExtensionCommandContext): Promise<void> {
   const tiers = yieldTiers(ctx.cwd);
+  await showTiersOverview(ctx, tiers);
   const tier = await ctx.ui.select("选择模型档位", [...MODEL_TIERS]);
   if (!tier || !MODEL_TIERS.includes(tier as ModelTier)) return;
-  const operation = await ctx.ui.select("选择操作", [...TIER_OPERATIONS]);
+  const operation = await ctx.ui.select(`操作 ${tier}（当前 ${tiers[tier as ModelTier].length} 个模型）`, [...TIER_OPERATIONS]);
   if (!operation) return;
 
   const selectedTier = tier as ModelTier;
-  if (operation === "查看当前") {
-    const values = tiers[selectedTier];
-    ctx.ui.notify(`${selectedTier} 当前配置：${values.length > 0 ? values.join(", ") : "（空）"}`, "info");
-    return;
-  }
   if (operation === "清空档位") {
     tiers[selectedTier] = [];
     await saveEditedTiers(ctx, tiers, selectedTier);

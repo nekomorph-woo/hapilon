@@ -172,9 +172,27 @@ export default function hplModelTiers(pi) {
         console.log(`[hpl-model-tiers] high=${result.tiers.high.length} mid=${result.tiers.mid.length} low=${result.tiers.low.length}${reloadHint}`);
     });
 }
-const TIER_OPERATIONS = ["添加模型", "移除模型", "查看当前", "清空档位"];
+const TIER_OPERATIONS = ["添加模型", "移除模型", "清空档位"];
 function modelOption(model) {
     return `${model.provider}/${model.id}`;
+}
+/** 三档现状 + 候选逻辑速览，进入操作菜单前先展示。 */
+async function showTiersOverview(ctx, tiers) {
+    const current = ctx.model;
+    const currentKey = current ? `${current.provider}/${current.id}` : undefined;
+    const sections = ["Tiers 候选现状"];
+    for (const tier of MODEL_TIERS) {
+        const values = tiers[tier];
+        const list = values.length > 0
+            ? values.map((value) => {
+                const star = value === currentKey ? "  ◀ 当前使用" : "";
+                return `\n   ${value}${star}`;
+            }).join("")
+            : "（空）";
+        sections.push(`${tier}: ${list}`);
+    }
+    sections.push("消费方：recap 总结用 low（缺则 mid 非推理 → mid → 当前模型）；", "default 兜底取 high[0]；三档并集进 /model 选择器。");
+    ctx.ui.notify(sections.join("\n"), "info");
 }
 async function saveEditedTiers(ctx, tiers, tier) {
     const saved = await Effect.runPromise(saveModelTiersEffect(tiers));
@@ -215,18 +233,14 @@ async function addModels(ctx, tiers, tier) {
 }
 async function handleTiersCommand(ctx) {
     const tiers = yieldTiers(ctx.cwd);
+    await showTiersOverview(ctx, tiers);
     const tier = await ctx.ui.select("选择模型档位", [...MODEL_TIERS]);
     if (!tier || !MODEL_TIERS.includes(tier))
         return;
-    const operation = await ctx.ui.select("选择操作", [...TIER_OPERATIONS]);
+    const operation = await ctx.ui.select(`操作 ${tier}（当前 ${tiers[tier].length} 个模型）`, [...TIER_OPERATIONS]);
     if (!operation)
         return;
     const selectedTier = tier;
-    if (operation === "查看当前") {
-        const values = tiers[selectedTier];
-        ctx.ui.notify(`${selectedTier} 当前配置：${values.length > 0 ? values.join(", ") : "（空）"}`, "info");
-        return;
-    }
     if (operation === "清空档位") {
         tiers[selectedTier] = [];
         await saveEditedTiers(ctx, tiers, selectedTier);
