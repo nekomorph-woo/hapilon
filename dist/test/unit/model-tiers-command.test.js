@@ -10,7 +10,7 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
     before(() => {
         home = mkdtempSync(join(tmpdir(), "hapilon-model-tiers-command-"));
         process.env.HAPILON_HOME = home;
-        writeFileSync(join(home, "model-tiers.json"), JSON.stringify({ mid: ["glm-*"], low: ["deepseek-chat"] }));
+        writeFileSync(join(home, "model-tiers.json"), JSON.stringify({ sonnet: ["glm-*"], haiku: ["deepseek-chat"] }));
     });
     after(() => {
         if (originalHome === undefined)
@@ -26,7 +26,7 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
             on: () => { },
         });
         assert.ok(commands.has("tiers"));
-        const selections = ["high", "添加模型", "anthropic/claude-opus-4", "完成"];
+        const selections = ["Opus", "添加模型", "anthropic/claude-opus-4", "完成"];
         const notices = [];
         await commands.get("tiers").handler("", {
             cwd: mkdtempSync(join(tmpdir(), "hapilon-model-tiers-command-cwd-")),
@@ -47,13 +47,13 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
         });
         const saved = JSON.parse(readFileSync(join(home, "model-tiers.json"), "utf8"));
         assert.deepEqual(saved, {
-            high: ["anthropic/claude-opus-4"],
-            mid: ["glm-*"],
-            low: ["deepseek-chat"],
+            opus: ["anthropic/claude-opus-4"],
+            sonnet: ["glm-*"],
+            haiku: ["deepseek-chat"],
         });
         assert.match(notices.at(-1), /\/reload/);
         // 同一用例顺序验证 Esc：避免测试之间共享 HAPILON_HOME 造成环境变量竞态。
-        const initial = JSON.stringify({ mid: ["glm-*"], low: ["deepseek-chat"] });
+        const initial = JSON.stringify({ sonnet: ["glm-*"], haiku: ["deepseek-chat"] });
         writeFileSync(join(home, "model-tiers.json"), initial);
         const before = readFileSync(join(home, "model-tiers.json"), "utf8");
         const cancelCommands = new Map();
@@ -61,7 +61,7 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
             registerCommand: (name, definition) => cancelCommands.set(name, definition),
             on: () => { },
         });
-        const cancelSelections = ["high", "添加模型", "anthropic/claude-opus-4", undefined];
+        const cancelSelections = ["Opus", "添加模型", "anthropic/claude-opus-4", undefined];
         const cancelNotices = [];
         await cancelCommands.get("tiers").handler("", {
             cwd: home,

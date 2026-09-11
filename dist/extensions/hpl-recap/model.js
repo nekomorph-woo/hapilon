@@ -34,26 +34,26 @@ function resolvedMidCandidates(refs, available) {
         return model ? [{ model, reasoning: model.reasoning ?? ref.reasoning }] : [];
     });
 }
-/** resolved 文件中的 low → mid 非推理 → mid 任意 → 当前模型；从不修改当前 session model。 */
+/** resolved 文件中的 haiku → sonnet 非推理 → sonnet 任意 → 当前模型；从不修改当前 session model。 */
 export function selectRecapModel(available, currentModel, resolvedTiers) {
-    const low = firstResolved(resolvedTiers.low, available);
-    if (low)
-        return { model: low, degraded: false };
-    const midMatches = resolvedMidCandidates(resolvedTiers.mid, available);
-    const mid = midMatches.find((candidate) => candidate.reasoning === false)?.model ?? midMatches[0]?.model;
-    if (mid) {
-        return { model: mid, degraded: true, reason: "recap 模型降级：low 档无可用模型" };
+    const haiku = firstResolved(resolvedTiers.haiku, available);
+    if (haiku)
+        return { model: haiku, degraded: false };
+    const sonnetMatches = resolvedMidCandidates(resolvedTiers.sonnet, available);
+    const sonnet = sonnetMatches.find((candidate) => candidate.reasoning === false)?.model ?? sonnetMatches[0]?.model;
+    if (sonnet) {
+        return { model: sonnet, degraded: true, reason: "recap 模型降级：haiku 档无可用模型" };
     }
     if (currentModel) {
         return {
             model: currentModel,
             degraded: true,
-            reason: "recap 模型降级：low 档无可用模型",
+            reason: "recap 模型降级：haiku 档无可用模型",
         };
     }
     return {
         degraded: true,
-        reason: "recap 模型降级：low 档无可用模型；当前模型也不可用",
+        reason: "recap 模型降级：haiku 档无可用模型；当前模型也不可用",
     };
 }
 export function recapModelLabel(model) {

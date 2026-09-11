@@ -54,9 +54,9 @@ describe("hpl-recap session 生命周期", () => {
         process.env.HAPILON_HOME = home;
         writeFileSync(join(home, "recap-config.json"), JSON.stringify({ enabled: true, idleMinutes: 0.001, maxContextChars: 8000 }));
         writeFileSync(join(home, "model-tiers-resolved.json"), JSON.stringify({
-            high: [],
-            mid: [],
-            low: [{ provider: "fast", id: "flash", name: "Flash", reasoning: false }],
+            opus: [],
+            sonnet: [],
+            haiku: [{ provider: "fast", id: "flash", name: "Flash", reasoning: false }],
         }));
     });
     afterEach(() => {

@@ -47,16 +47,16 @@ describe("hpl-model-tiers 模型解析与 Pi settings 合并", () => {
         let result;
         try {
             result = resolveTierModels({
-                high: ["anthropic/claude-opus-*", "future-model-*"],
-                mid: ["glm-*"],
-                low: [],
+                opus: ["anthropic/claude-opus-*", "future-model-*"],
+                sonnet: ["glm-*"],
+                haiku: [],
             }, available, ["custom/*"]);
         }
         finally {
             console.warn = originalWarn;
         }
-        assert.deepEqual(result.matched.high, [available[0]]);
-        assert.deepEqual(result.matched.mid, [available[2]]);
+        assert.deepEqual(result.matched.opus, [available[0]]);
+        assert.deepEqual(result.matched.sonnet, [available[2]]);
         assert.deepEqual(result.enabledModels, ["custom/*", "anthropic/claude-opus-*", "future-model-*", "glm-*"]);
         assert.equal(warnings.length, 1);
         assert.match(warnings[0], /future-model-\*/);
@@ -64,10 +64,10 @@ describe("hpl-model-tiers 模型解析与 Pi settings 合并", () => {
     it("glob 匹配大小写不敏感", () => {
         assert.equal(matchesModelPattern("CLAUDE-OPUS-*", available[0]), true);
     });
-    it("以并集写入 enabledModels，并在 default 双缺失时用 high 首个可用模型兜底", async () => {
+    it("以并集写入 enabledModels，并在 default 双缺失时用 opus 首个可用模型兜底", async () => {
         writeFileSync(join(home, "model-tiers.json"), JSON.stringify({
-            high: ["anthropic/claude-opus-*"],
-            mid: ["glm-*"],
+            opus: ["anthropic/claude-opus-*"],
+            sonnet: ["glm-*"],
         }));
         mkdirSync(join(home, "agent"), { recursive: true });
         writeFileSync(join(home, "agent", "settings.json"), JSON.stringify({
@@ -82,12 +82,12 @@ describe("hpl-model-tiers 模型解析与 Pi settings 合并", () => {
         assert.equal(settings.defaultProvider, "anthropic");
         assert.equal(settings.defaultModel, "claude-opus-4");
         const resolved = JSON.parse(readFileSync(join(home, "model-tiers-resolved.json"), "utf8"));
-        assert.deepEqual(resolved.high, [{ provider: "anthropic", id: "claude-opus-4" }]);
-        assert.deepEqual(resolved.mid, [{ provider: "zhipu", id: "glm-4" }]);
+        assert.deepEqual(resolved.opus, [{ provider: "anthropic", id: "claude-opus-4" }]);
+        assert.deepEqual(resolved.sonnet, [{ provider: "zhipu", id: "glm-4" }]);
     });
     it("同一输入二轮幂等：第二轮不写 settings", async () => {
         writeFileSync(join(home, "model-tiers.json"), JSON.stringify({
-            high: ["anthropic/claude-opus-*"],
+            opus: ["anthropic/claude-opus-*"],
         }));
         mkdirSync(join(home, "agent"), { recursive: true });
         const settingsPath = join(home, "agent", "settings.json");
@@ -102,7 +102,7 @@ describe("hpl-model-tiers 模型解析与 Pi settings 合并", () => {
         assert.equal(statSync(settingsPath, { bigint: true }).mtimeNs, firstMtime);
     });
     it("损坏 settings.json 时降级且不写入", async () => {
-        writeFileSync(join(home, "model-tiers.json"), JSON.stringify({ high: ["claude-opus-*"] }));
+        writeFileSync(join(home, "model-tiers.json"), JSON.stringify({ opus: ["claude-opus-*"] }));
         mkdirSync(join(home, "agent"), { recursive: true });
         const settingsPath = join(home, "agent", "settings.json");
         writeFileSync(settingsPath, "{broken-json");
@@ -110,11 +110,11 @@ describe("hpl-model-tiers 模型解析与 Pi settings 合并", () => {
         assert.equal(result.settingsChanged, false);
         assert.equal(readFileSync(settingsPath, "utf8"), "{broken-json");
     });
-    it("high 为空时不写 default，且 bridge 返回隔离副本", () => {
-        setTierModels({ high: [], mid: ["glm-*"], low: [] });
-        const values = getTierModels("mid");
+    it("opus 为空时不写 default，且 bridge 返回隔离副本", () => {
+        setTierModels({ opus: [], sonnet: ["glm-*"], haiku: [] });
+        const values = getTierModels("sonnet");
         values.push("mutated");
-        assert.deepEqual(getTierModels("mid"), ["glm-*"]);
-        assert.deepEqual(getTierModels("high"), []);
+        assert.deepEqual(getTierModels("sonnet"), ["glm-*"]);
+        assert.deepEqual(getTierModels("opus"), []);
     });
 });

@@ -26,18 +26,18 @@ describe("hpl-model-tiers 配置覆盖", () => {
     });
     it("全局配置与项目配置按档位覆盖，缺档沿用全局", () => {
         writeFileSync(join(home, "model-tiers.json"), JSON.stringify({
-            high: ["anthropic/claude-opus-*"],
-            mid: ["anthropic/claude-sonnet-*"],
-            low: ["deepseek-chat"],
+            opus: ["anthropic/claude-opus-*"],
+            sonnet: ["anthropic/claude-sonnet-*"],
+            haiku: ["deepseek-chat"],
         }));
         mkdirSync(join(project, ".hapilon"));
         writeFileSync(join(project, ".hapilon", "model-tiers.json"), JSON.stringify({
-            mid: ["glm-*"],
+            sonnet: ["glm-*"],
         }));
         assert.deepEqual(readModelTiers(project), {
-            high: ["anthropic/claude-opus-*"],
-            mid: ["glm-*"],
-            low: ["deepseek-chat"],
+            opus: ["anthropic/claude-opus-*"],
+            sonnet: ["glm-*"],
+            haiku: ["deepseek-chat"],
         });
     });
     it("档位数组或元素非法时，该档为空且其它档继续", () => {
@@ -46,12 +46,12 @@ describe("hpl-model-tiers 配置覆盖", () => {
         console.warn = (...args) => warnings.push(args.map(String).join(" "));
         try {
             writeFileSync(join(home, "model-tiers.json"), JSON.stringify({
-                high: ["ok-*", 42],
-                mid: "not-an-array",
-                low: ["valid-*"],
+                opus: ["ok-*", 42],
+                sonnet: "not-an-array",
+                haiku: ["valid-*"],
             }));
             const result = readModelTiers(project);
-            assert.deepEqual(result, { high: [], mid: [], low: ["valid-*"] });
+            assert.deepEqual(result, { opus: [], sonnet: [], haiku: ["valid-*"] });
         }
         finally {
             console.warn = originalWarn;

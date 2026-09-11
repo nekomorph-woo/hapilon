@@ -47,9 +47,9 @@ export const readTierConfigFileEffect = (path) => Effect.try({
 /** 项目级按档位替换全局级；项目文件缺少某档时沿用全局该档。 */
 export function mergeTierConfigs(global, project) {
     return {
-        high: [...(project.high ?? global.high ?? [])],
-        mid: [...(project.mid ?? global.mid ?? [])],
-        low: [...(project.low ?? global.low ?? [])],
+        opus: [...(project.opus ?? global.opus ?? [])],
+        sonnet: [...(project.sonnet ?? global.sonnet ?? [])],
+        haiku: [...(project.haiku ?? global.haiku ?? [])],
     };
 }
 export const readModelTiersEffect = (cwd) => Effect.try({
@@ -60,7 +60,7 @@ export const readModelTiersEffect = (cwd) => Effect.try({
     project: readTierConfigFileEffect(join(cwd, ".hapilon", "model-tiers.json")),
 }).pipe(Effect.map(({ global, project }) => mergeTierConfigs(global, project)))), Effect.catchAll((error) => Effect.sync(() => {
     console.warn(`[hpl-model-tiers] 配置加载失败，按空档位继续：${String(error)}`);
-    return { high: [], mid: [], low: [] };
+    return { opus: [], sonnet: [], haiku: [] };
 })));
 export function readModelTiers(cwd) {
     return Effect.runSync(readModelTiersEffect(cwd));

@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
-const EMPTY_RESOLVED = { high: [], mid: [], low: [] };
+const EMPTY_RESOLVED = { opus: [], sonnet: [], haiku: [] };
 function parseModelList(value) {
     if (!Array.isArray(value))
         return [];
@@ -29,11 +29,10 @@ export const readResolvedTiersEffect = Effect.try({
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
             return { ...EMPTY_RESOLVED };
         const raw = parsed;
-        return {
-            high: parseModelList(raw.high),
-            mid: parseModelList(raw.mid),
-            low: parseModelList(raw.low),
-        };
+        const opus = parseModelList(raw.opus);
+        const sonnet = parseModelList(raw.sonnet);
+        const haiku = parseModelList(raw.haiku);
+        return { opus, sonnet, haiku };
     },
     catch: (error) => error,
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
