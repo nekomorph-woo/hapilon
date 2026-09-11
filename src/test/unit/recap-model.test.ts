@@ -7,12 +7,12 @@ import { Effect } from "effect";
 import { recapModelLabel, selectRecapModel, type RecapModelShape, type ResolvedTierModels } from "../../extensions/hpl-recap/model.js";
 import { readResolvedTiersEffect } from "../../extensions/hpl-recap/resolved.js";
 
-const low: RecapModelShape = { provider: "fast", id: "flash", name: "Flash", reasoning: false };
+const haiku: RecapModelShape = { provider: "fast", id: "flash", name: "Flash", reasoning: false };
 const reasoningMid: RecapModelShape = { provider: "work", id: "think", reasoning: true };
 const plainMid: RecapModelShape = { provider: "work", id: "plain", reasoning: false };
 const current: RecapModelShape = { provider: "current", id: "active", reasoning: true };
-const all = [low, reasoningMid, plainMid];
-const emptyTiers: ResolvedTierModels = { high: [], mid: [], low: [] };
+const all = [haiku, reasoningMid, plainMid];
+const emptyTiers: ResolvedTierModels = { opus: [], sonnet: [], haiku: [] };
 
 describe("hpl-recap 模型选择", () => {
   let home: string;
@@ -29,24 +29,24 @@ describe("hpl-recap 模型选择", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("优先 resolved low 档匹配模型", () => {
-    const result = selectRecapModel(all, current, { high: [], mid: [reasoningMid], low: [low] });
-    assert.equal(result.model, low);
+  it("优先 resolved haiku 档匹配模型", () => {
+    const result = selectRecapModel(all, current, { opus: [], sonnet: [reasoningMid], haiku: [haiku] });
+    assert.equal(result.model, haiku);
     assert.equal(result.degraded, false);
   });
 
-  it("low 无匹配时选 resolved mid 非推理模型", () => {
+  it("haiku 无匹配时选 resolved sonnet 非推理模型", () => {
     const result = selectRecapModel([reasoningMid, plainMid], current, {
-      high: [],
-      mid: [reasoningMid, plainMid],
-      low: [{ provider: "missing", id: "model" }],
+      opus: [],
+      sonnet: [reasoningMid, plainMid],
+      haiku: [{ provider: "missing", id: "model" }],
     });
     assert.equal(result.model, plainMid);
     assert.equal(result.degraded, true);
-    assert.equal(result.reason, "recap 模型降级：low 档无可用模型");
+    assert.equal(result.reason, "recap 模型降级：haiku 档无可用模型");
   });
 
-  it("mid 也无匹配时降级当前模型，再无当前模型则无结果", () => {
+  it("sonnet 也无匹配时降级当前模型，再无当前模型则无结果", () => {
     const fallback = selectRecapModel([], current, emptyTiers);
     assert.equal(fallback.model, current);
     assert.equal(fallback.degraded, true);
@@ -58,14 +58,14 @@ describe("hpl-recap 模型选择", () => {
 
   it("从 model-tiers-resolved.json 读取解析后的模型清单", () => {
     writeFileSync(join(home, "model-tiers-resolved.json"), JSON.stringify({
-      high: [],
-      mid: [reasoningMid, plainMid],
-      low: [low],
+      opus: [],
+      sonnet: [reasoningMid, plainMid],
+      haiku: [haiku],
     }));
     const resolved = Effect.runSync(readResolvedTiersEffect);
     const result = selectRecapModel(all, current, resolved);
-    assert.equal(result.model, low);
-    assert.equal(recapModelLabel(low), "Flash");
+    assert.equal(result.model, haiku);
+    assert.equal(recapModelLabel(haiku), "Flash");
   });
 
   it("resolved 文件缺失时按空档走降级链", () => {

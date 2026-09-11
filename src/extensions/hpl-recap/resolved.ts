@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
 import type { RecapModelShape, ResolvedTierModels } from "./model.js";
 
-const EMPTY_RESOLVED: ResolvedTierModels = { high: [], mid: [], low: [] };
+const EMPTY_RESOLVED: ResolvedTierModels = { opus: [], sonnet: [], haiku: [] };
 
 function parseModelList(value: unknown): RecapModelShape[] {
   if (!Array.isArray(value)) return [];
@@ -28,11 +28,10 @@ export const readResolvedTiersEffect: Effect.Effect<ResolvedTierModels, never> =
     const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ...EMPTY_RESOLVED };
     const raw = parsed as Record<string, unknown>;
-    return {
-      high: parseModelList(raw.high),
-      mid: parseModelList(raw.mid),
-      low: parseModelList(raw.low),
-    };
+    const opus = parseModelList(raw.opus);
+    const sonnet = parseModelList(raw.sonnet);
+    const haiku = parseModelList(raw.haiku);
+    return { opus, sonnet, haiku };
   },
   catch: (error) => error,
 }).pipe(

@@ -5,7 +5,7 @@ export interface RecapModelShape {
   reasoning?: boolean;
 }
 
-export type ResolvedTierModels = Record<"high" | "mid" | "low", RecapModelShape[]>;
+export type ResolvedTierModels = Record<"opus" | "sonnet" | "haiku", RecapModelShape[]>;
 
 export interface RecapModelChoice<T extends RecapModelShape> {
   model?: T;
@@ -53,32 +53,32 @@ function resolvedMidCandidates<T extends RecapModelShape>(
   });
 }
 
-/** resolved 文件中的 low → mid 非推理 → mid 任意 → 当前模型；从不修改当前 session model。 */
+/** resolved 文件中的 haiku → sonnet 非推理 → sonnet 任意 → 当前模型；从不修改当前 session model。 */
 export function selectRecapModel<T extends RecapModelShape>(
   available: readonly T[],
   currentModel: T | undefined,
   resolvedTiers: ResolvedTierModels,
 ): RecapModelChoice<T> {
-  const low = firstResolved(resolvedTiers.low, available);
-  if (low) return { model: low, degraded: false };
+  const haiku = firstResolved(resolvedTiers.haiku, available);
+  if (haiku) return { model: haiku, degraded: false };
 
-  const midMatches = resolvedMidCandidates(resolvedTiers.mid, available);
-  const mid = midMatches.find((candidate) => candidate.reasoning === false)?.model ?? midMatches[0]?.model;
-  if (mid) {
-    return { model: mid, degraded: true, reason: "recap 模型降级：low 档无可用模型" };
+  const sonnetMatches = resolvedMidCandidates(resolvedTiers.sonnet, available);
+  const sonnet = sonnetMatches.find((candidate) => candidate.reasoning === false)?.model ?? sonnetMatches[0]?.model;
+  if (sonnet) {
+    return { model: sonnet, degraded: true, reason: "recap 模型降级：haiku 档无可用模型" };
   }
 
   if (currentModel) {
     return {
       model: currentModel,
       degraded: true,
-      reason: "recap 模型降级：low 档无可用模型",
+      reason: "recap 模型降级：haiku 档无可用模型",
     };
   }
 
   return {
     degraded: true,
-    reason: "recap 模型降级：low 档无可用模型；当前模型也不可用",
+    reason: "recap 模型降级：haiku 档无可用模型；当前模型也不可用",
   };
 }
 

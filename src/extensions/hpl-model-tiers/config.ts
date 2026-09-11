@@ -64,9 +64,9 @@ export const readTierConfigFileEffect = (
 /** 项目级按档位替换全局级；项目文件缺少某档时沿用全局该档。 */
 export function mergeTierConfigs(global: PartialTierModels, project: PartialTierModels): TierModels {
   return {
-    high: [...(project.high ?? global.high ?? [])],
-    mid: [...(project.mid ?? global.mid ?? [])],
-    low: [...(project.low ?? global.low ?? [])],
+    opus: [...(project.opus ?? global.opus ?? [])],
+    sonnet: [...(project.sonnet ?? global.sonnet ?? [])],
+    haiku: [...(project.haiku ?? global.haiku ?? [])],
   };
 }
 
@@ -83,7 +83,7 @@ export const readModelTiersEffect = (cwd: string): Effect.Effect<TierModels, nev
     ),
     Effect.catchAll((error) => Effect.sync(() => {
       console.warn(`[hpl-model-tiers] 配置加载失败，按空档位继续：${String(error)}`);
-      return { high: [], mid: [], low: [] } as TierModels;
+      return { opus: [], sonnet: [], haiku: [] } as TierModels;
     })),
   );
 

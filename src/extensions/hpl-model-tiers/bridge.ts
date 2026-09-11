@@ -1,9 +1,9 @@
-export const MODEL_TIERS = ["high", "mid", "low"] as const;
+export const MODEL_TIERS = ["opus", "sonnet", "haiku"] as const;
 
 export type ModelTier = (typeof MODEL_TIERS)[number];
 export type TierModels = Record<ModelTier, string[]>;
 
-const emptyTiers = (): TierModels => ({ high: [], mid: [], low: [] });
+const emptyTiers = (): TierModels => ({ opus: [], sonnet: [], haiku: [] });
 
 let tierModels: TierModels = emptyTiers();
 
@@ -15,9 +15,9 @@ export function getTierModels(tier: ModelTier): string[] {
 /** 由 hpl-model-tiers 写入，供后续 hpl-recap 消费。 */
 export function setTierModels(next: TierModels): void {
   tierModels = {
-    high: [...next.high],
-    mid: [...next.mid],
-    low: [...next.low],
+    opus: [...next.opus],
+    sonnet: [...next.sonnet],
+    haiku: [...next.haiku],
   };
 }
 

@@ -55,7 +55,7 @@ function unique(values: string[]): string[] {
 }
 
 function resolveAvailable(tiers: TierModels, available: AvailableModel[]): Record<ModelTier, AvailableModel[]> {
-  const result = { high: [], mid: [], low: [] } as Record<ModelTier, AvailableModel[]>;
+  const result = { opus: [], sonnet: [], haiku: [] } as Record<ModelTier, AvailableModel[]>;
   for (const tier of MODEL_TIERS) {
     const seen = new Set<string>();
     const warned = new Set<string>();
@@ -87,7 +87,7 @@ export function resolveTierModels(tiers: TierModels, available: AvailableModel[]
     tiers,
     matched,
     enabledModels: mergeEnabledModels(existingEnabled, tiers),
-    defaultModel: matched.high[0],
+    defaultModel: matched.opus[0],
   };
 }
 
@@ -119,9 +119,9 @@ const writeResolvedTiersEffect = (
 ): Effect.Effect<void, never> => Effect.try({
   try: () => {
     const resolved: ResolvedTierModels = {
-      high: matched.high.map(({ provider, id, name, reasoning }) => ({ provider, id, name, reasoning })),
-      mid: matched.mid.map(({ provider, id, name, reasoning }) => ({ provider, id, name, reasoning })),
-      low: matched.low.map(({ provider, id, name, reasoning }) => ({ provider, id, name, reasoning })),
+      opus: matched.opus.map(({ provider, id, name, reasoning }) => ({ provider, id, name, reasoning })),
+      sonnet: matched.sonnet.map(({ provider, id, name, reasoning }) => ({ provider, id, name, reasoning })),
+      haiku: matched.haiku.map(({ provider, id, name, reasoning }) => ({ provider, id, name, reasoning })),
     };
     mkdirSync(home, { recursive: true, mode: 0o700 });
     writeFileSync(join(home, "model-tiers-resolved.json"), JSON.stringify(resolved, null, 2) + "\n", "utf8");
@@ -143,7 +143,7 @@ export interface ApplyModelTiersResult extends TierResolution {
 
 /** 读取配置、校验可用模型，并将 tiers 合并进 Pi 原生 settings。 */
 const emptyResult = (): ApplyModelTiersResult => ({
-  ...resolveTierModels({ high: [], mid: [], low: [] }, []),
+  ...resolveTierModels({ opus: [], sonnet: [], haiku: [] }, []),
   settingsChanged: false,
 });
 
@@ -200,7 +200,7 @@ export const applyModelTiersEffect = (
 
 export default function hplModelTiers(pi: ExtensionAPI): void {
   pi.registerCommand("tiers", {
-    description: "Interactively edit high/mid/low model tiers",
+    description: "Interactively edit Opus/Sonnet/Haiku model tiers",
     handler: async (_args, ctx) => {
       await handleTiersCommand(ctx);
     },
@@ -220,12 +220,15 @@ export default function hplModelTiers(pi: ExtensionAPI): void {
     setTierModels(result.tiers);
     const reloadHint = result.settingsChanged ? "，已写入 Pi settings；请执行 /reload" : "";
     console.log(
-      `[hpl-model-tiers] high=${result.tiers.high.length} mid=${result.tiers.mid.length} low=${result.tiers.low.length}${reloadHint}`,
+      `[hpl-model-tiers] opus=${result.tiers.opus.length} sonnet=${result.tiers.sonnet.length} haiku=${result.tiers.haiku.length}${reloadHint}`,
     );
   });
 }
 
 const TIER_OPERATIONS = ["添加模型", "移除模型", "清空档位"] as const;
+
+/** 档位显示名（内部 key 一律小写）。 */
+const TIER_DISPLAY: Record<ModelTier, string> = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
 
 function modelOption(model: AvailableModel): string {
   return `${model.provider}/${model.id}`;
@@ -244,11 +247,11 @@ async function showTiersOverview(ctx: ExtensionCommandContext, tiers: TierModels
           return `\n   ${value}${star}`;
         }).join("")
       : "（空）";
-    sections.push(`${tier}: ${list}`);
+    sections.push(`${TIER_DISPLAY[tier]}: ${list}`);
   }
   sections.push(
-    "消费方：recap 总结用 low（缺则 mid 非推理 → mid → 当前模型）；",
-    "default 兜底取 high[0]；三档并集进 /model 选择器。",
+    "消费方：recap 总结用 haiku（缺则 sonnet 非推理 → sonnet → 当前模型）；",
+    "default 兜底取 opus[0]；三档并集进 /model 选择器。",
   );
   ctx.ui.notify(sections.join("\n"), "info");
 }
@@ -296,12 +299,13 @@ async function addModels(
 async function handleTiersCommand(ctx: ExtensionCommandContext): Promise<void> {
   const tiers = yieldTiers(ctx.cwd);
   await showTiersOverview(ctx, tiers);
-  const tier = await ctx.ui.select("选择模型档位", [...MODEL_TIERS]);
-  if (!tier || !MODEL_TIERS.includes(tier as ModelTier)) return;
-  const operation = await ctx.ui.select(`操作 ${tier}（当前 ${tiers[tier as ModelTier].length} 个模型）`, [...TIER_OPERATIONS]);
+  const tier = await ctx.ui.select("选择模型档位", MODEL_TIERS.map((t) => TIER_DISPLAY[t]));
+  if (!tier) return;
+  const selectedTier = MODEL_TIERS.find((t) => TIER_DISPLAY[t] === tier);
+  if (!selectedTier) return;
+  const operation = await ctx.ui.select(`操作 ${TIER_DISPLAY[selectedTier]}（当前 ${tiers[selectedTier].length} 个模型）`, [...TIER_OPERATIONS]);
   if (!operation) return;
 
-  const selectedTier = tier as ModelTier;
   if (operation === "清空档位") {
     tiers[selectedTier] = [];
     await saveEditedTiers(ctx, tiers, selectedTier);
