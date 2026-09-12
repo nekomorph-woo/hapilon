@@ -162,8 +162,14 @@ describe("visibleWidth / layoutLine — ANSI 宽度与布局", () => {
     assert.ok(visibleWidth(line) <= 15);
   });
 
-  it("异常路径: 宽度极小时仅输出左侧", () => {
-    assert.equal(layoutLine("abc", "right", 4), "abc");
+  it("异常路径: 宽度极小时截断 left 保证不超宽（防 TUI 崩溃）", () => {
+    // width=4：left(3)+padding(2) 超宽 → left 截断到 width-minPadding=2
+    assert.equal(layoutLine("abc", "right", 4), "ab");
+    // 回归：left 永远不会超出 width（pi TUI 超宽渲染会直接崩溃）
+    for (const width of [2, 5, 10, 34]) {
+      const out = layoutLine("x".repeat(50), "y".repeat(20), width);
+      assert.ok(out.length <= width, `width=${width} out=${out.length}`);
+    }
   });
 });
 
