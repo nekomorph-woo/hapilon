@@ -90,4 +90,52 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
     assert.equal(readFileSync(join(home, "model-tiers.json"), "utf8"), before);
     assert.ok(cancelNotices.some((message) => message.includes("已取消，本次改动未保存")));
   });
+
+  it("调整顺序：选中模型与前一位交换，完成保存，esc 不保存", async () => {
+    const commands = new Map<string, { handler: Function }>();
+    hplModelTiers({
+      registerCommand: (name: string, definition: { handler: Function }) => commands.set(name, definition),
+      on: () => {},
+    } as never);
+    const initial = { sonnet: ["glm-a", "glm-b", "glm-c"], haiku: ["deepseek-chat"] };
+    writeFileSync(join(home, "model-tiers.json"), JSON.stringify(initial));
+
+    // 菜单选 Sonnet → 调整顺序 → 选 "2. glm-b"（与 1 交换）→ 完成
+    const selections = ["Sonnet", "调整顺序", "2. glm-b", "完成"];
+    const seenTitles: string[] = [];
+    await commands.get("tiers")!.handler("", {
+      cwd: home,
+      ui: {
+        select: async (title: string, options: string[]) => {
+          seenTitles.push(title);
+          const next = selections.shift();
+          assert.ok(next !== undefined && options.includes(next), `${next} 应在候选项中: ${JSON.stringify(options)}`);
+          return next;
+        },
+        notify: () => {},
+      },
+      modelRegistry: { getAvailable: () => [] },
+    });
+
+    const saved = JSON.parse(readFileSync(join(home, "model-tiers.json"), "utf8"));
+    assert.deepEqual(saved.sonnet, ["glm-b", "glm-a", "glm-c"]);
+    assert.ok(seenTitles.some((t) => t.includes("越靠前优先级越高")));
+
+    // esc（undefined）：顺序改动不保存
+    writeFileSync(join(home, "model-tiers.json"), JSON.stringify(initial));
+    const escSelections: Array<string | undefined> = ["Sonnet", "调整顺序", "2. glm-b", undefined];
+    await commands.get("tiers")!.handler("", {
+      cwd: home,
+      ui: {
+        select: async (_title: string, options: string[]) => {
+          const next = escSelections.shift();
+          assert.ok(next === undefined || options.includes(next));
+          return next;
+        },
+        notify: () => {},
+      },
+      modelRegistry: { getAvailable: () => [] },
+    });
+    assert.deepEqual(JSON.parse(readFileSync(join(home, "model-tiers.json"), "utf8")).sonnet, ["glm-a", "glm-b", "glm-c"]);
+  });
 });
