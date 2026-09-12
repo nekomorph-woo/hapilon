@@ -388,8 +388,10 @@ export async function updateTeamStatus(ctx: ExtensionCommandContext, spawn: Spaw
   };
   const workerLive = check("worker");
   const reviewerLive = check("reviewer");
-  ctx.ui.setStatus(
-    "team",
-    `Team mode on · worker ${state.roles.worker.paneId ?? "—"} ${workerLive ? "✓" : "✗"} · review ${state.roles.reviewer.paneId ?? "—"} ${reviewerLive ? "✓" : "✗"}`,
-  );
+  const text = `Team mode on · worker ${state.roles.worker.paneId ?? "—"} ${workerLive ? "✓" : "✗"} · review ${state.roles.reviewer.paneId ?? "—"} ${reviewerLive ? "✓" : "✗"}`;
+  // pi 的 status 渲染不截断、超宽直接崩溃（devhapi 实测：46>38 uncaughtException），
+  // 因此按终端列数自行截断
+  const columns = process.stdout.columns ?? 80;
+  const { truncateToWidth } = await import("@earendil-works/pi-tui");
+  ctx.ui.setStatus("team", truncateToWidth(text, Math.max(20, Math.min(columns, 80))));
 }
