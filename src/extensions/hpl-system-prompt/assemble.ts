@@ -275,12 +275,14 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   // Keep this branch deliberately exclusive: before_agent_start returns a full prompt,
   // so a worker/reviewer role must never coexist with the orchestrator section.
   // Orchestrator 段文本由 hpl-orchestra 经 bridge 提供（含实值 pane id）；
-  // bridge 为空时的兜底用无 id 版常量，避免程序顺序意外时整段消失。
-  const teamSection = team?.role === "worker"
-    ? WORKER_SECTION
-    : team?.role === "reviewer"
-      ? REVIEWER_SECTION
-      : (team?.orchestrator ?? ORCHESTRATOR_TAGGED);
+  // 仅 herdr 会话启用兜底，普通会话不应读到大段 orchestrator 纪律。
+  const teamSection = process.env.HERDR_ENV !== "1"
+    ? ""
+    : team?.role === "worker"
+      ? WORKER_SECTION
+      : team?.role === "reviewer"
+        ? REVIEWER_SECTION
+        : (team?.orchestrator ?? ORCHESTRATOR_TAGGED);
   const codeStyleSection = buildCodeStyleSection();
   const piDocSection = buildPiDocSection();
   const hapilonInstructions = buildHapilonInstructions(hapilonMd);

@@ -11,15 +11,14 @@ Crew (pane ids are real, use them as-is):
 
 Dispatch discipline (a "new task" includes fix rounds from review):
 1. Check worker state: herdr agent get <id>
-   - idle/done: proceed. working: end your turn; when the worker settles you are woken automatically.
+   - idle/done: proceed. working: end your turn — the dispatch job wakes you when it settles.
      blocked: read the pane (herdr agent read), resolve with the user.
      unknown: do not send; report to the user.
 2. ALWAYS clear before dispatching (never judge whether the old context
    matters): herdr agent send-keys <id> / n e w enter
    then re-check state returns to idle.
-3. Dispatch self-contained task: herdr agent prompt <id> "<task>"
-   After dispatching, end your turn — you will be woken when the worker settles.
-   Never block on synchronous herdr waits; use the background tool if you must wait inside a turn.
+3. Dispatch: background(command="herdr agent prompt <id> \"<task>\" --wait --timeout 600000")
+   Then end your turn — the background job wakes you when the worker settles.
 4. Collect: herdr agent read <id> --source recent-unwrapped --lines 120
 5. Review routing: every code change goes to the reviewer (docs/research
    only: skip). Verdict approve → wrap up. fix-then-approve → this is a
@@ -51,17 +50,19 @@ Then one verdict: approve | fix-then-approve | reject.
 export function fillOrchestratorSection(roles: Array<{ key: string; paneId: string }>): string {
   const crew = roles.map(({ key, paneId }) => {
     if (key === "worker") return `- worker ${paneId}: all code changes happen there`;
-    if (key === "reviewer") return `- reviewer ${paneId}: code review — only if open; if not, tell the
-  user to open it via /team menu, do not dispatch`;
+    if (key === "reviewer") return `- reviewer ${paneId}: code review — every code change goes there`;
     return `- ${key} ${paneId}`;
   });
   if (!roles.some(({ key }) => key === "reviewer")) {
-    crew.push(`- reviewer not open; if not open, tell the
-  user to open it via /team menu, do not dispatch`);
+    crew.push("- reviewer not open — tell the user to open it via /team menu, do not dispatch");
   }
   return ORCHESTRATOR_TEMPLATE.replace("<CREW>", crew.join("\n"));
 }
 
 // 默认兜底段不带任何 pane id；正常路径由 state.ts 传入首实例后填充 crew。
 export const ORCHESTRATOR_SECTION = fillOrchestratorSection([]);
-export const ORCHESTRATOR_TAGGED = ORCHESTRATOR_SECTION;
+// 兜底没有状态可填真实 pane，只保留 worker 占位行，避免编排纪律缺少派发目标。
+export const ORCHESTRATOR_TAGGED = ORCHESTRATOR_SECTION.replace(
+  "Crew (pane ids are real, use them as-is):\n",
+  "Crew (pane ids are real, use them as-is):\n- worker <WORKER_PANE>: all code changes happen there\n",
+);

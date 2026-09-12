@@ -127,14 +127,14 @@ async function ensurePane(
   const command = buildPaneRunCommand(role, model);
   if (!Effect.runSync(paneRun(paneId, command, spawn))) {
     Effect.runSync(runPaneClose(paneId, spawn));
-    notify(ctx, `${role === "worker" ? "Worker" : "Review"} 面板启动失败（herdr pane run 未成功）。`, "error");
+    notify(ctx, `${role === "worker" ? "Worker" : "Reviewer"} 面板启动失败（herdr pane run 未成功）。`, "error");
     return undefined;
   }
   // 就绪校验：pane run 成功只代表命令文本送达，pane 持续存活才算起来
   const ready = await waitPaneReady(paneId, spawn);
   if (!ready) {
     Effect.runSync(runPaneClose(paneId, spawn));
-    notify(ctx, `${role === "worker" ? "Worker" : "Review"} 面板启动后未就绪，已回收面板。`, "error");
+    notify(ctx, `${role === "worker" ? "Worker" : "Reviewer"} 面板启动后未就绪，已回收面板。`, "error");
     return undefined;
   }
   return { paneId, model: model ?? null };
@@ -198,12 +198,12 @@ async function openReview(ctx: ExtensionCommandContext, spawn: SpawnFn): Promise
   }
   const reviewer = await ensurePane(ctx, "reviewer", spawn);
   if (!reviewer) {
-    notify(ctx, "Review 面板创建失败，请检查 herdr。", "error");
+    notify(ctx, "Reviewer 面板创建失败，请检查 herdr。", "error");
     return;
   }
   const next = makeState(process.env.HERDR_PANE_ID ?? state.owner.paneId, worker, reviewer, state);
   const saved = await writeState(ctx, next);
-  notify(ctx, saved ? `Review 面板已打开：${reviewer.paneId}` : "编排状态保存失败。", saved ? "info" : "error");
+  notify(ctx, saved ? `Reviewer 面板已打开：${reviewer.paneId}` : "编排状态保存失败。", saved ? "info" : "error");
 }
 
 async function viewDivision(ctx: ExtensionCommandContext, spawn: SpawnFn): Promise<void> {
@@ -278,6 +278,10 @@ async function clearOne(ctx: ExtensionCommandContext, role: TeamRole, spawn: Spa
 async function clearContexts(ctx: ExtensionCommandContext, spawn: SpawnFn): Promise<void> {
   const state = await readState(ctx);
   const activeRoles = state?.roles.filter((entry) => entry.instances.length > 0) ?? [];
+  if (activeRoles.length === 0) {
+    notify(ctx, "当前没有可清空的面板。", "warning");
+    return;
+  }
   const roleOptions = activeRoles.map((entry) => roleLabel(entry.key));
   const target = await ctx.ui.select("清空哪个面板的上下文？", [...roleOptions, "都清"]);
   if (!target) return;
@@ -344,7 +348,7 @@ export async function handleTeamCommand(
   if (currentRole()) {
     const trimmed = args.trim();
     if (trimmed && trimmed !== TEAM_ACTIONS.view) {
-      notify(ctx, "Worker/Review 面板只允许查看分工，拒绝写操作。", "error");
+      notify(ctx, "Worker/Reviewer 面板只允许查看分工，拒绝写操作。", "error");
       return;
     }
     const selected = trimmed || await ctx.ui.select("Team 编排", [TEAM_ACTIONS.view]);

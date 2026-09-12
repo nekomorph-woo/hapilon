@@ -214,10 +214,12 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         const filled = fillOrchestratorSection([{ key: "worker", paneId: "w1:p8" }]);
         assert.ok(filled.includes("worker w1:p8"));
         assert.ok(filled.includes("reviewer not open"));
-        assert.ok(filled.includes("tell the\n  user to open it via /team menu"));
-        assert.ok(!filled.includes("--wait"));
+        assert.ok(filled.includes("reviewer not open — tell the user to open it via /team menu, do not dispatch"));
+        const dispatchLine = filled.split("\n").find((line) => line.includes("3. Dispatch:"));
+        assert.ok(dispatchLine?.includes("background(command="));
+        assert.ok(dispatchLine?.includes("--wait --timeout 600000"));
+        assert.equal(filled.split("\n").some((line) => line.includes("herdr agent prompt <id>") && !line.includes("background(command=")), false);
         assert.ok(filled.includes("end your turn"));
-        assert.ok(filled.includes("background tool"));
     });
     it("主面板 enabled/disabled 菜单与角色面板菜单形态正确", async () => {
         delete process.env.HAPI_ORCH_ROLE;
@@ -370,6 +372,12 @@ describe("hpl-orchestra pane actions", { concurrency: false }, () => {
         await handleTeamCommand(makePi().pi, "清空面板上下文", ctx.ctx, makeSpawn().spawn);
         assert.deepEqual(ctx.selectedOptions[0], ["Worker", "Reviewer", "都清"]);
     });
+    it("无状态时显式清空面板直接 warning 且不弹选择", async () => {
+        const ctx = makeContext();
+        await handleTeamCommand(makePi().pi, "清空面板上下文", ctx.ctx, makeSpawn().spawn);
+        assert.equal(ctx.selectedOptions.length, 0);
+        assert.deepEqual(ctx.notices, [{ message: "当前没有可清空的面板。", type: "warning" }]);
+    });
     it("状态行展示同一角色的多个实例", async () => {
         resetProbeCache();
         saveState({
@@ -409,7 +417,20 @@ describe("hpl-orchestra system prompt exclusivity", { concurrency: false }, () =
         assert.ok(result.systemPrompt.includes("<team mode=\"orchestrator\">"));
         assert.ok(result.systemPrompt.includes("worker w1:p8"));
         assert.equal((result.systemPrompt.match(/<team mode=/g) ?? []).length, 1);
-        assert.equal(ORCHESTRATOR_SECTION.includes("--wait"), false);
+        const dispatchLine = ORCHESTRATOR_SECTION.split("\n").find((line) => line.includes("3. Dispatch:"));
+        assert.ok(dispatchLine?.includes("background(command="));
+        assert.ok(dispatchLine?.includes("--wait --timeout 600000"));
+    });
+    it("普通会话不注入兜底段，herdr 空状态保留 worker 占位行", async () => {
+        const handler = promptHandler();
+        delete process.env.HERDR_ENV;
+        resetTeamSections();
+        let result = await handler({ systemPromptOptions: promptOptions() }, {});
+        assert.equal((result.systemPrompt.match(/<team mode=/g) ?? []).length, 0);
+        process.env.HERDR_ENV = "1";
+        result = await handler({ systemPromptOptions: promptOptions() }, {});
+        assert.ok(result.systemPrompt.includes('<team mode="orchestrator">'));
+        assert.ok(result.systemPrompt.includes("- worker <WORKER_PANE>"));
     });
     it("hpl-orchestra 的 before_agent_start 每轮现读状态写入 bridge", async () => {
         const mock = makePi();
