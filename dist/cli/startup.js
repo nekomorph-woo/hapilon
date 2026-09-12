@@ -11,6 +11,7 @@ import { resolvePiCliEffect } from "../providers/pi-cli-path.js";
 import { ensureSafetyExtensionsEffect, isSafetyExtensionPath, removeSafetyExtensionsEffect, safetyExtensionPaths } from "../safety/safety-settings.js";
 import { discoverExtensionsEffect, extensionNames } from "../extensions/loader.js";
 import { ensureExtensionConfigsEffect } from "../extensions/ensure-configs.js";
+import { ensurePiPatch, warnIfPiPatchStale } from "../patch/ensure-pi-patch.js";
 import { resolveNpmExtensionPathsEffect } from "../extensions/npm-extensions.js";
 import { deriveCliIdentity } from "./identity.js";
 export class StartupError extends Data.TaggedError("StartupError") {
@@ -59,6 +60,8 @@ export const prepareStartupEffect = (args) => Effect.gen(function* () {
         yield* ensureSafetyExtensionsEffect(agentDirPath).pipe(Effect.mapError(toStartupError));
     }
     yield* ensureExtensionConfigsEffect(agentDirPath).pipe(Effect.mapError(toStartupError));
+    // pi 单独升级时 postinstall 不会重跑，主题补丁靠这里补上（约 3ms，已补丁即只读判标记）
+    yield* Effect.sync(() => warnIfPiPatchStale(ensurePiPatch()));
     const allExtensions = (yield* discoverExtensionsEffect()).filter((extension) => !isSafetyExtensionPath(extension));
     const npmExtensions = yield* resolveNpmExtensionPathsEffect.pipe(Effect.mapError(toStartupError));
     // herdr 集成探测须读用户的原生 PI_CODING_AGENT_DIR，而非下方 piEnv 覆盖后的 hapilon agentDir
