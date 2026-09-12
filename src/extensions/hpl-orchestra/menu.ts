@@ -103,7 +103,8 @@ function roleDuty(role: TeamRoleDef): string {
 }
 
 function roleOption(role: TeamRoleDef): string {
-  return `${role.label}（${roleDuty(role)}）`;
+  // 带 key 防止重名 label 让选中映射错对象（review-r3 N4）
+  return `${role.label}（${role.key}·${roleDuty(role)}）`;
 }
 
 function firstInstance(state: TeamState, key: string): RoleInstance | undefined {
@@ -230,7 +231,9 @@ async function ensurePane(
   if (role.singleton) {
     const existing = state ? findRoleEntry(state, role.key)?.instances ?? [] : [];
     for (const instance of existing) {
-      if (probePaneLive(instance.paneId, spawn)) {
+      // 复用判定用直连 paneGet：TTL 缓存会把「刚关闭的面板」误判为存活
+      // 最多 10s，导致复用提示错误且新档位无法应用（review-r3 N3）
+      if (Effect.runSync(paneGet(instance.paneId, spawn))) {
         return { paneId: instance.paneId, model: instance.model, reused: true };
       }
     }
@@ -544,11 +547,11 @@ function beginTransientWizard(
 
 async function manageRoles(ctx: ExtensionCommandContext, pi: ExtensionAPI, spawn: SpawnFn): Promise<void> {
   const roles = getAllRoleDefs();
-  const options = [...roles.map((role) => `${role.label}${role.builtin ? "（内置）" : ""}`), "返回"];
+  // 选项带 key：label 无唯一性约束，展示串当唯一键会操作错对象（review-r3 N4）
+  const options = [...roles.map((role) => `${role.label}${role.builtin ? "（内置）" : ""}（${role.key}）`), "返回"];
   const selected = await ctx.ui.select("管理角色", options);
   if (!selected || selected === "返回") return;
-  const selectedIndex = options.indexOf(selected);
-  const role = selectedIndex >= 0 && selectedIndex < roles.length ? roles[selectedIndex] : undefined;
+  const role = roles.find((candidate) => selected.endsWith(`（${candidate.key}）`));
   if (!role) return;
 
   const action = await ctx.ui.select(
@@ -629,7 +632,7 @@ export function assistantMessageText(message: unknown): string {
     : "";
 }
 
-export interface TransientRoleInput {
+interface TransientRoleInput {
   key: string;
   label: string;
   prompt: string;
@@ -637,7 +640,7 @@ export interface TransientRoleInput {
 }
 
 /** 从 assistant 消息中提取本轮临时角色哨兵；注册表角色不会被误当 transient。 */
-export function extractTransientRole(message: unknown): TransientRoleInput | undefined {
+function extractTransientRole(message: unknown): TransientRoleInput | undefined {
   const role = parseRoleDefSentinel(assistantMessageText(message));
   if (!role || getRoleDef(role.key)) return undefined;
   return {
@@ -649,15 +652,17 @@ export function extractTransientRole(message: unknown): TransientRoleInput | und
 }
 
 export function handlePendingUserMessage(message: unknown): boolean {
-  if (!pendingRoleWizard || pendingRoleWizard.kind !== "transient") return false;
+  if (!pendingRoleWizard) return false;
   if (!message || typeof message !== "object" || (message as { role?: unknown }).role !== "user") return false;
   if (pendingRoleWizard.ignoreNextUserMessage && pendingRoleWizard.requestText === messageText(message).trim()) {
     pendingRoleWizard.ignoreNextUserMessage = false;
     return false;
   }
   const ctx = pendingRoleWizard.ctx;
+  const kind = pendingRoleWizard.kind;
   pendingRoleWizard = undefined;
-  notify(ctx, "临时角色未生成，已取消", "warning");
+  // create/edit 向导同样以「下一条用户消息」为取消信号（review-r3 N5）
+  notify(ctx, kind === "transient" ? "临时角色未生成，已取消" : "角色向导已取消，未保存任何改动", "warning");
   return true;
 }
 
@@ -665,7 +670,10 @@ export async function completePendingRole(role: TeamRoleDef): Promise<boolean> {
   const pending = pendingRoleWizard;
   if (!pending) return false;
   if (pending.kind === "transient") {
-    if (getRoleDef(role.key) || !pending.spawn) return false;
+    if (getRoleDef(role.key) || !pending.spawn) {
+      notify(pending.ctx, `临时角色未创建：key ${role.key} 与现有角色冲突或面板通道不可用。`, "error");
+      return false;
+    }
     pendingRoleWizard = undefined;
     await openRolePanel(
       pending.ctx,
@@ -678,8 +686,14 @@ export async function completePendingRole(role: TeamRoleDef): Promise<boolean> {
   }
 
   const existing = getRoleDef(role.key);
-  if (existing && !(pending.kind === "edit" && pending.existingKey === role.key)) return false;
-  if (!saveCustomRoleDef(role)) return false;
+  if (existing && !(pending.kind === "edit" && pending.existingKey === role.key)) {
+    notify(pending.ctx, `角色未保存：key ${role.key} 与现有角色「${existing.label}」冲突，请换一个 key。`, "error");
+    return false;
+  }
+  if (!saveCustomRoleDef(role)) {
+    notify(pending.ctx, "角色未保存：写入注册表失败，请检查 HAPILON_HOME 权限。", "error");
+    return false;
+  }
   if (pending.kind === "edit" && pending.existingKey && pending.existingKey !== role.key) {
     deleteCustomRoleDef(pending.existingKey);
   }
@@ -692,20 +706,6 @@ export async function completePendingRole(role: TeamRoleDef): Promise<boolean> {
     "info",
   );
   return true;
-}
-
-/** 兼容直接调用菜单层的 transient 测试/集成路径。 */
-export async function handleTransientMessage(message: unknown): Promise<boolean> {
-  const roleInput = extractTransientRole(message);
-  if (!roleInput || pendingRoleWizard?.kind !== "transient") return false;
-  return completePendingRole({
-    key: roleInput.key,
-    label: roleInput.label,
-    promptTemplate: roleInput.prompt,
-    defaultTier: roleInput.tier ?? "sonnet",
-    singleton: false,
-    builtin: false,
-  });
 }
 
 export async function handleTeamCommand(

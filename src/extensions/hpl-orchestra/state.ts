@@ -4,7 +4,13 @@ import { Data, Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
 import { getAllRoleDefs, type TeamRoleDef } from "./role-registry.js";
 import { fillOrchestratorSection } from "./roles.js";
-import { herdrEnvAvailable } from "./herdr.js";
+import { herdrEnvAvailable, paneGet } from "./herdr.js";
+
+/** crew 生成时的死 pane 过滤；herdr 不可用（测试/无 herdr 环境）时跳过过滤 */
+function paneAlive(paneId: string): boolean {
+  if (!herdrEnvAvailable()) return true;
+  return Boolean(Effect.runSync(paneGet(paneId)));
+}
 
 export type TeamRole = string;
 
@@ -248,10 +254,23 @@ export const buildTeamSectionsEffect = (): Effect.Effect<TeamSections, never> =>
     ];
     const crew = keys.flatMap((key) => {
       const instances = stateRoles.get(key)?.instances ?? [];
-      return instances.length > 0
-        ? instances.map((instance) => ({ key, paneId: instance.paneId }))
-        : [{ key, paneId: "not open" }];
-    });
+      if (instances.length === 0) return [{ key, paneId: "not open" }];
+      // 探活过滤：死 pane 不能进 crew——orchestrator 会按提示词往这些
+      // pane 派发，只会拿到 herdr 报错（review-r3 N7）。probe 结果经
+      // herdr.ts 的 10s TTL 缓存复用，before_agent_start 高频路径可承受。
+      return instances
+        .filter((instance) => paneAlive(instance.paneId))
+        .map((instance) => ({ key, paneId: instance.paneId }));
+    }).concat(
+      // 全部实例已死的角色保留一行 not open，而不是从 crew 消失
+      keys
+        .filter((key) => {
+          const instances = stateRoles.get(key)?.instances ?? [];
+          return instances.length > 0
+            && instances.every((instance) => !paneAlive(instance.paneId));
+        })
+        .map((key) => ({ key, paneId: "not open" })),
+    );
     return { orchestrator: fillOrchestratorSection(crew) };
   },
   catch: (error) => new TeamStateError({

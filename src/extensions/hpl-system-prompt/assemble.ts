@@ -276,10 +276,13 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   // so a worker/reviewer role must never coexist with the orchestrator section.
   // Orchestrator 段文本由 hpl-orchestra 经 bridge 提供（含实值 pane id）；
   // 仅 herdr 会话启用兜底，普通会话不应读到大段 orchestrator 纪律。
+  // 不变量（review-r3 N2）：HAPI_ORCH_ROLE 非空的面板永远不落回 orchestrator 段——
+  // 即使它的角色定义与状态文件都被删除，也只能拿到 MISSING_ROLE_SECTION。
+  const hasRoleEnv = Boolean(process.env.HAPI_ORCH_ROLE);
   const teamSection = process.env.HERDR_ENV !== "1"
     ? ""
-    : team?.role
-      ? (buildTeamRoleSection(team.role) ?? MISSING_ROLE_SECTION)
+    : hasRoleEnv || team?.role
+      ? (buildTeamRoleSection(team?.role ?? (process.env.HAPI_ORCH_ROLE as string)) ?? MISSING_ROLE_SECTION)
       : (team?.orchestrator ?? ORCHESTRATOR_TAGGED);
   const codeStyleSection = buildCodeStyleSection();
   const piDocSection = buildPiDocSection();

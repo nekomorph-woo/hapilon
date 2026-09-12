@@ -80,7 +80,8 @@ export const BUILTIN_ROLE_DEFS = [
         builtin: true,
     },
 ];
-const ROLE_KEY_PATTERN = /^[a-z][a-z0-9-]*$/;
+/** 角色 key 唯一正则：小写字母开头，小写字母/数字/连字符，连字符不连续、不结尾 */
+export const ROLE_KEY_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const TIERS = new Set(["opus", "sonnet", "haiku"]);
 export function rolesDir() {
     return join(hapilonHome(), "teams", "roles");
