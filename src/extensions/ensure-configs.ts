@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import { ConfigWriteError } from "../config/config-io.js";
 
@@ -63,6 +64,83 @@ const ensureJsonConfigEffect = (agentDir: string, filename: string, defaults: ob
 });
 
 /**
+ * hapilon 主题：仓库 resources/themes 直接当 pi 的主题目录用（settings.themes 通道）。
+ *
+ * 为什么不必走扩展的 resources_discover/themePaths 贡献：pi 在扩展资源合并之前就
+ * initTheme(settings.theme) 并跑过一次 applyFromSettings()（interactive-mode 先建
+ * ThemeController，之后才 bindExtensions 合并扩展贡献），那时主题还不在注册表里，
+ * 默认选中会先报 "Failed to load theme" 再回落 dark。settings.themes 是资源装载器
+ * 构建期就有的输入（package-manager 读 globalSettings.themes），且同一份列表既喂给
+ * 冷启动的 initTheme，也喂给 /settings 的主题列表。
+ */
+const HAPILON_THEME_FILES = ["hapilon-light.json", "hapilon-dark.json"];
+
+/**
+ * 未设置 theme 时的默认主题：pi 的 settings.theme 支持 "浅色/深色" 配对语法
+ * （settings-manager.getThemeSetting → theme.js resolveThemeSetting/parseAutoThemeSetting，
+ * 与 CLI 的 --use-theme light/dark 同一条路径，对自定义主题名同样生效），
+ * 于是跟随终端明暗自动切换。用户在 /settings 改过则永不再覆盖。
+ */
+const DEFAULT_THEME = "hapilon-light/hapilon-dark";
+
+/** 仓库内主题源目录（本模块编译后在 dist/extensions/ 下） */
+function hapilonThemesSourceDir(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), "..", "..", "resources", "themes");
+}
+
+/** 识别 settings.themes 里属于 hapilon 的那条（仓库换路径后旧条目靠它剔除） */
+function isHapilonThemesPath(entry: string): boolean {
+  return entry.replaceAll("\\", "/").endsWith("/resources/themes");
+}
+
+/**
+ * settings.json：themes 里常驻 hapilon 主题目录，theme 缺省时种子为 hapilon-light/hapilon-dark。
+ * 用户自己填的 themes 条目与已选主题一律保留。
+ */
+const ensureThemeSettingsEffect = (agentDir: string): Effect.Effect<void, ConfigWriteError> => Effect.gen(function* () {
+  const sourceDir = hapilonThemesSourceDir();
+  const missing = HAPILON_THEME_FILES.filter((file) => !existsSync(join(sourceDir, file)));
+  if (missing.length > 0) {
+    return yield* Effect.fail(new ConfigWriteError({
+      message: `[hapilon] 主题文件缺失：${sourceDir} 下缺 ${missing.join("、")}。安装不完整，请重新 npm ci && npm run build。`,
+    }));
+  }
+  const path = join(agentDir, "settings.json");
+  if (!existsSync(path)) return; // 首次启动由 ensureQuietStartup 建文件，下一轮再种子
+
+  let settings: unknown;
+  try {
+    settings = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    console.warn(`Warning: ${path} 解析失败，跳过主题设置写入`);
+    return;
+  }
+  if (typeof settings !== "object" || settings === null || Array.isArray(settings)) {
+    console.warn(`Warning: ${path} 不是 JSON object，跳过主题设置写入`);
+    return;
+  }
+  const existing = settings as Record<string, unknown>;
+
+  if (existing.themes !== undefined && !Array.isArray(existing.themes)) {
+    console.warn(`Warning: ${path} 的 themes 不是数组，跳过主题设置写入`);
+    return;
+  }
+  const userThemes = (existing.themes ?? []) as unknown[];
+  const kept = userThemes.filter((entry) => !(typeof entry === "string" && isHapilonThemesPath(entry)));
+  const nextThemes = [...kept, sourceDir];
+  const themesChanged = JSON.stringify(userThemes) !== JSON.stringify(nextThemes);
+  const needsDefaultTheme = typeof existing.theme !== "string";
+  if (!themesChanged && !needsDefaultTheme) return; // 幂等
+
+  existing.themes = nextThemes;
+  if (needsDefaultTheme) existing.theme = DEFAULT_THEME;
+  yield* Effect.try({
+    try: () => writeFileSync(path, JSON.stringify(existing, null, 2) + "\n", "utf8"),
+    catch: (err) => new ConfigWriteError({ message: err instanceof Error ? err.message : String(err) }),
+  });
+});
+
+/**
  * 预置扩展的全局默认配置（幂等，首次启动生效）。
  */
 export const ensureExtensionConfigsEffect = (agentDir: string): Effect.Effect<void, ConfigWriteError> => Effect.gen(function* () {
@@ -73,6 +151,8 @@ export const ensureExtensionConfigsEffect = (agentDir: string): Effect.Effect<vo
   yield* ensureJsonConfigEffect(agentDir, "mcp.json", MCP_CONFIG_DEFAULTS);
   // hpl-econ（#52）：组合甲默认实体化
   yield* ensureJsonConfigEffect(agentDir, "econ-config.json", ECON_CONFIG_DEFAULTS);
+  // 主题：仓库主题目录挂进 settings.themes，默认选中 hapilon-light/hapilon-dark（跟随终端明暗）
+  yield* ensureThemeSettingsEffect(agentDir);
 });
 
 export function ensureExtensionConfigs(agentDir: string): void {
