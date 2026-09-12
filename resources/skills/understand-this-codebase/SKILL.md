@@ -1,368 +1,158 @@
 ---
 name: understand-this-codebase
-description: Build a minimum sufficient mental model of an unfamiliar codebase, domain, feature, or runtime flow. Use when onboarding to a repo, investigating how something works, or preparing for a change.
+description: Build the minimum useful mental model of unfamiliar or partially understood code — scoped to the current goal, following end-to-end flows rather than file lists, with conclusions labeled Observed / Inferred / Unknown. Use when onboarding to a repo, investigating how a feature or runtime flow works, or preparing a change.
 ---
 
 # Understand This Codebase
 
 ## Purpose
 
-Build a useful mental model of **any unfamiliar or partially understood code**, without requiring the human to read everything.
+Build the minimum useful mental model of unfamiliar or partially understood code.
 
-The scope may be an entire repository, a large business domain, one feature, one service, one runtime flow, or a specific planned change.
+The goal is not to read or explain everything. Understand enough of the relevant system to navigate it, reason about it, make a change safely, and know where to investigate next.
 
-The goal is not exhaustive understanding. The goal is the **Minimum Sufficient Mental Model**:
+## Principles
 
-> Understand enough of the relevant system to navigate it, reason about it, change it safely, and know where to investigate next.
-
-Use progressive disclosure:
-
-**Scope → Map → Boundaries → Flows → Invariants → Risks → Deep Dive**
-
-## Core Principles
-
-- **Minimum Sufficient Mental Model:** understand only what is needed for the current purpose.
-- **Minimum Cognitive Load:** transfer knowledge without making the human decode the explanation.
-- Build a mental model, not a file catalog.
-- Explain architecture before implementation details.
-- Explain behavior through flows, not isolated functions.
-- Prefer selective understanding over exhaustive reading.
-- Treat unrelated parts of a large repository as opaque unless they affect the current scope.
-- Separate business logic from infrastructure.
-- Distinguish facts from inference.
-- Spend human attention according to risk.
-- Cite concrete files, classes, functions, tables, or tests when making important claims.
-- If ownership or architecture is unclear, say so instead of inventing a cleaner design than the code actually has.
+- Scope understanding to the current goal.
+- Treat unrelated parts of a large codebase as opaque unless they affect the current scope.
+- Understand behavior and architecture before low-level implementation details.
+- Prefer end-to-end flows over file-by-file explanations.
+- Spend attention according to business importance and risk.
+- Distinguish what the code proves from what is only inferred.
 
 ## Workflow
 
-### 0. Scope — What do I need to understand?
+### 1. Scope
 
-Determine the understanding scope before exploring deeply.
+Determine what needs to be understood:
 
-The scope may be:
-
-- Entire codebase
-- Business domain
+- Whole system
+- Business area
 - Feature
 - Module or service
 - Runtime flow
-- Specific bug
-- Specific planned change
+- Bug
+- Planned change
 
-When a scope is provided, **do not explain the entire codebase**.
+When a scope exists, do not explain the whole repository.
 
-Explore outside the scope only when necessary to understand:
+Expand outside it only when necessary to understand upstream triggers, downstream effects, shared data, important constraints, or external dependencies.
 
-- Upstream triggers
-- Downstream effects
-- Shared data
-- Cross-boundary invariants
-- External dependencies
-- Side effects
+### 2. Map
 
-Treat unrelated parts of the repository as opaque.
+Build a compact map of the relevant area:
 
-If investigation reveals an important dependency outside the current scope, expand the scope only as far as necessary and explain why.
-
-### 1. Map — Give me the territory
-
-Within the chosen scope, identify:
-
-- Major modules/directories
 - Entry points
-- Core business logic
+- Important components
+- Business logic
+- Persistence
 - Infrastructure
 - External integrations
-- Persistence
-- Important shared code
 
-For every important component explain in one sentence:
+Explain each important component by responsibility, not merely by filename.
 
-> What responsibility does this own?
+Use a small diagram when it makes the relationships easier to understand.
 
-Then show a compact architecture or relationship diagram.
+### 3. Trace
 
-Do not dump the directory tree unless the directory structure itself explains the architecture.
+Follow the most important end-to-end flows for the current goal.
 
-### 2. Boundaries — How is this divided?
+For each flow explain:
 
-For each important component identify:
+- What triggers it
+- Where it enters
+- Which components participate
+- Where important decisions happen
+- What data changes
+- Which side effects occur
+- What result is produced
 
-- Responsibility
-- Public interface
-- Dependencies
-- Data ownership
-- Side effects
-- What it should not be responsible for, when this can be established
+Reference concrete files, classes, functions, or tests when useful.
 
-Highlight suspicious coupling, unclear ownership, or boundaries that appear to leak.
+### 4. Boundaries
 
-### 3. Flows — How does it actually run?
+Identify:
 
-Identify the most important end-to-end flows for the current scope, usually 1–5.
+- Who owns important behavior and data
+- Important dependencies
+- Public interfaces or contracts
+- Side-effect boundaries
+- Suspicious coupling or unclear ownership
 
-For each flow show:
+Do not invent a cleaner architecture than the repository actually has.
 
-`Trigger → Entry → Coordination → Business Rules → Persistence / External Systems → Result`
+### 5. Rules
 
-Reference relevant files/functions so the human can jump directly into implementation.
+Identify the constraints that matter to the current scope:
 
-Prefer execution paths over isolated file explanations.
+- Business rules
+- Important invariants
+- Consistency assumptions
+- Authorization or ownership rules
+- Other conditions that must remain true
 
-### 4. Invariants — What must never break?
+Label conclusions as:
 
-Identify important rules such as:
+- **Observed** — directly supported by code, configuration, or tests.
+- **Inferred** — likely intent based on evidence.
+- **Unknown** — cannot be established reliably.
 
-- Valid state transitions
-- Authorization boundaries
-- Data consistency requirements
-- Idempotency requirements
-- Transaction assumptions
-- Ownership rules
-- Business constraints
+### 6. Risk & Next Depth
 
-Clearly distinguish:
+Highlight only the areas where deeper understanding is valuable:
 
-- **Explicit invariant:** directly enforced by code or tests.
-- **Inferred invariant:** appears intended from implementation or usage.
-- **Unknown:** cannot be established reliably.
-
-Never present inference as certainty.
-
-### 5. Risks — Where should a human pay attention?
-
-Highlight areas involving:
-
-- Core business rules
-- Authentication / authorization
-- State machines
-- Transactions
-- Concurrency
-- Caching
-- Payments / billing
-- Data migrations
-- External side effects
+- Core business behavior
+- Important side effects
+- Data consistency
+- Concurrency or transactions
+- Security boundaries
 - Complex coupling
 - Weak or missing tests
 
-Do not exaggerate ordinary complexity into risk.
-
-### 6. Deep Dive — Only when useful
-
-Do not automatically explain the entire scope in implementation-level detail.
-
-When the human wants to understand or change something:
-
-1. Locate the relevant surface.
-2. Identify upstream callers or triggers.
-3. Identify downstream dependencies and side effects.
-4. Identify relevant invariants.
-5. Identify tests covering the behavior.
-6. Explain the execution path.
-7. Inspect implementation details only where they affect understanding or correctness.
-
-Use diagrams, pseudocode, state diagrams, or simplified explanations when they communicate better than prose.
+Recommend a small number of useful deep dives, then stop.
 
 ## Change Mode
 
-When the goal is to modify an existing feature, switch from broad reconnaissance to:
+When the goal is a specific change, focus the analysis around:
 
-**Change → Surface → Dependencies → Invariants → Plan → Implement → Verify**
+**Current Behavior → Change Surface → Dependencies → Invariants → Risks → Verification**
 
-Before implementation explain:
+Understand only enough surrounding code to make the change safely.
 
-### Change Surface
-What code is likely affected?
-
-### Current Behavior
-What happens today?
-
-### Dependencies
-What calls this, and what does it call?
-
-### Invariants
-What must remain true?
-
-### Risk
-What could unintentionally break?
-
-### Verification
-How will we know the change is correct?
-
-Then implement when requested.
-
-After implementation, compare the actual change against the predicted change surface and report unexpected architectural impact.
-
-## Communication Rules
-
-Optimize for **human understanding, not impressive-sounding explanations**.
-
-### Translate before teaching
-
-Repositories often contain historical names, abbreviations, jargon, or unclear abstractions.
-
-First translate them into plain language. Preserve the real identifier so the human can search for it, but do not force the human to understand the identifier before understanding the concept.
-
-Example:
-
-> `ChangeSet` — this project's representation of a group of code changes waiting for review.
-
-If the meaning cannot be established from code or tests, say so.
-
-### Use plain language
-
-- Prefer common, concrete words over jargon.
-- Do not use technical terms when ordinary language communicates the same idea.
-- Explain useful technical terms briefly on first use.
-- Never assume the reader knows project-specific vocabulary.
-
-Prefer:
-
-> When the user clicks Refund, the API loads the order, checks whether it can be refunded, calls the payment provider, and records the result.
-
-Instead of:
-
-> The refund workflow orchestrates multiple domain and infrastructure concerns across service boundaries.
-
-### Expand unfamiliar abbreviations
-
-Do not introduce unexplained abbreviations or acronyms.
-
-On first use:
-
-> Role-Based Access Control (RBAC)
-
-After that, `RBAC` is acceptable.
-
-Common terms such as HTTP, API, SQL, JSON, URL, and ID usually do not need expansion.
-
-Project-specific abbreviations always need explanation.
-
-### Keep identifiers attached to meaning
-
-When mentioning a file, class, function, module, table, event, or service, explain why it matters.
-
-Avoid:
-
-> `RefundCoordinator` calls `PGA` through `RPA`.
-
-Prefer:
-
-> `RefundCoordinator` runs the refund process. It calls `PaymentGatewayAdapter`, the project's wrapper around the external payment provider.
-
-### Avoid AI writing habits
-
-Avoid:
-
-- slogans and dramatic conclusions
-- repeated summaries
-- fake quotations
-- rhetorical filler
-- excessive headings or bold text
-- unnecessary analogies
-- unexplained buzzwords
-- vague words such as "robust", "seamless", "comprehensive", or "leverages" without concrete meaning
-- recurring conversational catchphrases
-
-Do not make simple concepts sound sophisticated.
-
-### Prefer concrete explanations
-
-Whenever possible explain:
-
-**Who → does what → to what → under what condition → with what result**
-
-### Make diagrams readable
-
-Every diagram should be understandable without first learning internal project vocabulary.
-
-If an identifier is obscure, annotate it:
-
-```text
-Checkout
-   ↓
-CouponSvc
-(coupon validation)
-   ↓
-Order
-```
-
-Do not create diagrams made entirely from unexplained internal identifiers.
-
-### Progressive detail
-
-Use this order when possible:
-
-**Purpose → Flow → Components → Rules → Implementation Details**
-
-Start with the simplest useful explanation. Add details only when they help answer the current question.
-
-### Separate facts from interpretation
-
-Use clear confidence:
-
-- **Observed:** directly supported by code, configuration, or tests.
-- **Inferred:** likely intent based on implementation.
-- **Unknown:** cannot be determined reliably.
-
-When code and documentation disagree, prefer executable behavior and tests as evidence of current behavior, but explicitly report the disagreement.
-
-### Explanation quality check
-
-Before finishing, check:
-
-> Could an engineer unfamiliar with this repository understand the explanation without asking what half the terminology means?
-
-If not, simplify it.
-
-The goal is not to demonstrate knowledge of the codebase.
-
-The goal is to transfer that knowledge with minimum unnecessary cognitive load.
+After implementation, compare the actual change with the expected change surface and report meaningful unexpected impact.
 
 ## Default Output
 
-Keep initial reconnaissance compact.
+Keep the first pass compact:
 
-### Scope
-What is being understood and what is intentionally outside the current scope.
+1. Scope
+2. System in one paragraph
+3. Relevant map
+4. Critical flows
+5. Important rules and invariants
+6. Risk areas
+7. Where to look next
 
-### System in One Paragraph
-What this part of the system does and how it broadly works.
+Do not automatically continue into exhaustive implementation details.
 
-### Map
-A small diagram showing important components and dependency direction.
+## Guardrails
 
-### Components
-Major components and one-line responsibilities.
+- Do not dump the repository tree.
+- Do not explain unrelated modules.
+- Do not equate a list of files with understanding.
+- Do not hide uncertainty behind confident language.
+- Do not expand into deep implementation details unless they help the current goal.
+- Stop when the human has enough context to make the next decision.
 
-### Critical Flows
-The most important runtime paths for this scope.
+## Communication
 
-### Data & State
-Where important data originates, changes, and persists.
+Use plain, concrete language.
 
-### Invariants
-Rules the system appears to protect, with certainty clearly marked.
+- Translate unclear project terminology into plain language while preserving real identifiers for search.
+- Explain unfamiliar abbreviations on first use.
+- Prefer concrete execution flows over abstract descriptions.
+- Keep identifiers attached to their meaning and responsibility.
+- Separate observed facts, inference, and unknowns.
+- Avoid invented terminology, slogans, filler, repeated summaries, and unnecessary headings.
+- Start simple and add detail only when needed.
 
-### Risk Zones
-Areas deserving deeper human understanding.
-
-### Where to Look When...
-A few concrete navigation hints relevant to the scope, such as:
-
-- Changing a business rule → ...
-- Debugging data → ...
-- Changing authorization → ...
-- Modifying persistence → ...
-
-### Suggested Deep Dives
-Recommend only the 2–5 areas most valuable to understand next and explain why.
-
-Then **stop**.
-
-Do not automatically produce exhaustive explanations.
-
-The desired result is:
-
-> The human does not know every line. They know where important behavior lives, how the relevant system fits together, what must not break, and where to investigate when change happens.
