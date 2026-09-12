@@ -11,7 +11,8 @@
   "files": [
     "dist",
     "!dist/test",
-    "resources"
+    "resources",
+    "scripts"
   ],
   "scripts": {
     "postinstall": "node scripts/postinstall.js",

@@ -32,6 +32,12 @@ function inSubagentSession(): boolean {
   return subagentProbe ? subagentProbe() : false;
 }
 
+// 提示文本紧凑化：折叠空白（多行/正则命令不再断行爆宽），截 80 字符，超长补省略号
+function compactCommand(command: string): string {
+  const oneLine = command.trim().replace(/\s+/g, " ");
+  return oneLine.length > 80 ? `${oneLine.slice(0, 80)}…` : oneLine;
+}
+
 export { classifyCommand, hasShellInjection } from "./classifier.js";
 
 export default function (pi: ExtensionAPI) {
@@ -46,6 +52,8 @@ export default function (pi: ExtensionAPI) {
 
     // 标准化空白字符用于信任匹配
     const normalized = command.trim().replace(/\s+/g, " ");
+    // 折叠后的单行命令（超长截断），所有 warn/reason 提示文本共用
+    const shown = compactCommand(command);
 
     const verdict = classifyCommand(command);
     if (verdict === "allow") {
@@ -55,7 +63,7 @@ export default function (pi: ExtensionAPI) {
       if (hasSensitiveReadArg(command, ctx.cwd)) {
         const labels = sensitiveReadLabels(command, ctx.cwd).join("、");
         if (inSubagentSession()) {
-          console.warn(`[hpl-safety-gate] subagent 会话禁止读取敏感文件（${labels}）: ${command.slice(0, 120)}`);
+          console.warn(`[hpl-safety-gate] subagent 会话禁止读取敏感文件（${labels}）: ${shown}`);
           return {
             block: true,
             reason: `🛡️ subagent 会话禁止读取敏感文件（${labels}）：secret 只该被应用运行时读取，agent 读取会进入 LLM 上下文与 transcript。请在主会话中操作，或使用白名单文件（.env.example）。`,
@@ -63,21 +71,21 @@ export default function (pi: ExtensionAPI) {
         }
         if (isTrusted("bash", normalized, ctx.cwd)) return;
         if (!ctx.hasUI) {
-          console.warn(`[hpl-safety-gate] 非交互模式下禁止读取敏感文件（${labels}）: ${command.slice(0, 120)}`);
+          console.warn(`[hpl-safety-gate] 非交互模式下禁止读取敏感文件（${labels}）: ${shown}`);
           return {
             block: true,
-            reason: `🛡️ 非交互模式下禁止读取敏感文件（${labels}）：${command.slice(0, 120)}`,
+            reason: `🛡️ 非交互模式下禁止读取敏感文件（${labels}）：${shown}`,
           };
         }
         const result = await requestConfirm(
           ctx,
           "⚠️ 敏感文件读取确认",
-          `命令将读取敏感文件（${labels}）：\n\n> ${command.slice(0, 200)}\n\n是否仍然执行？`,
+          `命令将读取敏感文件（${labels}）：\n\n> ${normalized.slice(0, 200)}\n\n是否仍然执行？`,
         );
         if (result.status !== "approved") {
           const reason = result.status === "unavailable"
             ? `🛡️ 非交互模式下禁止读取敏感文件（${labels}）`
-            : `用户拒绝了敏感文件读取：${command.slice(0, 120)}`;
+            : `用户拒绝了敏感文件读取：${shown}`;
           console.warn(`[hpl-safety-gate] ${reason}`);
           return { block: true, reason };
         }
@@ -94,10 +102,10 @@ export default function (pi: ExtensionAPI) {
 
     if (verdict === "block") {
       // 拦截必须留痕（Make It Observable），issue #6
-      console.warn(`[hpl-safety-gate] 危险命令已阻止: ${command.slice(0, 120)}`);
+      console.warn(`[hpl-safety-gate] 危险命令已阻止: ${shown}`);
       return {
         block: true,
-        reason: `🛡️ 危险命令已阻止：${command.slice(0, 120)}`,
+        reason: `🛡️ 危险命令已阻止：${shown}`,
       };
     }
 
@@ -106,24 +114,24 @@ export default function (pi: ExtensionAPI) {
 
     if (!ctx.hasUI) {
       // 拦截必须留痕（Make It Observable），issue #6
-      console.warn(`[hpl-safety-gate] 非交互模式下拦截中危命令: ${command.slice(0, 120)}`);
+      console.warn(`[hpl-safety-gate] 非交互模式下拦截中危命令: ${shown}`);
       return {
         block: true,
-        reason: `🛡️ 非交互模式下拦截中危命令：${command.slice(0, 120)}`,
+        reason: `🛡️ 非交互模式下拦截中危命令：${shown}`,
       };
     }
 
     const result = await requestConfirm(
       ctx,
       "⚠️ 危险操作确认",
-      `检测到潜在危险操作：\n\n> ${command.slice(0, 200)}\n\n是否仍然执行？`,
+      `检测到潜在危险操作：\n\n> ${normalized.slice(0, 200)}\n\n是否仍然执行？`,
     );
     if (result.status !== "approved") {
       const reason = result.status === "unavailable"
-        ? `🛡️ 非交互模式下拦截中危命令：${command.slice(0, 120)}`
+        ? `🛡️ 非交互模式下拦截中危命令：${shown}`
         : result.status === "error"
-        ? `🛡️ 确认对话框异常，已阻止：${command.slice(0, 120)}`
-        : `用户拒绝了此操作：${command.slice(0, 120)}`;
+        ? `🛡️ 确认对话框异常，已阻止：${shown}`
+        : `用户拒绝了此操作：${shown}`;
       // 拦截必须留痕（Make It Observable），issue #6
       console.warn(`[hpl-safety-gate] ${reason}`);
       return { block: true, reason };

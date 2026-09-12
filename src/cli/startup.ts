@@ -11,6 +11,7 @@ import { resolvePiCliEffect } from "../providers/pi-cli-path.js";
 import { ensureSafetyExtensionsEffect, isSafetyExtensionPath, removeSafetyExtensionsEffect, safetyExtensionPaths } from "../safety/safety-settings.js";
 import { discoverExtensionsEffect, extensionNames } from "../extensions/loader.js";
 import { ensureExtensionConfigsEffect } from "../extensions/ensure-configs.js";
+import { ensurePiPatch, warnIfPiPatchStale } from "../patch/ensure-pi-patch.js";
 import { resolveNpmExtensionPathsEffect } from "../extensions/npm-extensions.js";
 import { deriveCliIdentity } from "./identity.js";
 
@@ -82,6 +83,8 @@ export const prepareStartupEffect = (args: string[]): Effect.Effect<PiLaunchPlan
     yield* ensureSafetyExtensionsEffect(agentDirPath).pipe(Effect.mapError(toStartupError));
   }
   yield* ensureExtensionConfigsEffect(agentDirPath).pipe(Effect.mapError(toStartupError));
+  // pi 单独升级时 postinstall 不会重跑，主题补丁靠这里补上（约 3ms，已补丁即只读判标记）
+  yield* Effect.sync(() => warnIfPiPatchStale(ensurePiPatch()));
 
   const allExtensions = (yield* discoverExtensionsEffect()).filter(
     (extension) => !isSafetyExtensionPath(extension),

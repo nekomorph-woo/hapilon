@@ -32,6 +32,16 @@ npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v<新�
 
 覆盖安装即可，`~/.hapilon/` 配置原样保留。版本号见 `package.json` 的 `version` 字段。
 
+## 主题与 pi 补丁
+
+内置 `hapilon-dark` / `hapilon-light` 两套主题（绿系 accent，与 artifact 交付物的设计宪法同族）。没选过主题时，默认种子为 `hapilon-light/hapilon-dark` 配对语法——跟随终端明暗自动切换；`/settings` 里可随时换。
+
+代码块底色来自 `mdCodeBlockBg` 颜色 token，而上游 pi-tui 的 markdown 渲染没有代码块背景通道（颜色 token 只有前景）。hapilon 因此在安装时（postinstall）与每次启动时对 pi 包做**幂等字符串补丁**（`src/patch/ensure-pi-patch.ts`）：新增 `mdCodeBlockBg` 背景通道，并隐藏代码块围栏。补丁可重复执行，已打过即只读判标记。
+
+补丁锚点按 `pi-coding-agent` 0.85.1 的代码字符串写死。pi 大版本重构后锚点会失配——此时 hapilon 启动会打印 `⚠ pi 已升级，代码块背景补丁未应用` 警告并**优雅降级**：主题仍然生效，围栏与底色同色故视觉隐形，只是失去背景色块，其余功能完全不受影响。修复方式是对照新版 pi 源码更新 `src/patch/ensure-pi-patch.ts` 的锚点表，重新发版。
+
+> 开发环境提示：本仓库 `npm ci` 需要 `--legacy-peer-deps`。`@zhushanwen/pi-ask-user` 的 peer 声明 `pi@^0.84.1` 落后于根依赖，npm 会 ERESOLVE 报错——属上游待升问题，不是本地配置错误。
+
 ## 发版打包流程（开发机）
 
 一条命令发版：
