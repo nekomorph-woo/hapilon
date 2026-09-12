@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { handleTeamCommand, updateTeamStatus } from "./menu.js";
+import { handleTeamCommand, handleTransientMessage, updateTeamStatus } from "./menu.js";
 import { herdrEnvAvailable } from "./herdr.js";
 import { buildTeamSectionsEffect } from "./state.js";
 import { setTeamSections } from "./bridge.js";
@@ -35,5 +35,9 @@ export default function hplOrchestra(pi: ExtensionAPI): void {
       return;
     }
     await updateTeamStatus(ctx as unknown as BeforeAgentStartContext & ExtensionCommandContext);
+  });
+
+  pi.on("message_end", async (event) => {
+    await handleTransientMessage(event.message);
   });
 }

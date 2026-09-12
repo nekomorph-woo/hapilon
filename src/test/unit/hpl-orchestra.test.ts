@@ -248,13 +248,13 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
     const disabled = makeContext();
     const noSpawn = makeSpawn();
     await handleTeamCommand(makePi().pi, "", disabled.ctx, noSpawn.spawn);
-    assert.deepEqual(disabled.selectedOptions[0], ["开始编排", "打开 Review 面板", "查看面板分工"]);
+    assert.deepEqual(disabled.selectedOptions[0], ["开始编排", "打开面板", "管理自定义角色", "查看面板分工"]);
 
     saveState();
     const enabled = makeContext();
     await handleTeamCommand(makePi().pi, "", enabled.ctx, noSpawn.spawn);
     assert.deepEqual(enabled.selectedOptions[0], [
-      "暂停编排", "结束编排", "清空面板上下文", "打开 Review 面板", "派发给 Worker", "查看面板分工",
+      "打开面板", "暂停编排", "结束编排", "清空面板上下文", "创建自定义角色", "管理自定义角色", "派发给 Worker", "查看面板分工",
     ]);
 
     process.env.HAPI_ORCH_ROLE = "worker";
@@ -408,7 +408,7 @@ describe("hpl-orchestra pane actions", { concurrency: false }, () => {
     });
     const ctx = makeContext();
     await handleTeamCommand(makePi().pi, "清空面板上下文", ctx.ctx, makeSpawn().spawn);
-    assert.deepEqual(ctx.selectedOptions[0], ["Worker", "Reviewer", "都清"]);
+    assert.deepEqual(ctx.selectedOptions[0], ["Worker", "Review", "都清"]);
   });
 
   it("无状态时显式清空面板直接 warning 且不弹选择", async () => {

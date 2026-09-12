@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { handleTeamCommand, updateTeamStatus } from "./menu.js";
+import { handleTeamCommand, handleTransientMessage, updateTeamStatus } from "./menu.js";
 import { herdrEnvAvailable } from "./herdr.js";
 import { buildTeamSectionsEffect } from "./state.js";
 import { setTeamSections } from "./bridge.js";
@@ -23,5 +23,8 @@ export default function hplOrchestra(pi) {
             return;
         }
         await updateTeamStatus(ctx);
+    });
+    pi.on("message_end", async (event) => {
+        await handleTransientMessage(event.message);
     });
 }

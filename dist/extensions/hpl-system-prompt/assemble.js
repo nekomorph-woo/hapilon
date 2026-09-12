@@ -18,7 +18,7 @@ import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
 import { getAddedDirs } from "../hpl-add-dir/bridge.js";
 import { buildContextInjection } from "../hpl-add-dir/context.js";
-import { REVIEWER_SECTION, WORKER_SECTION, ORCHESTRATOR_TAGGED } from "../hpl-orchestra/roles.js";
+import { buildTeamRoleSection, ORCHESTRATOR_TAGGED } from "../hpl-orchestra/roles.js";
 // ── Individual builders ────────────────────────────────────────────────
 export function buildRoleSection() {
     return `<role>\n${ROLE_TEXT}\n</role>`;
@@ -187,11 +187,9 @@ export function assembleSystemPrompt(opts) {
     // 仅 herdr 会话启用兜底，普通会话不应读到大段 orchestrator 纪律。
     const teamSection = process.env.HERDR_ENV !== "1"
         ? ""
-        : team?.role === "worker"
-            ? WORKER_SECTION
-            : team?.role === "reviewer"
-                ? REVIEWER_SECTION
-                : (team?.orchestrator ?? ORCHESTRATOR_TAGGED);
+        : team?.role
+            ? (buildTeamRoleSection(team.role) ?? "")
+            : (team?.orchestrator ?? ORCHESTRATOR_TAGGED);
     const codeStyleSection = buildCodeStyleSection();
     const piDocSection = buildPiDocSection();
     const hapilonInstructions = buildHapilonInstructions(hapilonMd);

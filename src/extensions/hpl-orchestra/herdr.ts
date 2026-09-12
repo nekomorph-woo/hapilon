@@ -174,14 +174,6 @@ export function agentSendKeys(
   return runCommandEffect(["agent", "send-keys", paneId, ...keys], spawn);
 }
 
-export function agentWait(
-  paneId: string,
-  timeout = 600_000,
-  spawn: SpawnFn = defaultSpawn,
-): Effect.Effect<boolean, never> {
-  return runCommandEffect(["agent", "wait", paneId, "--timeout", String(timeout)], spawn);
-}
-
 function shellArg(value: string): string {
   return /^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
@@ -202,41 +194,79 @@ export function hapilonCliPath(): string | undefined {
   return script;
 }
 
-export function buildPaneRunCommand(role: "worker" | "reviewer", model?: string): string {
+export function buildPaneRunCommand(_role: string, model?: string): string {
   const command = [process.execPath, shellArg(hapilonCliPath() ?? "UNKNOWN_HAPILON_CLI")];
   if (model) command.push("--model", shellArg(model));
   return command.join(" ");
 }
 
 /** pane split 的 --env 参数（herdr 原生注入，跨 shell/win32 安全） */
-export function paneSplitEnvArgs(role: "worker" | "reviewer"): string[] {
+export function paneSplitEnvArgs(
+  role: string,
+  options: { prompt?: string; transient?: boolean } = {},
+): string[] {
   const envs = [`HAPI_ORCH_ROLE=${role}`];
   const home = process.env.HAPILON_HOME;
   if (home) envs.push(`HAPILON_HOME=${home}`);
+  if (options.transient) envs.push("HAPI_ORCH_TRANSIENT_ROLE=1");
+  if (options.prompt) envs.push(`HAPI_ORCH_ROLE_PROMPT=${options.prompt}`);
   return envs.flatMap((env) => ["--env", env]);
 }
 
-export function resolveTierModel(tier: "sonnet" | "opus"): string | undefined {
-  const result = Effect.runSync(Effect.try({
-    try: () => {
-      const path = join(hapilonHome(), "model-tiers-resolved.json");
-      if (!existsSync(path)) return undefined;
-      const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-      if (!parsed || typeof parsed !== "object") return undefined;
-      const models = (parsed as Record<string, unknown>)[tier];
-      if (!Array.isArray(models) || models.length === 0) return undefined;
-      const first = models[0];
-      if (!first || typeof first !== "object") return undefined;
-      const provider = (first as Record<string, unknown>).provider;
-      const id = (first as Record<string, unknown>).id;
-      return typeof provider === "string" && typeof id === "string" ? `${provider}/${id}` : undefined;
-    },
+export type ModelTier = "opus" | "sonnet" | "haiku";
+
+type ResolvedModel = { provider: string; id: string };
+
+function readResolvedTierModels(): Record<ModelTier, ResolvedModel[]> {
+  const path = join(hapilonHome(), "model-tiers-resolved.json");
+  if (!existsSync(path)) return { opus: [], sonnet: [], haiku: [] };
+  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { opus: [], sonnet: [], haiku: [] };
+  }
+  const record = parsed as Record<string, unknown>;
+  const result = { opus: [], sonnet: [], haiku: [] } as Record<ModelTier, ResolvedModel[]>;
+  for (const tier of ["opus", "sonnet", "haiku"] as const) {
+    const models = record[tier];
+    if (!Array.isArray(models)) continue;
+    result[tier] = models.flatMap((model) => {
+      if (!model || typeof model !== "object") return [];
+      const candidate = model as Record<string, unknown>;
+      return typeof candidate.provider === "string" && typeof candidate.id === "string"
+        ? [{ provider: candidate.provider, id: candidate.id }]
+        : [];
+    });
+  }
+  return result;
+}
+
+function readResolvedTierModelsSafely(): Record<ModelTier, ResolvedModel[]> {
+  return Effect.runSync(Effect.try({
+    try: readResolvedTierModels,
     catch: (error) => error,
   }).pipe(
     Effect.catchAll((error) => Effect.sync(() => {
       console.warn(`[hpl-orchestra] 读取 resolved model 失败：${error instanceof Error ? error.message : String(error)}`);
-      return undefined;
+      return { opus: [], sonnet: [], haiku: [] } as Record<ModelTier, ResolvedModel[]>;
     })),
   ));
-  return result;
+}
+
+export function resolveTierModelByTier(tier: ModelTier): string | undefined {
+  const first = readResolvedTierModelsSafely()[tier][0];
+  return first ? `${first.provider}/${first.id}` : undefined;
+}
+
+/** v1 兼容别名；新代码应使用可覆盖三档的 resolveTierModelByTier。 */
+export function resolveTierModel(tier: ModelTier): string | undefined {
+  return resolveTierModelByTier(tier);
+}
+
+/** 为讨论成员优先挑选与主面板不同 provider 的 opus 模型。 */
+export function resolveDiscussantModel(ownerProvider: string | undefined): string | undefined {
+  const models = readResolvedTierModelsSafely().opus;
+  if (models.length === 0) return undefined;
+  const heterogeneous = models.filter((model) => model.provider !== ownerProvider);
+  const selected = heterogeneous[0] ?? models[1] ?? models[0];
+  return `${selected.provider}/${selected.id}`;
 }

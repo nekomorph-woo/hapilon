@@ -2,10 +2,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdir
 import { dirname, join } from "node:path";
 import { Data, Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
+import { getAllRoleDefs, getRoleDef } from "./role-registry.js";
 import { fillOrchestratorSection } from "./roles.js";
 import { herdrEnvAvailable } from "./herdr.js";
 
-export type TeamRole = "worker" | "reviewer";
+export type TeamRole = string;
 
 export interface RoleInstance {
   paneId: string;
@@ -46,7 +47,8 @@ export class TeamStateError extends Data.TaggedError("TeamStateError")<{
 
 const disabledState = (): DisabledTeamState => ({ enabled: false });
 
-const isTeamRole = (value: unknown): value is TeamRole => value === "worker" || value === "reviewer";
+export const isTeamRole = (value: unknown): value is TeamRole =>
+  typeof value === "string" && getRoleDef(value) !== undefined;
 
 const isRoleInstance = (value: unknown): value is RoleInstance => {
   if (!value || typeof value !== "object") return false;
@@ -59,9 +61,15 @@ const isRoleInstance = (value: unknown): value is RoleInstance => {
 const isRoleEntry = (value: unknown): value is RoleEntry => {
   if (!value || typeof value !== "object") return false;
   const entry = value as Record<string, unknown>;
-  return isTeamRole(entry.key)
-    && Array.isArray(entry.instances)
-    && entry.instances.every(isRoleInstance);
+  if (typeof entry.key !== "string" || !Array.isArray(entry.instances)) return false;
+  const validInstances = entry.instances.every(isRoleInstance);
+  if (!validInstances) return false;
+  const transientOnly = entry.instances.length > 0
+    && entry.instances.every((instance) => instance.transient === true);
+  // 注册表角色是正常路径；带实例的未知 key 可能是已删除定义的残留，
+  // 仍需保留以便状态/菜单显示原 key。transient 同样不写注册表。
+  return (isTeamRole(entry.key) || transientOnly || entry.instances.length > 0)
+    && entry.key.length > 0;
 };
 
 const isTeamState = (value: unknown): value is TeamState => {
@@ -99,8 +107,13 @@ export function resolveSessionStatePath(ownerPaneId?: string): string {
 }
 
 export function currentRole(): TeamRole | undefined {
-  const role = process.env.HAPI_ORCH_ROLE;
-  return role === "worker" || role === "reviewer" ? role : undefined;
+  const roleValue = process.env.HAPI_ORCH_ROLE;
+  if (typeof roleValue === "string" && getRoleDef(roleValue)) return roleValue;
+  if (typeof roleValue !== "string" || roleValue.length === 0) return undefined;
+  const transientPrompt = process.env.HAPI_ORCH_ROLE_PROMPT;
+  return process.env.HAPI_ORCH_TRANSIENT_ROLE === "1" && typeof transientPrompt === "string" && transientPrompt.length > 0
+    ? roleValue
+    : undefined;
 }
 
 export const readTeamStateEffect = (path?: string): Effect.Effect<ReadTeamState, never> => Effect.try({
@@ -204,9 +217,16 @@ export const buildTeamSectionsEffect = (): Effect.Effect<TeamSections, never> =>
 
     const state = readTeamState(resolveSessionStatePath());
     if (!state.enabled || !isTeamOwner(state)) return {};
-    const crew = state.roles.flatMap((entry) => {
-      const first = entry.instances[0];
-      return first ? [{ key: entry.key, paneId: first.paneId }] : [];
+    const stateRoles = new Map(state.roles.map((entry) => [entry.key, entry]));
+    const keys = [
+      ...getAllRoleDefs().map((roleDef) => roleDef.key),
+      ...state.roles.map((entry) => entry.key).filter((key) => !getRoleDef(key)),
+    ];
+    const crew = keys.flatMap((key) => {
+      const instances = stateRoles.get(key)?.instances ?? [];
+      return instances.length > 0
+        ? instances.map((instance) => ({ key, paneId: instance.paneId }))
+        : [{ key, paneId: "not open" }];
     });
     return { orchestrator: fillOrchestratorSection(crew) };
   },
