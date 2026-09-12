@@ -94,6 +94,7 @@ function makeSpawn(options: { paneId?: string; agentStatuses?: string[]; failRea
   const spawn: SpawnFn = (bin, args) => {
     calls.push({ bin, args });
     if (args[0] === "pane" && args[1] === "get") {
+      if (options.failReady) return { status: 1, stderr: "pane gone" };
       return { status: 0, stdout: JSON.stringify({ result: { pane: { pane_id: args[2] } } }) };
     }
     if (args[0] === "pane" && args[1] === "split") {

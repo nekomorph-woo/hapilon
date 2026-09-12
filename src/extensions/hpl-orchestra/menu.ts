@@ -83,15 +83,18 @@ async function writeState(ctx: ExtensionCommandContext, state: TeamState): Promi
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** 起窗就绪轮询：agent 状态上报就绪（非 unknown）或超时为止（review #5） */
-async function waitAgentReady(paneId: string, spawn: SpawnFn, attempts = 5, intervalMs = 2_000): Promise<AgentStatus> {
-  let status: AgentStatus = "unknown";
+/**
+ * 起窗就绪轮询：pane 存活即视为就绪。不能用 agentGet——herdr 的 agent
+ * 识别依赖官方 pi 集成上报，而 hapilon 重定向 PI_CODING_AGENT_DIR 后
+ * worker/reviewer 面板不加载该集成，agent get 恒报 agent_not_found
+ * （devhapi 实测）。pane get 对任意活 pane 均成功，pane 关闭后报错。
+ */
+async function waitPaneReady(paneId: string, spawn: SpawnFn, attempts = 5, intervalMs = 1_000): Promise<boolean> {
   for (let i = 0; i < attempts; i++) {
-    status = Effect.runSync(agentGet(paneId, spawn));
-    if (status !== "unknown") return status;
+    if (Effect.runSync(paneGet(paneId, spawn))) return true;
     await sleep(intervalMs);
   }
-  return status;
+  return false;
 }
 
 async function ensurePane(
@@ -115,9 +118,9 @@ async function ensurePane(
     notify(ctx, `${role === "worker" ? "Worker" : "Review"} 面板启动失败（herdr pane run 未成功）。`, "error");
     return undefined;
   }
-  // 就绪校验：pane run 成功只代表命令文本送达，不代表进程起来了
-  const ready = await waitAgentReady(paneId, spawn);
-  if (ready === "unknown") {
+  // 就绪校验：pane run 成功只代表命令文本送达，pane 持续存活才算起来
+  const ready = await waitPaneReady(paneId, spawn);
+  if (!ready) {
     Effect.runSync(runPaneClose(paneId, spawn));
     notify(ctx, `${role === "worker" ? "Worker" : "Review"} 面板启动后未就绪，已回收面板。`, "error");
     return undefined;
