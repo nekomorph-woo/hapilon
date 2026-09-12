@@ -202,8 +202,9 @@ export const buildTeamSectionsEffect = () => Effect.try({
             if (instances.length === 0)
                 return [{ key, paneId: "not open" }];
             // 探活过滤：死 pane 不能进 crew——orchestrator 会按提示词往这些
-            // pane 派发，只会拿到 herdr 报错（review-r3 N7）。probe 结果经
-            // herdr.ts 的 10s TTL 缓存复用，before_agent_start 高频路径可承受。
+            // pane 派发，只会拿到 herdr 报错（review-r3 N7）。代价：每个实例
+            // 每轮一次同步 pane get（~10s 超时上限，正常 <50ms）；实例数通常
+            // ≤4，可接受。非 herdr 环境跳过（paneAlive 内有 guard）。
             return instances
                 .filter((instance) => paneAlive(instance.paneId))
                 .map((instance) => ({ key, paneId: instance.paneId }));

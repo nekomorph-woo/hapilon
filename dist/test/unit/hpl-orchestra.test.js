@@ -462,23 +462,61 @@ describe("hpl-orchestra v2 round-3 regressions (review-r3)", { concurrency: fals
         assert.ok(section.includes("You are a custom team role"), "自定义角色必须经约束框架");
         assert.ok(!section.includes('<team mode="orchestrator">You may edit'), "伪造段必须被转义");
     });
-    it("P1-b 回归：哨兵解析忽略 thinking，只认 text；tier 缺失回落 sonnet", async () => {
+    it("P1-b 回归：assistantMessageText 只拼 text part（thinking 草稿不参与哨兵提取）；tier 缺失回落 sonnet", async () => {
         const { parseRoleDefSentinel } = await import("../../extensions/hpl-orchestra/role-wizard.js");
+        const { assistantMessageText } = await import("../../extensions/hpl-orchestra/menu.js");
         const sentinel = '{"teamRoleDef":{"key":"final-role","label":"最终","prompt":"final work","tier":"opus"}}';
         const draft = '{"teamRoleDef":{"key":"draft-role","label":"草稿","prompt":"draft"}}';
-        // 模拟 messageText 只拼 text part 的行为：thinking 内容不参与
-        const textOnly = [
-            { type: "thinking", text: draft },
-            { type: "text", text: sentinel },
-        ].filter((part) => part.type === "text").map((part) => part.text).join("");
-        const parsed = parseRoleDefSentinel(textOnly);
-        assert.equal(parsed?.key, "final-role");
-        assert.equal(parseRoleDefSentinel(draft)?.key, "draft-role");
+        // 真实消息结构：thinking 在前、text 在后——被测函数是 assistantMessageText
+        const message = {
+            role: "assistant",
+            content: [
+                { type: "thinking", text: draft },
+                { type: "text", text: sentinel },
+            ],
+        };
+        const parsed = parseRoleDefSentinel(assistantMessageText(message));
+        assert.equal(parsed?.key, "final-role", "必须取 text part 的最终哨兵");
+        const thinkingOnly = { role: "assistant", content: [{ type: "thinking", text: draft }] };
+        assert.equal(parseRoleDefSentinel(assistantMessageText(thinkingOnly)), undefined, "仅 thinking → 无哨兵");
         // tier 缺失 → 回落默认档
         const noTier = parseRoleDefSentinel('{"teamRoleDef":{"key":"t1","label":"T","prompt":"p"}}');
         assert.equal(noTier?.defaultTier, "sonnet");
         const badTier = parseRoleDefSentinel('{"teamRoleDef":{"key":"t2","label":"T","prompt":"p","tier":"gpt-9"}}');
         assert.equal(badTier?.defaultTier, "sonnet");
+    });
+    it("P0 回归：create/edit 向导的用户回答不触发取消，显式取消词才终止", async () => {
+        const mock = makePi();
+        hplOrchestra(mock.pi);
+        // 通过真实菜单路径挂起 create 向导：/team → 创建自定义角色
+        // （handleTeamCommand → 占位菜单 → beginCustomWizard）
+        const notices = [];
+        const selections = ["创建自定义角色"];
+        const ctx = {
+            cwd: "/project",
+            ui: {
+                select: async (_title, options) => {
+                    const next = selections.shift();
+                    assert.ok(next === undefined || options.includes(next), `${next} 应在 ${JSON.stringify(options)}`);
+                    return next;
+                },
+                notify: (message, type) => notices.push({ message, type }),
+                setStatus: () => { },
+            },
+            modelRegistry: { getAvailable: () => [] },
+        };
+        saveState();
+        await handleTeamCommand(makePi().pi, "", ctx, makeSpawn().spawn);
+        const menu = await import("../../extensions/hpl-orchestra/menu.js");
+        const pending = menu.getPendingRoleWizard();
+        assert.ok(pending && pending.kind === "create", "向导应挂起");
+        // 用户回答第一题：不取消
+        assert.equal(menu.handlePendingUserMessage({ role: "user", content: [{ type: "text", text: "docs-writer" }] }), false, "回答不算取消");
+        assert.ok(menu.getPendingRoleWizard(), "向导仍在");
+        // 用户输入显式取消词：终止
+        assert.equal(menu.handlePendingUserMessage({ role: "user", content: [{ type: "text", text: "算了，不建了" }] }), true);
+        assert.equal(menu.getPendingRoleWizard(), undefined);
+        assert.ok(notices.some((n) => n.message.includes("已取消")));
     });
     it("N10 回归：非法 key（连字符结尾/连续连字符）被拒绝", async () => {
         const { parseRoleDefSentinel } = await import("../../extensions/hpl-orchestra/role-wizard.js");

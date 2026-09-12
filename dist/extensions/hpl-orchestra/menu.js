@@ -424,13 +424,18 @@ function roleDetails(role) {
     return JSON.stringify(role, null, 2);
 }
 function beginCustomWizard(pi, ctx, existing) {
+    const requestText = buildWizardPrompt(existing);
     pendingRoleWizard = {
         kind: existing ? "edit" : "create",
         existingKey: existing?.key,
         ctx,
+        // pi.sendUserMessage 注入的请求文本会同步触发一次 user message_end，
+        // 用 requestText 精确忽略它，防止向导刚启动就被「取消」判定清掉
+        ignoreNextUserMessage: true,
+        requestText,
     };
-    pi.sendUserMessage(buildWizardPrompt(existing));
-    notify(ctx, "向导已开始，请在对话中完成；完成后自动保存", "info");
+    pi.sendUserMessage(requestText);
+    notify(ctx, "向导已开始，请在对话中完成；完成后自动保存（中途输入「取消」终止）", "info");
 }
 function beginTransientWizard(_pi, ctx, spawn, model, tier) {
     const requestText = buildTransientRolePrompt(tier);
@@ -535,6 +540,8 @@ function extractTransientRole(message) {
         tier: role.defaultTier,
     };
 }
+// \b 对 CJK 无效（中文标点不构成词边界），用显式前瞻限定取消词结尾
+const WIZARD_CANCEL_PATTERN = /^(取消|算了|退出|放弃|cancel|stop)(?=$|[\s，。！？、,.!?;:：])/i;
 export function handlePendingUserMessage(message) {
     if (!pendingRoleWizard)
         return false;
@@ -544,10 +551,16 @@ export function handlePendingUserMessage(message) {
         pendingRoleWizard.ignoreNextUserMessage = false;
         return false;
     }
+    const text = messageText(message).trim();
     const ctx = pendingRoleWizard.ctx;
     const kind = pendingRoleWizard.kind;
+    // transient：下一条 user 消息即取消（哨兵只等一条）。create/edit 是
+    // 逐项问答——user 消息是回答，不是取消信号；只有显式取消词才终止
+    // （review 终审新问题 1：否则用户答第一题向导就被判死）
+    if (kind !== "transient" && !WIZARD_CANCEL_PATTERN.test(text)) {
+        return false;
+    }
     pendingRoleWizard = undefined;
-    // create/edit 向导同样以「下一条用户消息」为取消信号（review-r3 N5）
     notify(ctx, kind === "transient" ? "临时角色未生成，已取消" : "角色向导已取消，未保存任何改动", "warning");
     return true;
 }
