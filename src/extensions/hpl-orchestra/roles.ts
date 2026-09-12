@@ -57,3 +57,10 @@ export function fillOrchestratorSection(
     .replaceAll("<REVIEWER_PANE>", reviewerPane ?? "not open");
 }
 
+/**
+ * 无实值占位的 orchestrator 段：hpl-system-prompt 组装的兜底（bridge 为空
+ * 时），保证 worker/reviewer env 缺失场景下仍有 team 段而非静默消失。
+ * 正常路径由 fillOrchestratorSection 填充实值后经 bridge 提供。
+ */
+export const ORCHESTRATOR_TAGGED = ORCHESTRATOR_SECTION;
+

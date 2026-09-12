@@ -32,7 +32,7 @@ import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
 import { getAddedDirs } from "../hpl-add-dir/bridge.js";
 import { buildContextInjection } from "../hpl-add-dir/context.js";
-import { REVIEWER_SECTION, WORKER_SECTION } from "../hpl-orchestra/roles.js";
+import { REVIEWER_SECTION, WORKER_SECTION, ORCHESTRATOR_TAGGED } from "../hpl-orchestra/roles.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -274,13 +274,13 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   const guidelinesSection = buildGuidelinesSection(promptGuidelines, tools);
   // Keep this branch deliberately exclusive: before_agent_start returns a full prompt,
   // so a worker/reviewer role must never coexist with the orchestrator section.
+  // Orchestrator 段文本由 hpl-orchestra 经 bridge 提供（含实值 pane id）；
+  // bridge 为空时的兜底用无 id 版常量，避免程序顺序意外时整段消失。
   const teamSection = team?.role === "worker"
     ? WORKER_SECTION
     : team?.role === "reviewer"
       ? REVIEWER_SECTION
-      : team?.orchestrator
-        ? team.orchestrator
-        : "";
+      : (team?.orchestrator ?? ORCHESTRATOR_TAGGED);
   const codeStyleSection = buildCodeStyleSection();
   const piDocSection = buildPiDocSection();
   const hapilonInstructions = buildHapilonInstructions(hapilonMd);

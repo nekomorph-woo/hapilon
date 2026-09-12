@@ -13,7 +13,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { assembleSystemPrompt, collectHapilonContext } from "./assemble.js";
 import { agentDir } from "../../config/hapilon-home.js";
-import { buildTeamSections } from "../hpl-orchestra/state.js";
+import { getTeamSections } from "../hpl-orchestra/bridge.js";
 
 export default function hplSystemPrompt(pi: ExtensionAPI): void {
   const userHome = process.env.HOME;
@@ -51,7 +51,7 @@ export default function hplSystemPrompt(pi: ExtensionAPI): void {
         hapilonMd: hapilonCtx.hapilonMd,
         hapilonRules: hapilonCtx.hapilonRules,
         agentDirPath: agentDir(),
-        team: buildTeamSections(ctx?.sessionManager),
+        team: getTeamSections(),
       });
 
       return { systemPrompt };
