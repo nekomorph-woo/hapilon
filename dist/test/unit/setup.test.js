@@ -182,8 +182,8 @@ describe("setup", () => {
             try {
                 doctor();
                 const output = outputs.join("\n");
-                assert.ok(output.includes("~/.hapilon/"), "应包含 ~/.hapilon/ 状态");
-                assert.ok(output.includes("~/.hapilon/agent/"), "应包含 ~/.hapilon/agent/ 状态");
+                assert.ok(output.includes(`${tmpBase}/`), "应包含实际配置目录状态");
+                assert.ok(output.includes(`${tmpBase}/agent/`), "应包含实际 agent 目录状态");
             }
             finally {
                 console.log = originalLog;

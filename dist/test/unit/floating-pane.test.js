@@ -43,6 +43,31 @@ describe("FloatingPane", () => {
             const result = pane.render(80);
             assert.ok(result.some((l) => l.includes("No content")), "空内容显示提示");
         });
+        it("按 lineStyles 使用 text/warning/error 主题槽位", () => {
+            const pane = new FloatingPane(null, {
+                fg: (name, text) => `<${name}>${text}</${name}>`,
+            }, null, () => { }, {
+                title: "Styled",
+                lines: ["normal", "warning", "error"],
+                lineStyles: ["text", "warning", "error"],
+            });
+            const result = pane.render(80).join("\n");
+            assert.match(result, /<text>normal<\/text>/);
+            assert.match(result, /<warning>warning<\/warning>/);
+            assert.match(result, /<error>error<\/error>/);
+        });
+        it("3 行内容按最小高度收缩，边框闭合而不铺满终端", () => {
+            const pane = new FloatingPane({ terminal: { rows: 40 } }, mockTheme, null, () => { }, {
+                title: "Quota Usage — zai",
+                lines: ["Provider: zai", "查询时间: now", "状态: unknown"],
+                maxHeight: 85,
+            });
+            const result = pane.render(80);
+            assert.equal(result.length, 10, "8 行最小内容高度 + 上下边框");
+            assert.ok(result[0].endsWith("╮"), "顶部右边框闭合");
+            assert.ok(result[result.length - 1].endsWith("╯"), "底部右边框闭合");
+            assert.ok(result.length < 40, "不再按终端高度铺满");
+        });
     });
     describe("handleInput", () => {
         it("正常路径: Esc 关闭", () => {

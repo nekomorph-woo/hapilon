@@ -1,6 +1,6 @@
 import { describe, it, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as childProcess from "node:child_process";
@@ -15,7 +15,7 @@ import { bwrapInstalledEffect } from "../../safety/sandbox.js";
 import { addMcpServer, addMcpServerEffect, McpConfigError, loadMcpServersEffect } from "../../mcp/config-store.js";
 import { listModelsForProvider, listModelsForProviderEffect, PiListingError } from "../../providers/pi-listing.js";
 import { readProjectConfigEffect, writeProjectLocalConfigEffect } from "../../config/project-config.js";
-import { prepareStartupEffect } from "../../cli/startup.js";
+import { prepareStartupEffect, discoverHerdrPiExtension } from "../../cli/startup.js";
 import { collectUpwardEffect, discoverSkillPathsEffect, listFilesEffect, readHapilonMdEffect, readRulesEffect, } from "../../shared/files.js";
 import { ECON_DEFAULTS, writeEconSettingsEffect } from "../../extensions/hpl-econ/settings.js";
 import { storeFullOutputEffect } from "../../extensions/hpl-econ/compress.js";
@@ -204,17 +204,34 @@ describe("Effect 核心 API", () => {
             process.off("unhandledRejection", onUnhandled);
         }
     });
+    it("discoverHerdrPiExtension — 存在/缺失/自定义 agentDir 三分支", () => {
+        const fakeAgentDir = join(tmpBase, "fake-pi-agent");
+        mkdirSync(join(fakeAgentDir, "extensions"), { recursive: true });
+        const herdrExt = join(fakeAgentDir, "extensions", "herdr-agent-state.ts");
+        writeFileSync(herdrExt, "// fake herdr extension\n");
+        assert.equal(discoverHerdrPiExtension(fakeAgentDir), herdrExt);
+        assert.equal(discoverHerdrPiExtension(join(tmpBase, "no-such-agent")), undefined);
+    });
     it("prepareStartupEffect 组装完整 PiLaunchPlan", async () => {
-        process.env.HAPILON_HOME = tmpBase;
+        writeFileSync(join(tmpBase, "config.json"), JSON.stringify({ defaultProvider: "startup-provider", defaultModel: "startup-model" }));
         const plan = await Effect.runPromise(prepareStartupEffect(["--print", "--no-safety", "--sandbox"]));
         assert.ok(existsSync(plan.piCli));
         assert.equal(plan.isNonInteractive, true);
         assert.equal(plan.useSandbox, true);
         assert.ok(plan.piArgs.includes("--no-context-files"));
         assert.ok(plan.piArgs.includes("--no-skills"));
+        assert.ok(!plan.piArgs.includes("--provider"), "启动不应再注入旧 defaultProvider");
+        assert.ok(!plan.piArgs.includes("--model"), "启动不应再注入旧 defaultModel");
         assert.ok(!plan.piArgs.includes("--no-safety"));
         assert.ok(plan.extensionFlags.includes("-e"));
         assert.equal(plan.piEnv.PI_CODING_AGENT_DIR, join(tmpBase, "agent"));
+        assert.equal(plan.piEnv.PONYTAIL_HIDE_STATUS, "1");
+        const nativeSettings = JSON.parse(readFileSync(join(tmpBase, "agent", "settings.json"), "utf8"));
+        assert.equal(nativeSettings.defaultProvider, "startup-provider");
+        assert.equal(nativeSettings.defaultModel, "startup-model");
+        const hapilonConfig = JSON.parse(readFileSync(join(tmpBase, "config.json"), "utf8"));
+        assert.equal(hapilonConfig.defaultProvider, undefined);
+        assert.equal(hapilonConfig.defaultModel, undefined);
     });
     it("readHapilonMdEffect 读取失败走 ReadHapilonMdError Fail 通道", () => {
         const missing = join(tmpBase, "missing-HAPILON.md");

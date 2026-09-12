@@ -31,6 +31,7 @@ import {
   type AddedDir,
 } from "./context.js";
 import { updateWidget } from "./widget.js";
+import { setAddedDirs } from "./bridge.js";
 import { registerCommands, type AddDirResult, type RemoveDirResult } from "./commands.js";
 import { registerTools } from "./tools.js";
 import { suggestDirectories } from "./suggestions.js";
@@ -166,13 +167,17 @@ export default function hplAddDir(pi: ExtensionAPI) {
   // 系统提示注入
   // -----------------------------------------------------------------------
 
-  pi.on("before_agent_start", async (event, _ctx) => {
-    if (addedDirs.length === 0) return;
+  // 注入经 bridge 交给 hpl-system-prompt 组装（本扩展字母序在前，直接返回
+  // systemPrompt 会被其全量替换抹掉；模式同 hpl-effect-policy/bridge.ts）。
+  // customPrompt（SYSTEM.md / --system-prompt）时 hpl-system-prompt 让位，
+  // 回退为直接追加 Pi 原始 prompt。
+  pi.on("before_agent_start", (event) => {
+    setAddedDirs(addedDirs);
 
-    const injection = buildContextInjection(addedDirs);
-    return {
-      systemPrompt: event.systemPrompt + injection,
-    };
+    if (event.systemPromptOptions?.customPrompt && addedDirs.length > 0) {
+      return { systemPrompt: event.systemPrompt + buildContextInjection(addedDirs) };
+    }
+    return {};
   });
 
   // -----------------------------------------------------------------------

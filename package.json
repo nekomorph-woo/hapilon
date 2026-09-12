@@ -14,6 +14,7 @@
     "resources"
   ],
   "scripts": {
+    "postinstall": "node scripts/postinstall.js",
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && chmod +x dist/cli.js",
     "dev": "npm run build && node dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -27,8 +28,8 @@
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.74",
     "@dietrichgebert/ponytail": "^4.9.0",
-    "@earendil-works/pi-coding-agent": "0.84.4",
-    "@earendil-works/pi-tui": "0.84.4",
+    "@earendil-works/pi-coding-agent": "^0.85.1",
+    "@earendil-works/pi-tui": "^0.85.1",
     "@ff-labs/pi-fff": "^0.10.5",
     "@narumitw/pi-btw": "^0.56.0",
     "@tintinweb/pi-subagents": "^0.19.0",

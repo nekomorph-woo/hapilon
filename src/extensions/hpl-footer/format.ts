@@ -27,6 +27,46 @@ export function formatWindow(n: number): string {
   return m % 1 === 0 ? `${m}m` : `${m.toFixed(1)}m`;
 }
 
+/** 重置倒计时：~45m / ~2h / ~6d（不足 1 分钟显示 <1m） */
+export function formatResetCountdown(remainingMs: number): string {
+  const minutes = Math.floor(remainingMs / 60000);
+  if (minutes < 1) return "~<1m";
+  if (minutes < 60) return `~${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return minutes % 60 > 0 ? `~${hours}h${minutes % 60}m` : `~${hours}h`;
+  return `~${Math.floor(hours / 24)}d`;
+}
+
+export interface FooterQuotaWindow {
+  /** 已用百分比 */
+  percent: number;
+  /** 窗口标签（snapshot 已格式化：5h / mo / wk） */
+  window?: string;
+  /** 重置时刻 epoch ms */
+  resetAt?: number;
+}
+
+/**
+ * footer 限额段："18%/5h~2h 76%/mo~9d"（窗口标签缺失退化为 "18%"）。
+ * 余额型（deepseek）走 balance 模板。
+ */
+export function buildQuotaSegment(
+  windows: FooterQuotaWindow[],
+  balance: string | undefined,
+  now: number,
+): string {
+  if (balance !== undefined) return `¥${balance}`;
+  return windows
+    .map((w) => {
+      const base = w.window !== undefined
+        ? `${Math.round(w.percent)}%/${w.window}`
+        : `${Math.round(w.percent)}%`;
+      if (w.resetAt === undefined || w.resetAt <= now) return base;
+      return `${base}${formatResetCountdown(w.resetAt - now)}`;
+    })
+    .join(" ");
+}
+
 /** 第 1 行：`cwd | branch`；无分支时仅 cwd */
 export function buildLine1(cwd: string, branch: string | null): string {
   return branch ? `${cwd} | ${branch}` : cwd;
@@ -101,9 +141,9 @@ export function buildStatsLeft(
   const parts: string[] = [];
   if (stats.input) parts.push(`↑ ${formatTokens(stats.input)}`);
   if (stats.output) parts.push(`↓ ${formatTokens(stats.output)}`);
-  if (stats.cacheHitRate !== undefined) parts.push(`hit ${stats.cacheHitRate.toFixed(1)}%`);
+  if (stats.cacheHitRate !== undefined) parts.push(` • hit ${stats.cacheHitRate.toFixed(1)}%`);
   const percentStr = ctxPercent === null ? "?" : `${ctxPercent.toFixed(1)}%`;
-  parts.push(`ctx ${percentStr}/${formatWindow(ctxWindow)}`);
+  parts.push(` • ctx ${percentStr}/${formatWindow(ctxWindow)}`);
   parts.push(ding);
   return parts.join(" ");
 }

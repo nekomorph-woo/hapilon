@@ -3,6 +3,10 @@
 // Used by help.ts for help text display and cli.ts for routing.
 // handler 内 lazy import，保持启动开销不增加。
 
+import { deriveCliIdentity } from "./identity.js";
+
+const cliIdentity = deriveCliIdentity();
+
 export interface CommandDef {
   name: string;
   description: string;
@@ -36,8 +40,8 @@ export const GLOBAL_FLAGS: CommandOption[] = [
 export const COMMANDS: CommandDef[] = [
   {
     name: "setup",
-    description: "初始化 ~/.hapilon/ 和 provider 认证",
-    usage: "hapilon setup [--quick]",
+    description: `初始化 ${cliIdentity.homeDisplay}/ 和 provider 认证`,
+    usage: `${cliIdentity.cliName} setup [--quick]`,
     subcommands: [
       {
         name: "--quick",
@@ -58,7 +62,7 @@ export const COMMANDS: CommandDef[] = [
   {
     name: "doctor",
     description: "诊断 hapilon 配置状态（版本、目录、provider 认证）",
-    usage: "hapilon doctor",
+    usage: `${cliIdentity.cliName} doctor`,
     handler: async () => {
       const { doctor } = await import("./setup.js");
       doctor();
@@ -70,21 +74,7 @@ export const COMMANDS: CommandDef[] = [
     subcommands: [
       {
         name: "show",
-        description: "展示当前默认 provider 和模型配置",
-      },
-      {
-        name: "default",
-        description: "设置或清除默认 provider 和模型",
-        subcommands: [
-          {
-            name: "--set",
-            description: "交互式选择默认 provider 和模型",
-          },
-          {
-            name: "--unset",
-            description: "清除默认 provider 和模型配置",
-          },
-        ],
+        description: "查看配置说明（默认模型由 Pi 原生 settings 管理）",
       },
       {
         name: "provider",
@@ -139,7 +129,7 @@ export const COMMANDS: CommandDef[] = [
   {
     name: "help",
     description: "显示帮助信息",
-    usage: "hapilon help [command]",
+    usage: `${cliIdentity.cliName} help [command]`,
     handler: async (args) => {
       const { printHelp, printHelpFor } = await import("./help.js");
       const cmdName = args[1];

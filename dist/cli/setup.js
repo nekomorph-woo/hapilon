@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import { ensureHapilonDirsEffect, hapilonHome } from "../config/hapilon-home.js";
 import { resolvePiCliEffect } from "../providers/pi-cli-path.js";
 import { readVersionEffect } from "./version.js";
+import { deriveCliIdentity } from "./identity.js";
 import { COMMON, ALL_PROVIDERS, writeAuthFileNativeEffect, writeSkeletonFilesEffect, readAuthFileEffect, mergeAuthEntries, ensureSettingsFile, maskKey, semverGte, } from "../providers/providers.js";
 // ─── OAuth guide ──────────────────────────────────────────────────────
 const OAUTH_PROVIDERS = [
@@ -15,20 +16,22 @@ const OAUTH_PROVIDERS = [
     { id: "github-copilot", name: "GitHub Copilot", login: "/login github-copilot" },
 ];
 function printOAuthGuide() {
+    const identity = deriveCliIdentity();
     console.log("\n── OAuth 方式登录 ──");
     console.log("以下 provider 支持 OAuth 登录，无需手动输入 API Key：\n");
     for (const p of OAUTH_PROVIDERS) {
         console.log(`  ${p.name.padEnd(22)} → ${p.login}`);
     }
-    console.log("\n进入 hapilon TUI 后输入对应命令，Pi 会弹出浏览器完成授权。");
-    console.log("Token 自动保存在 ~/.hapilon/agent/auth.json（与 API key 共存）。");
+    console.log(`\n进入 ${identity.cliName} TUI 后输入对应命令，Pi 会弹出浏览器完成授权。`);
+    console.log(`Token 自动保存在 ${identity.homeDisplay}/agent/auth.json（与 API key 共存）。`);
 }
 // ─── Setup ───────────────────────────────────────────────────────────
 export function setupQuick() {
     const dirs = Effect.runSync(ensureHapilonDirsEffect);
     Effect.runSync(writeSkeletonFilesEffect(dirs.agent));
-    console.log(`Created ~/.hapilon/ skeleton at ${dirs.base}`);
-    console.log("Run `hapilon setup` (without --quick) for interactive provider configuration.");
+    const identity = deriveCliIdentity();
+    console.log(`Created ${identity.homeDisplay}/ skeleton at ${dirs.base}`);
+    console.log(`Run \`${identity.cliName} setup\` (without --quick) for interactive provider configuration.`);
     printOAuthGuide();
 }
 export async function setupInteractive() {
@@ -118,8 +121,9 @@ export function doctor() {
     console.log(`Node.js ${process.version}  ${semverGte(process.version, "v22.19.0") ? "✅" : "❌ 需要 >=22.19"}`);
     const home = hapilonHome();
     const agentDir = join(home, "agent");
-    console.log(`\n~/.hapilon/:         ${existsSync(home) ? "✅" : "⚠ 未创建"}`);
-    console.log(`~/.hapilon/agent/:   ${existsSync(agentDir) ? "✅" : "⚠ 未创建"}`);
+    const homeDisplay = deriveCliIdentity().homeDisplay;
+    console.log(`\n${homeDisplay}/:         ${existsSync(home) ? "✅" : "⚠ 未创建"}`);
+    console.log(`${homeDisplay}/agent/:   ${existsSync(agentDir) ? "✅" : "⚠ 未创建"}`);
     const authPath = join(agentDir, "auth.json");
     if (existsSync(authPath)) {
         try {

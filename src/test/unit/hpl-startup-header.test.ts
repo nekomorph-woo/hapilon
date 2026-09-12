@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   hapilonLogo,
+  isLogoLine,
   drawBox,
   layoutColumns,
   parseExtensionsEnv,
@@ -13,6 +14,8 @@ import {
   buildLeftColumn,
   buildRightColumn,
   centerLines,
+  createStartupHeader,
+  shortenWorkspacePath,
   type HeaderData,
 } from "../../extensions/hpl-startup-header/content.js";
 
@@ -25,6 +28,106 @@ describe("hapilonLogo()", () => {
   it("每行非空", () => {
     for (const line of hapilonLogo()) {
       assert.ok(line.length > 0, "每行不应为空字符串");
+    }
+  });
+});
+
+describe("logo 主题渲染", () => {
+  it("实心块 logo 行使用 accent 主题槽位", () => {
+    assert.equal(isLogoLine(hapilonLogo()[1]!), true);
+    assert.equal(isLogoLine("  Welcome back!"), false);
+
+    const colors: string[] = [];
+    const theme = {
+      fg: (color: string, text: string) => {
+        colors.push(color);
+        return `<${color}>${text}`;
+      },
+      bold: (text: string) => text,
+    } as never;
+    const component = createStartupHeader(
+      { cwd: "/tmp/project" },
+      {} as never,
+      theme,
+      { expanded: false },
+    );
+
+    const rendered = component.render(80);
+    assert.ok(rendered.some((line) => line.startsWith("<accent>") && /█/.test(line)));
+    assert.ok(colors.includes("accent"));
+  });
+
+  it("宽屏左右拼合行不误判为 logo，窄屏单列仍能命中", () => {
+    const wide = layoutColumns([hapilonLogo()[1]!], ["extension-name"], 80);
+    const narrow = layoutColumns([hapilonLogo()[1]!], ["extension-name"], 40);
+
+    assert.equal(isLogoLine(wide[0]!), false, "宽屏拼合行含分隔符，不应整行染 accent");
+    assert.equal(isLogoLine(narrow[0]!), true, "窄屏左列 logo 行应保持识别");
+  });
+
+  it("扩展名列表使用 muted，ctrl+o 提示仍使用 dim", () => {
+    const colors: string[] = [];
+    const boldCalls: string[] = [];
+    const theme = {
+      fg: (color: string, text: string) => {
+        colors.push(`${color}:${text}`);
+        return `<${color}>${text}`;
+      },
+      bold: (text: string) => {
+        boldCalls.push(text);
+        return text;
+      },
+    } as never;
+    const extensionComponent = createStartupHeader(
+      { cwd: "/tmp/project" },
+      {} as never,
+      theme,
+      { expanded: false },
+    );
+    const original = process.env.HAPILON_EXTENSIONS;
+    process.env.HAPILON_EXTENSIONS = JSON.stringify(["extension-name"]);
+    try {
+      extensionComponent.render(80);
+      assert.ok(colors.some((entry) => entry.startsWith("muted:") && entry.includes("extension-name")), "扩展名应使用 muted");
+      assert.ok(colors.some((entry) => entry.startsWith("dim:") && entry.includes("ctrl+o for")), "ctrl+o 提示应使用 dim");
+      assert.ok(boldCalls.some((entry) => entry.includes("Extensions (1)")), "宽屏 logo 同行的右列标题应保持 bold");
+    } finally {
+      if (original === undefined) delete process.env.HAPILON_EXTENSIONS;
+      else process.env.HAPILON_EXTENSIONS = original;
+    }
+  });
+
+  it("宽屏扩展名 muted 不会吞掉左列主体颜色", () => {
+    const colors: string[] = [];
+    const theme = {
+      fg: (color: string, text: string) => {
+        colors.push(`${color}:${text}`);
+        return `<${color}>${text}`;
+      },
+      bold: (text: string) => text,
+    } as never;
+    const original = process.env.HAPILON_EXTENSIONS;
+    process.env.HAPILON_EXTENSIONS = JSON.stringify([
+      "extension-0",
+      "extension-1",
+      "extension-2",
+      "extension-3",
+      "extension-4",
+      "extension-5",
+    ]);
+    try {
+      createStartupHeader(
+        { model: { provider: "openai", name: "gpt-4o" }, cwd: "/tmp/project" },
+        {} as never,
+        theme,
+        { expanded: false },
+      ).render(80);
+      assert.ok(colors.some((entry) => entry.startsWith("text:") && entry.includes("Welcome back!")), "左列主体应保持 text");
+      assert.ok(colors.some((entry) => entry.startsWith("muted:") && entry.includes("extension-5")), "右列扩展名应使用 muted");
+      assert.ok(!colors.some((entry) => entry.startsWith("muted:") && entry.includes("Welcome back!")), "muted 不应覆盖左列主体");
+    } finally {
+      if (original === undefined) delete process.env.HAPILON_EXTENSIONS;
+      else process.env.HAPILON_EXTENSIONS = original;
     }
   });
 });
@@ -234,6 +337,7 @@ describe("buildLeftColumn()", () => {
     modelProvider: "zai",
     modelName: "glm-5",
     cwd: "/tmp",
+    homeDir: "/Users/test",
     extensions: undefined,
     piUpdate: undefined,
   };
@@ -257,6 +361,7 @@ describe("buildRightColumn()", () => {
     modelProvider: "zai",
     modelName: "glm-5",
     cwd: "/tmp",
+    homeDir: "/Users/test",
     extensions: ["ext-a", "ext-b"],
     piUpdate: "0.81.0",
   };
@@ -326,6 +431,7 @@ describe("buildHeaderLines()", () => {
     modelProvider: "zai",
     modelName: "glm-5-turbo",
     cwd: "/Volumes/Under_M2/morphiiouo/hapilon",
+    homeDir: "/Users/test",
     extensions: ["hpl-context", "hpl-footer", "hpl-panel-viewer"],
     piUpdate: "0.80.10",
   };
@@ -337,7 +443,7 @@ describe("buildHeaderLines()", () => {
     assert.ok(text.includes("Welcome back!"), "包含欢迎语");
     assert.ok(text.includes("zai"), "包含 provider");
     assert.ok(text.includes("glm-5-turbo"), "包含模型名");
-    assert.ok(text.includes(baseData.cwd), "包含 workspace 路径");
+    assert.ok(text.includes("/Volumes/Under_M2/…/hapilon"), "包含压缩后的 workspace 路径");
     assert.ok(text.includes("Extensions (3)"), "包含 Extensions 计数头");
     assert.ok(text.includes("──"), "含分隔线");
   });

@@ -4,6 +4,7 @@
  * 数据与渲染分离，所有业务逻辑无副作用可单测。
  */
 import { hyperlink, getCapabilities } from "@earendil-works/pi-tui";
+import { homedir } from "node:os";
 // ─── Logo ─────────────────────────────────────────────────────────────
 // 原图案保留，按字符中心对齐修复（#27）：中心 7.5/8.0/8.0/8.0 收敛。
 // resize 不变形由 centerLines 块感知保证（见下）。
@@ -14,6 +15,16 @@ export function hapilonLogo() {
         "   ▝▜█████▛▘",
         "     ▘▘ ▝▝",
     ];
+}
+/** logo 专用 accent 通道，交给 Pi 主题在明暗终端中选择可读颜色。 */
+export function isLogoLine(line) {
+    const inner = line.startsWith("│") && line.endsWith("│")
+        ? line.slice(1, -1)
+        : line;
+    // 宽屏布局把左右列拼在同一行；这类行不能整行染成 logo accent。
+    if (inner.includes("│"))
+        return false;
+    return /^\s*[▗▖▐▛█▜▝▘]/.test(inner);
 }
 // ─── Box Drawing ──────────────────────────────────────────────────────
 const H_BAR = "─";
@@ -82,6 +93,47 @@ export function layoutColumns(left, right, width) {
     }
     return result;
 }
+function isExtensionListLine(line, extensions) {
+    if (!extensions || extensions.length === 0)
+        return false;
+    const inner = line.startsWith(V) && line.endsWith(V)
+        ? line.slice(1, -1)
+        : line;
+    const separator = inner.indexOf(" │ ");
+    const right = separator >= 0 ? inner.slice(separator + 3) : inner;
+    const trimmedRight = right.trimEnd();
+    return extensions.some((extension) => trimmedRight === `  ${extension}`);
+}
+function colorStartupLine(line, theme, hasLinks) {
+    let colored = line;
+    // Hyperlink: replace raw URL with clickable link (includes its own dim)
+    if (hasLinks && colored.includes("pi.dev/changelog")) {
+        colored = colored.replace("pi.dev/changelog", hyperlink("pi.dev/changelog", "https://pi.dev/changelog"));
+    }
+    // Headers — bold
+    if (colored.includes("Tips for getting started") ||
+        colored.includes("Extensions (")) {
+        return theme.fg("text", theme.bold(colored));
+    }
+    // Divider — dim
+    if (colored.trim().match(/^─+$/)) {
+        return theme.fg("dim", colored);
+    }
+    // ctrl+o 提示保持 dim。
+    if (colored.includes("ctrl+o for")) {
+        return theme.fg("dim", colored);
+    }
+    // 其余缩进行（Tips 内容 / 快捷键）保持 dim。
+    if (/^  \S/.test(colored)) {
+        return theme.fg("dim", colored);
+    }
+    // Changelog line — dim (the raw text before hyperlink replacement)
+    if (colored.includes("pi.dev/")) {
+        return theme.fg("dim", colored);
+    }
+    // Body
+    return theme.fg("text", colored);
+}
 // ─── Env Helper ───────────────────────────────────────────────────────
 export function parseExtensionsEnv(raw) {
     if (raw === undefined)
@@ -126,6 +178,36 @@ export function centerLines(lines, maxWidth) {
     }
     return lines.map((l) => centerLine(l, maxWidth));
 }
+/**
+ * 将 workspace 路径压缩为 header 友好格式。
+ * home 下保留 ~ 和首段、末两段；其它绝对路径保留根下前两段和末段，
+ * 使 /Volumes/Under_M2 这类工作盘锚点仍然可辨认。
+ */
+export function shortenWorkspacePath(cwd, homeDir) {
+    const normalizedCwd = cwd.replace(/[\\/]+$/, "") || cwd;
+    const normalizedHome = homeDir.replace(/[\\/]+$/, "") || homeDir;
+    const isHome = normalizedCwd === normalizedHome ||
+        normalizedCwd.startsWith(`${normalizedHome}/`) ||
+        normalizedCwd.startsWith(`${normalizedHome}\\`);
+    if (isHome) {
+        if (normalizedCwd === normalizedHome)
+            return "~";
+        const relative = normalizedCwd.slice(normalizedHome.length).replace(/^[\\/]+/, "");
+        const parts = relative.split(/[\\/]+/).filter(Boolean);
+        if (parts.length <= 3)
+            return `~/${parts.join("/")}`;
+        return `~/${parts[0]}/…/${parts.slice(-2).join("/")}`;
+    }
+    const isAbsolute = normalizedCwd.startsWith("/") || /^[A-Za-z]:[\\/]/.test(normalizedCwd);
+    if (!isAbsolute)
+        return normalizedCwd;
+    const root = normalizedCwd.startsWith("/") ? "/" : "";
+    const parts = normalizedCwd.split(/[\\/]+/).filter(Boolean);
+    if (parts.length <= 3)
+        return `${root}${parts.join("/")}`;
+    const prefix = parts.slice(0, 2).join("/");
+    return `${root}${prefix}/…/${parts.at(-1)}`;
+}
 export function buildLeftColumn(data) {
     const left = [];
     for (const line of hapilonLogo()) {
@@ -139,7 +221,7 @@ export function buildLeftColumn(data) {
     else {
         left.push("no model selected");
     }
-    left.push(data.cwd);
+    left.push(shortenWorkspacePath(data.cwd, data.homeDir));
     return left;
 }
 export function buildRightColumn(data, expanded) {
@@ -207,6 +289,7 @@ export function createStartupHeader(ctx, _tui, theme, state) {
                 modelProvider: provider,
                 modelName,
                 cwd: ctx.cwd,
+                homeDir: homedir(),
                 extensions: parseExtensionsEnv(process.env["HAPILON_EXTENSIONS"]),
                 piUpdate: state.piUpdate,
             };
@@ -231,30 +314,33 @@ export function createStartupHeader(ctx, _tui, theme, state) {
                 if (line.length === 0)
                     return line;
                 let colored = line;
+                if (isLogoLine(colored)) {
+                    return theme.fg("accent", colored);
+                }
                 // Hyperlink: replace raw URL with clickable link (includes its own dim)
                 if (hasLinks && colored.includes("pi.dev/changelog")) {
                     colored = colored.replace("pi.dev/changelog", hyperlink("pi.dev/changelog", "https://pi.dev/changelog"));
                 }
-                // Headers — bold
-                if (colored.includes("Tips for getting started") ||
-                    colored.includes("Extensions (")) {
-                    return theme.fg("text", theme.bold(colored));
+                // 宽屏 logo 与右栏同行时，只给左段上 accent，右段继续走原分类管线。
+                const columnSeparator = colored.indexOf(" │ ");
+                if (columnSeparator >= 1 &&
+                    isLogoLine(colored.slice(1, columnSeparator))) {
+                    const logoPart = theme.fg("accent", colored.slice(0, columnSeparator));
+                    const rightPart = colored.slice(columnSeparator);
+                    return logoPart + (isExtensionListLine(colored, data.extensions)
+                        ? theme.fg("muted", rightPart)
+                        : colorStartupLine(rightPart, theme, false));
                 }
-                // Divider — dim
-                if (colored.trim().match(/^─+$/)) {
-                    return theme.fg("dim", colored);
+                // 宽屏扩展名行只降低右栏，左栏保留原有 text/body 分类。
+                if (columnSeparator >= 0 && isExtensionListLine(colored, data.extensions)) {
+                    return colorStartupLine(colored.slice(0, columnSeparator), theme, false) +
+                        theme.fg("muted", colored.slice(columnSeparator));
                 }
-                // Metadata — dim：ctrl+o 提示 + 缩进内容行（扩展名列表 / Tips 内容 / 快捷键）
-                if (colored.includes("ctrl+o for") ||
-                    /^  \S/.test(colored)) {
-                    return theme.fg("dim", colored);
+                // 扩展名是次要信息，但在暗色主题中需比 dim 更亮一档。
+                if (isExtensionListLine(colored, data.extensions)) {
+                    return theme.fg("muted", colored);
                 }
-                // Changelog line — dim (the raw text before hyperlink replacement)
-                if (colored.includes("pi.dev/")) {
-                    return theme.fg("dim", colored);
-                }
-                // Body
-                return theme.fg("text", colored);
+                return colorStartupLine(colored, theme, false);
             });
         },
         invalidate() {

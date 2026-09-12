@@ -30,6 +30,8 @@ import {
 } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
+import { getAddedDirs } from "../hpl-add-dir/bridge.js";
+import { buildContextInjection } from "../hpl-add-dir/context.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -97,13 +99,20 @@ export function buildGuidelinesSection(
   };
 
   const hasBash = selectedTools.includes("bash");
+  const hasPowerShell = selectedTools.includes("powershell");
   const hasGrep = selectedTools.includes("grep");
   const hasFind = selectedTools.includes("find");
   const hasLs = selectedTools.includes("ls");
 
-  // bash 启用但 grep/find/ls 均未启用时，加 "Use bash for file ops"
-  if (hasBash && !hasGrep && !hasFind && !hasLs) {
-    add(BUILTIN_GUIDELINES.bashOnlyFileOps);
+  // 与 pi 0.85.1 对齐：bash/PowerShell 启用（grep/find/ls 均未启用时）按组合给指引
+  if ((hasBash || hasPowerShell) && !hasGrep && !hasFind && !hasLs) {
+    if (hasBash && hasPowerShell) {
+      add(BUILTIN_GUIDELINES.bashAndPowerShellFileOps);
+    } else if (hasPowerShell) {
+      add(BUILTIN_GUIDELINES.powerShellOnlyFileOps);
+    } else {
+      add(BUILTIN_GUIDELINES.bashOnlyFileOps);
+    }
   }
 
   // 工具级 guidelines（从 promptGuidelines 动态获取）
@@ -159,12 +168,27 @@ export function buildContextSection(contextFiles?: FileEntry[]): string {
   return `<project_context>\n\n${entries}\n\n</project_context>`;
 }
 
-export function buildSkillsSection(skills?: SkillEntry[]): string {
-  const visible = (skills ?? []).filter((s) => !s.disableModelInvocation);
-  if (visible.length === 0) {
+export function buildSkillsSection(skills?: SkillEntry[], selectedTools?: string[]): string {
+  if (!skills || skills.length === 0) {
     // Spec §2：无论是否为空都输出 section，空时显示注释（防将来去掉 --no-skills）
     return `<available_skills>\n<!-- 当前为空；hapilon 使用 --no-skills -->\n</available_skills>`;
   }
+  // 与 pi 0.85.1 formatSkillsForPrompt 对齐：模型需有能读文件的工具 skill 才有意义。
+  // 无 read/bash 时静默不注入（原生行为）——注入了模型也无法加载。
+  const skillFileReadTool = selectedTools
+    ? (["read", "bash"] as const).find((tool) => selectedTools.includes(tool))
+    : "read";
+  if (!skillFileReadTool) {
+    return `<available_skills>\n<!-- 当前为空；hapilon 使用 --no-skills -->\n</available_skills>`;
+  }
+  const visible = skills.filter((s) => !s.disableModelInvocation);
+  if (visible.length === 0) {
+    return `<available_skills>\n<!-- 当前为空；hapilon 使用 --no-skills -->\n</available_skills>`;
+  }
+  // 指引措辞随可用读取工具自适应（pi 0.85.1 同语义：bash-only 时改说 Use bash）
+  const readHint = skillFileReadTool === "read"
+    ? "Use the read tool to load a skill's file when the task matches its description."
+    : "Use bash to load a skill's file when the task matches its description.";
   // 与 Pi formatSkillsForPrompt 对齐：name/description/location 三字段 + read 指引
   const entries = visible
     .map(
@@ -172,12 +196,20 @@ export function buildSkillsSection(skills?: SkillEntry[]): string {
         `<skill>\n<name>${xmlEscape(s.name)}</name>\n<description>${xmlEscape(s.description)}</description>\n<location>${xmlEscape(s.filePath)}</location>\n</skill>`,
     )
     .join("\n");
-  return `<available_skills>\nUse the read tool to load a skill's file when the task matches its description.\n${entries}\n</available_skills>`;
+  return `<available_skills>\n${readHint}\n${entries}\n</available_skills>`;
 }
 
 export function buildAppendSection(appendSystemPrompt?: string): string {
   if (!appendSystemPrompt || appendSystemPrompt.trim().length === 0) return "";
   return `<additional_instructions>\n${appendSystemPrompt}\n</additional_instructions>`;
+}
+
+/** 外部目录（/add-dir）注入内容由 hpl-add-dir 经 bridge 提供；此处条件拼接 + XML 转义（Spec §3.9）。 */
+export function buildExternalDirsSection(): string {
+  const dirs = getAddedDirs();
+  if (dirs.length === 0) return "";
+  const body = xmlEscape(buildContextInjection(dirs).trim());
+  return `<external_directories>\n${body}\n</external_directories>`;
 }
 
 export function buildEnvironmentSection(cwd: string, agentDirPath?: string): string {
@@ -241,7 +273,8 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   const hapilonInstructions = buildHapilonInstructions(hapilonMd);
   const hapilonRulesSection = buildHapilonRules(hapilonRules);
   const contextFilesSection = buildContextSection(contextFiles);
-  const skillsSection = buildSkillsSection(skills);
+  const externalDirsSection = buildExternalDirsSection();
+  const skillsSection = buildSkillsSection(skills, tools);
   const appendSection = buildAppendSection(appendSystemPrompt);
   const envSection = buildEnvironmentSection(cwd, agentDirPath);
 
@@ -258,6 +291,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
       hapilonInstructions: hapilonInstructions.length,
       hapilonRules: hapilonRulesSection.length,
       contextFiles: contextFilesSection.length,
+      externalDirectories: externalDirsSection.length,
       skills: skillsSection.length,
       customToolsNote: customToolsNote.length,
       additionalData: appendSection.length,
@@ -276,6 +310,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     hapilonInstructions,
     hapilonRulesSection,
     contextFilesSection,
+    externalDirsSection,
     skillsSection,
     appendSection,
     envSection,

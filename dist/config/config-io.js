@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { configFilePath, configFilePathEffect } from "./hapilon-home.js";
 import { Data, Effect } from "effect";
 export class ConfigWriteError extends Data.TaggedError("ConfigWriteError") {
@@ -72,9 +72,75 @@ export function writeHapilonConfig(config) {
         throw new Error(result.left.message);
     }
 }
+function readJsonObject(path) {
+    if (!existsSync(path))
+        return undefined;
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        throw new Error(`${path} 不是 JSON 对象`);
+    }
+    return parsed;
+}
+function migrateLegacyDefaults() {
+    const configPath = configFilePath();
+    const config = readJsonObject(configPath);
+    if (!config)
+        return false;
+    const legacyProvider = typeof config.defaultProvider === "string" && config.defaultProvider
+        ? config.defaultProvider
+        : undefined;
+    const legacyModel = typeof config.defaultModel === "string" && config.defaultModel
+        ? config.defaultModel
+        : undefined;
+    if (!legacyProvider && !legacyModel)
+        return false;
+    const settingsPath = join(hapilonAgentDir(), "settings.json");
+    const settings = readJsonObject(settingsPath) ?? {};
+    let settingsChanged = false;
+    if (legacyProvider && typeof settings.defaultProvider !== "string") {
+        settings.defaultProvider = legacyProvider;
+        settingsChanged = true;
+    }
+    if (legacyModel && typeof settings.defaultModel !== "string") {
+        settings.defaultModel = legacyModel;
+        settingsChanged = true;
+    }
+    if (settingsChanged) {
+        const parent = dirname(settingsPath);
+        if (!existsSync(parent))
+            mkdirSync(parent, { recursive: true, mode: 0o700 });
+        writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
+    }
+    delete config.defaultProvider;
+    delete config.defaultModel;
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+    return true;
+}
+function hapilonAgentDir() {
+    return join(dirname(configFilePath()), "agent");
+}
+/**
+ * 将旧版 hapilon 默认模型迁移到 Pi 原生 settings。
+ * 所有文件 I/O 均在 Effect.try 中执行；失败只告警，不阻断启动。
+ */
+export const migrateLegacyDefaultsEffect = Effect.gen(function* () {
+    const result = yield* Effect.try({
+        try: migrateLegacyDefaults,
+        catch: (error) => error,
+    }).pipe(Effect.either);
+    if (result._tag === "Left") {
+        const detail = result.left instanceof Error ? result.left.message : String(result.left);
+        console.warn(`Warning: 迁移旧默认模型配置失败 (${detail})，将继续启动。`);
+        return false;
+    }
+    if (result.right) {
+        console.log("已将 hapilon 默认模型配置迁移到 Pi 原生 settings.json。");
+    }
+    return result.right;
+});
 // ─── CLI arg helpers ─────────────────────────────────────────────────
 /** hapilon 自有 flag 注册表 —— pi 不认识、spawn 前必须剥离的参数 */
-export const HAPILON_FLAGS = ["--no-safety", "--sandbox", "--no-econ"];
+export const HAPILON_FLAGS = ["--no-safety", "--sandbox", "--no-econ", "--setup-windows"];
 export function hasFlag(args, flag) {
     return args.some((a) => a === flag || a.startsWith(flag + "="));
 }
@@ -87,14 +153,4 @@ export function hasFlag(args, flag) {
  */
 export function stripHapilonFlags(args) {
     return args.filter((a) => !HAPILON_FLAGS.some((f) => a === f || a.startsWith(f + "=")));
-}
-export function injectDefaultArgs(userArgs, config) {
-    const result = [...userArgs];
-    if (config.defaultProvider && !hasFlag(userArgs, "--provider")) {
-        result.unshift("--provider", config.defaultProvider);
-    }
-    if (config.defaultModel && !hasFlag(userArgs, "--model")) {
-        result.unshift("--model", config.defaultModel);
-    }
-    return result;
 }

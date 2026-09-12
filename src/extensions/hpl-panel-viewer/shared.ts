@@ -4,9 +4,9 @@
  * 与 pi-pop 同模式：单对象跨模块共享，无 live-binding 体操。
  */
 
-/** 面板状态 gutter 标记：展开 ▼ / 折叠 ▶ */
+/** 面板状态 gutter 标记：展开 ▾ / 折叠 ▸ */
 export function panelMarker(expanded: boolean): string {
-  return expanded ? "▼" : "▶";
+  return expanded ? "▾" : "▸";
 }
 export const POP_ICON = "▣";
 

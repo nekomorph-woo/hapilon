@@ -9,7 +9,8 @@
  * [HOT] 为上下文占用指示灯：背景色随占用率渐变 + 感叹号分级（见 ding.ts）。
  */
 import { renderDing } from "./ding.js";
-import { aggregateUsage, buildLine1, buildStatsLeft, buildStatusLine, layoutLine, shortenHome, truncatePlain, } from "./format.js";
+import { aggregateUsage, buildLine1, buildQuotaSegment, buildStatsLeft, buildStatusLine, layoutLine, shortenHome, truncatePlain, } from "./format.js";
+import { readQuotaSnapshot } from "../hpl-quota-usage/cache.js";
 export default function hplFooter(pi) {
     pi.on("session_start", (_event, ctx) => {
         if (!ctx.hasUI || ctx.mode !== "tui")
@@ -30,7 +31,25 @@ export default function hplFooter(pi) {
                     // 内置语义对齐：无 usage → 0%；usage.percent 为 null（压缩后未知）→ "?"
                     const percent = usage === undefined ? 0 : usage.percent;
                     const window = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
-                    const left = buildStatsLeft(stats, percent, window, renderDing(percent));
+                    const baseLeft = buildStatsLeft(stats, percent, window, renderDing(percent));
+                    // ── 限额段（模板 A）：18%/5h~2h 76%/wk~9d / ¥327 ─────────
+                    // 文件通道读缓存（模块隔离约束），缺失/过期静默无段。
+                    // provider 须与当前模型匹配（glm 系归并同一命名空间）——
+                    // 模型切换后旧 provider 的缓存不再展示；不支持的 provider 无段。
+                    const now = Date.now();
+                    const snapshot = readQuotaSnapshot(now);
+                    const QUOTA_NS = new Set(["zai", "zai-coding-cn"]);
+                    const currentQuotaKey = QUOTA_NS.has(ctx.model?.provider ?? "") ? "glm" : ctx.model?.provider;
+                    let quotaSegment = "";
+                    let quotaHot = false;
+                    let left = baseLeft;
+                    if (snapshot && snapshot.provider === currentQuotaKey) {
+                        const quotaWindows = snapshot.windows;
+                        quotaSegment = buildQuotaSegment(quotaWindows.map((w) => ({ percent: w.percent, window: w.window, resetAt: w.resetAt })), snapshot.balanceCny, now);
+                        quotaHot = quotaWindows.some((w) => w.percent >= 90);
+                        if (quotaSegment)
+                            left = `${baseLeft} ${quotaSegment}`;
+                    }
                     const modelName = ctx.model?.id ?? "no-model";
                     // 模型支持思考时展示档位（与内置 footer 判断一致）
                     const right = ctx.model?.reasoning
@@ -39,8 +58,14 @@ export default function hplFooter(pi) {
                     const line2 = layoutLine(left, right, width);
                     // 分段 dim：[HOT] 自带真彩码且以复位结尾，整体包裹会被复位打断。
                     // left 内 [HOT] 位于末尾，其复位不影响 left 前段；余下部分单独 dim。
-                    const dimLeft = theme.fg("dim", left);
-                    const dimRemainder = theme.fg("dim", line2.slice(left.length));
+                    // 限额段 ≥90% 时用 warning 色替代 dim。
+                    let dimLeft = theme.fg("dim", left);
+                    let dimRemainder = theme.fg("dim", line2.slice(left.length));
+                    if (quotaSegment) {
+                        const head = left.slice(0, left.length - quotaSegment.length);
+                        dimLeft = theme.fg("dim", head) + theme.fg(quotaHot ? "warning" : "dim", quotaSegment);
+                        dimRemainder = theme.fg("dim", line2.slice(left.length));
+                    }
                     const lines = [theme.fg("dim", line1), dimLeft + dimRemainder];
                     // ── 第 3 行：扩展状态（存在时）──────────────────────
                     const statuses = Array.from(footerData.getExtensionStatuses().entries())

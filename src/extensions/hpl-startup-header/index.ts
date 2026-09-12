@@ -3,7 +3,7 @@
  *
  * 通过 ctx.ui.setHeader() 替换 Pi 内置 header，展示：
  * - Hapilon mascot（Claude Code 风格 + 像素角）
- * - Welcome back / provider·model / workspace
+ * - Welcome back / provider·model / 短路径 cwd
  * - 扩展列表 / Pi 版本更新 / 快捷键提示
  *
  * 配合 cli.ts 的 quietStartup + PI_SKIP_VERSION_CHECK + 环境变量传递。
@@ -11,9 +11,9 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { VERSION } from "@earendil-works/pi-coding-agent";
+import { homedir } from "node:os";
 import { createStartupHeader } from "./content.js";
 import { fetchLatestPiVersion } from "./version-check.js";
-
 export default function hplStartupHeader(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     if (!ctx.hasUI || ctx.mode !== "tui") return;

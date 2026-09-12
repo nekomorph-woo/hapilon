@@ -1,7 +1,9 @@
 /**
- * sections.ts — System Prompt 硬编码文本常量（第一版照抄 Pi 源码）
+ * sections.ts — System Prompt 硬编码文本常量
  *
- * 来源: Pi packages/coding-agent/src/core/system-prompt.ts
+ * 上次对齐版本：pi 0.85.1（2026-09-12）。升级 pi 后先 diff
+ * node_modules/@earendil-works/pi-coding-agent/dist/core/system-prompt.js
+ * 与本目录，确认正文无漂移再改版本标记。
  */
 import { getDocsPath, getExamplesPath, getReadmePath } from "@earendil-works/pi-coding-agent";
 /** Role 声明 — Pi 原文 + hapilon/hapi 品牌标识 */
@@ -43,8 +45,12 @@ export function buildPiDocText() {
         `- hapilon rules: ~/.hapilon/agents/rules/*.md, .hapilon/agents/rules/*.md ` +
         `(ancestor-traversal, auto-injected)`);
 }
-/** 内建 Guidelines（条件性的，assemble.ts 中按工具组合拼装） */
+/** 内建 Guidelines（条件性的，assemble.ts 中按工具组合拼装）。与 pi 0.85.1 system-prompt.js 对齐。 */
 export const BUILTIN_GUIDELINES = {
+    /** bash+PowerShell 均启用 && grep/find/ls 均未启用时 */
+    bashAndPowerShellFileOps: "Use bash or PowerShell for file operations like listing, searching, and finding files",
+    /** 仅 PowerShell 启用 && grep/find/ls 均未启用时 */
+    powerShellOnlyFileOps: "Use PowerShell for file operations like listing, searching, and finding files",
     /** 仅 bash 启用 && grep/find/ls 均未启用时 */
     bashOnlyFileOps: "Use bash for file operations like ls, rg, find",
     /** 始终 */

@@ -3,7 +3,7 @@
  *
  * 通过 ctx.ui.setHeader() 替换 Pi 内置 header，展示：
  * - Hapilon mascot（Claude Code 风格 + 像素角）
- * - Welcome back / provider·model / workspace
+ * - Welcome back / provider·model / 短路径 cwd
  * - 扩展列表 / Pi 版本更新 / 快捷键提示
  *
  * 配合 cli.ts 的 quietStartup + PI_SKIP_VERSION_CHECK + 环境变量传递。
