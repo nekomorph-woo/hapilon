@@ -692,5 +692,5 @@ export async function updateTeamStatus(ctx, spawn = defaultSpawn) {
     const text = `Team mode on${segments.length > 0 ? ` · ${segments.join(" · ")}` : ""}`;
     const columns = process.stdout.columns ?? 80;
     const { truncateToWidth } = await import("@earendil-works/pi-tui");
-    ctx.ui.setStatus("team", truncateToWidth(text, Math.max(20, Math.min(columns, 80))));
+    ctx.ui.setStatus("team", truncateToWidth(text, Math.max(20, Math.min(columns, 120))));
 }
