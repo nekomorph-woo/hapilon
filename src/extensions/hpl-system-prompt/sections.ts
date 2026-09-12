@@ -7,6 +7,7 @@
  */
 
 import { getDocsPath, getExamplesPath, getReadmePath } from "@earendil-works/pi-coding-agent";
+import { hapilonHome } from "../../config/hapilon-home.js";
 
 /** Role 声明 — Pi 原文 + hapilon/hapi 品牌标识 */
 export const ROLE_TEXT =
@@ -24,6 +25,9 @@ export const CUSTOM_TOOLS_NOTE =
  * Pi 文档绝对路径运行时动态获取（与 Pi 原始行为一致，模型可直接 read）。
  */
 export function buildPiDocText(): string {
+  // 用实际 home（HAPILON_HOME 可指向 ~/.hapilon-dev 等），写死 ~/.hapilon 会
+  // 在 dev 模式下把模型引向不存在的目录——skills/extensions 的读写操作会落空
+  const home = hapilonHome();
   return (
     `Pi and hapilon documentation (read only when the user asks about ` +
     `developing pi extensions, themes, skills, or TUI components):\n\n` +
@@ -42,14 +46,14 @@ export function buildPiDocText(): string {
     `- Read pi .md files completely and follow links to related docs ` +
     `(e.g., tui.md for TUI API details)\n\n` +
     `hapilon-specific paths (where user extensions/skills/rules actually live):\n` +
-    `- Global extensions: ~/.hapilon/agent/extensions/  (not ~/.pi/agent/extensions/)\n` +
-    `- Global skills: ~/.hapilon/agent/skills/\n` +
-    `- Global settings: ~/.hapilon/agent/settings.json\n` +
+    `- Global extensions: ${home}/agent/extensions/  (not ~/.pi/agent/extensions/)\n` +
+    `- Global skills: ${home}/agent/skills/\n` +
+    `- Global settings: ${home}/agent/settings.json\n` +
     `- Project extensions: .pi/extensions/\n` +
     `- Project skills: .pi/skills/\n` +
-    `- hapilon context: ~/.hapilon/HAPILON.md, .hapilon/HAPILON.md ` +
+    `- hapilon context: ${home}/HAPILON.md, .hapilon/HAPILON.md ` +
     `(ancestor-traversal, auto-injected)\n` +
-    `- hapilon rules: ~/.hapilon/agents/rules/*.md, .hapilon/agents/rules/*.md ` +
+    `- hapilon rules: ${home}/agents/rules/*.md, .hapilon/agents/rules/*.md ` +
     `(ancestor-traversal, auto-injected)`
   );
 }

@@ -124,6 +124,17 @@ describe("sections", () => {
     // 动态路径：getReadmePath/getDocsPath 返回绝对路径
     assert.ok(text.includes("Main documentation: /"), "包含 README 绝对路径");
     assert.ok(text.includes("Additional docs: /"), "包含 docs 绝对路径");
+    // home 路径跟随 HAPILON_HOME 实际值（dev 模式 ~/.hapilon-dev 不能写成 ~/.hapilon）
+    const originalHome = process.env.HAPILON_HOME;
+    try {
+      process.env.HAPILON_HOME = "/tmp/hapilon-dev-fixture";
+      const dev = buildPiDocText();
+      assert.ok(dev.includes("/tmp/hapilon-dev-fixture/agent/skills/"), "skills 路径跟随实际 home");
+      assert.ok(!dev.includes("~/.hapilon/agent/"), "不再写死 ~/.hapilon/agent/");
+    } finally {
+      if (originalHome === undefined) delete process.env.HAPILON_HOME;
+      else process.env.HAPILON_HOME = originalHome;
+    }
   });
 
   it("BUILTIN_GUIDELINES 包含 3 条内建准则", () => {
