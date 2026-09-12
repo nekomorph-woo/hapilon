@@ -1,9 +1,17 @@
 import { Effect } from "effect";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { handleTeamCommand, handleTransientMessage, updateTeamStatus } from "./menu.js";
+import {
+  assistantMessageText,
+  completePendingRole,
+  getPendingRoleWizard,
+  handlePendingUserMessage,
+  handleTeamCommand,
+  updateTeamStatus,
+} from "./menu.js";
 import { herdrEnvAvailable } from "./herdr.js";
 import { buildTeamSectionsEffect } from "./state.js";
 import { setTeamSections } from "./bridge.js";
+import { parseRoleDefSentinel } from "./role-wizard.js";
 
 /** system-prompt 组装方只消费 setStatus 能力——收窄参数面（review #15） */
 type StatusOnlyContext = { ui: { setStatus: (key: string, text: string | undefined) => void } };
@@ -38,6 +46,11 @@ export default function hplOrchestra(pi: ExtensionAPI): void {
   });
 
   pi.on("message_end", async (event) => {
-    await handleTransientMessage(event.message);
+    if (handlePendingUserMessage(event.message)) return;
+    const pending = getPendingRoleWizard();
+    if (!pending) return;
+    const parsed = parseRoleDefSentinel(assistantMessageText(event.message));
+    if (!parsed) return;
+    await completePendingRole(parsed);
   });
 }

@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { agentGet, agentSendKeys, buildPaneRunCommand, defaultSpawn, paneGet, paneRun, paneSplit, paneSplitEnvArgs, resolveDiscussantModel, resolveTierModelByTier, } from "./herdr.js";
-import { getAllRoleDefs, getRoleDef, } from "./role-registry.js";
+import { deleteCustomRoleDef, getAllRoleDefs, getRoleDef, saveCustomRoleDef, } from "./role-registry.js";
+import { buildTransientRolePrompt, buildWizardPrompt, parseRoleDefSentinel } from "./role-wizard.js";
 import { currentRole, deleteTeamStateEffect, findRoleEntry, findTeamStateForPane, isTeamOwner, readTeamStateEffect, resolveSessionStatePath, writeTeamStateEffect, } from "./state.js";
 const TRANSIENT_ROLE_OPTION = "临时角色（本次会话）";
 export const TEAM_ACTIONS = {
@@ -16,7 +17,7 @@ export const TEAM_ACTIONS = {
     dispatch: "派发给 Worker",
     view: "查看面板分工",
 };
-export function buildTeamMenuOptions(enabled, _paused = false) {
+export function buildTeamMenuOptions(enabled, paused = false) {
     if (enabled) {
         return [
             TEAM_ACTIONS.open,
@@ -29,18 +30,20 @@ export function buildTeamMenuOptions(enabled, _paused = false) {
             TEAM_ACTIONS.view,
         ];
     }
-    return [TEAM_ACTIONS.start, TEAM_ACTIONS.open, TEAM_ACTIONS.manage, TEAM_ACTIONS.view];
+    return paused
+        ? [TEAM_ACTIONS.start, TEAM_ACTIONS.finish, TEAM_ACTIONS.view]
+        : [TEAM_ACTIONS.start, TEAM_ACTIONS.open, TEAM_ACTIONS.manage, TEAM_ACTIONS.view];
 }
 function notify(ctx, message, type = "info") {
     ctx.ui.notify(message, type);
 }
-function roleLabel(key) {
+function roleLabel(key, defs = getAllRoleDefs()) {
     if (key === "临时")
         return key;
-    return getRoleDef(key)?.label ?? key;
+    return getRoleDef(key, defs)?.label ?? key;
 }
-function entryLabel(entry) {
-    return entry.instances.some((instance) => instance.transient === true) ? "临时" : roleLabel(entry.key);
+function entryLabel(entry, defs = getAllRoleDefs()) {
+    return entry.instances.some((instance) => instance.transient === true) ? "临时" : roleLabel(entry.key, defs);
 }
 function roleDuty(role) {
     switch (role.key) {
@@ -48,7 +51,15 @@ function roleDuty(role) {
         case "reviewer": return "只读审码+verdict";
         case "ux-tester": return "实操验证效果→体验报告";
         case "discussant": return "只读讨论：观点/反驳/补盲区";
-        default: return role.promptTemplate.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? "按自定义职责工作";
+        default: {
+            const lines = role.promptTemplate.split(/\r?\n/).map((line) => line.trim());
+            const frameworkMarker = lines.findIndex((line) => line === "Role responsibilities and style:");
+            const candidates = frameworkMarker >= 0 ? lines.slice(frameworkMarker + 1) : lines;
+            return candidates.find((line) => line.length > 0
+                && line !== "<ROLE_PROMPT>"
+                && !line.startsWith("<team")
+                && !line.startsWith("</team")) ?? "按自定义职责工作";
+        }
     }
 }
 function roleOption(role) {
@@ -60,19 +71,19 @@ function firstInstance(state, key) {
 function isTeamStateLike(state) {
     return typeof state === "object" && state !== null && "roles" in state && "owner" in state;
 }
-async function readPersistedState(ctx) {
-    const state = await Effect.runPromise(readTeamStateEffect(resolveSessionStatePath()));
+async function readPersistedState(ctx, defs = getAllRoleDefs()) {
+    const state = await Effect.runPromise(readTeamStateEffect(resolveSessionStatePath(), defs));
     if ("roles" in state && isTeamStateLike(state))
         return state;
     const paneId = process.env.HERDR_PANE_ID;
-    if (currentRole() && paneId) {
+    if (currentRole(defs) && paneId) {
         const roleState = findTeamStateForPane(paneId);
         return roleState && "roles" in roleState && isTeamStateLike(roleState) ? roleState : undefined;
     }
     return undefined;
 }
-async function readEnabledState(ctx) {
-    const state = await readPersistedState(ctx);
+async function readEnabledState(ctx, defs = getAllRoleDefs()) {
+    const state = await readPersistedState(ctx, defs);
     return state?.enabled ? state : undefined;
 }
 async function writeState(state) {
@@ -116,18 +127,32 @@ function tierOptions(role, provider) {
     return tiers.map((tier) => {
         const model = modelForTier(role, tier, provider);
         const labels = [model ? `${tierName(tier)} — ${model}` : `${tierName(tier)} — 未配置`];
-        if (role.key === "discussant" && tier === "opus" && model)
+        const modelProvider = model?.split("/", 1)[0];
+        if (role.key === "discussant" && tier === "opus" && model && modelProvider !== provider)
             labels.push("异构");
         if (tier === defaultTier)
             labels.push("默认");
         return { tier, model, text: `${labels[0]}${labels.length > 1 ? `（${labels.slice(1).join("，")}）` : ""}` };
     });
 }
-function appendRoleInstance(roles, role, instance) {
-    const index = roles.findIndex((entry) => entry.key === role.key);
+async function pruneRoleInstances(roles, key, spawn) {
+    const index = roles.findIndex((entry) => entry.key === key);
     if (index < 0)
-        return [...roles, { key: role.key, instances: [instance] }];
-    return roles.map((entry, entryIndex) => {
+        return roles;
+    const entry = roles[index];
+    const liveInstances = entry.instances.filter((instance) => probePaneLive(instance.paneId, spawn));
+    if (liveInstances.length === entry.instances.length)
+        return roles;
+    return roles.map((candidate, candidateIndex) => candidateIndex === index
+        ? { ...candidate, instances: liveInstances }
+        : candidate);
+}
+async function appendRoleInstance(roles, role, instance, spawn) {
+    const prunedRoles = await pruneRoleInstances(roles, role.key, spawn);
+    const index = prunedRoles.findIndex((entry) => entry.key === role.key);
+    if (index < 0)
+        return [...prunedRoles, { key: role.key, instances: [instance] }];
+    return prunedRoles.map((entry, entryIndex) => {
         if (entryIndex !== index)
             return entry;
         return role.singleton
@@ -135,12 +160,12 @@ function appendRoleInstance(roles, role, instance) {
             : { ...entry, instances: [...entry.instances, instance] };
     });
 }
-async function ensurePane(ctx, role, model, spawn, options = {}) {
-    const state = await readPersistedState(ctx);
+async function ensurePane(ctx, role, model, spawn, options = {}, defs = getAllRoleDefs()) {
+    const state = await readPersistedState(ctx, defs);
     if (role.singleton) {
         const existing = state ? findRoleEntry(state, role.key)?.instances ?? [] : [];
         for (const instance of existing) {
-            if (Effect.runSync(paneGet(instance.paneId, spawn))) {
+            if (probePaneLive(instance.paneId, spawn)) {
                 return { paneId: instance.paneId, model: instance.model, reused: true };
             }
         }
@@ -175,18 +200,22 @@ async function openRolePanel(ctx, role, model, spawn, options = {}) {
         notify(ctx, "无法打开面板：当前 herdr 面板缺少 HERDR_PANE_ID。", "error");
         return;
     }
-    const previous = await readPersistedState(ctx);
-    if (previous && !isTeamOwner(previous)) {
+    const defs = getAllRoleDefs();
+    const previous = await readPersistedState(ctx, defs);
+    if (previous && !isTeamOwner(previous, defs)) {
         notify(ctx, "只能从 Team 主面板打开角色面板。", "warning");
         return;
     }
-    const created = await ensurePane(ctx, role, model, spawn, options);
+    const created = await ensurePane(ctx, role, model, spawn, options, defs);
     if (!created) {
         notify(ctx, `${role.label} 面板创建失败，请检查 herdr。`, "error");
         return;
     }
     if (created.reused) {
-        notify(ctx, `${role.label} 已在 ${created.paneId} 运行。`);
+        const tierNote = options.selectedTier
+            ? `（本次选择的 ${tierName(options.selectedTier)} 未应用；如需换档请先关闭该面板）`
+            : "";
+        notify(ctx, `${role.label} 已在 ${created.paneId} 运行${tierNote}。`);
         return;
     }
     const base = previous ?? emptyState(ownerPaneId, !options.transient);
@@ -195,11 +224,11 @@ async function openRolePanel(ctx, role, model, spawn, options = {}) {
         // 临时角色可在未启用 Team 时存在；结束编排会随状态文件消失。
         enabled: previous?.enabled ?? !options.transient,
         owner: { paneId: ownerPaneId },
-        roles: appendRoleInstance(base.roles, role, {
+        roles: await appendRoleInstance(base.roles, role, {
             paneId: created.paneId,
             model: created.model,
             ...(options.transient ? { transient: true } : {}),
-        }),
+        }, spawn),
     };
     const saved = await writeState(next);
     notify(ctx, saved ? `${role.label} 面板已打开：${created.paneId}` : "编排状态保存失败。", saved ? "info" : "error");
@@ -210,9 +239,10 @@ async function startOrchestration(ctx, spawn) {
         notify(ctx, "无法开始编排：当前 herdr 面板缺少 HERDR_PANE_ID。", "error");
         return;
     }
-    const previous = await readPersistedState(ctx);
-    const worker = getRoleDef("worker");
-    const result = await ensurePane(ctx, worker, modelForTier(worker, worker.defaultTier, ownerProvider(ctx)), spawn);
+    const defs = getAllRoleDefs();
+    const previous = await readPersistedState(ctx, defs);
+    const worker = getRoleDef("worker", defs);
+    const result = await ensurePane(ctx, worker, modelForTier(worker, worker.defaultTier, ownerProvider(ctx)), spawn, {}, defs);
     if (!result) {
         notify(ctx, "Worker 面板创建失败，请检查 herdr。", "error");
         return;
@@ -222,16 +252,17 @@ async function startOrchestration(ctx, spawn) {
         ...base,
         enabled: true,
         owner: { paneId: ownerPane },
-        roles: appendRoleInstance(base.roles, worker, {
+        roles: await appendRoleInstance(base.roles, worker, {
             paneId: result.paneId,
             model: result.model,
-        }),
+        }, spawn),
     };
     const saved = await writeState(next);
     notify(ctx, saved ? `编排已开始，Worker 面板：${result.paneId}` : "编排状态保存失败。", saved ? "info" : "error");
 }
 async function openPanel(pi, ctx, spawn) {
     const roles = getAllRoleDefs();
+    const persisted = await readPersistedState(ctx, roles);
     const choices = [...roles.map(roleOption), TRANSIENT_ROLE_OPTION];
     const selected = await ctx.ui.select("打开哪个角色面板？", choices);
     if (!selected)
@@ -241,6 +272,9 @@ async function openPanel(pi, ctx, spawn) {
     const role = selectedRole ?? (transient ? undefined : roles.find((candidate) => candidate.label === selected));
     if (!role && !transient)
         return;
+    if (role && !persisted) {
+        notify(ctx, "打开面板将启用 Team 编排（主面板进入调度模式）", "info");
+    }
     const transientRole = getRoleDef("__transient__") ?? {
         key: "__transient__",
         label: "临时",
@@ -259,30 +293,27 @@ async function openPanel(pi, ctx, spawn) {
     if (!tierChoice)
         return;
     if (transient) {
-        pendingTransient = {
-            pi,
-            ctx,
-            spawn,
-            model: tierChoice.model,
-        };
-        pi.sendUserMessage(`请根据当前对话现场设计一个临时团队角色，职责边界清晰，不编排不派发其它面板。只输出一行 JSON 哨兵，不要 Markdown 代码围栏：{"teamRoleDef":{"key":"英文短横线 key","label":"中文名称","prompt":"职责与输出格式","tier":"${tierChoice.tier}"}}`);
-        notify(ctx, "已请主面板模型生成临时角色；收到下一条角色哨兵后创建面板。", "info");
+        if (!tierChoice.model) {
+            notify(ctx, "该档未配置模型，将以默认模型启动", "warning");
+        }
+        beginTransientWizard(pi, ctx, spawn, tierChoice.model, tierChoice.tier);
         return;
     }
-    await openRolePanel(ctx, role, tierChoice.model, spawn);
+    await openRolePanel(ctx, role, tierChoice.model, spawn, { selectedTier: tierChoice.tier });
 }
-async function openReviewCompat(ctx, spawn) {
-    const role = getRoleDef("reviewer");
-    await openRolePanel(ctx, role, modelForTier(role, role.defaultTier, ownerProvider(ctx)), spawn);
+async function openReviewCompat(ctx, spawn, defs = getAllRoleDefs()) {
+    const role = getRoleDef("reviewer", defs);
+    await openRolePanel(ctx, role, modelForTier(role, role.defaultTier, ownerProvider(ctx)), spawn, { selectedTier: role.defaultTier });
 }
 async function viewDivision(ctx, spawn) {
-    const state = await readEnabledState(ctx);
+    const defs = getAllRoleDefs();
+    const state = await readEnabledState(ctx, defs);
     if (!state) {
-        const persisted = await readPersistedState(ctx);
+        const persisted = await readPersistedState(ctx, defs);
         if (persisted) {
             const persistedRoles = persisted.roles
                 .filter((entry) => entry.instances.length > 0)
-                .map((entry) => `${entryLabel(entry)}：persisted ✗`);
+                .map((entry) => `${entryLabel(entry, defs)}：persisted ✗`);
             notify(ctx, `编排已暂停（面板保留）：\n${persistedRoles.join("\n")}\n可用「开始编排」恢复。`);
         }
         else {
@@ -290,21 +321,14 @@ async function viewDivision(ctx, spawn) {
         }
         return;
     }
-    const roleLines = await Promise.all(state.roles
-        .filter((entry) => entry.instances.length > 0)
-        .map(async (entry) => {
-        const instances = await Promise.all(entry.instances.map(async (instance) => {
-            const live = Boolean(Effect.runSync(paneGet(instance.paneId, spawn)));
-            return `${instance.paneId} ${live ? "✓" : "✗"}`;
-        }));
-        return `${entryLabel(entry)}：${instances.join(" ")}`;
-    }));
+    const liveRoles = await liveRoleEntries(state, spawn);
+    const roleLines = liveRoles.map((entry) => `${entryLabel(entry, defs)}：${entry.instances.map((instance) => `${instance.paneId} ✓`).join(" ")}`);
     notify(ctx, ["当前面板分工：", ...roleLines, `主面板：${state.owner.paneId}（只调度）`].join("\n"));
 }
-async function clearOne(ctx, key, spawn) {
-    const state = await readEnabledState(ctx);
-    const instances = state ? findRoleEntry(state, key)?.instances ?? [] : [];
-    const label = roleLabel(key);
+async function clearOne(ctx, key, spawn, instancesOverride, defs = getAllRoleDefs()) {
+    const state = await readEnabledState(ctx, defs);
+    const instances = instancesOverride ?? (state ? findRoleEntry(state, key)?.instances ?? [] : []);
+    const label = instances.some((instance) => instance.transient === true) ? "临时" : roleLabel(key, defs);
     if (instances.length === 0) {
         notify(ctx, `${label} 面板尚未打开。`, "warning");
         return true;
@@ -339,31 +363,33 @@ async function clearOne(ctx, key, spawn) {
     return true;
 }
 async function clearContexts(ctx, spawn) {
-    const state = await readEnabledState(ctx);
-    const activeRoles = state?.roles.filter((entry) => entry.instances.length > 0) ?? [];
+    const defs = getAllRoleDefs();
+    const state = await readEnabledState(ctx, defs);
+    const activeRoles = state ? await liveRoleEntries(state, spawn) : [];
     if (activeRoles.length === 0) {
         notify(ctx, "当前没有可清空的面板。", "warning");
         return;
     }
-    const roleOptions = activeRoles.map(entryLabel);
+    const roleOptions = activeRoles.map((entry) => entryLabel(entry, defs));
     const target = await ctx.ui.select("清空哪个面板的上下文？", [...roleOptions, "都清"]);
     if (!target)
         return;
     if (target === "都清") {
         for (const entry of activeRoles) {
-            if (!await clearOne(ctx, entry.key, spawn))
+            if (!await clearOne(ctx, entry.key, spawn, entry.instances, defs))
                 return;
         }
     }
     else {
-        const entry = activeRoles.find((candidate) => entryLabel(candidate) === target);
+        const entry = activeRoles.find((candidate) => entryLabel(candidate, defs) === target);
         if (entry)
-            await clearOne(ctx, entry.key, spawn);
+            await clearOne(ctx, entry.key, spawn, entry.instances, defs);
     }
 }
 async function pause(ctx) {
-    const state = await readEnabledState(ctx);
-    if (!state || !isTeamOwner(state)) {
+    const defs = getAllRoleDefs();
+    const state = await readEnabledState(ctx, defs);
+    if (!state || !isTeamOwner(state, defs)) {
         notify(ctx, "当前没有可暂停的编排。", "warning");
         return;
     }
@@ -371,8 +397,9 @@ async function pause(ctx) {
     notify(ctx, saved ? "编排已暂停，面板保留。" : "编排状态保存失败。", saved ? "info" : "error");
 }
 async function finish(ctx) {
-    const state = await readPersistedState(ctx);
-    if (!state || !isTeamOwner(state)) {
+    const defs = getAllRoleDefs();
+    const state = await readPersistedState(ctx, defs);
+    if (!state || !isTeamOwner(state, defs)) {
         notify(ctx, "当前没有可结束的编排。", "warning");
         return;
     }
@@ -380,14 +407,86 @@ async function finish(ctx) {
     notify(ctx, deleted ? "编排已结束，面板保留，可手动关闭。" : "没有进行中的编排（状态文件不存在）。", deleted ? "info" : "warning");
 }
 async function dispatch(ctx, pi) {
-    const state = await readEnabledState(ctx);
+    const defs = getAllRoleDefs();
+    const state = await readEnabledState(ctx, defs);
     const worker = state ? firstInstance(state, "worker") : undefined;
-    if (!state || !isTeamOwner(state) || !worker) {
+    if (!state || !isTeamOwner(state, defs) || !worker) {
         notify(ctx, "Worker 面板尚未就绪。", "warning");
         return;
     }
     pi.sendUserMessage(`当前 Worker ${worker.paneId} 已待命，请把需要写码的任务告诉我。`);
     notify(ctx, "已提醒主面板模型向你收集写码任务。", "info");
+}
+function roleDetails(role) {
+    return JSON.stringify(role, null, 2);
+}
+function beginCustomWizard(pi, ctx, existing) {
+    pendingRoleWizard = {
+        kind: existing ? "edit" : "create",
+        existingKey: existing?.key,
+        ctx,
+    };
+    pi.sendUserMessage(buildWizardPrompt(existing));
+    notify(ctx, "向导已开始，请在对话中完成；完成后自动保存", "info");
+}
+function beginTransientWizard(_pi, ctx, spawn, model, tier) {
+    const requestText = buildTransientRolePrompt(tier);
+    const pending = {
+        kind: "transient",
+        ctx,
+        spawn,
+        model,
+        tier,
+        ignoreNextUserMessage: true,
+        requestText,
+    };
+    // 先发送请求；若运行时同步发出该 user message 的 message_end，不应
+    // 被误判为用户取消。异步到达时用 requestText 精确忽略同一条消息。
+    _pi.sendUserMessage(requestText);
+    pendingRoleWizard = pending;
+    notify(ctx, "已请主面板模型生成临时角色；收到下一条角色哨兵后创建面板。", "info");
+}
+async function manageRoles(ctx, pi, spawn) {
+    const roles = getAllRoleDefs();
+    const options = [...roles.map((role) => `${role.label}${role.builtin ? "（内置）" : ""}`), "返回"];
+    const selected = await ctx.ui.select("管理角色", options);
+    if (!selected || selected === "返回")
+        return;
+    const selectedIndex = options.indexOf(selected);
+    const role = selectedIndex >= 0 && selectedIndex < roles.length ? roles[selectedIndex] : undefined;
+    if (!role)
+        return;
+    const action = await ctx.ui.select(`${role.label}（${role.key}）`, role.builtin ? ["查看详情", "返回"] : ["查看详情", "编辑", "删除", "返回"]);
+    if (!action || action === "返回")
+        return;
+    if (action === "查看详情") {
+        notify(ctx, `角色定义：\n${roleDetails(role)}`);
+        return;
+    }
+    if (role.builtin) {
+        notify(ctx, "内置角色不可编辑或删除。", "warning");
+        return;
+    }
+    if (action === "编辑") {
+        beginCustomWizard(pi, ctx, role);
+        return;
+    }
+    if (action !== "删除")
+        return;
+    const confirmed = await ctx.ui.confirm("删除自定义角色", `确定删除「${role.label}」吗？`);
+    if (!confirmed)
+        return;
+    const defs = getAllRoleDefs();
+    const state = await readPersistedState(ctx, defs);
+    const hasLiveInstance = Boolean(state?.roles.find((entry) => entry.key === role.key)?.instances.some((instance) => probePaneLive(instance.paneId, spawn)));
+    if (!deleteCustomRoleDef(role.key)) {
+        notify(ctx, `自定义角色「${role.label}」删除失败。`, "error");
+        return;
+    }
+    notify(ctx, `自定义角色「${role.label}」已删除。`, "info");
+    if (hasLiveInstance) {
+        notify(ctx, "该角色面板保留但已脱离 team 管理。", "warning");
+    }
 }
 function actionForArgs(args, options) {
     const trimmed = args.trim();
@@ -395,7 +494,10 @@ function actionForArgs(args, options) {
         return undefined;
     return options.find((option) => option === trimmed) ?? options.find((option) => option.startsWith(trimmed));
 }
-let pendingTransient;
+let pendingRoleWizard;
+export function getPendingRoleWizard() {
+    return pendingRoleWizard;
+}
 function messageText(message) {
     if (!message || typeof message !== "object")
         return "";
@@ -407,68 +509,85 @@ function messageText(message) {
     return content.map((part) => {
         if (!part || typeof part !== "object")
             return "";
+        if (part.type !== "text")
+            return "";
         const text = part.text;
         return typeof text === "string" ? text : "";
     }).filter(Boolean).join("\n");
 }
+export function assistantMessageText(message) {
+    return message && typeof message === "object" && message.role === "assistant"
+        ? messageText(message)
+        : "";
+}
 /** 从 assistant 消息中提取本轮临时角色哨兵；注册表角色不会被误当 transient。 */
 export function extractTransientRole(message) {
-    if (!message || typeof message !== "object" || message.role !== "assistant")
+    const role = parseRoleDefSentinel(assistantMessageText(message));
+    if (!role || getRoleDef(role.key))
         return undefined;
-    const lines = messageText(message).split(/\r?\n/);
-    for (const line of lines) {
-        const start = line.indexOf('{');
-        if (start < 0)
-            continue;
-        try {
-            const parsed = JSON.parse(line.slice(start).trim());
-            if (!parsed || typeof parsed !== "object")
-                continue;
-            const raw = parsed.teamRoleDef;
-            if (!raw || typeof raw !== "object")
-                continue;
-            const value = raw;
-            if (typeof value.key !== "string" || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value.key))
-                continue;
-            if (typeof value.label !== "string" || value.label.trim() === "")
-                continue;
-            if (typeof value.prompt !== "string" || value.prompt.trim() === "")
-                continue;
-            if (getRoleDef(value.key))
-                continue;
-            const tier = value.tier;
-            return {
-                key: value.key,
-                label: value.label.trim(),
-                prompt: value.prompt.trim(),
-                ...(tier === "opus" || tier === "sonnet" || tier === "haiku" ? { tier } : {}),
-            };
-        }
-        catch {
-            // assistant 常在 JSON 前后附带解释；非哨兵行继续扫描。
-        }
-    }
-    return undefined;
+    return {
+        key: role.key,
+        label: role.label,
+        prompt: role.promptTemplate,
+        tier: role.defaultTier,
+    };
 }
+export function handlePendingUserMessage(message) {
+    if (!pendingRoleWizard || pendingRoleWizard.kind !== "transient")
+        return false;
+    if (!message || typeof message !== "object" || message.role !== "user")
+        return false;
+    if (pendingRoleWizard.ignoreNextUserMessage && pendingRoleWizard.requestText === messageText(message).trim()) {
+        pendingRoleWizard.ignoreNextUserMessage = false;
+        return false;
+    }
+    const ctx = pendingRoleWizard.ctx;
+    pendingRoleWizard = undefined;
+    notify(ctx, "临时角色未生成，已取消", "warning");
+    return true;
+}
+export async function completePendingRole(role) {
+    const pending = pendingRoleWizard;
+    if (!pending)
+        return false;
+    if (pending.kind === "transient") {
+        if (getRoleDef(role.key) || !pending.spawn)
+            return false;
+        pendingRoleWizard = undefined;
+        await openRolePanel(pending.ctx, { ...role, singleton: false, builtin: false }, pending.model, pending.spawn, { transient: true, prompt: role.promptTemplate, selectedTier: pending.tier });
+        return true;
+    }
+    const existing = getRoleDef(role.key);
+    if (existing && !(pending.kind === "edit" && pending.existingKey === role.key))
+        return false;
+    if (!saveCustomRoleDef(role))
+        return false;
+    if (pending.kind === "edit" && pending.existingKey && pending.existingKey !== role.key) {
+        deleteCustomRoleDef(pending.existingKey);
+    }
+    pendingRoleWizard = undefined;
+    notify(pending.ctx, pending.kind === "edit"
+        ? `角色 ${role.label} 已更新，可在『打开面板』使用`
+        : `角色 ${role.label} 已创建，可在『打开面板』使用`, "info");
+    return true;
+}
+/** 兼容直接调用菜单层的 transient 测试/集成路径。 */
 export async function handleTransientMessage(message) {
     const roleInput = extractTransientRole(message);
-    if (!roleInput || !pendingTransient)
+    if (!roleInput || pendingRoleWizard?.kind !== "transient")
         return false;
-    const pending = pendingTransient;
-    pendingTransient = undefined;
-    const role = {
+    return completePendingRole({
         key: roleInput.key,
         label: roleInput.label,
         promptTemplate: roleInput.prompt,
         defaultTier: roleInput.tier ?? "sonnet",
         singleton: false,
         builtin: false,
-    };
-    await openRolePanel(pending.ctx, role, pending.model, pending.spawn, { transient: true, prompt: roleInput.prompt });
-    return true;
+    });
 }
 export async function handleTeamCommand(pi, args, ctx, spawn = defaultSpawn) {
-    if (currentRole()) {
+    const defs = getAllRoleDefs();
+    if (currentRole(defs)) {
         const trimmed = args.trim();
         if (trimmed && trimmed !== TEAM_ACTIONS.view) {
             notify(ctx, "角色面板只允许查看分工，拒绝写操作。", "error");
@@ -480,8 +599,8 @@ export async function handleTeamCommand(pi, args, ctx, spawn = defaultSpawn) {
         await viewDivision(ctx, spawn);
         return;
     }
-    const persisted = await readPersistedState(ctx);
-    const enabled = Boolean(persisted && persisted.enabled && isTeamOwner(persisted));
+    const persisted = await readPersistedState(ctx, defs);
+    const enabled = Boolean(persisted && persisted.enabled && isTeamOwner(persisted, defs));
     const options = buildTeamMenuOptions(enabled, Boolean(persisted && !persisted.enabled));
     const explicit = args.trim() ? actionForArgs(args, Object.values(TEAM_ACTIONS)) : undefined;
     const action = explicit ?? await ctx.ui.select("Team 编排", options);
@@ -495,7 +614,7 @@ export async function handleTeamCommand(pi, args, ctx, spawn = defaultSpawn) {
             await openPanel(pi, ctx, spawn);
             break;
         case TEAM_ACTIONS.review:
-            await openReviewCompat(ctx, spawn);
+            await openReviewCompat(ctx, spawn, defs);
             break;
         case TEAM_ACTIONS.pause:
             await pause(ctx);
@@ -507,8 +626,10 @@ export async function handleTeamCommand(pi, args, ctx, spawn = defaultSpawn) {
             await clearContexts(ctx, spawn);
             break;
         case TEAM_ACTIONS.create:
+            beginCustomWizard(pi, ctx);
+            break;
         case TEAM_ACTIONS.manage:
-            notify(ctx, "该菜单项将在轮次 3 开放。", "info");
+            await manageRoles(ctx, pi, spawn);
             break;
         case TEAM_ACTIONS.dispatch:
             await dispatch(ctx, pi);
@@ -520,8 +641,13 @@ export async function handleTeamCommand(pi, args, ctx, spawn = defaultSpawn) {
 }
 /** 探活结果 10s TTL 缓存：before_agent_start 高频路径避免每次双 spawn。 */
 const PROBE_TTL_MS = 10_000;
-const probeCache = new Map();
+let probeCaches = new WeakMap();
 function probePaneLive(paneId, spawn) {
+    let probeCache = probeCaches.get(spawn);
+    if (!probeCache) {
+        probeCache = new Map();
+        probeCaches.set(spawn, probeCache);
+    }
     const cached = probeCache.get(paneId);
     if (cached && Date.now() - cached.at < PROBE_TTL_MS)
         return cached.live;
@@ -529,22 +655,30 @@ function probePaneLive(paneId, spawn) {
     probeCache.set(paneId, { live, at: Date.now() });
     return live;
 }
+async function liveRoleEntries(state, spawn) {
+    return state.roles.flatMap((entry) => {
+        const instances = entry.instances.filter((instance) => probePaneLive(instance.paneId, spawn));
+        return instances.length > 0 ? [{ ...entry, instances }] : [];
+    });
+}
 export function resetProbeCache() {
-    probeCache.clear();
+    // WeakMap 无需逐个清理；替换引用即可让既有缓存全部失效。
+    probeCaches = new WeakMap();
 }
 export async function updateTeamStatus(ctx, spawn = defaultSpawn) {
-    if (currentRole()) {
+    const defs = getAllRoleDefs();
+    if (currentRole(defs)) {
         ctx.ui.setStatus("team", undefined);
         return;
     }
-    const state = await readEnabledState(ctx);
-    if (!state || !isTeamOwner(state)) {
+    const state = await readEnabledState(ctx, defs);
+    if (!state || !isTeamOwner(state, defs)) {
         ctx.ui.setStatus("team", undefined);
         return;
     }
-    const segments = state.roles
-        .filter((entry) => entry.instances.length > 0)
-        .map((entry) => `${entryLabel(entry)} ${entry.instances.map((instance) => `${instance.paneId} ${probePaneLive(instance.paneId, spawn) ? "✓" : "✗"}`).join(" ")}`);
+    const liveRoles = await liveRoleEntries(state, spawn);
+    const segments = liveRoles
+        .map((entry) => `${entryLabel(entry, defs)} ${entry.instances.map((instance) => `${instance.paneId} ${probePaneLive(instance.paneId, spawn) ? "✓" : "✗"}`).join(" ")}`);
     const text = `Team mode on${segments.length > 0 ? ` · ${segments.join(" · ")}` : ""}`;
     const columns = process.stdout.columns ?? 80;
     const { truncateToWidth } = await import("@earendil-works/pi-tui");

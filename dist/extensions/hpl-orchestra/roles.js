@@ -29,22 +29,18 @@ Dispatch discipline (a "new task" includes fix rounds from review):
    re-dispatch reviewer; loop until approve. reject → re-scope with the
    user before any dispatch.
 </team>`;
-export const WORKER_SECTION = getRoleDef("worker").promptTemplate;
-export const REVIEWER_SECTION = getRoleDef("reviewer").promptTemplate;
 function customSection(key, prompt) {
     return `<team mode="${key}">
-${CUSTOM_ROLE_FRAMEWORK.replace("<ROLE_PROMPT>", xmlEscape(prompt.trim()))}
+${CUSTOM_ROLE_FRAMEWORK.replace("<ROLE_PROMPT>", () => xmlEscape(prompt.trim()))}
 </team>`;
 }
 /** Resolve the single role section selected by HAPI_ORCH_ROLE. */
 export function buildTeamRoleSection(key) {
     const role = getRoleDef(key);
     if (role) {
-        // Builtins store their complete section. Custom files may store either a
-        // complete section or only the role-specific prompt body.
-        return role.promptTemplate.includes("<team mode=")
-            ? role.promptTemplate
-            : customSection(key, role.promptTemplate);
+        // Builtins are trusted static templates. Custom definitions always pass
+        // through the constraint wrapper, even if their body contains a fake tag.
+        return role.builtin ? role.promptTemplate : customSection(key, role.promptTemplate);
     }
     // Transient roles never enter the registry. Their prompt is handed to the
     // pane through --env by menu.ts and is consumed only by that child pane.
@@ -54,20 +50,25 @@ export function buildTeamRoleSection(key) {
     }
     return undefined;
 }
+export const MISSING_ROLE_SECTION = `<team mode="unknown">
+This panel's team role definition is missing. Ask the user to re-create the role or run /team.
+</team>`;
 function crewLine(key, paneId) {
     if (key === "worker" && paneId !== "not open")
         return `- worker ${paneId}: all code changes happen there`;
     if (key === "reviewer" && paneId !== "not open")
         return `- reviewer ${paneId}: code review — every code change goes there`;
     if (key === "reviewer" && paneId === "not open") {
-        return "- reviewer not open — tell the user to open it via /team menu, do not dispatch";
+        return "- reviewer not open — tell the user to open it via /team menu; do not dispatch until open";
     }
-    return `- ${key} ${paneId}`;
+    return paneId === "not open"
+        ? `- ${key} not open — do not dispatch until open`
+        : `- ${key} ${paneId}`;
 }
 export function fillOrchestratorSection(roles) {
     const crew = roles.map(({ key, paneId }) => crewLine(key, paneId));
     if (!roles.some(({ key }) => key === "reviewer")) {
-        crew.push("- reviewer not open — tell the user to open it via /team menu, do not dispatch");
+        crew.push("- reviewer not open — tell the user to open it via /team menu; do not dispatch until open");
     }
     return ORCHESTRATOR_TEMPLATE.replace("<CREW>", crew.join("\n"));
 }

@@ -4,7 +4,8 @@ import { hapilonHome } from "../../config/hapilon-home.js";
 /** 自定义角色模板的统一边界；职责正文由角色作者提供。 */
 export const CUSTOM_ROLE_FRAMEWORK = `You are a custom team role. Work only within the responsibility described below.
 Never orchestrate, dispatch, or instruct other agents or panes. Do not create
-new team roles. Respect the stated read/write boundary and forbidden actions.
+new team roles. Never git push. Respect the stated read/write boundary and
+forbidden actions.
 Report in the requested format with concrete evidence, and stop when the
 assigned responsibility is complete.
 
@@ -79,7 +80,7 @@ export const BUILTIN_ROLE_DEFS = [
         builtin: true,
     },
 ];
-const ROLE_KEY_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const ROLE_KEY_PATTERN = /^[a-z][a-z0-9-]*$/;
 const TIERS = new Set(["opus", "sonnet", "haiku"]);
 export function rolesDir() {
     return join(hapilonHome(), "teams", "roles");
@@ -177,8 +178,8 @@ export function loadCustomRoleDefs() {
 export function getAllRoleDefs() {
     return [...BUILTIN_ROLE_DEFS, ...loadCustomRoleDefs()];
 }
-export function getRoleDef(key) {
-    return getAllRoleDefs().find((role) => role.key === key);
+export function getRoleDef(key, defs) {
+    return (defs ?? getAllRoleDefs()).find((role) => role.key === key);
 }
 export function saveCustomRoleDef(role) {
     const parsed = parseRoleDef("<memory>", role);

@@ -2,13 +2,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdir
 import { dirname, join } from "node:path";
 import { Data, Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
-import { getAllRoleDefs, getRoleDef } from "./role-registry.js";
+import { getAllRoleDefs } from "./role-registry.js";
 import { fillOrchestratorSection } from "./roles.js";
 import { herdrEnvAvailable } from "./herdr.js";
 export class TeamStateError extends Data.TaggedError("TeamStateError") {
 }
 const disabledState = () => ({ enabled: false });
-export const isTeamRole = (value) => typeof value === "string" && getRoleDef(value) !== undefined;
+export const isTeamRole = (value, defs = getAllRoleDefs()) => typeof value === "string" && defs.some((role) => role.key === value);
 const isRoleInstance = (value) => {
     if (!value || typeof value !== "object")
         return false;
@@ -17,7 +17,7 @@ const isRoleInstance = (value) => {
         && (typeof instance.model === "string" || instance.model === null)
         && (instance.transient === undefined || typeof instance.transient === "boolean");
 };
-const isRoleEntry = (value) => {
+const isRoleEntry = (value, defs) => {
     if (!value || typeof value !== "object")
         return false;
     const entry = value;
@@ -30,10 +30,10 @@ const isRoleEntry = (value) => {
         && entry.instances.every((instance) => instance.transient === true);
     // 注册表角色是正常路径；带实例的未知 key 可能是已删除定义的残留，
     // 仍需保留以便状态/菜单显示原 key。transient 同样不写注册表。
-    return (isTeamRole(entry.key) || transientOnly || entry.instances.length > 0)
+    return (isTeamRole(entry.key, defs) || transientOnly || entry.instances.length > 0)
         && entry.key.length > 0;
 };
-const isTeamState = (value) => {
+const isTeamState = (value, defs) => {
     if (!value || typeof value !== "object")
         return false;
     const state = value;
@@ -46,7 +46,7 @@ const isTeamState = (value) => {
     const ownerRecord = owner;
     if (typeof ownerRecord.paneId !== "string")
         return false;
-    if (!Array.isArray(roles) || !roles.every(isRoleEntry))
+    if (!Array.isArray(roles) || !roles.every((entry) => isRoleEntry(entry, defs)))
         return false;
     return new Set(roles.map((entry) => entry.key)).size === roles.length;
 };
@@ -67,24 +67,40 @@ export function resolveSessionStatePath(ownerPaneId) {
     const pane = ownerPaneId ?? process.env.HERDR_PANE_ID ?? "";
     return join(teamsDir(), `${pane.replaceAll(":", "_")}.json`);
 }
-export function currentRole() {
+export function currentRole(defs = getAllRoleDefs()) {
     const roleValue = process.env.HAPI_ORCH_ROLE;
-    if (typeof roleValue === "string" && getRoleDef(roleValue))
+    if (typeof roleValue === "string" && defs.some((role) => role.key === roleValue))
         return roleValue;
     if (typeof roleValue !== "string" || roleValue.length === 0)
         return undefined;
     const transientPrompt = process.env.HAPI_ORCH_ROLE_PROMPT;
-    return process.env.HAPI_ORCH_TRANSIENT_ROLE === "1" && typeof transientPrompt === "string" && transientPrompt.length > 0
-        ? roleValue
-        : undefined;
+    if (process.env.HAPI_ORCH_TRANSIENT_ROLE === "1" && typeof transientPrompt === "string" && transientPrompt.length > 0) {
+        return roleValue;
+    }
+    // 自定义定义可能在角色面板仍存活时被删除；该 pane 仍应保持角色
+    // prompt，而不是因缺失 registry 定义退回 orchestrator。
+    const paneId = process.env.HERDR_PANE_ID;
+    if (!paneId || !existsSync(teamsDir()))
+        return undefined;
+    try {
+        const roleState = findTeamStateForPane(paneId, defs);
+        return roleState && "roles" in roleState
+            && roleState.roles.some((entry) => entry.key === roleValue
+                && entry.instances.some((instance) => instance.paneId === paneId))
+            ? roleValue
+            : undefined;
+    }
+    catch {
+        return undefined;
+    }
 }
-export const readTeamStateEffect = (path) => Effect.try({
+export const readTeamStateEffect = (path, defs = getAllRoleDefs()) => Effect.try({
     try: () => {
         const statePath = path ?? resolveSessionStatePath();
         if (!existsSync(statePath))
             return disabledState();
         const parsed = JSON.parse(readFileSync(statePath, "utf8"));
-        return isTeamState(parsed) ? parsed : disabledState();
+        return isTeamState(parsed, defs) ? parsed : disabledState();
     },
     catch: (error) => new TeamStateError({
         message: error instanceof Error ? error.message : String(error),
@@ -93,11 +109,11 @@ export const readTeamStateEffect = (path) => Effect.try({
     console.warn(`[hpl-orchestra] 状态文件读取失败，按未启用处理：${error.message}`);
     return disabledState();
 })));
-export function readTeamState(path) {
-    return Effect.runSync(readTeamStateEffect(path));
+export function readTeamState(path, defs) {
+    return Effect.runSync(readTeamStateEffect(path, defs));
 }
 /** Role panes have their own Pi session id; locate their owner's state by pane id. */
-export const findTeamStateForPaneEffect = (paneId) => Effect.try({
+export const findTeamStateForPaneEffect = (paneId, defs = getAllRoleDefs()) => Effect.try({
     try: () => {
         const directory = teamsDir();
         if (!existsSync(directory))
@@ -105,8 +121,8 @@ export const findTeamStateForPaneEffect = (paneId) => Effect.try({
         for (const name of readdirSync(directory)) {
             if (!name.endsWith(".json"))
                 continue;
-            const state = readTeamState(join(directory, name));
-            if (!isTeamState(state))
+            const state = readTeamState(join(directory, name), defs);
+            if (!("roles" in state))
                 continue;
             if (allInstances(state).some((instance) => instance.paneId === paneId))
                 return state;
@@ -120,8 +136,8 @@ export const findTeamStateForPaneEffect = (paneId) => Effect.try({
     console.warn(`[hpl-orchestra] 按 pane 查找状态失败：${error.message}`);
     return undefined;
 })));
-export function findTeamStateForPane(paneId) {
-    return Effect.runSync(findTeamStateForPaneEffect(paneId));
+export function findTeamStateForPane(paneId, defs = getAllRoleDefs()) {
+    return Effect.runSync(findTeamStateForPaneEffect(paneId, defs));
 }
 export const writeTeamStateEffect = (state, path) => Effect.try({
     try: () => {
@@ -152,8 +168,8 @@ export const deleteTeamStateEffect = (path) => Effect.try({
     console.warn(`[hpl-orchestra] 状态文件删除失败：${error.message}`);
     return false;
 })));
-export function isTeamOwner(state) {
-    if (!isTeamState(state))
+export function isTeamOwner(state, defs) {
+    if (!("roles" in state) || !isTeamState(state, defs ?? getAllRoleDefs()))
         return false;
     const paneId = process.env.HERDR_PANE_ID;
     return Boolean(paneId) && state.owner.paneId === paneId;
@@ -163,16 +179,17 @@ export const buildTeamSectionsEffect = () => Effect.try({
     try: () => {
         if (!herdrEnvAvailable())
             return {};
-        const role = currentRole();
+        const defs = getAllRoleDefs();
+        const role = currentRole(defs);
         if (role)
             return { role };
-        const state = readTeamState(resolveSessionStatePath());
-        if (!state.enabled || !isTeamOwner(state))
+        const state = readTeamState(resolveSessionStatePath(), defs);
+        if (!state.enabled || !isTeamOwner(state, defs))
             return {};
         const stateRoles = new Map(state.roles.map((entry) => [entry.key, entry]));
         const keys = [
-            ...getAllRoleDefs().map((roleDef) => roleDef.key),
-            ...state.roles.map((entry) => entry.key).filter((key) => !getRoleDef(key)),
+            ...defs.map((roleDef) => roleDef.key),
+            ...state.roles.map((entry) => entry.key).filter((key) => !defs.some((roleDef) => roleDef.key === key)),
         ];
         const crew = keys.flatMap((key) => {
             const instances = stateRoles.get(key)?.instances ?? [];

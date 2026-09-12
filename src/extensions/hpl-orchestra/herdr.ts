@@ -257,11 +257,6 @@ export function resolveTierModelByTier(tier: ModelTier): string | undefined {
   return first ? `${first.provider}/${first.id}` : undefined;
 }
 
-/** v1 兼容别名；新代码应使用可覆盖三档的 resolveTierModelByTier。 */
-export function resolveTierModel(tier: ModelTier): string | undefined {
-  return resolveTierModelByTier(tier);
-}
-
 /** 为讨论成员优先挑选与主面板不同 provider 的 opus 模型。 */
 export function resolveDiscussantModel(ownerProvider: string | undefined): string | undefined {
   const models = readResolvedTierModelsSafely().opus;

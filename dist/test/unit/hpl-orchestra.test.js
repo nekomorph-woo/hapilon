@@ -8,7 +8,7 @@ import hplOrchestra from "../../extensions/hpl-orchestra/index.js";
 import { handleTeamCommand, resetProbeCache, updateTeamStatus } from "../../extensions/hpl-orchestra/menu.js";
 import { buildTeamSections, currentRole, findTeamStateForPane, findRoleEntry, isTeamOwner, readTeamState, resolveSessionStatePath, writeTeamStateEffect, } from "../../extensions/hpl-orchestra/state.js";
 import { resetTeamSections, setTeamSections } from "../../extensions/hpl-orchestra/bridge.js";
-import { fillOrchestratorSection, ORCHESTRATOR_SECTION, REVIEWER_SECTION, WORKER_SECTION } from "../../extensions/hpl-orchestra/roles.js";
+import { buildTeamRoleSection, fillOrchestratorSection, ORCHESTRATOR_SECTION } from "../../extensions/hpl-orchestra/roles.js";
 import hplSystemPrompt from "../../extensions/hpl-system-prompt/index.js";
 const originalEnv = {
     home: process.env.HAPILON_HOME,
@@ -214,7 +214,7 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         const filled = fillOrchestratorSection([{ key: "worker", paneId: "w1:p8" }]);
         assert.ok(filled.includes("worker w1:p8"));
         assert.ok(filled.includes("reviewer not open"));
-        assert.ok(filled.includes("reviewer not open — tell the user to open it via /team menu, do not dispatch"));
+        assert.ok(filled.includes("reviewer not open — tell the user to open it via /team menu; do not dispatch until open"));
         const dispatchLine = filled.split("\n").find((line) => line.includes("3. Dispatch:"));
         assert.ok(dispatchLine?.includes("background(command="));
         assert.ok(dispatchLine?.includes("--wait --timeout 600000"));
@@ -401,12 +401,12 @@ describe("hpl-orchestra system prompt exclusivity", { concurrency: false }, () =
         process.env.HAPI_ORCH_ROLE = "worker";
         setTeamSections({ role: "worker" });
         let result = await handler({ systemPromptOptions: promptOptions() }, {});
-        assert.ok(result.systemPrompt.includes(WORKER_SECTION));
+        assert.ok(result.systemPrompt.includes(buildTeamRoleSection("worker")));
         assert.equal((result.systemPrompt.match(/<team mode=/g) ?? []).length, 1);
         process.env.HAPI_ORCH_ROLE = "reviewer";
         setTeamSections({ role: "reviewer" });
         result = await handler({ systemPromptOptions: promptOptions() }, {});
-        assert.ok(result.systemPrompt.includes(REVIEWER_SECTION));
+        assert.ok(result.systemPrompt.includes(buildTeamRoleSection("reviewer")));
         assert.equal((result.systemPrompt.match(/<team mode=/g) ?? []).length, 1);
         delete process.env.HAPI_ORCH_ROLE;
         saveState();

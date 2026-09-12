@@ -18,7 +18,7 @@ import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
 import { getAddedDirs } from "../hpl-add-dir/bridge.js";
 import { buildContextInjection } from "../hpl-add-dir/context.js";
-import { buildTeamRoleSection, ORCHESTRATOR_TAGGED } from "../hpl-orchestra/roles.js";
+import { buildTeamRoleSection, MISSING_ROLE_SECTION, ORCHESTRATOR_TAGGED } from "../hpl-orchestra/roles.js";
 // ── Individual builders ────────────────────────────────────────────────
 export function buildRoleSection() {
     return `<role>\n${ROLE_TEXT}\n</role>`;
@@ -188,7 +188,7 @@ export function assembleSystemPrompt(opts) {
     const teamSection = process.env.HERDR_ENV !== "1"
         ? ""
         : team?.role
-            ? (buildTeamRoleSection(team.role) ?? "")
+            ? (buildTeamRoleSection(team.role) ?? MISSING_ROLE_SECTION)
             : (team?.orchestrator ?? ORCHESTRATOR_TAGGED);
     const codeStyleSection = buildCodeStyleSection();
     const piDocSection = buildPiDocSection();

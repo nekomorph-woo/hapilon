@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdir
 import { dirname, join } from "node:path";
 import { Data, Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
-import { getAllRoleDefs, getRoleDef } from "./role-registry.js";
+import { getAllRoleDefs, type TeamRoleDef } from "./role-registry.js";
 import { fillOrchestratorSection } from "./roles.js";
 import { herdrEnvAvailable } from "./herdr.js";
 
@@ -47,8 +47,8 @@ export class TeamStateError extends Data.TaggedError("TeamStateError")<{
 
 const disabledState = (): DisabledTeamState => ({ enabled: false });
 
-export const isTeamRole = (value: unknown): value is TeamRole =>
-  typeof value === "string" && getRoleDef(value) !== undefined;
+export const isTeamRole = (value: unknown, defs: readonly TeamRoleDef[] = getAllRoleDefs()): value is TeamRole =>
+  typeof value === "string" && defs.some((role) => role.key === value);
 
 const isRoleInstance = (value: unknown): value is RoleInstance => {
   if (!value || typeof value !== "object") return false;
@@ -58,7 +58,7 @@ const isRoleInstance = (value: unknown): value is RoleInstance => {
     && (instance.transient === undefined || typeof instance.transient === "boolean");
 };
 
-const isRoleEntry = (value: unknown): value is RoleEntry => {
+const isRoleEntry = (value: unknown, defs: readonly TeamRoleDef[]): value is RoleEntry => {
   if (!value || typeof value !== "object") return false;
   const entry = value as Record<string, unknown>;
   if (typeof entry.key !== "string" || !Array.isArray(entry.instances)) return false;
@@ -68,11 +68,11 @@ const isRoleEntry = (value: unknown): value is RoleEntry => {
     && entry.instances.every((instance) => instance.transient === true);
   // 注册表角色是正常路径；带实例的未知 key 可能是已删除定义的残留，
   // 仍需保留以便状态/菜单显示原 key。transient 同样不写注册表。
-  return (isTeamRole(entry.key) || transientOnly || entry.instances.length > 0)
+  return (isTeamRole(entry.key, defs) || transientOnly || entry.instances.length > 0)
     && entry.key.length > 0;
 };
 
-const isTeamState = (value: unknown): value is TeamState => {
+const isTeamState = (value: unknown, defs: readonly TeamRoleDef[]): value is TeamState => {
   if (!value || typeof value !== "object") return false;
   const state = value as Record<string, unknown>;
   const owner = state.owner;
@@ -81,7 +81,7 @@ const isTeamState = (value: unknown): value is TeamState => {
   if (!owner || typeof owner !== "object") return false;
   const ownerRecord = owner as Record<string, unknown>;
   if (typeof ownerRecord.paneId !== "string") return false;
-  if (!Array.isArray(roles) || !roles.every(isRoleEntry)) return false;
+  if (!Array.isArray(roles) || !roles.every((entry) => isRoleEntry(entry, defs))) return false;
   return new Set(roles.map((entry) => entry.key)).size === roles.length;
 };
 
@@ -106,22 +106,39 @@ export function resolveSessionStatePath(ownerPaneId?: string): string {
   return join(teamsDir(), `${pane.replaceAll(":", "_")}.json`);
 }
 
-export function currentRole(): TeamRole | undefined {
+export function currentRole(defs: readonly TeamRoleDef[] = getAllRoleDefs()): TeamRole | undefined {
   const roleValue = process.env.HAPI_ORCH_ROLE;
-  if (typeof roleValue === "string" && getRoleDef(roleValue)) return roleValue;
+  if (typeof roleValue === "string" && defs.some((role) => role.key === roleValue)) return roleValue;
   if (typeof roleValue !== "string" || roleValue.length === 0) return undefined;
   const transientPrompt = process.env.HAPI_ORCH_ROLE_PROMPT;
-  return process.env.HAPI_ORCH_TRANSIENT_ROLE === "1" && typeof transientPrompt === "string" && transientPrompt.length > 0
-    ? roleValue
-    : undefined;
+  if (process.env.HAPI_ORCH_TRANSIENT_ROLE === "1" && typeof transientPrompt === "string" && transientPrompt.length > 0) {
+    return roleValue;
+  }
+  // 自定义定义可能在角色面板仍存活时被删除；该 pane 仍应保持角色
+  // prompt，而不是因缺失 registry 定义退回 orchestrator。
+  const paneId = process.env.HERDR_PANE_ID;
+  if (!paneId || !existsSync(teamsDir())) return undefined;
+  try {
+    const roleState = findTeamStateForPane(paneId, defs);
+    return roleState && "roles" in roleState
+      && roleState.roles.some((entry) => entry.key === roleValue
+        && entry.instances.some((instance) => instance.paneId === paneId))
+      ? roleValue
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
-export const readTeamStateEffect = (path?: string): Effect.Effect<ReadTeamState, never> => Effect.try({
+export const readTeamStateEffect = (
+  path?: string,
+  defs: readonly TeamRoleDef[] = getAllRoleDefs(),
+): Effect.Effect<ReadTeamState, never> => Effect.try({
   try: () => {
     const statePath = path ?? resolveSessionStatePath();
     if (!existsSync(statePath)) return disabledState();
     const parsed: unknown = JSON.parse(readFileSync(statePath, "utf8"));
-    return isTeamState(parsed) ? parsed : disabledState();
+    return isTeamState(parsed, defs) ? parsed : disabledState();
   },
   catch: (error) => new TeamStateError({
     message: error instanceof Error ? error.message : String(error),
@@ -133,19 +150,22 @@ export const readTeamStateEffect = (path?: string): Effect.Effect<ReadTeamState,
   })),
 );
 
-export function readTeamState(path?: string): ReadTeamState {
-  return Effect.runSync(readTeamStateEffect(path));
+export function readTeamState(path?: string, defs?: readonly TeamRoleDef[]): ReadTeamState {
+  return Effect.runSync(readTeamStateEffect(path, defs));
 }
 
 /** Role panes have their own Pi session id; locate their owner's state by pane id. */
-export const findTeamStateForPaneEffect = (paneId: string): Effect.Effect<ReadTeamState | undefined, never> => Effect.try({
+export const findTeamStateForPaneEffect = (
+  paneId: string,
+  defs: readonly TeamRoleDef[] = getAllRoleDefs(),
+): Effect.Effect<ReadTeamState | undefined, never> => Effect.try({
   try: () => {
     const directory = teamsDir();
     if (!existsSync(directory)) return undefined;
     for (const name of readdirSync(directory)) {
       if (!name.endsWith(".json")) continue;
-      const state = readTeamState(join(directory, name));
-      if (!isTeamState(state)) continue;
+      const state = readTeamState(join(directory, name), defs);
+      if (!("roles" in state)) continue;
       if (allInstances(state).some((instance) => instance.paneId === paneId)) return state;
     }
     return undefined;
@@ -160,8 +180,11 @@ export const findTeamStateForPaneEffect = (paneId: string): Effect.Effect<ReadTe
   })),
 );
 
-export function findTeamStateForPane(paneId: string): ReadTeamState | undefined {
-  return Effect.runSync(findTeamStateForPaneEffect(paneId));
+export function findTeamStateForPane(
+  paneId: string,
+  defs: readonly TeamRoleDef[] = getAllRoleDefs(),
+): ReadTeamState | undefined {
+  return Effect.runSync(findTeamStateForPaneEffect(paneId, defs));
 }
 
 export const writeTeamStateEffect = (
@@ -201,8 +224,8 @@ export const deleteTeamStateEffect = (path?: string): Effect.Effect<boolean, nev
   })),
 );
 
-export function isTeamOwner(state: ReadTeamState): boolean {
-  if (!isTeamState(state)) return false;
+export function isTeamOwner(state: ReadTeamState, defs?: readonly TeamRoleDef[]): boolean {
+  if (!("roles" in state) || !isTeamState(state, defs ?? getAllRoleDefs())) return false;
   const paneId = process.env.HERDR_PANE_ID;
   return Boolean(paneId) && state.owner.paneId === paneId;
 }
@@ -212,15 +235,16 @@ export const buildTeamSectionsEffect = (): Effect.Effect<TeamSections, never> =>
   try: () => {
     if (!herdrEnvAvailable()) return {};
 
-    const role = currentRole();
+    const defs = getAllRoleDefs();
+    const role = currentRole(defs);
     if (role) return { role };
 
-    const state = readTeamState(resolveSessionStatePath());
-    if (!state.enabled || !isTeamOwner(state)) return {};
+    const state = readTeamState(resolveSessionStatePath(), defs);
+    if (!state.enabled || !isTeamOwner(state, defs)) return {};
     const stateRoles = new Map(state.roles.map((entry) => [entry.key, entry]));
     const keys = [
-      ...getAllRoleDefs().map((roleDef) => roleDef.key),
-      ...state.roles.map((entry) => entry.key).filter((key) => !getRoleDef(key)),
+      ...defs.map((roleDef) => roleDef.key),
+      ...state.roles.map((entry) => entry.key).filter((key) => !defs.some((roleDef) => roleDef.key === key)),
     ];
     const crew = keys.flatMap((key) => {
       const instances = stateRoles.get(key)?.instances ?? [];

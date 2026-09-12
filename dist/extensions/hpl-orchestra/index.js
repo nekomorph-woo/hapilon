@@ -1,8 +1,9 @@
 import { Effect } from "effect";
-import { handleTeamCommand, handleTransientMessage, updateTeamStatus } from "./menu.js";
+import { assistantMessageText, completePendingRole, getPendingRoleWizard, handlePendingUserMessage, handleTeamCommand, updateTeamStatus, } from "./menu.js";
 import { herdrEnvAvailable } from "./herdr.js";
 import { buildTeamSectionsEffect } from "./state.js";
 import { setTeamSections } from "./bridge.js";
+import { parseRoleDefSentinel } from "./role-wizard.js";
 export default function hplOrchestra(pi) {
     pi.registerCommand("team", {
         description: "Manage the herdr three-pane team",
@@ -25,6 +26,14 @@ export default function hplOrchestra(pi) {
         await updateTeamStatus(ctx);
     });
     pi.on("message_end", async (event) => {
-        await handleTransientMessage(event.message);
+        if (handlePendingUserMessage(event.message))
+            return;
+        const pending = getPendingRoleWizard();
+        if (!pending)
+            return;
+        const parsed = parseRoleDefSentinel(assistantMessageText(event.message));
+        if (!parsed)
+            return;
+        await completePendingRole(parsed);
     });
 }
