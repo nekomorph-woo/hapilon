@@ -180,6 +180,19 @@ describe("buildGuidelinesSection", () => {
         const result = buildGuidelinesSection([], ["bash", "grep"]);
         assert.ok(!result.includes("Use bash for file operations"), "部分启用同样不追加");
     });
+    it("对齐 0.85.1: bash+PowerShell 双启用时用组合措辞", () => {
+        const result = buildGuidelinesSection([], ["bash", "powershell"]);
+        assert.ok(result.includes("Use bash or PowerShell for file operations like listing, searching, and finding files"));
+    });
+    it("对齐 0.85.1: 仅 PowerShell 启用（Windows 场景）用 PowerShell 措辞", () => {
+        const result = buildGuidelinesSection([], ["powershell"]);
+        assert.ok(result.includes("Use PowerShell for file operations like listing, searching, and finding files"));
+        assert.ok(!result.includes("Use bash"));
+    });
+    it("对齐 0.85.1: 仅 PowerShell 且有 grep 时不追加文件操作指引", () => {
+        const result = buildGuidelinesSection([], ["powershell", "grep"]);
+        assert.ok(!result.includes("Use PowerShell for file operations"));
+    });
     it("边界条件: 空 promptGuidelines 仅输出内建准则", () => {
         const result = buildGuidelinesSection([], ["read"]);
         assert.ok(result.includes("Be concise in your responses"));
@@ -295,6 +308,22 @@ describe("buildSkillsSection", () => {
         assert.equal(buildSkillsSection([]), placeholder, "空数组输出占位");
         assert.equal(buildSkillsSection(undefined), placeholder, "undefined 输出占位");
         assert.equal(buildSkillsSection([{ name: "a", description: "d", filePath: "/a", disableModelInvocation: true }]), placeholder, "全部禁用输出占位");
+    });
+    it("对齐 0.85.1: 未传工具集时默认 read 指引（向后兼容缺省语义）", () => {
+        const result = buildSkillsSection([
+            { name: "a", description: "d", filePath: "/a/SKILL.md" },
+        ]);
+        assert.ok(result.includes("Use the read tool to load a skill's file"));
+    });
+    it("对齐 0.85.1: 仅 bash 无 read 时指引改为 Use bash", () => {
+        const result = buildSkillsSection([{ name: "a", description: "d", filePath: "/a/SKILL.md" }], ["bash", "edit", "write"]);
+        assert.ok(result.includes("Use bash to load a skill's file"));
+        assert.ok(!result.includes("read tool"), "不再提 read tool");
+    });
+    it("对齐 0.85.1: read 与 bash 都不在工具集时静默不注入 skills", () => {
+        const result = buildSkillsSection([{ name: "a", description: "d", filePath: "/a/SKILL.md" }], ["edit", "write"]);
+        assert.ok(!result.includes("<name>a</name>"), "skill 不出现");
+        assert.ok(result.includes("当前为空"), "输出占位");
     });
 });
 describe("buildAppendSection", () => {
