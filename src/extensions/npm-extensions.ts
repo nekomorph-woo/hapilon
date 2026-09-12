@@ -30,6 +30,12 @@ const NPM_EXTENSIONS: readonly [pkg: string, entry: string][] = [
   ["pi-web-access", "index.ts"],
   // #49 MCP 桥接（入口取自包内 pi.extensions 声明）
   ["pi-mcp-adapter", "index.ts"],
+  // 后台任务原语（background/monitor/jobs 三 tool）：命令退出经
+  // pi.sendMessage(triggerTurn) 唤醒 agent。选极简版 @nklisch 而非
+  // ismailsaleekh 主包——主包 /tasks 与 pi-tasks 撞名且带 Fusion 等冗余。
+  // setStatus key "background-tasks" 与 hpl-orchestra "team" 不冲突。
+  // 注意 background 直通 /bin/sh 不经 hpl-safety-gate（v1 接受）。
+  ["@nklisch/pi-background-tasks", "extensions/background-tasks.ts"],
   // #55 极简编码规则（防御性编程减脂）。必须在末位：其 before_agent_start
   // 是「尾部追加」语义，先于 hpl-system-prompt（全量替换）执行会被抹掉。
   // 顺序由 npm-extensions.test.ts 的末位断言 + ponytail-load-order 集成测试钉死。

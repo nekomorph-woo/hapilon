@@ -9,8 +9,9 @@ import { resolveNpmExtensionPaths, resolveExtensionEntry } from "../../extension
 describe("resolveNpmExtensionPaths()", () => {
   it("解析出全部 npm 扩展的绝对入口路径", () => {
     const paths = resolveNpmExtensionPaths();
-    // 2 个 tintinweb 包 + #43 集成四包 + #49 pi-mcp-adapter + #55 ponytail
-    assert.equal(paths.length, 8);
+    // 2 个 tintinweb 包 + #43 集成四包 + #49 pi-mcp-adapter
+    // + @nklisch/pi-background-tasks + #55 ponytail
+    assert.equal(paths.length, 9);
     for (const p of paths) {
       assert.ok(existsSync(p), `入口文件应存在: ${p}`);
     }
@@ -32,8 +33,17 @@ describe("resolveNpmExtensionPaths()", () => {
 
   it("#49 pi-mcp-adapter 入口与包内 pi.extensions 声明一致", () => {
     const paths = resolveNpmExtensionPaths();
-    const adapter = paths[paths.length - 2];
-    assert.ok(adapter.endsWith("pi-mcp-adapter/index.ts"), `mcp-adapter: ${adapter}`);
+    const adapter = paths.find((p) => p.includes("pi-mcp-adapter"));
+    assert.ok(adapter?.endsWith("pi-mcp-adapter/index.ts"), `mcp-adapter: ${adapter}`);
+  });
+
+  it("pi-background-tasks 入口在 ponytail 之前（包内 pi.extensions 声明）", () => {
+    const paths = resolveNpmExtensionPaths();
+    const bg = paths.find((p) => p.includes("@nklisch/pi-background-tasks"));
+    assert.ok(bg?.endsWith("extensions/background-tasks.ts"), `background-tasks: ${bg}`);
+    const bgIndex = paths.findIndex((p) => p.includes("@nklisch"));
+    const ponytailIndex = paths.findIndex((p) => p.includes("ponytail"));
+    assert.ok(bgIndex < ponytailIndex, "background-tasks 必须先于 ponytail 加载");
   });
 
   it("#55 ponytail 入口在 NPM_EXTENSIONS 末位（保证 hpl 先跑、ponytail 尾部追加）", () => {

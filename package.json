@@ -28,10 +28,12 @@
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.74",
     "@dietrichgebert/ponytail": "^4.9.0",
+    "@earendil-works/pi-ai": "^0.85.1",
     "@earendil-works/pi-coding-agent": "^0.85.1",
     "@earendil-works/pi-tui": "^0.85.1",
     "@ff-labs/pi-fff": "^0.10.5",
     "@narumitw/pi-btw": "^0.56.0",
+    "@nklisch/pi-background-tasks": "^0.1.8",
     "@tintinweb/pi-subagents": "^0.19.0",
     "@tintinweb/pi-tasks": "^0.9.0",
     "@zhushanwen/pi-ask-user": "^7.0.15",
