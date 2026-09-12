@@ -166,14 +166,20 @@ function truncateByWidth(text, width) {
 }
 /**
  * 左右两端对齐布局：宽度足够时中间补空格右对齐；
- * 不足时按可见宽度截断右侧（右侧为纯文本）；极窄时仅输出左侧。
+ * 不足时按可见宽度截断右侧（右侧为纯文本）；left 本身超宽时截断 left——
+ * 不截断会让 pi TUI 以 "Rendered line exceeds terminal width" 直接崩溃
+ * （team 模式的窄分割面板实测触发）。
  */
 export function layoutLine(left, right, width) {
     const minPadding = 2;
-    const leftWidth = visibleWidth(left);
+    let leftWidth = visibleWidth(left);
     const rightWidth = visibleWidth(right);
     if (leftWidth + minPadding + rightWidth <= width) {
         return left + " ".repeat(width - leftWidth - rightWidth) + right;
+    }
+    if (leftWidth + minPadding > width) {
+        left = truncateByWidth(left, Math.max(0, width - minPadding));
+        leftWidth = visibleWidth(left);
     }
     const availableForRight = width - leftWidth - minPadding;
     if (availableForRight > 0) {
