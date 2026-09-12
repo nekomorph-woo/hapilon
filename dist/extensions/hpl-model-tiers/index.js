@@ -172,7 +172,7 @@ export default function hplModelTiers(pi) {
         console.log(`[hpl-model-tiers] opus=${result.tiers.opus.length} sonnet=${result.tiers.sonnet.length} haiku=${result.tiers.haiku.length}${reloadHint}`);
     });
 }
-const TIER_OPERATIONS = ["添加模型", "移除模型", "清空档位"];
+const TIER_OPERATIONS = ["添加模型", "移除模型", "调整顺序", "清空档位"];
 /** 档位显示名（内部 key 一律小写）。 */
 const TIER_DISPLAY = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
 function modelOption(model) {
@@ -233,6 +233,28 @@ async function addModels(ctx, tiers, tier) {
     if (changed)
         await saveEditedTiers(ctx, tiers, tier);
 }
+/**
+ * 选模型上移排序：每次 select 一个模型即与前一位交换，实时展示当前顺序；
+ * 「完成」保存，esc 取消不保存。顺序即优先级——default 兜底取 opus[0]、
+ * recap 与 team 的 worker/reviewer 均按档位数组顺序回退。
+ */
+async function reorderModels(ctx, tiers, tier) {
+    const list = [...tiers[tier]];
+    while (true) {
+        const numbered = list.map((value, index) => `${index + 1}. ${value}`);
+        const selected = await ctx.ui.select(`调整 ${TIER_DISPLAY[tier]} 顺序（选择模型与前一位交换，越靠前优先级越高）`, [...numbered, "完成"]);
+        if (selected === undefined)
+            return; // esc：不保存
+        if (selected === "完成")
+            break;
+        const index = numbered.indexOf(selected);
+        if (index <= 0)
+            continue; // 已是第一位
+        [list[index - 1], list[index]] = [list[index], list[index - 1]];
+    }
+    tiers[tier] = list;
+    await saveEditedTiers(ctx, tiers, tier);
+}
 async function handleTiersCommand(ctx) {
     const tiers = yieldTiers(ctx.cwd);
     await showTiersOverview(ctx, tiers);
@@ -252,6 +274,10 @@ async function handleTiersCommand(ctx) {
     }
     if (operation === "添加模型") {
         await addModels(ctx, tiers, selectedTier);
+        return;
+    }
+    if (operation === "调整顺序") {
+        await reorderModels(ctx, tiers, selectedTier);
         return;
     }
     const configured = [...tiers[selectedTier]];
