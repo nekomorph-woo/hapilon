@@ -140,7 +140,7 @@ export const migrateLegacyDefaultsEffect = Effect.gen(function* () {
 });
 // ─── CLI arg helpers ─────────────────────────────────────────────────
 /** hapilon 自有 flag 注册表 —— pi 不认识、spawn 前必须剥离的参数 */
-export const HAPILON_FLAGS = ["--no-safety", "--sandbox", "--no-econ"];
+export const HAPILON_FLAGS = ["--no-safety", "--sandbox", "--no-econ", "--setup-windows"];
 export function hasFlag(args, flag) {
     return args.some((a) => a === flag || a.startsWith(flag + "="));
 }
