@@ -7,9 +7,15 @@ import { herdrEnvAvailable } from "./herdr.js";
 
 export type TeamRole = "worker" | "reviewer";
 
-export interface TeamPaneState {
-  paneId: string | null;
+export interface RoleInstance {
+  paneId: string;
   model: string | null;
+  transient?: boolean;
+}
+
+export interface RoleEntry {
+  key: string;
+  instances: RoleInstance[];
 }
 
 export interface TeamOwner {
@@ -20,7 +26,7 @@ export interface TeamState {
   enabled: boolean;
   since: string;
   owner: TeamOwner;
-  roles: Record<TeamRole, TeamPaneState>;
+  roles: RoleEntry[];
 }
 
 export interface DisabledTeamState {
@@ -40,11 +46,22 @@ export class TeamStateError extends Data.TaggedError("TeamStateError")<{
 
 const disabledState = (): DisabledTeamState => ({ enabled: false });
 
-const isPaneState = (value: unknown): value is TeamPaneState => {
+const isTeamRole = (value: unknown): value is TeamRole => value === "worker" || value === "reviewer";
+
+const isRoleInstance = (value: unknown): value is RoleInstance => {
   if (!value || typeof value !== "object") return false;
-  const pane = value as Record<string, unknown>;
-  return (typeof pane.paneId === "string" || pane.paneId === null)
-    && (typeof pane.model === "string" || pane.model === null);
+  const instance = value as Record<string, unknown>;
+  return typeof instance.paneId === "string"
+    && (typeof instance.model === "string" || instance.model === null)
+    && (instance.transient === undefined || typeof instance.transient === "boolean");
+};
+
+const isRoleEntry = (value: unknown): value is RoleEntry => {
+  if (!value || typeof value !== "object") return false;
+  const entry = value as Record<string, unknown>;
+  return isTeamRole(entry.key)
+    && Array.isArray(entry.instances)
+    && entry.instances.every(isRoleInstance);
 };
 
 const isTeamState = (value: unknown): value is TeamState => {
@@ -56,10 +73,17 @@ const isTeamState = (value: unknown): value is TeamState => {
   if (!owner || typeof owner !== "object") return false;
   const ownerRecord = owner as Record<string, unknown>;
   if (typeof ownerRecord.paneId !== "string") return false;
-  if (!roles || typeof roles !== "object") return false;
-  const roleRecord = roles as Record<string, unknown>;
-  return isPaneState(roleRecord.worker) && isPaneState(roleRecord.reviewer);
+  if (!Array.isArray(roles) || !roles.every(isRoleEntry)) return false;
+  return new Set(roles.map((entry) => entry.key)).size === roles.length;
 };
+
+export function findRoleEntry(state: TeamState, key: string): RoleEntry | undefined {
+  return state.roles.find((entry) => entry.key === key);
+}
+
+export function allInstances(state: TeamState): RoleInstance[] {
+  return state.roles.flatMap((entry) => entry.instances);
+}
 
 export function teamsDir(): string {
   return join(hapilonHome(), "teams");
@@ -109,7 +133,7 @@ export const findTeamStateForPaneEffect = (paneId: string): Effect.Effect<ReadTe
       if (!name.endsWith(".json")) continue;
       const state = readTeamState(join(directory, name));
       if (!isTeamState(state)) continue;
-      if (state.roles.worker.paneId === paneId || state.roles.reviewer.paneId === paneId) return state;
+      if (allInstances(state).some((instance) => instance.paneId === paneId)) return state;
     }
     return undefined;
   },
@@ -180,9 +204,11 @@ export const buildTeamSectionsEffect = (): Effect.Effect<TeamSections, never> =>
 
     const state = readTeamState(resolveSessionStatePath());
     if (!state.enabled || !isTeamOwner(state)) return {};
-    return {
-      orchestrator: fillOrchestratorSection(state.roles.worker.paneId, state.roles.reviewer.paneId),
-    };
+    const crew = state.roles.flatMap((entry) => {
+      const first = entry.instances[0];
+      return first ? [{ key: entry.key, paneId: first.paneId }] : [];
+    });
+    return { orchestrator: fillOrchestratorSection(crew) };
   },
   catch: (error) => new TeamStateError({
     message: error instanceof Error ? error.message : String(error),

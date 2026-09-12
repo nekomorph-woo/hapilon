@@ -5,10 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import hplOrchestra from "../../extensions/hpl-orchestra/index.js";
-import { handleTeamCommand } from "../../extensions/hpl-orchestra/menu.js";
+import { handleTeamCommand, resetProbeCache, updateTeamStatus } from "../../extensions/hpl-orchestra/menu.js";
 import {
   buildTeamSections,
   currentRole,
+  findTeamStateForPane,
+  findRoleEntry,
   isTeamOwner,
   readTeamState,
   resolveSessionStatePath,
@@ -34,10 +36,10 @@ const stateFor = (overrides: Partial<TeamState> = {}): TeamState => ({
   enabled: true,
   since: "2026-09-12T10:00:00.000Z",
   owner: { paneId: "w1:p7" },
-  roles: {
-    worker: { paneId: "w1:p8", model: "anthropic/sonnet" },
-    reviewer: { paneId: null, model: null },
-  },
+  roles: [{
+    key: "worker",
+    instances: [{ paneId: "w1:p8", model: "anthropic/sonnet" }],
+  }],
   ...overrides,
 });
 
@@ -165,11 +167,35 @@ after(() => {
 });
 
 describe("hpl-orchestra state", { concurrency: false }, () => {
-  it("状态文件 roundtrip，损坏 JSON 降级为 enabled=false", () => {
+  it("状态文件 roundtrip，损坏 JSON 和旧格式降级为 enabled=false", () => {
     saveState();
     assert.deepEqual(readTeamState(statePath()), stateFor());
     writeFileSync(statePath(), "{broken json", "utf8");
     assert.deepEqual(readTeamState(statePath()), { enabled: false });
+    writeFileSync(statePath(), JSON.stringify({
+      enabled: true,
+      since: stateFor().since,
+      owner: stateFor().owner,
+      roles: {
+        worker: { paneId: "w1:p8", model: "anthropic/sonnet" },
+        reviewer: { paneId: null, model: null },
+      },
+    }), "utf8");
+    assert.deepEqual(readTeamState(statePath()), { enabled: false });
+  });
+
+  it("按 pane 查找命中多实例中的第二个 pane", () => {
+    const state = stateFor({
+      roles: [{
+        key: "worker",
+        instances: [
+          { paneId: "w1:p8", model: "anthropic/sonnet" },
+          { paneId: "w1:p10", model: "anthropic/sonnet" },
+        ],
+      }],
+    });
+    saveState(state);
+    assert.deepEqual(findTeamStateForPane("w1:p10"), state);
   });
 
   it("owner pane 不符时不注入 orchestrator", () => {
@@ -203,12 +229,13 @@ describe("hpl-orchestra state", { concurrency: false }, () => {
 
 describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
   it("fillOrchestratorSection 替换真实 pane id，并保留未打开 reviewer 指引", () => {
-    const filled = fillOrchestratorSection("w1:p8", null);
+    const filled = fillOrchestratorSection([{ key: "worker", paneId: "w1:p8" }]);
     assert.ok(filled.includes("worker w1:p8"));
     assert.ok(filled.includes("reviewer not open"));
     assert.ok(filled.includes("tell the\n  user to open it via /team menu"));
-    assert.ok(!filled.includes("<WORKER_PANE>"));
-    assert.ok(!filled.includes("<REVIEWER_PANE>"));
+    assert.ok(!filled.includes("--wait"));
+    assert.ok(filled.includes("end your turn"));
+    assert.ok(filled.includes("background tool"));
   });
 
   it("主面板 enabled/disabled 菜单与角色面板菜单形态正确", async () => {
@@ -282,10 +309,10 @@ describe("hpl-orchestra pane actions", { concurrency: false }, () => {
     assert.ok(run.args[3].startsWith(process.execPath), "run command must use process.execPath, not bare node");
     const started = readTeamState(statePath());
     assert.equal(started.enabled, true);
-    assert.deepEqual(started.roles, {
-      worker: { paneId: "w1:p8", model: "anthropic/claude-sonnet" },
-      reviewer: { paneId: null, model: null },
-    });
+    assert.deepEqual(started.roles, [{
+      key: "worker",
+      instances: [{ paneId: "w1:p8", model: "anthropic/claude-sonnet" }],
+    }]);
     assert.equal(Number.isNaN(Date.parse(started.since)), false);
   });
 
@@ -346,7 +373,10 @@ describe("hpl-orchestra pane actions", { concurrency: false }, () => {
     assert.ok(run);
     assert.ok(run.args[3].includes("--model anthropic/claude-opus"));
     const updated = readTeamState(statePath());
-    assert.deepEqual((updated as TeamState).roles.reviewer, { paneId: "w1:p9", model: "anthropic/claude-opus" });
+    assert.deepEqual(findRoleEntry(updated as TeamState, "reviewer"), {
+      key: "reviewer",
+      instances: [{ paneId: "w1:p9", model: "anthropic/claude-opus" }],
+    });
   });
 
   it("暂停保留 roles，结束时状态文件消失；无文件时结束返回提示", async () => {
@@ -361,6 +391,36 @@ describe("hpl-orchestra pane actions", { concurrency: false }, () => {
     const ctx2 = makeContext();
     await handleTeamCommand(makePi().pi, "结束编排", ctx2.ctx, makeSpawn().spawn);
     assert.ok(ctx2.notices.some(({ message }) => message.includes("没有可结束") || message.includes("没有进行中")));
+  });
+
+  it("清空菜单只列出有实例的角色并以都清收尾", async () => {
+    saveState({
+      ...stateFor(),
+      roles: [
+        ...stateFor().roles,
+        { key: "reviewer", instances: [{ paneId: "w1:p9", model: "anthropic/opus" }] },
+      ],
+    });
+    const ctx = makeContext();
+    await handleTeamCommand(makePi().pi, "清空面板上下文", ctx.ctx, makeSpawn().spawn);
+    assert.deepEqual(ctx.selectedOptions[0], ["Worker", "Reviewer", "都清"]);
+  });
+
+  it("状态行展示同一角色的多个实例", async () => {
+    resetProbeCache();
+    saveState({
+      ...stateFor(),
+      roles: [{
+        key: "worker",
+        instances: [
+          { paneId: "w1:p8", model: "anthropic/sonnet" },
+          { paneId: "w1:p10", model: "anthropic/sonnet" },
+        ],
+      }],
+    });
+    const ctx = makeContext();
+    await updateTeamStatus(ctx.ctx, makeSpawn().spawn);
+    assert.match(ctx.statuses.at(-1)?.text ?? "", /Worker w1:p8 ✓ w1:p10 ✓/);
   });
 });
 
@@ -383,13 +443,13 @@ describe("hpl-orchestra system prompt exclusivity", { concurrency: false }, () =
     delete process.env.HAPI_ORCH_ROLE;
     saveState();
     setTeamSections({
-      orchestrator: fillOrchestratorSection("w1:p8", stateFor().roles.reviewer.paneId),
+      orchestrator: fillOrchestratorSection([{ key: "worker", paneId: "w1:p8" }]),
     });
     result = await handler({ systemPromptOptions: promptOptions() }, {});
     assert.ok(result.systemPrompt.includes("<team mode=\"orchestrator\">"));
     assert.ok(result.systemPrompt.includes("worker w1:p8"));
     assert.equal((result.systemPrompt.match(/<team mode=/g) ?? []).length, 1);
-    assert.equal(ORCHESTRATOR_SECTION.includes("<WORKER_PANE>"), true);
+    assert.equal(ORCHESTRATOR_SECTION.includes("--wait"), false);
   });
 
   it("hpl-orchestra 的 before_agent_start 每轮现读状态写入 bridge", async () => {

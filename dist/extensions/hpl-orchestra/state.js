@@ -7,12 +7,22 @@ import { herdrEnvAvailable } from "./herdr.js";
 export class TeamStateError extends Data.TaggedError("TeamStateError") {
 }
 const disabledState = () => ({ enabled: false });
-const isPaneState = (value) => {
+const isTeamRole = (value) => value === "worker" || value === "reviewer";
+const isRoleInstance = (value) => {
     if (!value || typeof value !== "object")
         return false;
-    const pane = value;
-    return (typeof pane.paneId === "string" || pane.paneId === null)
-        && (typeof pane.model === "string" || pane.model === null);
+    const instance = value;
+    return typeof instance.paneId === "string"
+        && (typeof instance.model === "string" || instance.model === null)
+        && (instance.transient === undefined || typeof instance.transient === "boolean");
+};
+const isRoleEntry = (value) => {
+    if (!value || typeof value !== "object")
+        return false;
+    const entry = value;
+    return isTeamRole(entry.key)
+        && Array.isArray(entry.instances)
+        && entry.instances.every(isRoleInstance);
 };
 const isTeamState = (value) => {
     if (!value || typeof value !== "object")
@@ -27,11 +37,16 @@ const isTeamState = (value) => {
     const ownerRecord = owner;
     if (typeof ownerRecord.paneId !== "string")
         return false;
-    if (!roles || typeof roles !== "object")
+    if (!Array.isArray(roles) || !roles.every(isRoleEntry))
         return false;
-    const roleRecord = roles;
-    return isPaneState(roleRecord.worker) && isPaneState(roleRecord.reviewer);
+    return new Set(roles.map((entry) => entry.key)).size === roles.length;
 };
+export function findRoleEntry(state, key) {
+    return state.roles.find((entry) => entry.key === key);
+}
+export function allInstances(state) {
+    return state.roles.flatMap((entry) => entry.instances);
+}
 export function teamsDir() {
     return join(hapilonHome(), "teams");
 }
@@ -77,7 +92,7 @@ export const findTeamStateForPaneEffect = (paneId) => Effect.try({
             const state = readTeamState(join(directory, name));
             if (!isTeamState(state))
                 continue;
-            if (state.roles.worker.paneId === paneId || state.roles.reviewer.paneId === paneId)
+            if (allInstances(state).some((instance) => instance.paneId === paneId))
                 return state;
         }
         return undefined;
@@ -138,9 +153,11 @@ export const buildTeamSectionsEffect = () => Effect.try({
         const state = readTeamState(resolveSessionStatePath());
         if (!state.enabled || !isTeamOwner(state))
             return {};
-        return {
-            orchestrator: fillOrchestratorSection(state.roles.worker.paneId, state.roles.reviewer.paneId),
-        };
+        const crew = state.roles.flatMap((entry) => {
+            const first = entry.instances[0];
+            return first ? [{ key: entry.key, paneId: first.paneId }] : [];
+        });
+        return { orchestrator: fillOrchestratorSection(crew) };
     },
     catch: (error) => new TeamStateError({
         message: error instanceof Error ? error.message : String(error),

@@ -22,7 +22,9 @@ import {
   readTeamStateEffect,
   resolveSessionStatePath,
   writeTeamStateEffect,
-  type TeamPaneState,
+  findRoleEntry,
+  type RoleEntry,
+  type RoleInstance,
   type TeamRole,
   type TeamState,
 } from "./state.js";
@@ -36,8 +38,6 @@ export const TEAM_ACTIONS = {
   dispatch: "派发给 Worker",
   view: "查看面板分工",
 } as const;
-
-const CLEAR_TARGETS = ["Worker", "Review", "都清"] as const;
 
 export function buildTeamMenuOptions(enabled: boolean, paused = false): string[] {
   if (enabled) {
@@ -53,8 +53,20 @@ function notify(ctx: ExtensionCommandContext, message: string, type: "info" | "w
   ctx.ui.notify(message, type);
 }
 
-function paneState(state: TeamState, role: TeamRole): TeamPaneState {
-  return state.roles[role];
+function roleLabel(key: string): string {
+  return key.length > 0 ? `${key[0].toUpperCase()}${key.slice(1)}` : key;
+}
+
+function firstInstance(state: TeamState, key: string): RoleInstance | undefined {
+  return findRoleEntry(state, key)?.instances[0];
+}
+
+function replaceFirstInstance(roles: RoleEntry[], key: string, instance: RoleInstance): RoleEntry[] {
+  const index = roles.findIndex((entry) => entry.key === key);
+  if (index < 0) return [...roles, { key, instances: [instance] }];
+  return roles.map((entry, entryIndex) => entryIndex === index
+    ? { ...entry, instances: entry.instances.length > 0 ? [instance, ...entry.instances.slice(1)] : [instance] }
+    : entry);
 }
 
 async function readState(ctx: ExtensionCommandContext): Promise<TeamState | undefined> {
@@ -103,8 +115,8 @@ async function ensurePane(
   spawn: SpawnFn,
 ): Promise<{ paneId: string; model: string | null } | undefined> {
   const state = await readPersistedState(ctx);
-  const existing = state ? paneState(state, role) : undefined;
-  if (existing?.paneId) {
+  const existing = state ? firstInstance(state, role) : undefined;
+  if (existing) {
     const live = Effect.runSync(paneGet(existing.paneId, spawn));
     if (live) return { paneId: existing.paneId, model: existing.model };
   }
@@ -141,15 +153,18 @@ function runPaneClose(paneId: string, spawn: SpawnFn): Effect.Effect<boolean, ne
 
 function makeState(
   ownerPaneId: string,
-  worker: TeamPaneState,
-  reviewer: TeamPaneState,
+  worker: RoleInstance,
+  reviewer?: RoleInstance,
   previous?: TeamState,
 ): TeamState {
+  let roles = previous?.roles ?? [];
+  roles = replaceFirstInstance(roles, "worker", worker);
+  if (reviewer) roles = replaceFirstInstance(roles, "reviewer", reviewer);
   return {
     enabled: true,
     since: previous?.since ?? new Date().toISOString(),
     owner: { paneId: ownerPaneId },
-    roles: { worker, reviewer },
+    roles,
   };
 }
 
@@ -165,7 +180,7 @@ async function startOrchestration(ctx: ExtensionCommandContext, spawn: SpawnFn):
     notify(ctx, "Worker 面板创建失败，请检查 herdr。", "error");
     return;
   }
-  const reviewer = previous?.roles.reviewer ?? { paneId: null, model: null };
+  const reviewer = previous ? firstInstance(previous, "reviewer") : undefined;
   const saved = await writeState(ctx, makeState(ownerPane, worker, reviewer, previous));
   notify(ctx, saved ? `编排已开始，Worker 面板：${worker.paneId}` : "编排状态保存失败。", saved ? "info" : "error");
 }
@@ -176,12 +191,17 @@ async function openReview(ctx: ExtensionCommandContext, spawn: SpawnFn): Promise
     notify(ctx, "请先在主面板开始编排。", "warning");
     return;
   }
+  const worker = firstInstance(state, "worker");
+  if (!worker) {
+    notify(ctx, "Worker 面板尚未打开，请先开始编排。", "warning");
+    return;
+  }
   const reviewer = await ensurePane(ctx, "reviewer", spawn);
   if (!reviewer) {
     notify(ctx, "Review 面板创建失败，请检查 herdr。", "error");
     return;
   }
-  const next = makeState(process.env.HERDR_PANE_ID ?? state.owner.paneId, state.roles.worker, reviewer, state);
+  const next = makeState(process.env.HERDR_PANE_ID ?? state.owner.paneId, worker, reviewer, state);
   const saved = await writeState(ctx, next);
   notify(ctx, saved ? `Review 面板已打开：${reviewer.paneId}` : "编排状态保存失败。", saved ? "info" : "error");
 }
@@ -191,72 +211,83 @@ async function viewDivision(ctx: ExtensionCommandContext, spawn: SpawnFn): Promi
   if (!state) {
     const persisted = await readPersistedState(ctx);
     if (persisted) {
-      notify(ctx, "编排已暂停（面板保留）：\nWorker：persisted ✗\n可用「开始编排」恢复。");
+      const persistedRoles = persisted.roles
+        .filter((entry) => entry.instances.length > 0)
+        .map((entry) => `${roleLabel(entry.key)}：persisted ✗`);
+      notify(ctx, `编排已暂停（面板保留）：\n${persistedRoles.join("\n")}\n可用「开始编排」恢复。`);
     } else {
       notify(ctx, "当前未启用编排。");
     }
     return;
   }
-  const check = async (role: TeamRole): Promise<boolean> => {
-    const paneId = state.roles[role].paneId;
-    return paneId ? Boolean(Effect.runSync(paneGet(paneId, spawn))) : false;
-  };
-  const [workerLive, reviewerLive] = await Promise.all([check("worker"), check("reviewer")]);
-  const worker = state.roles.worker.paneId ?? "未创建";
-  const reviewer = state.roles.reviewer.paneId ?? "未打开";
+  const roleLines = await Promise.all(state.roles
+    .filter((entry) => entry.instances.length > 0)
+    .map(async (entry) => {
+      const instances = await Promise.all(entry.instances.map(async (instance) => {
+        const live = Boolean(Effect.runSync(paneGet(instance.paneId, spawn)));
+        return `${instance.paneId} ${live ? "✓" : "✗"}`;
+      }));
+      return `${roleLabel(entry.key)}：${instances.join(" ")}`;
+    }));
   notify(ctx, [
     "当前面板分工：",
-    `Worker：${worker} ${workerLive ? "✓" : "✗"}（写码并自验）`,
-    `Review：${reviewer} ${reviewerLive ? "✓" : "✗"}（只读审码）`,
+    ...roleLines,
     `主面板：${state.owner.paneId}（只调度）`,
   ].join("\n"));
 }
 
 async function clearOne(ctx: ExtensionCommandContext, role: TeamRole, spawn: SpawnFn): Promise<boolean> {
   const state = await readState(ctx);
-  const paneId = state?.roles[role].paneId;
-  const label = role === "worker" ? "Worker" : "Review";
-  if (!paneId) {
+  const instances = state ? findRoleEntry(state, role)?.instances ?? [] : [];
+  const label = roleLabel(role);
+  if (instances.length === 0) {
     notify(ctx, `${label} 面板尚未打开。`, "warning");
     return true;
   }
-  const before = Effect.runSync(agentGet(paneId, spawn));
-  if (before === "working") {
-    notify(ctx, `${label} 正在工作中，等它完成后重试`, "warning");
-    return false;
-  }
-  if (before === "blocked" || before === "unknown") {
-    notify(ctx, `${label} 状态为 ${before}，暂不清空。`, "warning");
-    return false;
-  }
-  if (!Effect.runSync(agentSendKeys(paneId, ["/", "n", "e", "w", "enter"], spawn))) {
-    notify(ctx, `${label} 清空失败，请检查 herdr。`, "error");
-    return false;
-  }
-  // /new 是异步的：轮询到 idle/done 才算成功；一直 working 说明清空已生效
-  // 但面板可能已在处理新会话——超时则报「已发送未确认」（review #12）
-  let after: AgentStatus = "unknown";
-  for (let i = 0; i < 5; i++) {
-    await sleep(1_000);
-    after = Effect.runSync(agentGet(paneId, spawn));
-    if (after === "idle" || after === "done") {
-      notify(ctx, `${label} 面板上下文已清空。`);
-      return true;
+  for (const instance of instances) {
+    const before = Effect.runSync(agentGet(instance.paneId, spawn));
+    if (before === "working") {
+      notify(ctx, `${label} 正在工作中，等它完成后重试`, "warning");
+      return false;
+    }
+    if (before === "blocked" || before === "unknown") {
+      notify(ctx, `${label} 状态为 ${before}，暂不清空。`, "warning");
+      return false;
+    }
+    if (!Effect.runSync(agentSendKeys(instance.paneId, ["/", "n", "e", "w", "enter"], spawn))) {
+      notify(ctx, `${label} 清空失败，请检查 herdr。`, "error");
+      return false;
+    }
+    // /new 是异步的：轮询到 idle/done 才算成功；一直 working 说明清空已生效
+    // 但面板可能已在处理新会话——超时则报「已发送未确认」（review #12）
+    let after: AgentStatus = "unknown";
+    for (let i = 0; i < 5; i++) {
+      await sleep(1_000);
+      after = Effect.runSync(agentGet(instance.paneId, spawn));
+      if (after === "idle" || after === "done") break;
+    }
+    if (after !== "idle" && after !== "done") {
+      notify(ctx, `${label} 清空已发送但未确认（当前状态 ${after}），请稍后检查。`, "warning");
+      return false;
     }
   }
-  notify(ctx, `${label} 清空已发送但未确认（当前状态 ${after}），请稍后检查。`, "warning");
-  return false;
+  notify(ctx, `${label} 面板上下文已清空。`);
+  return true;
 }
 
 async function clearContexts(ctx: ExtensionCommandContext, spawn: SpawnFn): Promise<void> {
-  const target = await ctx.ui.select("清空哪个面板的上下文？", [...CLEAR_TARGETS]);
+  const state = await readState(ctx);
+  const activeRoles = state?.roles.filter((entry) => entry.instances.length > 0) ?? [];
+  const roleOptions = activeRoles.map((entry) => roleLabel(entry.key));
+  const target = await ctx.ui.select("清空哪个面板的上下文？", [...roleOptions, "都清"]);
   if (!target) return;
-  if (target === "Worker") {
-    await clearOne(ctx, "worker", spawn);
-  } else if (target === "Review") {
-    await clearOne(ctx, "reviewer", spawn);
+  if (target === "都清") {
+    for (const entry of activeRoles) {
+      if (!await clearOne(ctx, entry.key as TeamRole, spawn)) return;
+    }
   } else {
-    if (await clearOne(ctx, "worker", spawn)) await clearOne(ctx, "reviewer", spawn);
+    const entry = activeRoles.find((candidate) => roleLabel(candidate.key) === target);
+    if (entry) await clearOne(ctx, entry.key as TeamRole, spawn);
   }
 }
 
@@ -288,11 +319,12 @@ async function finish(ctx: ExtensionCommandContext): Promise<void> {
 
 async function dispatch(ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
   const state = await readState(ctx);
-  if (!state || !isTeamOwner(state) || !state.roles.worker.paneId) {
+  const worker = state ? firstInstance(state, "worker") : undefined;
+  if (!state || !isTeamOwner(state) || !worker) {
     notify(ctx, "Worker 面板尚未就绪。", "warning");
     return;
   }
-  pi.sendUserMessage(`当前 Worker ${state.roles.worker.paneId} 已待命，请把需要写码的任务告诉我。`);
+  pi.sendUserMessage(`当前 Worker ${worker.paneId} 已待命，请把需要写码的任务告诉我。`);
   notify(ctx, "已提醒主面板模型向你收集写码任务。", "info");
 }
 
@@ -382,13 +414,11 @@ export async function updateTeamStatus(ctx: ExtensionCommandContext, spawn: Spaw
     ctx.ui.setStatus("team", undefined);
     return;
   }
-  const check = (role: TeamRole): boolean => {
-    const paneId = state.roles[role].paneId;
-    return paneId ? probePaneLive(paneId, spawn) : false;
-  };
-  const workerLive = check("worker");
-  const reviewerLive = check("reviewer");
-  const text = `Team mode on · worker ${state.roles.worker.paneId ?? "—"} ${workerLive ? "✓" : "✗"} · review ${state.roles.reviewer.paneId ?? "—"} ${reviewerLive ? "✓" : "✗"}`;
+  const segments = state.roles
+    .filter((entry) => entry.instances.length > 0)
+    .map((entry) => `${roleLabel(entry.key)} ${entry.instances.map((instance) =>
+      `${instance.paneId} ${probePaneLive(instance.paneId, spawn) ? "✓" : "✗"}`).join(" ")}`);
+  const text = `Team mode on${segments.length > 0 ? ` · ${segments.join(" · ")}` : ""}`;
   // pi 的 status 渲染不截断、超宽直接崩溃（devhapi 实测：46>38 uncaughtException），
   // 因此按终端列数自行截断
   const columns = process.stdout.columns ?? 80;
