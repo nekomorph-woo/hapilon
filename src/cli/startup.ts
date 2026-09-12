@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { Data, Effect } from "effect";
 import { getVersion } from "./help.js";
@@ -102,12 +103,17 @@ export const prepareStartupEffect = (args: string[]): Effect.Effect<PiLaunchPlan
   const displayedExtensions = noSafety
     ? allExtensions
     : [...allExtensions, ...safetyExtensionPaths()];
+  // hapilon 自身入口绝对路径：供 hpl-orchestra 等扩展在 worker/reviewer
+  // 面板重新拉起完整 hapilon（扩展跑在 pi 子进程里，argv[1] 是 pi 的 cli.js，
+  // 不能用——review P0 #1）。本模块编译后在 dist/cli/ 下，上一级即 dist/cli.js。
+  const hapilonCliPath = fileURLToPath(new URL("../cli.js", import.meta.url));
   const piEnv = {
     ...process.env,
     PI_CODING_AGENT_DIR: agentDirPath,
     PI_SKIP_VERSION_CHECK: "1",
     HAPILON_EXTENSIONS: JSON.stringify(extensionNames(displayedExtensions)),
     HAPILON_VERSION: getVersion(),
+    HAPILON_CLI_PATH: hapilonCliPath,
     // 隐藏 ponytail footer 指示器；ponytail ruleset 仍保持激活。
     PONYTAIL_HIDE_STATUS: "1",
   };

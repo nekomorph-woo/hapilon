@@ -33,9 +33,10 @@ export function collectContextSnapshot(input) {
         "customToolsNote",
         "additionalData",
         "environment",
+        "team",
     ];
     const spTokens = meta
-        ? estimateTokensFromLengths(...PURE_SYSTEM_SECTIONS.map((k) => meta.sections[k]))
+        ? estimateTokensFromLengths(...PURE_SYSTEM_SECTIONS.map((k) => meta.sections[k] ?? 0))
         : null;
     // ── Rules（hapilonRules 独立分类） ─────────────────────────
     const rulesTokens = meta

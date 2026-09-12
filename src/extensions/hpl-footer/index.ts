@@ -88,7 +88,13 @@ export default function hplFooter(pi: ExtensionAPI): void {
             dimRemainder = theme.fg("dim", line2.slice(left.length));
           }
 
-          const lines = [theme.fg("dim", line1), dimLeft + dimRemainder];
+          // 终极兜底：layoutLine 只控制可见宽度，但 ANSI 码的边界裁切仍可能
+          // 产生超宽序列（极窄面板，reviewer 面板 17 列实测崩溃）；整行按
+          // 可见宽度强制截断。truncatePlain 按 ANSI 感知宽度裁切。
+          const lines = [
+            theme.fg("dim", truncatePlain(line1, width)),
+            truncatePlain(dimLeft + dimRemainder, width),
+          ];
 
           // ── 第 3 行：扩展状态（存在时）──────────────────────
           const statuses = Array.from(footerData.getExtensionStatuses().entries())

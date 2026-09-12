@@ -11,13 +11,14 @@
  */
 import { assembleSystemPrompt, collectHapilonContext } from "./assemble.js";
 import { agentDir } from "../../config/hapilon-home.js";
+import { getTeamSections } from "../hpl-orchestra/bridge.js";
 export default function hplSystemPrompt(pi) {
     const userHome = process.env.HOME;
     if (!userHome) {
         // 加载时警告一次：HOME 缺失 → hapilon 上下文（HAPILON.md/rules）不会被注入
         console.warn("[hpl-system-prompt] HOME 环境变量未设置，HAPILON.md 与 rules 将不会注入上下文。");
     }
-    pi.on("before_agent_start", (event) => {
+    pi.on("before_agent_start", (event, ctx) => {
         try {
             const opts = event.systemPromptOptions;
             // 用户显式指定 customPrompt（SYSTEM.md / --system-prompt）时让位，不替换
@@ -41,6 +42,7 @@ export default function hplSystemPrompt(pi) {
                 hapilonMd: hapilonCtx.hapilonMd,
                 hapilonRules: hapilonCtx.hapilonRules,
                 agentDirPath: agentDir(),
+                team: getTeamSections(),
             });
             return { systemPrompt };
         }

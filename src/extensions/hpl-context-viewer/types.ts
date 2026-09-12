@@ -22,6 +22,7 @@ export interface SystemPromptMeta {
     contextFiles: number;
     externalDirectories: number;
     skills: number;
+    team?: number;
     customToolsNote: number;
     additionalData: number;
     environment: number;
