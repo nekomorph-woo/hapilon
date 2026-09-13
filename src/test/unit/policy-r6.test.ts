@@ -59,6 +59,24 @@ describe("Policy R6 effect-typescript skill", () => {
     }
   });
 
+  it("HOME 缺失(Windows cmd/PowerShell)不告警,加载与发现均不崩", () => {
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args.join(" ")); };
+    try {
+      delete process.env.HOME;
+      const handler = resourceHandler();
+      assert.equal(
+        warnings.filter((w) => w.includes("HOME")).length,
+        0,
+        `不得再报 HOME 未设置：${JSON.stringify(warnings)}`,
+      );
+      assert.ok(Array.isArray(handler({ cwd: tmpdir() }).skillPaths), "HOME 缺失仍能返回发现结果");
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
   it("按 skill 粒度应用门槛：通用 skill 无条件收集，Effect skill 仍受 policy 约束", () => {
     const root = mkdtempSync(join(tmpdir(), "hapilon-r6-mixed-skills-"));
     const skillsDir = join(root, "skills");

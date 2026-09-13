@@ -646,6 +646,29 @@ describe("hplSystemPrompt handler", () => {
         assert.ok(result.systemPrompt.startsWith("<system_prompt>"), "XML 结构");
         assert.ok(result.systemPrompt.includes("Hapilon"), "含品牌标识");
     });
+    it("HOME 缺失(Windows cmd/PowerShell)不告警,走 os.homedir 解析", () => {
+        const originalHome = process.env.HOME;
+        const warnings = [];
+        const originalWarn = console.warn;
+        console.warn = (...args) => { warnings.push(args.join(" ")); };
+        try {
+            delete process.env.HOME;
+            const { handlers, pi } = createStubPi();
+            hplSystemPrompt(pi);
+            assert.equal(warnings.filter((w) => w.includes("HOME")).length, 0, `不得再报 HOME 未设置：${JSON.stringify(warnings)}`);
+            const result = handlers["before_agent_start"]({
+                systemPromptOptions: { toolSnippets: {}, cwd: "/test" },
+            });
+            assert.ok(result.systemPrompt, "HOME 缺失仍能组装 system prompt");
+        }
+        finally {
+            console.warn = originalWarn;
+            if (originalHome === undefined)
+                delete process.env.HOME;
+            else
+                process.env.HOME = originalHome;
+        }
+    });
     it("正常路径: customPrompt 存在时让位返回空对象", () => {
         const { handlers, pi } = createStubPi();
         hplSystemPrompt(pi);

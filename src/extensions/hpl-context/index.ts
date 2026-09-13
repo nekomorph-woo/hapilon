@@ -10,6 +10,7 @@
 
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
@@ -103,24 +104,22 @@ export function resolveNpmPkgDir(pkg: string, resolveModule: (id: string) => str
 }
 
 export default function hplContext(pi: ExtensionAPI): void {
-  const userHome = process.env.HOME;
-  if (!userHome) {
-    // 加载时警告一次：HOME 缺失 → skills 发现被跳过
-    console.warn("[hpl-context] HOME 环境变量未设置，hapilon skills 发现将被跳过。");
-  }
+  // os.homedir():POSIX 读 HOME,Windows 读 USERPROFILE——process.env.HOME
+  // 在 Windows 的 cmd/PowerShell 下为空,会误报「HOME 未设置」
+  const userHome = homedir();
 
   // ── Skills: 委托 Pi 原生引擎 ────────────────────────────────
   // 使用 event.cwd（会话工作目录）而非 process.cwd()，与 hpl-system-prompt 一致
   pi.on("resources_discover", (event) => {
-    const skillPaths = userHome
-      ? Effect.runSync(Effect.flatMap(
-          collectUpwardEffect(event.cwd, userHome, "agents/skills"),
-          (dirs) => Effect.map(
-            Effect.forEach(dirs, (dir) => discoverSkillPathsEffect([dir])),
-            (paths) => paths.flat(),
-          ),
-        ))
-      : [];
+    const skillPaths = Effect.runSync(
+      Effect.flatMap(
+        collectUpwardEffect(event.cwd, userHome, "agents/skills"),
+        (dirs) => Effect.map(
+          Effect.forEach(dirs, (dir) => discoverSkillPathsEffect([dir])),
+          (paths) => paths.flat(),
+        ),
+      ),
+    );
 
     // npm 扩展自带 skills（#55）：从模块位置解析（不依赖 cwd）。
     // 单个 SKILL.md 文件路径——Pi loadSkills 支持文件级条目。

@@ -11,18 +11,15 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { homedir } from "node:os";
 import { assembleSystemPrompt, collectHapilonContext } from "./assemble.js";
 import { agentDir } from "../../config/hapilon-home.js";
 import { getTeamSections } from "../hpl-orchestra/bridge.js";
 
 export default function hplSystemPrompt(pi: ExtensionAPI): void {
-  const userHome = process.env.HOME;
-  if (!userHome) {
-    // 加载时警告一次：HOME 缺失 → hapilon 上下文（HAPILON.md/rules）不会被注入
-    console.warn(
-      "[hpl-system-prompt] HOME 环境变量未设置，HAPILON.md 与 rules 将不会注入上下文。",
-    );
-  }
+  // os.homedir():POSIX 读 HOME,Windows 读 USERPROFILE——process.env.HOME
+  // 在 Windows 的 cmd/PowerShell 下为空,会误报「HOME 未设置」
+  const userHome = homedir();
 
   pi.on("before_agent_start", (event, ctx) => {
     try {
@@ -34,9 +31,7 @@ export default function hplSystemPrompt(pi: ExtensionAPI): void {
       const cwd = opts.cwd;
 
       // 收集 hapilon 自有上下文（HAPILON.md + rules）
-      const hapilonCtx = userHome
-        ? collectHapilonContext(cwd, userHome)
-        : { hapilonMd: [], hapilonRules: [] };
+      const hapilonCtx = collectHapilonContext(cwd, userHome);
 
       // 全量组装
       // 全量组装（agentDirPath 供 #50 MCP 环境段使用）
