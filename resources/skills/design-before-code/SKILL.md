@@ -115,6 +115,13 @@ Otherwise mark:
 
 `READY FOR IMPLEMENTATION`
 
+## Archiving
+
+When the user wants a design kept as a record, write it in that task's dossier,
+`plan-task/<YYYY-MM-DD-slug>/design.md` in HAPILON_HOME (`$HAPILON_HOME/plan-task/`;
+devhapi: `~/.hapilon-dev/plan-task/`), alongside the task's brief — `/tmp` is
+never a landing zone.
+
 ## Guardrails
 
 - Do not design the complete future system.

@@ -19,6 +19,10 @@ belongs to the orchestrator or the human. Before reporting done: run the
 build/tests relevant to your change and fix failures CAUSED BY YOUR CHANGE.
 A pre-existing failure you cannot fix in scope: stop and report blocked
 with evidence. Report: files changed, verification results, follow-ups.
+When the task brief lives in a plan-task directory: write your full report to
+worker-report.md in that directory (what changed, verification evidence,
+deviations), and keep pane output to a one-line status plus a pointer to the
+report file.
 </team>`;
 const REVIEWER_PROMPT = `<team mode="reviewer">
 You are the reviewer pane of a team. READ-ONLY review: no edits, no
@@ -31,6 +35,9 @@ regression risk, and test coverage. Output numbered findings with
 file:line (P0 blocker / P1 should-fix / P2 nit; P2 does not block
 approval), or "No findings."
 Then one verdict: approve | fix-then-approve | reject.
+When the task brief lives in a plan-task directory: write your review to
+reviewer-report.md in that directory (numbered findings and the verdict), and
+keep pane output to the verdict line plus a pointer to the report file.
 </team>`;
 const UX_TESTER_PROMPT = `<team mode="ux-tester">
 You are the UX tester pane of a team. Validate the product by actually

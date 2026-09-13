@@ -65,6 +65,12 @@ export function allInstances(state) {
 export function teamsDir() {
     return join(hapilonHome(), "teams");
 }
+/** 任务档案根目录；每任务一子目录，见 planTaskDirFor */
+const planTaskRoot = () => join(hapilonHome(), "plan-task");
+/** 单个任务的档案目录（task-brief.md + 回执）；slug 约定 YYYY-MM-DD-短横线小写 */
+export function planTaskDirFor(slug) {
+    return join(planTaskRoot(), slug);
+}
 /**
  * 状态文件按主面板 herdr pane id 绑定（并行编排天然隔离；主面板 /new
  * 换会话不受影响——review #9 的裁定方案）。冒号是 pane id 分隔符，转下划线。
@@ -149,6 +155,9 @@ export const writeTeamStateEffect = (state, path) => Effect.try({
     try: () => {
         const statePath = path ?? resolveSessionStatePath();
         mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
+        // 任务书的原生落盘位置：随每一次 team 状态写入（创建/启用/打开角色面板）
+        // 一并确保存在，/tmp 里的 brief 重启即失。
+        mkdirSync(planTaskRoot(), { recursive: true, mode: 0o700 });
         writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
         return true;
     },

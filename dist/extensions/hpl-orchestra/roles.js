@@ -1,5 +1,7 @@
+import { join } from "node:path";
 import { CUSTOM_ROLE_FRAMEWORK, getRoleDef } from "./role-registry.js";
 import { xmlEscape } from "../../shared/format.js";
+import { hapilonHome } from "../../config/hapilon-home.js";
 /** Static team personalities plus registry-backed custom personalities. */
 const ORCHESTRATOR_TEMPLATE = `<team mode="orchestrator">
 You are the orchestrator. NEVER modify project files: no edit/write tools,
@@ -11,6 +13,12 @@ When the user asks for a new team role, guide them to run /team and choose 创�
 
 Crew (pane ids are real, use them as-is):
 <CREW>
+
+Task briefs: one dossier directory per task,
+   <PLAN_TASK_DIR>/YYYY-MM-DD-slug/. Write the full brief as task-brief.md
+   there (refine it incrementally before dispatch) and reference that path when
+   dispatching. Workers and reviewers file their reports in the same directory.
+   /tmp is never a brief home.
 
 Dispatch discipline (a "new task" includes fix rounds from review):
 1. Check worker state: herdr agent get <id>
@@ -70,7 +78,9 @@ export function fillOrchestratorSection(roles) {
     if (!roles.some(({ key }) => key === "reviewer")) {
         crew.push("- reviewer not open — tell the user to open it via /team menu; do not dispatch until open");
     }
-    return ORCHESTRATOR_TEMPLATE.replace("<CREW>", crew.join("\n"));
+    return ORCHESTRATOR_TEMPLATE
+        .replace("<CREW>", crew.join("\n"))
+        .replace("<PLAN_TASK_DIR>", () => join(hapilonHome(), "plan-task"));
 }
 // 默认兜底段不带任何 pane id；正常路径由 hpl-orchestra 经 bridge 传入真实 crew。
 export const ORCHESTRATOR_SECTION = fillOrchestratorSection([]);

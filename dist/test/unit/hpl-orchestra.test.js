@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import hplOrchestra from "../../extensions/hpl-orchestra/index.js";
 import { handleTeamCommand, resetProbeCache, updateTeamStatus } from "../../extensions/hpl-orchestra/menu.js";
-import { buildTeamSections, currentRole, findTeamStateForPane, findRoleEntry, isTeamOwner, readTeamState, resolveSessionStatePath, writeTeamStateEffect, } from "../../extensions/hpl-orchestra/state.js";
+import { buildTeamSections, currentRole, findTeamStateForPane, findRoleEntry, isTeamOwner, planTaskDirFor, readTeamState, resolveSessionStatePath, writeTeamStateEffect, } from "../../extensions/hpl-orchestra/state.js";
 import { resetTeamSections, setTeamSections } from "../../extensions/hpl-orchestra/bridge.js";
 import { buildTeamRoleSection, fillOrchestratorSection, ORCHESTRATOR_SECTION } from "../../extensions/hpl-orchestra/roles.js";
 import hplSystemPrompt from "../../extensions/hpl-system-prompt/index.js";
@@ -170,6 +170,22 @@ describe("hpl-orchestra state", { concurrency: false }, () => {
         }), "utf8");
         assert.deepEqual(readTeamState(statePath()), { enabled: false });
     });
+    it("team 状态写入时一并确保 plan-task 落盘目录存在", () => {
+        // team state 是启用编排的唯一收口点：写状态即代表 team 创建/启用。
+        const freshHome = mkdtempSync(join(tmpdir(), "hapilon-plan-task-"));
+        process.env.HAPILON_HOME = freshHome;
+        saveState();
+        assert.equal(existsSync(join(freshHome, "plan-task")), true);
+        process.env.HAPILON_HOME = home;
+        rmSync(freshHome, { recursive: true, force: true });
+    });
+    it("planTaskDirFor 拼出 per-task 档案目录（冒烟：临时 HAPILON_HOME）", () => {
+        const freshHome = mkdtempSync(join(tmpdir(), "hapilon-plan-task-dir-"));
+        process.env.HAPILON_HOME = freshHome;
+        assert.equal(planTaskDirFor("2026-09-13-demo"), join(freshHome, "plan-task", "2026-09-13-demo"));
+        process.env.HAPILON_HOME = home;
+        rmSync(freshHome, { recursive: true, force: true });
+    });
     it("按 pane 查找命中多实例中的第二个 pane", () => {
         const state = stateFor({
             roles: [{
@@ -220,6 +236,26 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         assert.ok(dispatchLine?.includes("--wait --timeout 600000"));
         assert.equal(filled.split("\n").some((line) => line.includes("herdr agent prompt <id>") && !line.includes("background(command=")), false);
         assert.ok(filled.includes("end your turn"));
+    });
+    it("编排段带任务书落盘约定，每任务一目录且路径按 hapilonHome 运行时插值", () => {
+        const filled = fillOrchestratorSection([{ key: "worker", paneId: "w1:p8" }]);
+        assert.ok(filled.includes(`${join(home, "plan-task")}/YYYY-MM-DD-slug/`), `应插值真实 plan-task 路径：${filled.slice(0, 400)}`);
+        assert.ok(filled.includes("one dossier directory per task"));
+        assert.ok(filled.includes("Write the full brief as task-brief.md"));
+        assert.ok(filled.includes("refine it incrementally before dispatch"));
+        assert.ok(filled.includes("Workers and reviewers file their reports in the same directory"));
+        assert.ok(filled.includes("/tmp is never a brief home"));
+        assert.equal(filled.includes("<PLAN_TASK_DIR>"), false, "占位符必须被替换");
+    });
+    it("worker/reviewer 角色 prompt 带 per-task 回执职责与 pane 摘要约定", () => {
+        const worker = buildTeamRoleSection("worker") ?? "";
+        assert.ok(worker.includes("worker-report.md in that directory"));
+        assert.ok(worker.includes("what changed, verification evidence"));
+        assert.ok(worker.includes("one-line status plus a pointer to the\nreport file"));
+        const reviewer = buildTeamRoleSection("reviewer") ?? "";
+        assert.ok(reviewer.includes("reviewer-report.md in that directory"));
+        assert.ok(reviewer.includes("numbered findings and the verdict"));
+        assert.ok(reviewer.includes("keep pane output to the verdict line"));
     });
     it("主面板 enabled/disabled 菜单与角色面板菜单形态正确", async () => {
         delete process.env.HAPI_ORCH_ROLE;
