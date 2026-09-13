@@ -212,8 +212,21 @@ export function paneRead(paneId, spawn = defaultSpawn, options = {}) {
     const args = ["pane", "read", paneId, "--source", options.source ?? "visible", "--lines", String(options.lines ?? 40)];
     return runTextEffect(args, spawn, SPAWN_TIMEOUT_MS);
 }
+/**
+ * 向 pane 注入按键。走 pane 级 CLI：自定义 agent 类型（如 hapi）下
+ * `herdr agent send-keys` 会以 agent_not_ready 拒绝，pane 级始终可用。
+ */
 export function agentSendKeys(paneId, keys, spawn = defaultSpawn) {
-    return runCommandEffect(["agent", "send-keys", paneId, ...keys], spawn);
+    return runCommandEffect(["pane", "send-keys", paneId, ...keys], spawn);
+}
+/** 向 pane 注入文本（不提交）；派发时配合 agentSendKeys(["enter"]) 完成 */
+export function paneSendText(paneId, text, spawn = defaultSpawn) {
+    return runCommandEffect(["pane", "send-text", paneId, text], spawn);
+}
+export function agentPrompt(paneId, text, spawn = defaultSpawn) {
+    // 派发 = 输入文本 + 回车提交；hapi 是自定义 agent 类型，herdr agent prompt 不认。
+    // 文本不落地时（管道/转义问题）不提交，避免把半句话发给模型。
+    return Effect.flatMap(paneSendText(paneId, text, spawn), (sent) => sent ? agentSendKeys(paneId, ["enter"], spawn) : Effect.succeed(false));
 }
 function shellArg(value) {
     return /^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;

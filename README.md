@@ -42,6 +42,23 @@ npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v<新�
 
 > 开发环境提示：本仓库 `npm ci` 需要 `--legacy-peer-deps`。`@zhushanwen/pi-ask-user` 的 peer 声明 `pi@^0.84.1` 落后于根依赖，npm 会 ERESOLVE 报错——属上游待升问题，不是本地配置错误。
 
+## herdr 集成
+
+在 herdr pane 内运行时，hapilon **以自己的身份 `hapi`** 向 herdr 上报（herdr 官方自定义集成协议）：
+
+- **身份**：pane 在 `herdr agent list` / 侧边栏里是 `hapi`，不再是 `pi`
+- **状态**：从进程内部上报，不再靠屏幕抓取——`working` / `idle` / `blocked`（后者来自 pi 的阻塞式 UI prompt 事件，比屏幕匹配可靠）
+- **不再加载 herdr 的 pi 集成**：否则 herdr 会按 pi 的恢复命令处理，服务器重启时用 `pi --resume` 拉起裸 pi，hapilon 的能力（系统提示、安全门、角色、补丁）全丢。需要旧行为时设 `HAPILON_HERDR_PI_INTEGRATION=1`
+
+因此需要知晓的 herdr 现状：
+
+| 命令 | 对 hapi 可用性 |
+| --- | --- |
+| `herdr agent get/list/read/wait/rename/focus/attach/explain` | ✅ 可用 |
+| `herdr pane send-text` / `pane send-keys` | ✅ 可用（派发与清空走这里） |
+| `herdr agent prompt` / `agent send-keys` | ❌ 以 `agent_not_ready` 拒绝——herdr 只对原生识别的 agent 类型开放；hapilon 的自动派发已改为 pane 级输入 |
+| 服务器重启自动恢复 pane | ❌ 新 agent 类型的启动/恢复命令编在 herdr 二进制里，需上游支持 |
+
 ## 发版打包流程（开发机）
 
 一条命令发版：

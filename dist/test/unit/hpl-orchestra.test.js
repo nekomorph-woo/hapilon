@@ -275,10 +275,13 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         assert.ok(reviewerLine.includes("wait for it in the crew table"), reviewerLine);
         assert.equal(reviewerLine.includes("tell the user to open it via /team menu"), false);
         assert.equal(reviewerLine.includes("do not dispatch until open"), false);
-        const dispatchLine = filled.split("\n").find((line) => line.includes("2. Dispatch:"));
-        assert.ok(dispatchLine?.includes("background(command="));
-        assert.ok(dispatchLine?.includes("--wait --timeout 600000"));
-        assert.equal(filled.split("\n").some((line) => line.includes("herdr agent prompt <id>") && !line.includes("background(command=")), false);
+        const dispatchLine = filled.split("\n").find((line) => line.includes("background(command=")) ?? "";
+        assert.ok(dispatchLine.includes("herdr pane send-text <id>"), JSON.stringify(dispatchLine));
+        assert.ok(dispatchLine.includes("herdr pane send-keys <id> enter"), JSON.stringify(dispatchLine));
+        assert.ok(dispatchLine.includes("herdr agent wait <id> --until idle"), JSON.stringify(dispatchLine));
+        assert.ok(filled.includes("2. Dispatch"), "新任务的派发纪律标题保留");
+        assert.equal(filled.split("\n").some((line) => line.includes("herdr agent prompt <id>")), false, "自定义 agent 类型下 agent prompt 不可用,提示文本不得再用");
+        assert.equal(filled.includes("herdr agent send-keys"), false, "agent send-keys 同样只认已知类型,统一走 pane 级");
         assert.ok(filled.includes("end your turn"));
     });
     it("owner 文本承载五态处理规则，旧四态判定已退役", () => {
@@ -435,7 +438,7 @@ describe("hpl-orchestra pane actions", { concurrency: false }, () => {
         const idleCtx = makeContext(["Worker"]);
         await handleTeamCommand(makePi().pi, "清空面板上下文", idleCtx.ctx, idle.spawn);
         const clear = idle.calls.find((call) => call.args[1] === "send-keys");
-        assert.deepEqual(clear?.args, ["agent", "send-keys", "w1:p8", "/", "n", "e", "w", "enter"]);
+        assert.deepEqual(clear?.args, ["pane", "send-keys", "w1:p8", "/", "n", "e", "w", "enter"]);
     });
     it("reviewer 懒创建使用 opus 档", async () => {
         delete process.env.HAPI_ORCH_ROLE;
@@ -860,9 +863,10 @@ describe("hpl-orchestra system prompt exclusivity", { concurrency: false }, () =
         assert.ok(result.systemPrompt.includes("<team mode=\"orchestrator\">"));
         assert.ok(result.systemPrompt.includes("worker w1:p8"));
         assert.equal((result.systemPrompt.match(/<team mode=/g) ?? []).length, 1);
-        const dispatchLine = ORCHESTRATOR_SECTION.split("\n").find((line) => line.includes("2. Dispatch:"));
-        assert.ok(dispatchLine?.includes("background(command="));
-        assert.ok(dispatchLine?.includes("--wait --timeout 600000"));
+        const dispatchLine = ORCHESTRATOR_SECTION.split("\n").find((line) => line.includes("background(command=")) ?? "";
+        assert.ok(dispatchLine.includes("herdr pane send-text <id>"));
+        assert.ok(dispatchLine.includes("herdr pane send-keys <id> enter"));
+        assert.ok(dispatchLine.includes("herdr agent wait <id> --until idle"));
     });
     it("普通会话不注入兜底段，herdr 空状态保留 worker 占位行", async () => {
         const handler = promptHandler();

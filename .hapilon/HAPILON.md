@@ -21,7 +21,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 
 ## 目录要点
 
-- `src/extensions/hpl-*` — 内置扩展：hpl-system-prompt（系统提示全量组装，含提交纪律小节）、hpl-safety-gate、hpl-model-tiers、hpl-orchestra（team/pane 编排）等。
+- `src/extensions/hpl-*` — 内置扩展：hpl-system-prompt（系统提示全量组装，含提交纪律小节）、hpl-safety-gate、hpl-model-tiers、hpl-orchestra（team/pane 编排）、hpl-herdr（herdr 内的 hapi 身份与状态上报）等。
 - `resources/skills/` — 内置技能库（随版本分发）；`resources/themes/` — TUI 主题（hapilon-dark/light）。
 - `src/patch/ensure-pi-patch.ts` — 对 node_modules 里 pi 包的幂等补丁（代码块底色）；pi 升级锚点失配会有启动警告，需对照新源码更新锚点表。
 - `.hapilon/` — 本地运行时目录（gitignored）：artifacts、handoff 等 skill 产物。

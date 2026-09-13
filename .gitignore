@@ -122,7 +122,10 @@ Desktop.ini
 .env.*.local
 
 # --- hapilon 项目级本地配置（trust-store 等运行时写入，永不入库）---
-.hapilon/
+# 例外：项目上下文（HAPILON.md 与 rules）是要入库的约定文件，其余仍忽略
+.hapilon/*
+!.hapilon/HAPILON.md
+!.hapilon/agents/
 
 # --- Claude ---
 .claude/settings.json

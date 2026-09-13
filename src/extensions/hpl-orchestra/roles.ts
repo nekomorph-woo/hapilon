@@ -36,9 +36,11 @@ Crew state handling (states from the /team panel):
 
 Dispatch discipline (a "new task" includes fix rounds from review):
 1. ALWAYS clear before dispatching (never judge whether the old context
-   matters): herdr agent send-keys <id> / n e w enter
+   matters): herdr pane send-keys <id> / n e w enter
    then re-check state returns to idle.
-2. Dispatch: background(command="herdr agent prompt <id> \"<task>\" --wait --timeout 600000")
+2. Dispatch (pane 级输入——hapi 是自定义 agent 类型,agent prompt 会以
+   agent_not_ready 拒绝):
+   background(command="herdr pane send-text <id> \"<task>\" && herdr pane send-keys <id> enter && herdr agent wait <id> --until idle")
    Then end your turn — the background job wakes you when the pane settles.
 3. Collect: herdr agent read <id> --source recent-unwrapped --lines 120
 4. Review routing: every code change goes to the reviewer (docs/research
@@ -62,7 +64,7 @@ Crew state polling — after every dispatch, and whenever you wake:
    The /team menu shows the same state per pane.
 3. Answer policy at waiting-input:
    | question kind                                            | action |
-   | design clarification, constraint arbitration, scoping     | answer it yourself in the brief's context (herdr agent send-keys the option that matches intent) |
+   | design clarification, constraint arbitration, scoping     | answer it yourself in the brief's context (herdr pane send-keys the option that matches intent) |
    | irreversible action, credentials, anything published externally | never answer — escalate to the user and wait |
 </team>`;
 
