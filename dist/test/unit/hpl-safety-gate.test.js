@@ -118,6 +118,13 @@ describe("hpl-safety-gate", () => {
             assert.strictEqual(classifyCommand('rg -n "chmod 777" src/'), "allow");
             assert.strictEqual(classifyCommand("find . -name shutdown -print"), "allow");
         });
+        it("单引号内是字面量，不做替换解析", () => {
+            assert.strictEqual(classifyCommand("grep -n '$(rm -rf /)' file.ts"), "allow");
+            assert.strictEqual(classifyCommand("rg -n 'shutdown -h now' README.md"), "allow");
+        });
+        it("反斜杠转义的反引号不是命令替换", () => {
+            assert.strictEqual(classifyCommand('grep -n "\\`shutdown\\`" README.md'), "allow");
+        });
         it("shell 载荷与 SQL 客户端仍受控", () => {
             assert.strictEqual(classifyCommand('psql -c "DROP TABLE t"'), "confirm");
             assert.strictEqual(classifyCommand('mysql -e "truncate table x"'), "confirm");

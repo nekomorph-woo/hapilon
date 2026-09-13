@@ -59,6 +59,20 @@ export function extractSubstitutions(command: string): { view: string; bodies: s
   let i = 0;
   while (i < command.length) {
     const ch = command[i]!;
+    // 单引号内是字面量，shell 不展开——原样拷贝（避免把 grep '$(x)' 的搜索词当命令）
+    if (ch === "'") {
+      const j = command.indexOf("'", i + 1);
+      const end = j === -1 ? command.length : j;
+      out += command.slice(i, end + 1);
+      i = end + 1;
+      continue;
+    }
+    // 反斜杠转义：\` 与 \$ 都不是替换起点
+    if (ch === "\\" && i + 1 < command.length) {
+      out += command.slice(i, i + 2);
+      i += 2;
+      continue;
+    }
     // $(...) —— 支持嵌套括号
     if (ch === "$" && command[i + 1] === "(") {
       let depth = 0;
