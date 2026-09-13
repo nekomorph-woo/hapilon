@@ -123,8 +123,11 @@ export function decorateExpandable(comp: any, theme: Theme): boolean {
   const origRender = comp.render.bind(comp);
   comp.__hapiRender = origRender;
   comp.render = (width: number) => {
-    let lines = origRender(width);
-    if (!Array.isArray(lines) || lines.length === 0) return lines;
+    const rendered = origRender(width);
+    if (!Array.isArray(rendered) || rendered.length === 0) return rendered;
+    // 必须拷贝：pi-tui 的 Box.render 命中缓存时返回的就是缓存数组本身，
+    // 原地改写会把 marker 累积进缓存（每次重渲染多一个 ▸，最终整行箭头）
+    let lines = [...rendered];
 
     const expanded = comp.expanded ?? expandedState.get(comp) ?? false;
     const maxL = config.maxLines;

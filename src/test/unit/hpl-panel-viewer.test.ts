@@ -168,6 +168,25 @@ describe("decorateExpandable marker", () => {
     assert.ok(lines.length <= 6, `行数: ${lines.length}`);
     assert.ok(lines[lines.length - 1].includes("▾"), `实际: ${lines[lines.length - 1]}`);
   });
+
+  // 回归：pi-tui 的 Box.render 命中缓存时返回缓存数组本身，
+  // 若原地改写，marker 会一次次叠进缓存（屏幕上一行箭头）
+  it("render 每次返回同一数组引用时不叠加 marker", () => {
+    const cached = ["line 0", "line 1"];
+    const comp: any = {
+      toolName: "bash",
+      expanded: false,
+      setExpanded(v: boolean) { this.expanded = v; },
+      render: () => cached,
+    };
+    decorateExpandable(comp, theme);
+
+    let first = "";
+    for (let i = 0; i < 40; i++) first = comp.render(80)[0] as string;
+
+    assert.equal((first.match(/▸/g) ?? []).length, 1, `实际首行: ${first}`);
+    assert.deepEqual(cached, ["line 0", "line 1"], "不得改写原数组");
+  });
 });
 
 describe("applyPopConfig", () => {
