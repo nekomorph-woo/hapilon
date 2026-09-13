@@ -40,6 +40,7 @@ Format:
   - **Business altitude (default).** Say what the product or system can now do, or what problem no longer exists: what a user notices, which workflow changed, what got fixed for them. The reader should understand the commit without knowing any file name.
   - **Technical fallback.** Only when the change has no business face at all — pure refactor, deps bump, CI, tooling — state the technical fact plainly instead.
 - **One line, one idea.** Never enumerate code points: a description listing functions, fields, or files means the altitude is wrong — climb back up until the scattered items collapse into one purpose.
+- **Body.** Optional but recommended for non-trivial changes; at most three short lines. It answers **why the change exists**, in the reader's language — a colleague who wasn't in the conversation reads subject and body and understands both problem and fix. The diff already says **what** moved: never enumerate file names, version numbers, flag names, or counts. If a line could be a changelog entry, delete it. Same altitude ladder as the subject: problem gone / capability gained first; mechanism only when it is the point.
 
 Completion: one line names the capability gained or the problem closed — or, when none exists, the single technical fact.
 
