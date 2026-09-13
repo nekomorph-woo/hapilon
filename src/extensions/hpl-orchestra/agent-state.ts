@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { Effect } from "effect";
-import { agentGet, defaultSpawn, paneGet, paneRead, type AgentStatus, type SpawnFn } from "./herdr.js";
+import { agentGet, defaultSpawn, paneAgentAlive, paneRead, type AgentStatus, type SpawnFn } from "./herdr.js";
 
 /**
  * 五态 + unknown。判定与展示分离：本模块只出状态，按键/代答由 orchestrator LLM
@@ -120,8 +120,8 @@ export const sampleAgentStateEffect = (
   Effect.gen(function* () {
     const spawn = options.spawn ?? defaultSpawn;
     const now = options.now ?? Date.now;
-    const pane = yield* paneGet(paneId, spawn);
-    if (!pane) return "dead" as const;
+    // dead = pane 里已经没有 agent：pane 关了，或 pi 崩了只剩 shell（后者以前会被当成 alive）
+    if (!(yield* paneAgentAlive(paneId, spawn))) return "dead" as const;
 
     const herdrStatus = yield* agentGet(paneId, spawn);
     const first = yield* paneRead(paneId, spawn);

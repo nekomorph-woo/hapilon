@@ -7,6 +7,10 @@ import { hapilonHome } from "../../config/hapilon-home.js";
 export type HerdrPane = {
   paneId: string;
   status?: string;
+  /** herdr 识别到的 agent 名（"pi"/"claude"/...）；缺席 = 该 pane 当前没有 agent */
+  agent?: string;
+  /** herdr pane 标签（`herdr pane rename` 设置的那个，显示在 pane 边上） */
+  label?: string;
 };
 
 export type AgentStatus = "idle" | "working" | "blocked" | "done" | "unknown";
@@ -138,7 +142,54 @@ export function paneGet(paneId: string, spawn: SpawnFn = defaultSpawn): Effect.E
     if (!pane) return undefined;
     const id = typeof pane.pane_id === "string" ? pane.pane_id : String(pane.id);
     const status = typeof pane.status === "string" ? pane.status : undefined;
-    return { paneId: id, status };
+    const agent = typeof pane.agent === "string" ? pane.agent : undefined;
+    const label = typeof pane.label === "string" && pane.label.length > 0 ? pane.label : undefined;
+    return { paneId: id, status, ...(agent ? { agent } : {}), ...(label ? { label } : {}) };
+  });
+}
+
+/** 给 pane 打/换 herdr 标签（显示在 pane 边框上，用于分辨角色） */
+export function paneRename(
+  paneId: string,
+  label: string,
+  spawn: SpawnFn = defaultSpawn,
+): Effect.Effect<boolean, never> {
+  return runCommandEffect(["pane", "rename", paneId, label], spawn);
+}
+
+/**
+ * pane 里是否还有前台进程（跑在 shell 之上的 agent）。agent 字段尚未上报的启动窗口
+ * 只能靠这个信号：
+ * pi 已经在跑 → 前台进程不是 shell → true；pi 已崩、只剩 shell 提示符 → false。
+ */
+export function paneForegroundBusy(paneId: string, spawn: SpawnFn = defaultSpawn): Effect.Effect<boolean, never> {
+  return Effect.map(runJsonEffect(["pane", "process-info", "--pane", paneId], spawn), (raw) => {
+    const info = findRecord(raw, (record) => "shell_pid" in record || "foreground_processes" in record);
+    if (!info) return false;
+    const shellPid = typeof info.shell_pid === "number" ? info.shell_pid : undefined;
+    const foreground = info.foreground_processes;
+    if (Array.isArray(foreground) && foreground.length > 0) {
+      return foreground.some((entry) => {
+        if (!entry || typeof entry !== "object") return false;
+        const pid = (entry as Record<string, unknown>).pid;
+        return shellPid === undefined || (typeof pid === "number" && pid !== shellPid);
+      });
+    }
+    const pgid = typeof info.foreground_process_group_id === "number" ? info.foreground_process_group_id : undefined;
+    return pgid !== undefined && shellPid !== undefined && pgid !== shellPid;
+  });
+}
+
+/**
+ * 角色 pane 的存活判定：pane 在，且里面还有 agent。
+ * 只看 pane 存不存在会把「pi 崩了、只剩 shell」误判为健康——主 agent 会照旧往空 shell 派发。
+ */
+export function paneAgentAlive(paneId: string, spawn: SpawnFn = defaultSpawn): Effect.Effect<boolean, never> {
+  return Effect.gen(function* () {
+    const pane = yield* paneGet(paneId, spawn);
+    if (!pane) return false;
+    if (pane.agent !== undefined) return true;
+    return yield* paneForegroundBusy(paneId, spawn);
   });
 }
 
@@ -159,15 +210,44 @@ export function agentGet(paneId: string, spawn: SpawnFn = defaultSpawn): Effect.
   });
 }
 
-export function paneSplit(cwd: string, spawn: SpawnFn = defaultSpawn, envArgs: string[] = []): Effect.Effect<string | undefined, never> {
-  // --current 固定到调用面板（herdr skill 要求，不依赖对端聚焦面板）；方向显式
+export function paneSplit(
+  cwd: string,
+  spawn: SpawnFn = defaultSpawn,
+  envArgs: string[] = [],
+  options: { target?: string; direction?: "right" | "down" } = {},
+): Effect.Effect<string | undefined, never> {
+  // 默认 --current 固定到调用面板（herdr skill 要求，不依赖对端聚焦面板）；
+  // 指定 target 时改为在目标 pane 上切（布局决定了角色 pane 要叠在右列）
+  const anchor = options.target ? ["--pane", options.target] : ["--current"];
   return Effect.map(
-    runJsonEffect(["pane", "split", "--current", "--direction", "right", ...envArgs, "--cwd", cwd, "--no-focus"], spawn),
+    runJsonEffect(
+      ["pane", "split", ...anchor, "--direction", options.direction ?? "right", ...envArgs, "--cwd", cwd, "--no-focus"],
+      spawn,
+    ),
     (raw) => {
       const pane = findRecord(raw, (record) => typeof record.pane_id === "string");
       return typeof pane?.pane_id === "string" ? pane.pane_id : undefined;
     },
   );
+}
+
+/** 同 tab 各 pane 的显示宽度（`herdr pane layout`）；用于判断右列还能不能塞下新面板 */
+export function paneWidths(spawn: SpawnFn = defaultSpawn): Effect.Effect<Map<string, number>, never> {
+  return Effect.map(runJsonEffect(["pane", "layout"], spawn), (raw) => {
+    const widths = new Map<string, number>();
+    const layout = findRecord(raw, (record) => Array.isArray(record.panes));
+    const panes = layout?.panes;
+    if (!Array.isArray(panes)) return widths;
+    for (const pane of panes) {
+      if (!pane || typeof pane !== "object") continue;
+      const record = pane as Record<string, unknown>;
+      const rect = record.rect as Record<string, unknown> | undefined;
+      if (typeof record.pane_id === "string" && rect && typeof rect.width === "number") {
+        widths.set(record.pane_id, rect.width);
+      }
+    }
+    return widths;
+  });
 }
 
 export function paneRun(paneId: string, command: string, spawn: SpawnFn = defaultSpawn): Effect.Effect<boolean, never> {

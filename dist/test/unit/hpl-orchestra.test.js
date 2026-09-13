@@ -154,21 +154,26 @@ after(() => {
     rmSync(home, { recursive: true, force: true });
 });
 describe("hpl-orchestra state", { concurrency: false }, () => {
-    it("状态文件 roundtrip，损坏 JSON 和旧格式降级为 enabled=false", () => {
+    it("状态文件 roundtrip，损坏 JSON 降级为 enabled=false", () => {
         saveState();
         assert.deepEqual(readTeamState(statePath()), stateFor());
         writeFileSync(statePath(), "{broken json", "utf8");
         assert.deepEqual(readTeamState(statePath()), { enabled: false });
+    });
+    it("旧形态角色表读侧兼容：round-1 之前的状态文件可恢复", () => {
+        saveState();
         writeFileSync(statePath(), JSON.stringify({
             enabled: true,
             since: stateFor().since,
             owner: stateFor().owner,
             roles: {
                 worker: { paneId: "w1:p8", model: "anthropic/sonnet" },
-                reviewer: { paneId: null, model: null },
+                reviewer: { paneId: null, model: null }, // 未打开：旧形态用 null 占位
             },
         }), "utf8");
-        assert.deepEqual(readTeamState(statePath()), { enabled: false });
+        assert.deepEqual(readTeamState(statePath()), stateFor());
+        // 旧文件里仍存活的面板重新可被认领（/team 与 system prompt 都走这条路径）
+        assert.deepEqual(findTeamStateForPane("w1:p8"), stateFor());
     });
     it("team 状态写入时一并确保 plan-task 落盘目录存在", () => {
         // team state 是启用编排的唯一收口点：写状态即代表 team 创建/启用。

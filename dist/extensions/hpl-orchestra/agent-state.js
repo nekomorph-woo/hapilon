@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { Effect } from "effect";
-import { agentGet, defaultSpawn, paneGet, paneRead } from "./herdr.js";
+import { agentGet, defaultSpawn, paneAgentAlive, paneRead } from "./herdr.js";
 /**
  * 弹窗标记的单一出处：pi 升级改文案只动这里。命中任一即视为「人机交互弹窗」。
  * ask_user：question-view.ts / submit-view.ts 底部提示行；
@@ -70,8 +70,8 @@ function observeActivity(paneId, status, at) {
 export const sampleAgentStateEffect = (paneId, options = {}) => Effect.gen(function* () {
     const spawn = options.spawn ?? defaultSpawn;
     const now = options.now ?? Date.now;
-    const pane = yield* paneGet(paneId, spawn);
-    if (!pane)
+    // dead = pane 里已经没有 agent：pane 关了，或 pi 崩了只剩 shell（后者以前会被当成 alive）
+    if (!(yield* paneAgentAlive(paneId, spawn)))
         return "dead";
     const herdrStatus = yield* agentGet(paneId, spawn);
     const first = yield* paneRead(paneId, spawn);

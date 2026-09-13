@@ -1,15 +1,15 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Data, Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
 import { getAllRoleDefs, type TeamRoleDef } from "./role-registry.js";
 import { fillOrchestratorSection } from "./roles.js";
-import { herdrEnvAvailable, paneGet } from "./herdr.js";
+import { herdrEnvAvailable, paneAgentAlive, paneGet } from "./herdr.js";
 
 /** crew 生成时的死 pane 过滤；herdr 不可用（测试/无 herdr 环境）时跳过过滤 */
 function paneAlive(paneId: string): boolean {
   if (!herdrEnvAvailable()) return true;
-  return Boolean(Effect.runSync(paneGet(paneId)));
+  return Effect.runSync(paneAgentAlive(paneId));
 }
 
 export type TeamRole = string;
@@ -18,6 +18,8 @@ export interface RoleInstance {
   paneId: string;
   model: string | null;
   transient?: boolean;
+  /** 拟人名（阿岚/阿澈/…）：只用来给人看 pane 标签，保证一个团队内不重名 */
+  nickname?: string;
 }
 
 export interface RoleEntry {
@@ -27,6 +29,10 @@ export interface RoleEntry {
 
 export interface TeamOwner {
   paneId: string;
+  /** 主 agent 的 pi 会话文件；崩溃重启后接管时用它 resume 回原上下文 */
+  session?: string;
+  /** owner 的拟人名（与角色 pane 共用一个名字池，不重名） */
+  nickname?: string;
 }
 
 export interface TeamState {
@@ -34,6 +40,8 @@ export interface TeamState {
   since: string;
   owner: TeamOwner;
   roles: RoleEntry[];
+  /** 团队名（随机好玩的那种，如「摸鱼突击队」）：写进 owner pane 的 herdr 标签 */
+  name?: string;
 }
 
 export interface DisabledTeamState {
@@ -53,6 +61,27 @@ export class TeamStateError extends Data.TaggedError("TeamStateError")<{
 
 const disabledState = (): DisabledTeamState => ({ enabled: false });
 
+/**
+ * round-1 之前的状态形态：`roles: {worker: {paneId, model}}`（paneId:null = 未打开）。
+ * 读侧兼容，写侧只写新形态——旧状态下一次写入即自动升级，不必单独迁移。
+ */
+function upgradeLegacyRoles(parsed: unknown): unknown {
+  if (!parsed || typeof parsed !== "object") return parsed;
+  const roles = (parsed as { roles?: unknown }).roles;
+  if (!roles || typeof roles !== "object" || Array.isArray(roles)) return parsed;
+  const entries: RoleEntry[] = [];
+  for (const [key, value] of Object.entries(roles as Record<string, unknown>)) {
+    if (!value || typeof value !== "object") continue;
+    const pane = value as { paneId?: unknown; model?: unknown };
+    if (typeof pane.paneId !== "string") continue;
+    entries.push({
+      key,
+      instances: [{ paneId: pane.paneId, model: typeof pane.model === "string" ? pane.model : null }],
+    });
+  }
+  return { ...parsed, roles: entries };
+}
+
 export const isTeamRole = (value: unknown, defs: readonly TeamRoleDef[] = getAllRoleDefs()): value is TeamRole =>
   typeof value === "string" && defs.some((role) => role.key === value);
 
@@ -61,7 +90,8 @@ const isRoleInstance = (value: unknown): value is RoleInstance => {
   const instance = value as Record<string, unknown>;
   return typeof instance.paneId === "string"
     && (typeof instance.model === "string" || instance.model === null)
-    && (instance.transient === undefined || typeof instance.transient === "boolean");
+    && (instance.transient === undefined || typeof instance.transient === "boolean")
+    && (instance.nickname === undefined || typeof instance.nickname === "string");
 };
 
 const isRoleEntry = (value: unknown, defs: readonly TeamRoleDef[]): value is RoleEntry => {
@@ -87,6 +117,9 @@ const isTeamState = (value: unknown, defs: readonly TeamRoleDef[]): value is Tea
   if (!owner || typeof owner !== "object") return false;
   const ownerRecord = owner as Record<string, unknown>;
   if (typeof ownerRecord.paneId !== "string") return false;
+  if (ownerRecord.session !== undefined && typeof ownerRecord.session !== "string") return false;
+  if (ownerRecord.nickname !== undefined && typeof ownerRecord.nickname !== "string") return false;
+  if (state.name !== undefined && typeof state.name !== "string") return false;
   if (!Array.isArray(roles) || !roles.every((entry) => isRoleEntry(entry, defs))) return false;
   return new Set(roles.map((entry) => entry.key)).size === roles.length;
 };
@@ -152,7 +185,8 @@ export const readTeamStateEffect = (
     const statePath = path ?? resolveSessionStatePath();
     if (!existsSync(statePath)) return disabledState();
     const parsed: unknown = JSON.parse(readFileSync(statePath, "utf8"));
-    return isTeamState(parsed, defs) ? parsed : disabledState();
+    const upgraded = upgradeLegacyRoles(parsed);
+    return isTeamState(upgraded, defs) ? upgraded : disabledState();
   },
   catch: (error) => new TeamStateError({
     message: error instanceof Error ? error.message : String(error),
@@ -168,19 +202,42 @@ export function readTeamState(path?: string, defs?: readonly TeamRoleDef[]): Rea
   return Effect.runSync(readTeamStateEffect(path, defs));
 }
 
+/** 盘上所有可用的团队状态（接管候选扫描、按 pane 查找共用）。 */
+export function listTeamStates(
+  defs: readonly TeamRoleDef[] = getAllRoleDefs(),
+): Array<{ path: string; state: TeamState }> {
+  const directory = teamsDir();
+  if (!existsSync(directory)) return [];
+  const found: Array<{ path: string; state: TeamState }> = [];
+  for (const name of readdirSync(directory)) {
+    if (!name.endsWith(".json")) continue;  // 原子写的 .tmp 残留一并排除
+    const path = join(directory, name);
+    const state = readTeamState(path, defs);
+    if ("roles" in state) found.push({ path, state });
+  }
+  return found;
+}
+
+/** 状态文件存在但不可用时的原因；无文件或文件可用时返回 undefined（只给 UI 提示用）。 */
+export function teamStateError(path?: string, defs: readonly TeamRoleDef[] = getAllRoleDefs()): string | undefined {
+  const statePath = path ?? resolveSessionStatePath();
+  if (!existsSync(statePath)) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(statePath, "utf8"));
+    return isTeamState(upgradeLegacyRoles(parsed), defs) ? undefined : "结构不合法（可能被写坏或来自不兼容版本）";
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 /** Role panes have their own Pi session id; locate their owner's state by pane id. */
 export const findTeamStateForPaneEffect = (
   paneId: string,
   defs: readonly TeamRoleDef[] = getAllRoleDefs(),
 ): Effect.Effect<ReadTeamState | undefined, never> => Effect.try({
   try: () => {
-    const directory = teamsDir();
-    if (!existsSync(directory)) return undefined;
-    for (const name of readdirSync(directory)) {
-      if (!name.endsWith(".json")) continue;
-      const state = readTeamState(join(directory, name), defs);
-      if (!("roles" in state)) continue;
-      if (allInstances(state).some((instance) => instance.paneId === paneId)) return state;
+    for (const entry of listTeamStates(defs)) {
+      if (allInstances(entry.state).some((instance) => instance.paneId === paneId)) return entry.state;
     }
     return undefined;
   },
@@ -211,7 +268,11 @@ export const writeTeamStateEffect = (
     // 任务书的原生落盘位置：随每一次 team 状态写入（创建/启用/打开角色面板）
     // 一并确保存在，/tmp 里的 brief 重启即失。
     mkdirSync(planTaskRoot(), { recursive: true, mode: 0o700 });
-    writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+    // 原子写：主 agent 崩溃正好撞上写盘时会留下半截 JSON，整个团队会被当成「未启用」
+    // 静默丢失。tmp + rename 保证读侧要么看到旧版、要么看到新版。
+    const tmpPath = `${statePath}.tmp`;
+    writeFileSync(tmpPath, `${JSON.stringify(state, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    renameSync(tmpPath, statePath);
     return true;
   },
   catch: (error) => new TeamStateError({

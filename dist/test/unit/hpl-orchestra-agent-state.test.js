@@ -54,9 +54,21 @@ function makeSpawn(options = {}) {
     const spawn = (bin, args) => {
         calls.push({ bin, args });
         if (args[0] === "pane" && args[1] === "get") {
-            return options.alive === false
-                ? { status: 1, stderr: "pane not found" }
-                : { status: 0, stdout: JSON.stringify({ result: { pane: { pane_id: args[2] } } }) };
+            if (options.alive === false)
+                return { status: 1, stderr: "pane not found" };
+            // shell: pane 还在但 pi 已崩（只剩 shell）——herdr 不上报 agent
+            return {
+                status: 0,
+                stdout: JSON.stringify({ result: { pane: options.shell
+                            ? { pane_id: args[2] }
+                            : { pane_id: args[2], agent: "pi" } } }),
+            };
+        }
+        if (args[0] === "pane" && args[1] === "process-info") {
+            return {
+                status: 0,
+                stdout: JSON.stringify({ result: { process_info: { shell_pid: 100, foreground_processes: [{ argv0: "zsh", pid: 100 }] } } }),
+            };
         }
         if (args[0] === "agent" && args[1] === "get") {
             return {
@@ -208,6 +220,11 @@ describe("hpl-orchestra agent state sampling", { concurrency: false }, () => {
         const { spawn, calls } = makeSpawn({ alive: false });
         assert.equal(Effect.runSync(sampleAgentStateEffect("w1:p8", { spawn })), "dead");
         assert.equal(calls.length, 1);
+    });
+    it("pane 还在但 pi 崩了（只剩 shell）也判 dead，且不读状态与屏文本", () => {
+        const { spawn, calls } = makeSpawn({ shell: true });
+        assert.equal(Effect.runSync(sampleAgentStateEffect("w1:p8", { spawn })), "dead");
+        assert.equal(calls.some((call) => call.args[1] === "read"), false);
     });
     it("两次屏文本都命中弹窗才 waiting-input，半帧不误判", () => {
         const both = makeSpawn({ reads: [ASK_USER_SAMPLE, ASK_USER_SAMPLE] });
