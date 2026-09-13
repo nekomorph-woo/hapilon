@@ -1,14 +1,18 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { Effect } from "effect";
+import { existsSync } from "node:fs";
 import {
   agentGet,
   agentSendKeys,
   buildPaneRunCommand,
   defaultSpawn,
+  paneAgentAlive,
   paneGet,
+  paneRename,
   paneRun,
   paneSplit,
   paneSplitEnvArgs,
+  paneWidths,
   resolveDiscussantModel,
   resolveRoleModel,
   resolveTierModelByTier,
@@ -30,11 +34,14 @@ import {
   findRoleEntry,
   findTeamStateForPane,
   isTeamOwner,
+  listTeamStates,
   readTeamStateEffect,
   resolveSessionStatePath,
+  teamStateError,
   writeTeamStateEffect,
   type RoleEntry,
   type RoleInstance,
+  type TeamOwner,
   type TeamState,
 } from "./state.js";
 import { sampleAgentStateEffect } from "./agent-state.js";
@@ -46,6 +53,8 @@ export const TEAM_ACTIONS = {
   start: "开始编排",
   pause: "暂停编排",
   finish: "结束编排",
+  kick: "踢出角色",
+  disband: "解散团队",
   clear: "清空面板上下文",
   create: "创建自定义角色",
   manage: "管理自定义角色",
@@ -53,28 +62,61 @@ export const TEAM_ACTIONS = {
   review: "打开 Review 面板",
   dispatch: "派发给 Worker",
   view: "查看面板分工",
+  resume: "接续主 agent 会话",
+  takeover: "接管上一个团队",
 } as const;
 
-export function buildTeamMenuOptions(enabled: boolean, paused = false): string[] {
-  if (enabled) {
-    return [
+/**
+ * 菜单项：takeover / resume 是条件项（有可接管的旧团队、主 agent 会话与当前会话不一致时才出现）。
+ * 解散与结束编排同列：结束只停编排、面板保留；解散连面板一起关。
+ */
+export function buildTeamMenuOptions(
+  enabled: boolean,
+  paused = false,
+  extras: { takeover?: readonly string[]; canResume?: boolean } = {},
+): string[] {
+  const own = enabled
+    ? [
       TEAM_ACTIONS.open,
       TEAM_ACTIONS.pause,
       TEAM_ACTIONS.finish,
+      TEAM_ACTIONS.kick,
+      TEAM_ACTIONS.disband,
       TEAM_ACTIONS.clear,
       TEAM_ACTIONS.create,
       TEAM_ACTIONS.manage,
       TEAM_ACTIONS.dispatch,
       TEAM_ACTIONS.view,
-    ];
-  }
-  return paused
-    ? [TEAM_ACTIONS.start, TEAM_ACTIONS.finish, TEAM_ACTIONS.view]
-    : [TEAM_ACTIONS.start, TEAM_ACTIONS.open, TEAM_ACTIONS.manage, TEAM_ACTIONS.view];
+    ]
+    : paused
+      ? [TEAM_ACTIONS.start, TEAM_ACTIONS.finish, TEAM_ACTIONS.kick, TEAM_ACTIONS.disband, TEAM_ACTIONS.view]
+      : [TEAM_ACTIONS.start, TEAM_ACTIONS.open, TEAM_ACTIONS.manage, TEAM_ACTIONS.view];
+  return [
+    ...(extras.takeover ?? []),
+    ...(extras.canResume ? [TEAM_ACTIONS.resume] : []),
+    ...own,
+  ];
 }
 
 function notify(ctx: ExtensionCommandContext, message: string, type: "info" | "warning" | "error" = "info"): void {
   ctx.ui.notify(message, type);
+}
+
+/** 写状态时盖 owner 身份：pane id + 主 agent 的 pi 会话文件（崩溃后 resume 的凭据）。 */
+function ownerFor(ctx: ExtensionCommandContext): TeamOwner | undefined {
+  const paneId = process.env.HERDR_PANE_ID;
+  if (!paneId) return undefined;
+  const session = ctx.sessionManager.getSessionFile();
+  return session ? { paneId, session } : { paneId };
+}
+
+/** 状态文件写坏/来自旧版本时只提示一次：静默按未启用会让团队凭空消失。 */
+let reportedStateIssue: string | undefined;
+function reportStateIssue(ctx: ExtensionCommandContext): void {
+  const issue = teamStateError();
+  if (!issue || issue === reportedStateIssue) return;
+  reportedStateIssue = issue;
+  notify(ctx, `团队状态文件不可用：${issue}（${resolveSessionStatePath()}）`, "warning");
 }
 
 function roleLabel(key: string, defs: readonly TeamRoleDef[] = getAllRoleDefs()): string {
@@ -120,6 +162,7 @@ function isTeamStateLike(state: unknown): state is TeamState {
 async function readPersistedState(ctx: ExtensionCommandContext, defs: readonly TeamRoleDef[] = getAllRoleDefs()): Promise<TeamState | undefined> {
   const state = await Effect.runPromise(readTeamStateEffect(resolveSessionStatePath(), defs));
   if ("roles" in state && isTeamStateLike(state)) return state;
+  reportStateIssue(ctx);
   const paneId = process.env.HERDR_PANE_ID;
   if (currentRole(defs) && paneId) {
     const roleState = findTeamStateForPane(paneId);
@@ -157,6 +200,104 @@ function runPaneClose(paneId: string, spawn: SpawnFn): Effect.Effect<boolean, ne
     },
     catch: () => false,
   }).pipe(Effect.catchAll(() => Effect.sync(() => false)));
+}
+
+/** 拟人名池（owner 与角色共用）：短、字形差别大，窄边框里也能一眼分辨 */
+const ROLE_NICKNAMES = ["阿岚", "阿澈", "小满", "小柚", "老白", "豆子", "麦子", "星野", "阿柯", "林子", "阿棠", "小鱼"] as const;
+
+/** 团队名两个词池随机拼（100×100）：不用正经，好玩就行 */
+export const TEAM_NAME_HEADS = [
+  "汪汪", "喵喵", "咕咕", "呱呱", "嗡嗡", "咩咩", "哞哞", "啾啾", "吱吱", "嘶嘶",
+  "摸鱼", "熬夜", "打盹", "发呆", "划水", "摸黑", "早起", "加班", "躺平", "摆烂",
+  "会飞的", "发光", "安静", "硬核", "极简", "滚烫", "冰镇", "咸鱼", "嘴硬", "心软",
+  "赛博", "蒸汽", "量子", "像素", "机械", "电波", "晶片", "雷达", "磁场", "齿轮",
+  "深空", "赤道", "极夜", "星尘", "月背", "北纬", "南极", "深海", "荒原", "沙丘",
+  "泡面", "甜筒", "火锅", "奶茶", "汤圆", "月饼", "烤肉", "啤酒", "冰粉", "糖葫芦",
+  "追风", "拧螺丝", "搬砖", "遛弯", "巡山", "赶海", "放羊", "砍价", "打铁", "漂流",
+  "街角", "深夜", "午后", "雨天", "星期天", "地下室", "天台", "走廊", "阳台", "门厅",
+  "苔藓", "竹子", "蘑菇", "仙人掌", "蒲公英", "芦苇", "藤蔓", "苔原", "松果", "麦浪",
+  "泡泡", "橡皮", "弹簧", "魔方", "气球", "风筝", "纸飞机", "陀螺", "弹珠", "小黄鸭",
+];
+
+export const TEAM_NAME_TAILS = [
+  "大队", "小队", "特工队", "突击队", "别动队", "游击队", "巡逻队", "搜救队", "消防队", "车队",
+  "事务所", "研究所", "实验室", "工作室", "编辑室", "指挥部", "后勤部", "研发部", "管理局", "委员会",
+  "联盟", "合作社", "互助会", "俱乐部", "同乡会", "读书会", "合唱团", "剧团", "乐队", "棋社",
+  "茶水间", "放映厅", "食堂", "酒馆", "澡堂", "驿站", "码头", "车间", "工厂", "仓库",
+  "小卖部", "便利店", "面馆", "烧烤摊", "糖水铺", "煎饼摊", "早餐店", "火锅店", "包子铺", "杂货铺",
+  "五金店", "花店", "书店", "唱片行", "照相馆", "当铺", "钱庄", "邮局", "修车铺", "裁缝铺",
+  "钟表店", "眼镜店", "理发店", "中医馆", "算命摊", "气象站", "天文台", "灯塔", "船坞", "车站",
+  "月台", "隧道", "树屋", "蜂巢", "蚁穴", "鸟巢", "羊圈", "鸡舍", "鱼塘", "菜地",
+  "果园", "麦田", "竹林", "松林", "湿地", "绿洲", "火山口", "陨石坑", "星系", "虫洞",
+  "游乐园", "电影院", "台球厅", "游戏厅", "网吧", "树篱迷宫", "旋转木马", "摩天轮", "过山车", "碰碰车",
+];
+
+function randomTeamName(): string {
+  const head = TEAM_NAME_HEADS[Math.floor(Math.random() * TEAM_NAME_HEADS.length)];
+  const tail = TEAM_NAME_TAILS[Math.floor(Math.random() * TEAM_NAME_TAILS.length)];
+  return `${head}${tail}`;
+}
+
+/** 这个团队已占用的拟人名（owner + 全部角色实例） */
+function allNicknames(state: TeamState): Array<string | undefined> {
+  return [state.owner.nickname, ...state.roles.flatMap((entry) => entry.instances.map((instance) => instance.nickname))];
+}
+
+/** 从池子里挑一个没人用过的拟人名；池子用完退化成编号，保证不重名 */
+function nextNickname(taken: ReadonlyArray<string | undefined>): string {
+  const used = new Set(taken.filter((nickname): nickname is string => Boolean(nickname)));
+  return ROLE_NICKNAMES.find((nickname) => !used.has(nickname)) ?? `路人${used.size + 1}`;
+}
+
+/** 写状态前的身份收口：缺团队名就取一个、owner 缺拟人名就补一个（其余字段原样保留） */
+function ensureIdentity(state: TeamState): TeamState {
+  const named: TeamState = state.name ? state : { ...state, name: randomTeamName() };
+  if (named.owner.nickname) return named;
+  return { ...named, owner: { ...named.owner, nickname: nextNickname(allNicknames(named)) } };
+}
+
+/** owner pane 的 herdr 标签：`<owner 拟人名> · owner · <团队名>`——团队名挂在这里最显眼 */
+function applyOwnerLabel(state: TeamState, spawn: SpawnFn): void {
+  const paneId = process.env.HERDR_PANE_ID;
+  if (!paneId || paneId !== state.owner.paneId) return;
+  const label = [state.owner.nickname, "owner", state.name]
+    .filter((part): part is string => Boolean(part)).join(" · ");
+  Effect.runSync(paneRename(paneId, label, spawn));
+}
+
+/** owner 写状态：收口身份，写完刷新 owner pane 标签 */
+async function writeOwnerState(state: TeamState, spawn: SpawnFn): Promise<boolean> {
+  const next = ensureIdentity(state);
+  if (!await writeState(next)) return false;
+  applyOwnerLabel(next, spawn);
+  return true;
+}
+
+/**
+ * 角色 pane 的 herdr 标签：`拟人名 · 角色 key · 面板 id`——一排 pane 光看标题分不出谁是谁。
+ * 创建/重灌时强制写；复用路径只补空标签，不覆盖用户手动改过的名字。
+ */
+function applyPaneLabel(
+  paneId: string,
+  key: string,
+  nickname: string | undefined,
+  spawn: SpawnFn,
+  options: { onlyIfUnlabeled?: boolean } = {},
+): void {
+  if (options.onlyIfUnlabeled && Effect.runSync(paneGet(paneId, spawn))?.label) return;
+  const short = paneId.replace(/^[^:]*:/, "");
+  const label = [nickname, key, short].filter((part): part is string => Boolean(part)).join(" · ");
+  Effect.runSync(paneRename(paneId, label, spawn));
+}
+
+/**
+ * 把角色启动命令重灌进仍然存在的 pane（pi 崩了、只剩 shell 的场景）。
+ * pane id 不变 → 状态不用改，也不会留下一个没人认领的孤儿面板。
+ */
+async function revivePane(instance: RoleInstance, spawn: SpawnFn): Promise<boolean> {
+  const command = buildPaneRunCommand("", resolveRoleModel(instance.model ?? undefined));
+  if (!Effect.runSync(paneRun(instance.paneId, command, spawn))) return false;
+  return waitPaneReady(instance.paneId, spawn);
 }
 
 function ownerProvider(ctx: ExtensionCommandContext): string | undefined {
@@ -215,10 +356,44 @@ async function appendRoleInstance(
   });
 }
 
+/** 老版本状态里的实例没有拟人名：复用/重灌时补一个并落盘，免得标签每次都不一样 */
+async function adoptNickname(state: TeamState, key: string, paneId: string): Promise<string> {
+  const nickname = nextNickname(allNicknames(state));
+  await writeState({
+    ...state,
+    roles: state.roles.map((entry) => entry.key !== key ? entry : {
+      ...entry,
+      instances: entry.instances.map((instance) => instance.paneId === paneId
+        ? { ...instance, nickname }
+        : instance),
+    }),
+  });
+  return nickname;
+}
+
+/** 右列窄到这个宽度就没法看了 → 退化到「owner 下方再开一个」（用户可接受的最坏形态） */
+const SPLIT_MIN_WIDTH = 40;
+
+/**
+ * 布局：第一块角色面板从 owner 右侧开（owner 永远独占左列），之后统一叠在右列最后一个下面，
+ * 而不是每次都去切 owner 那一列。右列窄到 SPLIT_MIN_WIDTH 以下时退化成 owner 下方开一个。
+ */
+function planRoleSplit(state: TeamState | undefined, spawn: SpawnFn): { target?: string; direction: "right" | "down" } {
+  const live = (state?.roles ?? []).flatMap((entry) => entry.instances)
+    .filter((instance) => Effect.runSync(paneAgentAlive(instance.paneId, spawn)));
+  const last = live[live.length - 1];
+  if (!last) return { direction: "right" };
+  const width = Effect.runSync(paneWidths(spawn)).get(last.paneId) ?? 0;
+  if (width > 0 && width < SPLIT_MIN_WIDTH) return { direction: "down" };
+  return { target: last.paneId, direction: "down" };
+}
+
 interface PaneResult {
   paneId: string;
   model: string | null;
   reused: boolean;
+  /** 拟人名：复用/重灌沿用原值，新建时从池子里取 */
+  nickname?: string;
 }
 
 async function ensurePane(
@@ -230,18 +405,28 @@ async function ensurePane(
   defs: readonly TeamRoleDef[] = getAllRoleDefs(),
 ): Promise<PaneResult | undefined> {
   const state = await readPersistedState(ctx, defs);
-  if (role.singleton) {
-    const existing = state ? findRoleEntry(state, role.key)?.instances ?? [] : [];
-    for (const instance of existing) {
-      // 复用判定用直连 paneGet：TTL 缓存会把「刚关闭的面板」误判为存活
+  const recorded = state ? findRoleEntry(state, role.key)?.instances ?? [] : [];
+  if (role.singleton && state) {
+    for (const instance of recorded) {
+      // 复用判定用直连探活：TTL 缓存会把「刚关闭的面板」误判为存活
       // 最多 10s，导致复用提示错误且新档位无法应用（review-r3 N3）
-      if (Effect.runSync(paneGet(instance.paneId, spawn))) {
-        return { paneId: instance.paneId, model: instance.model, reused: true };
+      if (Effect.runSync(paneAgentAlive(instance.paneId, spawn))) {
+        const nickname = instance.nickname ?? await adoptNickname(state, role.key, instance.paneId);
+        applyPaneLabel(instance.paneId, role.key, nickname, spawn, { onlyIfUnlabeled: true });
+        return { paneId: instance.paneId, model: instance.model, reused: true, nickname };
+      }
+      // pane 还在但 agent 已经不在（pi 崩溃/退出）：原地重灌角色命令，而不是
+      // 谎报「已在运行」或另开新面板留下孤儿（review D1）
+      if (Effect.runSync(paneGet(instance.paneId, spawn)) && await revivePane(instance, spawn)) {
+        const nickname = instance.nickname ?? nextNickname(allNicknames(state));
+        applyPaneLabel(instance.paneId, role.key, nickname, spawn);
+        notify(ctx, `${role.label} 面板 ${instance.paneId} 里的 agent 已不在，已在该 pane 重灌角色命令。`, "warning");
+        return { paneId: instance.paneId, model: instance.model, reused: false, nickname };
       }
     }
   }
 
-  const paneId = Effect.runSync(paneSplit(ctx.cwd, spawn, paneSplitEnvArgs(role.key, options)));
+  const paneId = Effect.runSync(paneSplit(ctx.cwd, spawn, paneSplitEnvArgs(role.key, options), planRoleSplit(state, spawn)));
   if (!paneId) return undefined;
   // 创建路径存的可能是具体 id（tier 改了不传播）或 tier:name[i] 指代；
   // 统一在 spawn 时解析，档位表变更后下次开面板即生效。
@@ -257,15 +442,18 @@ async function ensurePane(
     notify(ctx, `${role.label} 面板启动后未就绪，已回收面板。`, "error");
     return undefined;
   }
-  return { paneId, model: resolvedModel ?? null, reused: false };
+  const nickname = nextNickname(state ? allNicknames(state) : []);
+  applyPaneLabel(paneId, role.key, nickname, spawn);
+  return { paneId, model: resolvedModel ?? null, reused: false, nickname };
 }
 
-function emptyState(ownerPaneId: string, enabled: boolean): TeamState {
+function emptyState(owner: TeamOwner, enabled: boolean): TeamState {
   return {
     enabled,
     since: new Date().toISOString(),
-    owner: { paneId: ownerPaneId },
+    owner,
     roles: [],
+    name: randomTeamName(),
   };
 }
 
@@ -300,19 +488,20 @@ async function openRolePanel(
     return;
   }
 
-  const base = previous ?? emptyState(ownerPaneId, !options.transient);
+  const base = previous ?? emptyState(ownerFor(ctx) ?? { paneId: ownerPaneId }, !options.transient);
   const next: TeamState = {
     ...base,
     // 临时角色可在未启用 Team 时存在；结束编排会随状态文件消失。
     enabled: previous?.enabled ?? !options.transient,
-    owner: { paneId: ownerPaneId },
+    owner: ownerFor(ctx) ?? { paneId: ownerPaneId },
     roles: await appendRoleInstance(base.roles, role, {
       paneId: created.paneId,
       model: created.model,
+      ...(created.nickname ? { nickname: created.nickname } : {}),
       ...(options.transient ? { transient: true } : {}),
     }, spawn),
   };
-  const saved = await writeState(next);
+  const saved = await writeOwnerState(next, spawn);
   notify(ctx, saved ? `${role.label} 面板已打开：${created.paneId}` : "编排状态保存失败。", saved ? "info" : "error");
 }
 
@@ -330,17 +519,18 @@ async function startOrchestration(ctx: ExtensionCommandContext, spawn: SpawnFn):
     notify(ctx, "Worker 面板创建失败，请检查 herdr。", "error");
     return;
   }
-  const base = previous ?? emptyState(ownerPane, true);
+  const base = previous ?? emptyState(ownerFor(ctx) ?? { paneId: ownerPane }, true);
   const next: TeamState = {
     ...base,
     enabled: true,
-    owner: { paneId: ownerPane },
+    owner: ownerFor(ctx) ?? { paneId: ownerPane },
     roles: await appendRoleInstance(base.roles, worker, {
       paneId: result.paneId,
       model: result.model,
+      ...(result.nickname ? { nickname: result.nickname } : {}),
     }, spawn),
   };
-  const saved = await writeState(next);
+  const saved = await writeOwnerState(next, spawn);
   notify(ctx, saved ? `编排已开始，Worker 面板：${result.paneId}` : "编排状态保存失败。", saved ? "info" : "error");
 }
 
@@ -484,14 +674,14 @@ async function clearContexts(ctx: ExtensionCommandContext, spawn: SpawnFn): Prom
   }
 }
 
-async function pause(ctx: ExtensionCommandContext): Promise<void> {
+async function pause(ctx: ExtensionCommandContext, spawn: SpawnFn): Promise<void> {
   const defs = getAllRoleDefs();
   const state = await readEnabledState(ctx, defs);
   if (!state || !isTeamOwner(state, defs)) {
     notify(ctx, "当前没有可暂停的编排。", "warning");
     return;
   }
-  const saved = await writeState({ ...state, enabled: false });
+  const saved = await writeOwnerState({ ...state, enabled: false, owner: ownerFor(ctx) ?? state.owner }, spawn);
   notify(ctx, saved ? "编排已暂停，面板保留。" : "编排状态保存失败。", saved ? "info" : "error");
 }
 
@@ -714,6 +904,184 @@ export async function completePendingRole(role: TeamRoleDef): Promise<boolean> {
   return true;
 }
 
+async function resumeOwnerSession(ctx: ExtensionCommandContext, state: TeamState): Promise<void> {
+  const target = state.owner.session;
+  if (!target) {
+    notify(ctx, "这个团队没有记录主 agent 会话，无法接续。", "warning");
+    return;
+  }
+  if (ctx.sessionManager.getSessionFile() === target) {
+    notify(ctx, "当前已经是主 agent 会话，无需接续。");
+    return;
+  }
+  if (!existsSync(target)) {
+    notify(ctx, `主 agent 会话文件不存在：${target}`, "error");
+    return;
+  }
+  await ctx.waitForIdle();
+  // switchSession 之后旧 ctx 失效，后续动作必须在 withSession 给的 ctx 上做
+  const result = await ctx.switchSession(target, {
+    withSession: async (next) => {
+      next.ui.notify(`已接续主 agent 会话：${target}`, "info");
+    },
+  });
+  if (result.cancelled) notify(ctx, "接续会话被取消。", "warning");
+}
+
+interface TakeoverCandidate {
+  path: string;
+  state: TeamState;
+}
+
+/** 可接管的旧团队：owner 已经不再有 agent（pane 关了或只剩 shell），且不是我自己那个状态文件。 */
+function takeoverCandidates(myPath: string, spawn: SpawnFn): TakeoverCandidate[] {
+  return listTeamStates().filter((entry) => entry.path !== myPath
+    && entry.state.enabled
+    && !Effect.runSync(paneAgentAlive(entry.state.owner.paneId, spawn)));
+}
+
+function takeoverLabel(candidate: TakeoverCandidate): string {
+  return `接管 ${candidate.state.owner.paneId} 的团队`;
+}
+
+async function takeoverTeam(ctx: ExtensionCommandContext, spawn: SpawnFn, candidate: TakeoverCandidate): Promise<void> {
+  const owner = ownerFor(ctx);
+  if (!owner) {
+    notify(ctx, "无法接管：当前 herdr 面板缺少 HERDR_PANE_ID。", "error");
+    return;
+  }
+  const formerOwner = candidate.state.owner.paneId;
+  const target = candidate.state.owner.session;
+  const resumable = Boolean(target && existsSync(target));
+  const next: TeamState = { ...candidate.state, owner: resumable ? { paneId: owner.paneId, session: target } : owner };
+  if (!await writeOwnerState(next, spawn)) {
+    notify(ctx, "接管失败：团队状态保存失败。", "error");
+    return;
+  }
+  // 同一批角色 pane 不能被两个 owner 同时认领（角色 pane 靠扫盘找归属）
+  await Effect.runPromise(deleteTeamStateEffect(candidate.path));
+  const live = next.roles.flatMap((entry) => entry.instances)
+    .filter((instance) => Effect.runSync(paneAgentAlive(instance.paneId, spawn))).length;
+  notify(ctx, `已接管 ${formerOwner} 的团队：${live} 个角色面板归队。`);
+  if (resumable) await resumeOwnerSession(ctx, next);
+  else notify(ctx, "原主面板没有可用会话记录，未接续会话（可用 /resume 手动挑）。", "warning");
+}
+
+/** 解散 = 结束编排 + 关闭该团队全部角色面板（含只剩 shell 的僵死 pane）。 */
+async function disband(ctx: ExtensionCommandContext, spawn: SpawnFn): Promise<void> {
+  const defs = getAllRoleDefs();
+  const state = await readPersistedState(ctx, defs);
+  if (!state || !isTeamOwner(state, defs)) {
+    notify(ctx, "当前没有可解散的团队。", "warning");
+    return;
+  }
+  const instances = state.roles.flatMap((entry) => entry.instances);
+  const livePaneIds = instances
+    .filter((instance) => Effect.runSync(paneAgentAlive(instance.paneId, spawn)))
+    .map((instance) => instance.paneId);
+  const confirmed = await ctx.ui.confirm(
+    "解散团队",
+    livePaneIds.length > 0
+      ? `将结束编排并关闭 ${livePaneIds.length} 个角色面板（${livePaneIds.join(" ")}），确定？`
+      : "将结束编排（当前没有存活的角色面板），确定？",
+  );
+  if (!confirmed) return;
+  // 先全查再动手：有一个在干活的 pane 就整体放弃，避免只关掉一半
+  for (const paneId of livePaneIds) {
+    if (Effect.runSync(agentGet(paneId, spawn)) === "working") {
+      notify(ctx, `${paneId} 正在工作中，等它完成后重试。`, "warning");
+      return;
+    }
+  }
+  const deleted = await Effect.runPromise(deleteTeamStateEffect(resolveSessionStatePath()));
+  let closed = 0;
+  for (const paneId of livePaneIds) {
+    if (Effect.runSync(runPaneClose(paneId, spawn))) closed++;
+  }
+  notify(ctx, `团队已解散：关闭 ${closed}/${livePaneIds.length} 个角色面板${deleted ? "" : "（状态文件本就不存在）"}。`);
+}
+
+/** /team:open <key>：用角色默认档直接开/救活——这是主 agent 自愈路径，不能卡在档位对话框上等人。 */
+async function openRoleByKey(ctx: ExtensionCommandContext, spawn: SpawnFn, key: string): Promise<void> {
+  const defs = getAllRoleDefs();
+  const role = getRoleDef(key, defs);
+  if (!role) {
+    notify(ctx, `没有 key 为 ${key} 的角色。`, "error");
+    return;
+  }
+  await openRolePanel(ctx, role, modelForTier(role, role.defaultTier, ownerProvider(ctx)), spawn);
+}
+
+/** 单个实例的菜单标签：临时角色不写注册表，按 "临时" 展示 */
+function instanceLabel(entry: RoleEntry, instance: RoleInstance, defs: readonly TeamRoleDef[]): string {
+  return `${instance.transient ? "临时" : roleLabel(entry.key, defs)}（${instance.paneId}）`;
+}
+
+/**
+ * 踢出角色面板：从团队状态里摘掉实例并关掉对应 pane（角色定义保留，可再 /team:open 拉回来）。
+ * selector 为空走菜单选择（带确认）；给 key 踢该角色全部实例，给 pane id 只踢那一个。
+ */
+async function kickRoles(
+  ctx: ExtensionCommandContext,
+  spawn: SpawnFn,
+  selector: string | undefined,
+  defs: readonly TeamRoleDef[],
+): Promise<void> {
+  const state = await readPersistedState(ctx, defs);
+  if (!state || !isTeamOwner(state, defs)) {
+    notify(ctx, "当前没有可管理的团队。", "warning");
+    return;
+  }
+  const targets = state.roles
+    .flatMap((entry) => entry.instances.map((instance) => ({ entry, instance })))
+    .filter(({ entry, instance }) => selector === undefined
+      ? true
+      : entry.key === selector || instance.paneId === selector);
+  const labeled = targets.map(({ entry, instance }) => ({ entry, instance, label: instanceLabel(entry, instance, defs) }));
+  if (labeled.length === 0) {
+    notify(ctx, selector === undefined ? "当前没有可踢出的角色面板。" : `没有匹配 ${selector} 的角色面板。`, "warning");
+    return;
+  }
+
+  let chosen = labeled;
+  if (selector === undefined) {
+    const selected = await ctx.ui.select("踢出哪个角色面板？", labeled.map(({ label }) => label));
+    if (!selected) return;
+    chosen = labeled.filter(({ label }) => label === selected);
+    const confirmed = await ctx.ui.confirm(
+      "踢出角色面板",
+      `将关闭 ${chosen.map(({ instance }) => instance.paneId).join(" ")} 并移出团队（角色定义保留），确定？`,
+    );
+    if (!confirmed) return;
+  }
+
+  // 先全查再动手：有 pane 在干活就整体放弃，不留下关一半的状态
+  for (const { instance } of chosen) {
+    if (Effect.runSync(paneAgentAlive(instance.paneId, spawn))
+      && Effect.runSync(agentGet(instance.paneId, spawn)) === "working") {
+      notify(ctx, `${instance.paneId} 正在工作中，等它完成后重试。`, "warning");
+      return;
+    }
+  }
+
+  const kicked = new Set(chosen.map(({ instance }) => instance.paneId));
+  // 实例清空的条目整体删掉：非注册表 key（自定义/临时）留空实例会让整个状态文件校验不过，
+  // 团队会被静默当成「未启用」。注册表角色不靠条目也在 crew 表里（由 defs 生成）。
+  const roles = state.roles.flatMap((entry) => {
+    const kept = entry.instances.filter((instance) => !kicked.has(instance.paneId));
+    return kept.length > 0 ? [{ ...entry, instances: kept }] : [];
+  });
+  if (!await writeState({ ...state, roles })) {
+    notify(ctx, "踢出失败：团队状态保存失败。", "error");
+    return;
+  }
+  let closed = 0;
+  for (const { instance } of chosen) {
+    if (Effect.runSync(paneGet(instance.paneId, spawn)) && Effect.runSync(runPaneClose(instance.paneId, spawn))) closed++;
+  }
+  notify(ctx, `已踢出 ${chosen.map(({ instance }) => instance.paneId).join(" ")}（关闭 ${closed}/${chosen.length} 个面板，角色定义保留）。`);
+}
+
 export async function handleTeamCommand(
   pi: ExtensionAPI,
   args: string,
@@ -721,7 +1089,9 @@ export async function handleTeamCommand(
   spawn: SpawnFn = defaultSpawn,
 ): Promise<void> {
   const defs = getAllRoleDefs();
-  if (currentRole(defs)) {
+  // 菜单侧与 prompt 侧同一条不变量（assemble.ts review-r3 N2）：HAPI_ORCH_ROLE 非空
+  // 的面板永远是角色面板、只读——哪怕它的角色定义与状态都已不在，也不能退回主面板权限。
+  if (process.env.HAPI_ORCH_ROLE) {
     const trimmed = args.trim();
     if (trimmed && trimmed !== TEAM_ACTIONS.view) {
       notify(ctx, "角色面板只允许查看分工，拒绝写操作。", "error");
@@ -733,24 +1103,53 @@ export async function handleTeamCommand(
     return;
   }
 
+  // /team:open <key> / /team:kick <key|paneId> 走这两条：角色 pane 之外才允许动 team
+  const openKey = /^打开角色\s+(\S+)$/.exec(args.trim());
+  if (openKey) {
+    await openRoleByKey(ctx, spawn, openKey[1]);
+    return;
+  }
+  const kickTarget = /^踢出角色\s+(\S+)$/.exec(args.trim());
+  if (kickTarget) {
+    await kickRoles(ctx, spawn, kickTarget[1], defs);
+    return;
+  }
+
   const persisted = await readPersistedState(ctx, defs);
   const enabled = Boolean(persisted && persisted.enabled && isTeamOwner(persisted, defs));
-  const options = buildTeamMenuOptions(enabled, Boolean(persisted && !persisted.enabled));
-  const explicit = args.trim() ? actionForArgs(args, Object.values(TEAM_ACTIONS)) : undefined;
+  const candidates = persisted ? [] : takeoverCandidates(resolveSessionStatePath(), spawn);
+  const canResume = Boolean(persisted?.owner.session && persisted.owner.session !== ctx.sessionManager.getSessionFile());
+  const options = buildTeamMenuOptions(enabled, Boolean(persisted && !persisted.enabled), {
+    takeover: candidates.map(takeoverLabel),
+    canResume,
+  });
+  const requested = args.trim();
+  const explicit = requested ? actionForArgs(args, Object.values(TEAM_ACTIONS)) : undefined;
   const action = explicit ?? await ctx.ui.select("Team 编排", options);
+  // 接管项是动态标签（带 owner pane id），菜单选中与显式传参两种来源都要认出来
+  const candidate = candidates.find((entry) => takeoverLabel(entry) === action)
+    ?? (requested ? candidates.find((entry) => takeoverLabel(entry).startsWith(requested)) : undefined);
+  if (candidate) {
+    await takeoverTeam(ctx, spawn, candidate);
+    return;
+  }
   if (!action) return;
 
   switch (action) {
     case TEAM_ACTIONS.start: await startOrchestration(ctx, spawn); break;
     case TEAM_ACTIONS.open: await openPanel(pi, ctx, spawn); break;
     case TEAM_ACTIONS.review: await openReviewCompat(ctx, spawn, defs); break;
-    case TEAM_ACTIONS.pause: await pause(ctx); break;
+    case TEAM_ACTIONS.pause: await pause(ctx, spawn); break;
     case TEAM_ACTIONS.finish: await finish(ctx); break;
+    case TEAM_ACTIONS.kick: await kickRoles(ctx, spawn, undefined, defs); break;
+    case TEAM_ACTIONS.disband: await disband(ctx, spawn); break;
     case TEAM_ACTIONS.clear: await clearContexts(ctx, spawn); break;
     case TEAM_ACTIONS.create: beginCustomWizard(pi, ctx); break;
     case TEAM_ACTIONS.manage: await manageRoles(ctx, pi, spawn); break;
     case TEAM_ACTIONS.dispatch: await dispatch(ctx, pi); break;
     case TEAM_ACTIONS.view: await viewDivision(ctx, spawn); break;
+    case TEAM_ACTIONS.resume: if (persisted) await resumeOwnerSession(ctx, persisted); break;
+    case TEAM_ACTIONS.takeover: notify(ctx, "没有可接管的团队。", "warning"); break;
   }
 }
 
@@ -766,7 +1165,7 @@ function probePaneLive(paneId: string, spawn: SpawnFn): boolean {
   }
   const cached = probeCache.get(paneId);
   if (cached && Date.now() - cached.at < PROBE_TTL_MS) return cached.live;
-  const live = Boolean(Effect.runSync(paneGet(paneId, spawn)));
+  const live = Effect.runSync(paneAgentAlive(paneId, spawn));
   probeCache.set(paneId, { live, at: Date.now() });
   return live;
 }

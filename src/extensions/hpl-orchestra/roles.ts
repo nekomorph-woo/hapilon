@@ -28,9 +28,10 @@ Crew state handling (states from the /team panel):
   and constraint arbitration: answer it yourself via send-keys. Irreversible
   operations, credentials, external effects: escalate to the human — never
   auto-answer.
-- done → collect: read worker-report.md in the task's dossier directory (the
-  pane line is only a pointer; the file is the record).
-- dead → respawn per the crew table, then have the worker assess partial work.
+- done → collect: read that pane's own report file in the task's dossier
+  directory (worker-report.md for the worker, reviewer-report.md for the
+  reviewer; the pane line is only a pointer; the file is the record).
+- dead → respawn per the crew table, then have the respawned pane assess partial work.
 - unknown → read the pane manually before acting; ask the human if still unclear.
 
 Dispatch discipline (a "new task" includes fix rounds from review):
@@ -38,7 +39,7 @@ Dispatch discipline (a "new task" includes fix rounds from review):
    matters): herdr agent send-keys <id> / n e w enter
    then re-check state returns to idle.
 2. Dispatch: background(command="herdr agent prompt <id> \"<task>\" --wait --timeout 600000")
-   Then end your turn — the background job wakes you when the worker settles.
+   Then end your turn — the background job wakes you when the pane settles.
 3. Collect: herdr agent read <id> --source recent-unwrapped --lines 120
 4. Review routing: every code change goes to the reviewer (docs/research
    only: skip). Verdict approve → wrap up. fix-then-approve → this is a
@@ -93,18 +94,21 @@ export const MISSING_ROLE_SECTION = `<team mode="unknown">
 This panel's team role definition is missing. Ask the user to re-create the role or run /team.
 </team>`;
 
+/** 自愈指令：主 agent 把 /team:open <key> 打进自己的输入框就能开/救活对应角色面板。 */
+function selfOpenLine(key: string): string {
+  return `- ${key} not open — send \`/team:open ${key}\` to your own pane, wait for it in the crew table, then dispatch.`;
+}
+
 /** reviewer 缺席时的唯一定义：crew 行与无 reviewer 兜底行共用，避免两处文案漂移。 */
 const REVIEWER_NOT_OPEN_LINE = "- reviewer not open — review necessity is your call: code or behavior"
-  + " changes → spawn it yourself (send `/team:open-reviewer` to your own pane), wait for it in the"
+  + " changes → open it yourself (send `/team:open reviewer` to your own pane), wait for it in the"
   + " crew table, then dispatch the review. Docs/research-only changes → no reviewer.";
 
 function crewLine(key: string, paneId: string): string {
   if (key === "worker" && paneId !== "not open") return `- worker ${paneId}: all code changes happen there`;
   if (key === "reviewer" && paneId !== "not open") return `- reviewer ${paneId}: code review — every code change goes there`;
   if (key === "reviewer") return REVIEWER_NOT_OPEN_LINE;
-  return paneId === "not open"
-    ? `- ${key} not open — do not dispatch until open`
-    : `- ${key} ${paneId}`;
+  return paneId === "not open" ? selfOpenLine(key) : `- ${key} ${paneId}`;
 }
 
 export function fillOrchestratorSection(roles: Array<{ key: string; paneId: string }>): string {
