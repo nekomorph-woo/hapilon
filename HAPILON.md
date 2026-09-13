@@ -4,7 +4,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 
 ## 语言
 
-- 默认简体中文交流；代码、标识符、commit 标题遵循英文惯例。
+- 默认简体中文交流；commit message 统一简体中文（标题与正文，含 type/scope 后的描述）；代码、标识符遵循英文惯例。
 
 ## 构建与验证
 
@@ -15,7 +15,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 
 ## 提交纪律
 
-- Conventional commits：标题英文、业务高度（用户视角，一行一个想法，禁止罗列文件/版本号）；正文 ≤3 行只讲 why——即 snap skill 的标准。
+- Conventional commits：type/scope 英文，描述与正文简体中文（覆盖 snap 按历史提交推断语言的默认优先级——历史是英文，新提交仍走中文）；业务高度（用户视角，一行一个想法，禁止罗列文件/版本号）；正文 ≤3 行只讲 why——即 snap skill 的标准。
 - 仓库常有并行会话写入：commit 前 `git status` 逐条过目，显式路径 staging，禁 `git add -A`。
 - 不主动 push；用户明确要求才 push / 走 PR。
 
