@@ -1,6 +1,6 @@
 ---
 name: snap
-description: Write one conventional-commit message for the staged diff and commit it, linking any issue the conversation already references.
+description: MANDATORY before every git commit — no commit happens without this skill, including trivial one-file commits. Writes one conventional-commit message for the staged diff (business-altitude subject, why-only body) and commits it, linking any issue the conversation already references.
 ---
 
 # Snap
