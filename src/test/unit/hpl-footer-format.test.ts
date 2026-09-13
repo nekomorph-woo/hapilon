@@ -4,6 +4,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { visibleWidth as piTuiVisibleWidth } from "@earendil-works/pi-tui";
 
 import {
   formatTokens,
@@ -228,9 +229,35 @@ describe("visibleWidth — CJK / emoji 宽字符", () => {
     assert.equal(visibleWidth("a😀b"), 4);
   });
 
-  it("异常路径: 控制字符不占列", () => {
-    assert.equal(visibleWidth("a\tb"), 2);
+  it("异常路径: 控制字符按 host 表计宽（\\n 不占列）", () => {
     assert.equal(visibleWidth("a\nb"), 2);
+    assert.equal(visibleWidth("a\tb"), piTuiVisibleWidth("a\tb"));
+  });
+});
+
+describe("宽度表与 pi-tui 对齐（回归：渲染行超宽会让 TUI 直接中止进程）", () => {
+  const samples = [
+    "⏳ 1 job: #24 review-A-4f4d544 | Team mode on", // 2026-09-13 崩溃日志里的那一行
+    "⚡ ⭐ ✅ ⌛ done",
+    "中文：路径 | 分支",
+    "mixed 中英 😀🙂 end",
+  ];
+
+  it("visibleWidth 与 pi-tui 判定完全一致", () => {
+    for (const text of samples) {
+      assert.equal(visibleWidth(text), piTuiVisibleWidth(text), text);
+    }
+  });
+
+  it("truncatePlain 在任意宽度下都不超宽（用 pi-tui 的表复核）", () => {
+    for (const text of samples) {
+      for (let width = 1; width <= piTuiVisibleWidth(text) + 2; width++) {
+        assert.ok(
+          piTuiVisibleWidth(truncatePlain(text, width)) <= width,
+          `超宽: text=${text} width=${width}`,
+        );
+      }
+    }
   });
 });
 
