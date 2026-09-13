@@ -55,7 +55,7 @@ function runJsonEffect(args, spawn = defaultSpawn) {
         return undefined;
     })));
 }
-function runCommandEffect(args, spawn = defaultSpawn, timeoutMs) {
+function runTextEffect(args, spawn = defaultSpawn, timeoutMs) {
     return Effect.try({
         try: () => {
             const bin = process.env.HERDR_BIN_PATH ?? "herdr";
@@ -65,13 +65,16 @@ function runCommandEffect(args, spawn = defaultSpawn, timeoutMs) {
             if (result.status !== 0) {
                 throw new HerdrError({ message: outputText(result.stderr) || `herdr exited with status ${result.status}` });
             }
-            return true;
+            return outputText(result.stdout);
         },
         catch: (error) => error,
     }).pipe(Effect.catchAll((error) => Effect.sync(() => {
         console.warn(`[hpl-orchestra] herdr ${args.join(" ")} 失败：${error instanceof Error ? error.message : String(error)}`);
-        return false;
+        return undefined;
     })));
+}
+function runCommandEffect(args, spawn = defaultSpawn, timeoutMs) {
+    return Effect.map(runTextEffect(args, spawn, timeoutMs), (text) => text !== undefined);
 }
 function findRecord(value, predicate) {
     if (!value || typeof value !== "object")
@@ -134,6 +137,14 @@ export function paneSplit(cwd, spawn = defaultSpawn, envArgs = []) {
 }
 export function paneRun(paneId, command, spawn = defaultSpawn) {
     return runCommandEffect(["pane", "run", paneId, command], spawn, SPAWN_TIMEOUT_MS);
+}
+/**
+ * pane 当前屏文本（agent 状态判定用）。herdr pane read 只输出纯文本，无 JSON 外壳；
+ * 读取失败返回 undefined（调用方按「采样失败」保守处理）。
+ */
+export function paneRead(paneId, spawn = defaultSpawn, options = {}) {
+    const args = ["pane", "read", paneId, "--source", options.source ?? "visible", "--lines", String(options.lines ?? 40)];
+    return runTextEffect(args, spawn, SPAWN_TIMEOUT_MS);
 }
 export function agentSendKeys(paneId, keys, spawn = defaultSpawn) {
     return runCommandEffect(["agent", "send-keys", paneId, ...keys], spawn);

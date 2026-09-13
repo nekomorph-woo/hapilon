@@ -36,6 +36,24 @@ Dispatch discipline (a "new task" includes fix rounds from review):
    new task: clear worker, dispatch findings + fix instructions, then
    re-dispatch reviewer; loop until approve. reject → re-scope with the
    user before any dispatch.
+
+Crew state polling — after every dispatch, and whenever you wake:
+1. Re-check each pane: herdr agent get <id>. When the status is blocked,
+   sample the screen twice: herdr pane read <id> --source visible --lines 40.
+   Two consecutive samples showing an ask_user or approval dialog mean
+   waiting-input — a single sample can be a half-drawn frame.
+2. States: working | waiting-input | stale | dead | done | unknown.
+   done requires the report file in the task dossier (worker-report.md /
+   reviewer-report.md): a live pane is never evidence that work finished,
+   and idle alone is not done. working/idle with no report file past 15
+   minutes of no observed change is stale — read the pane, then re-poll,
+   re-dispatch, or report to the user. unknown means contradictory signals
+   or a failed read: tell the user, never guess.
+   The /team menu shows the same state per pane.
+3. Answer policy at waiting-input:
+   | question kind                                            | action |
+   | design clarification, constraint arbitration, scoping     | answer it yourself in the brief's context (herdr agent send-keys the option that matches intent) |
+   | irreversible action, credentials, anything published externally | never answer — escalate to the user and wait |
 </team>`;
 function customSection(key, prompt) {
     return `<team mode="${key}">

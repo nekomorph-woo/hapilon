@@ -3,6 +3,7 @@ import { agentGet, agentSendKeys, buildPaneRunCommand, defaultSpawn, paneGet, pa
 import { deleteCustomRoleDef, getAllRoleDefs, getRoleDef, saveCustomRoleDef, } from "./role-registry.js";
 import { buildTransientRolePrompt, buildWizardPrompt } from "./role-wizard.js";
 import { currentRole, deleteTeamStateEffect, findRoleEntry, findTeamStateForPane, isTeamOwner, readTeamStateEffect, resolveSessionStatePath, writeTeamStateEffect, } from "./state.js";
+import { sampleAgentStateEffect } from "./agent-state.js";
 const TRANSIENT_ROLE_OPTION = "临时角色（本次会话）";
 export const TEAM_ACTIONS = {
     open: "打开面板",
@@ -327,8 +328,13 @@ async function viewDivision(ctx, spawn) {
         }
         return;
     }
-    const liveRoles = await liveRoleEntries(state, spawn);
-    const roleLines = liveRoles.map((entry) => `${entryLabel(entry, defs)}：${entry.instances.map((instance) => `${instance.paneId} ✓`).join(" ")}`);
+    const liveRoles = state.roles.filter((entry) => entry.instances.length > 0);
+    // 回执路径需要当前任务目录，team 状态里没有这项；probe 不传 → done 在面板上
+    // 不可达（宁可少报，不靠猜目录误报 done）。
+    const roleLines = await Promise.all(liveRoles.map(async (entry) => {
+        const panes = await Promise.all(entry.instances.map(async (instance) => `${instance.paneId}: ${await Effect.runPromise(sampleAgentStateEffect(instance.paneId, { spawn }))}`));
+        return `${entryLabel(entry, defs)}：${panes.join(" ")}`;
+    }));
     notify(ctx, ["当前面板分工：", ...roleLines, `主面板：${state.owner.paneId}（只调度）`].join("\n"));
 }
 async function clearOne(ctx, key, spawn, instancesOverride, defs = getAllRoleDefs()) {
