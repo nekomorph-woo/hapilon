@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { agentGet, agentSendKeys, buildPaneRunCommand, defaultSpawn, paneGet, paneRun, paneSplit, paneSplitEnvArgs, resolveDiscussantModel, resolveTierModelByTier, } from "./herdr.js";
 import { deleteCustomRoleDef, getAllRoleDefs, getRoleDef, saveCustomRoleDef, } from "./role-registry.js";
-import { buildTransientRolePrompt, buildWizardPrompt, parseRoleDefSentinel } from "./role-wizard.js";
+import { buildTransientRolePrompt, buildWizardPrompt } from "./role-wizard.js";
 import { currentRole, deleteTeamStateEffect, findRoleEntry, findTeamStateForPane, isTeamOwner, readTeamStateEffect, resolveSessionStatePath, writeTeamStateEffect, } from "./state.js";
 const TRANSIENT_ROLE_OPTION = "临时角色（本次会话）";
 export const TEAM_ACTIONS = {
@@ -527,18 +527,6 @@ export function assistantMessageText(message) {
     return message && typeof message === "object" && message.role === "assistant"
         ? messageText(message)
         : "";
-}
-/** 从 assistant 消息中提取本轮临时角色哨兵；注册表角色不会被误当 transient。 */
-function extractTransientRole(message) {
-    const role = parseRoleDefSentinel(assistantMessageText(message));
-    if (!role || getRoleDef(role.key))
-        return undefined;
-    return {
-        key: role.key,
-        label: role.label,
-        prompt: role.promptTemplate,
-        tier: role.defaultTier,
-    };
 }
 // \b 对 CJK 无效（中文标点不构成词边界），用显式前瞻限定取消词结尾
 const WIZARD_CANCEL_PATTERN = /^(取消|算了|退出|放弃|cancel|stop)(?=$|[\s，。！？、,.!?;:：])/i;
