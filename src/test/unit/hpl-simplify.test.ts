@@ -66,4 +66,9 @@ describe("SIMPLIFY_RULES_TEXT", () => {
     assert.ok(SIMPLIFY_RULES_TEXT.includes("NEVER suggest deleting"), "红线段落存在");
     assert.ok(SIMPLIFY_RULES_TEXT.includes("external APIs"), "外部输入校验红线");
   });
+
+  it("把「注释引用外部文档锚点」列为删除候选，并要求把原因折进去", () => {
+    assert.ok(SIMPLIFY_RULES_TEXT.includes("external document"), "文档锚点是删除候选");
+    assert.ok(SIMPLIFY_RULES_TEXT.includes("folding the reason"), "建议写法是把 why 折入注释");
+  });
 });

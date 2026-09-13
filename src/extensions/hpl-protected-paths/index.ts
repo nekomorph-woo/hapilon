@@ -8,7 +8,7 @@
  * /allow <path> — 会话级临时白名单，读写均生效
  *
  * 用法: hapilon 启动时自动加载（discoverExtensions() → -e 注入）
- * 来源: doc/pi-wiki.md §4.3 tool_call 事件
+ * 拦截点: pi 的 tool_call 事件（能读到工具入参，也就能放行/改写）
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

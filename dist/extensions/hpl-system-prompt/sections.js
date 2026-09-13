@@ -87,6 +87,8 @@ export function buildMcpSectionText(agentDirPath) {
  * claude-code#65961）：单条规则会被默认 verbose 倾向压过，需要成体系的
  * section 约束。措辞要点：
  * - 注释只允许三类高价值注释（功能简述 / 编写决策 / 重大 bug 修复）
+ * - 注释不得引用外部文档锚点（章节号 / ADR 编号 / 设计文档名）——文档会过期且
+ *   下个读者拿不到，要写就把「为什么」本身写进去
  * - fail fast 用正面表述（让异常浮出），并显式保留外部输入校验边界——
  *   纯否定式规则效果差，边界缺失会被模型过度泛化删掉业务防御
  * - 英文书写（与 prompt 其余部分一致），token 成本 ~250
@@ -101,6 +103,8 @@ Write comments only when they carry one of three kinds of value; otherwise write
 3. Major bug fix - what the bug was, its root cause, and why this fix closes it.
 
 Never write comments that restate the code, narrate obvious steps, or pad with textbook explanations. If a comment could be deleted without losing information the code does not already express, delete it.
+
+Never point at an external document from a comment: no section numbers, no ADR or design-doc ids/names (e.g. "design §3.2", "ADR-0007", "see the wiki"). Documents get moved, rewritten, or are simply not in front of the next reader - the pointer stops resolving while the comment keeps asserting it. When the reason matters, write the reason itself (kind 2) instead of pointing at it.
 
 ## Defensive programming
 

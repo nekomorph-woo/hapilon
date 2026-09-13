@@ -17,6 +17,8 @@ Only three kinds of comments carry value; any other comment in the diff is a del
 
 Candidates for deletion: comments that restate the code, narrate obvious steps, or pad with textbook explanations. Comments already on the unmodified lines are out of scope.
 
+Also flag comments that only point at an external document (section number, ADR/design-doc id or name - e.g. "design §3.2", "ADR-0007"): the anchor stops resolving as docs move, and the reader cannot recover the reason from it. Suggest folding the reason itself into the comment, or deleting the comment when the reason turns out to be uninteresting.
+
 ## Defensive programming
 
 Candidates for removal: try-catch around internal calls that cannot throw, re-validation of internal data already guaranteed by the type system or preceding code, silent fallback values, empty catch blocks, catch-and-continue.
@@ -70,7 +72,7 @@ export function buildAuditPrompt(scope) {
         `Your entire output is a numbered findings report.\n\n` +
         SIMPLIFY_RULES_TEXT +
         `\n\nReport format: a numbered list. Each item: file:line, issue type ` +
-        `(redundant-comment / impossible-guard / swallowed-error / spec others), ` +
+        `(redundant-comment / doc-anchor / impossible-guard / swallowed-error / spec others), ` +
         `one-line suggestion, confidence (HIGH/MEDIUM/LOW). ` +
         `If the diff has no findings, say so in one line. End of report.`);
 }

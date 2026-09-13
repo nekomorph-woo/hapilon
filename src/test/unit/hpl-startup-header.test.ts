@@ -366,7 +366,7 @@ describe("buildRightColumn()", () => {
     piUpdate: "0.81.0",
   };
 
-  it("collapsed → 默认显示 Extensions (N) + 扩展名列表（验收 §右栏）", () => {
+  it("collapsed → 默认显示 Extensions (N) + 扩展名列表", () => {
     const lines = buildRightColumn(base, false);
     const text = lines.join("\n");
     assert.ok(text.includes("Extensions (2)"), "含 Extensions 计数头");

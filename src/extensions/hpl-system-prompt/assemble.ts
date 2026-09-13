@@ -8,7 +8,7 @@
  * XML 转义策略：正文类内容（HAPILON.md / rules / contextFiles 正文）与
  * 属性值一律 xmlEscape——hapilon 的 prompt 是 XML 结构，正文中的 < > &
  * 若不转义会被模型当作标签/实体解读，甚至提前闭合 section 破坏结构
- * （Spec §3.9；Pi 原生 prompt 是 markdown 纯文本，无此结构，不构成参照）。
+ * （Pi 原生 prompt 是 markdown 纯文本，无此结构，不构成参照）。
  */
 
 import {
@@ -161,14 +161,14 @@ export function buildPiDocSection(): string {
 
 export function buildHapilonInstructions(hapilonMd: FileEntry[]): string {
   if (hapilonMd.length === 0) return "";
-  // 正文转义（Spec §3.9）：防 < > & 破坏 XML 结构
+  // 正文转义：防 < > & 破坏 XML 结构
   const body = hapilonMd.map((f) => xmlEscape(f.content)).join("\n\n").trim();
   return `<hapilon_instructions>\n${body}\n</hapilon_instructions>`;
 }
 
 export function buildHapilonRules(rules: RuleEntry[]): string {
   if (rules.length === 0) return "";
-  // name 属性与正文均转义（Spec §3.9）
+  // name 属性与正文均转义
   const items = rules
     .map((r) => `<rule name="${xmlEscape(r.name)}">\n${xmlEscape(r.content)}\n</rule>`)
     .join("\n\n");
@@ -177,10 +177,10 @@ export function buildHapilonRules(rules: RuleEntry[]): string {
 
 export function buildContextSection(contextFiles?: FileEntry[]): string {
   if (!contextFiles || contextFiles.length === 0) {
-    // Spec §2：无论是否为空都输出 section，空时显示注释（防将来去掉 --no-context-files）
+    // 无论是否为空都输出 section，空时显示注释（防将来去掉 --no-context-files）
     return `<project_context>\n<!-- 当前为空；hapilon 使用 --no-context-files -->\n</project_context>`;
   }
-  // path 属性与正文均转义（Spec §3.9）
+  // path 属性与正文均转义
   const entries = contextFiles
     .map(
       (f) =>
@@ -192,7 +192,7 @@ export function buildContextSection(contextFiles?: FileEntry[]): string {
 
 export function buildSkillsSection(skills?: SkillEntry[], selectedTools?: string[]): string {
   if (!skills || skills.length === 0) {
-    // Spec §2：无论是否为空都输出 section，空时显示注释（防将来去掉 --no-skills）
+    // 无论是否为空都输出 section，空时显示注释（防将来去掉 --no-skills）
     return `<available_skills>\n<!-- 当前为空；hapilon 使用 --no-skills -->\n</available_skills>`;
   }
   // 与 pi 0.85.1 formatSkillsForPrompt 对齐：模型需有能读文件的工具 skill 才有意义。
@@ -226,7 +226,7 @@ export function buildAppendSection(appendSystemPrompt?: string): string {
   return `<additional_instructions>\n${appendSystemPrompt}\n</additional_instructions>`;
 }
 
-/** 外部目录（/add-dir）注入内容由 hpl-add-dir 经 bridge 提供；此处条件拼接 + XML 转义（Spec §3.9）。 */
+/** 外部目录（/add-dir）注入内容由 hpl-add-dir 经 bridge 提供；此处条件拼接 + XML 转义。 */
 export function buildExternalDirsSection(): string {
   const dirs = getAddedDirs();
   if (dirs.length === 0) return "";

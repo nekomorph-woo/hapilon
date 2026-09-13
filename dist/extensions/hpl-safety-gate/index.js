@@ -7,7 +7,7 @@
  *   ALLOW — 正常放行
  *
  * 用法: hapilon 启动时自动加载（discoverExtensions() → -e 注入）
- * 来源: doc/pi-wiki.md §4.3 tool_call 事件
+ * 拦截点: pi 的 tool_call 事件（能读到工具入参，也就能放行/改写）
  */
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { classifyCommand } from "./classifier.js";

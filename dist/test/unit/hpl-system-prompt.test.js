@@ -116,6 +116,12 @@ describe("buildCodeStyleSection", () => {
         assert.ok(result.includes("why"), "白名单二类: 编写决策（why）");
         assert.ok(result.includes("bug fix"), "白名单三类: 重大 bug 修复");
     });
+    it("注释不得引用外部文档锚点（章节号/ADR/设计文档名），要写就把 why 写进去", () => {
+        const result = buildCodeStyleSection();
+        assert.ok(result.includes("external document"), "禁止文档锚点规则存在");
+        assert.ok(result.includes("ADR"), "点名 ADR 这类锚点");
+        assert.ok(result.includes("write the reason itself"), "替代方案是内联写 why");
+    });
     it("正常路径: fail fast 正面表述与外部输入校验边界", () => {
         const result = buildCodeStyleSection();
         assert.ok(result.includes("Fail fast"), "正面表述 Fail fast");
@@ -331,7 +337,7 @@ describe("buildContextSection", () => {
         assert.ok(result.includes('path="/a&quot;b.md"'), "path 中双引号被转义");
         assert.ok(result.includes("hello &lt;x&gt;"), "正文 < > 转义");
     });
-    it("边界条件: 空数组输出注释占位 section（Spec §2）", () => {
+    it("边界条件: 空数组输出注释占位 section", () => {
         const result = buildContextSection([]);
         assert.ok(result.includes("<project_context>"), "仍输出 section");
         assert.ok(result.includes("<!-- 当前为空"), "空时显示注释");
@@ -358,7 +364,7 @@ describe("buildSkillsSection", () => {
         assert.ok(!result.includes("<name>a</name>"), "禁用的 skill 不出现");
         assert.ok(result.includes("<name>b</name>"));
     });
-    it("边界条件: 空数组/全部禁用输出注释占位 section（Spec §2）", () => {
+    it("边界条件: 空数组/全部禁用输出注释占位 section", () => {
         const placeholder = "<available_skills>\n<!-- 当前为空；hapilon 使用 --no-skills -->\n</available_skills>";
         assert.equal(buildSkillsSection([]), placeholder, "空数组输出占位");
         assert.equal(buildSkillsSection(undefined), placeholder, "undefined 输出占位");

@@ -232,7 +232,7 @@ export function buildRightColumn(data, expanded) {
         right.push("  Run /context to check usage");
         right.push("  " + H_BAR.repeat(26));
     }
-    // ── Extensions (N) + 扩展名列表（恒显示，验收 §右栏）──
+    // ── Extensions (N) + 扩展名列表（恒显示）──
     if (data.extensions && data.extensions.length > 0) {
         right.push(`Extensions (${data.extensions.length})`);
         for (const extName of data.extensions) {
