@@ -11,6 +11,7 @@
  */
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { classifyCommand } from "./classifier.js";
+import { deriveAllowPattern } from "./derive-allow.js";
 import { hasSensitiveReadArg, sensitiveReadLabels } from "./sensitive-args.js";
 import { requestConfirm } from "../hpl-protected-paths/confirm.js";
 import { addTrust, isTrusted, initProjectTrust } from "../../config/trust-store.js";
@@ -69,7 +70,7 @@ export default function (pi) {
                         reason: `🛡️ 非交互模式下禁止读取敏感文件（${labels}）：${shown}`,
                     };
                 }
-                const result = await requestConfirm(ctx, "⚠️ 敏感文件读取确认", `命令将读取敏感文件（${labels}）：\n\n> ${normalized.slice(0, 200)}\n\n是否仍然执行？`);
+                const result = await requestConfirm(ctx, "⚠️ 敏感文件读取确认", `命令将读取敏感文件（${labels}）：\n\n> ${normalized.slice(0, 200)}\n\n是否仍然执行？`, { allowSuggestion: deriveAllowPattern(normalized) });
                 if (result.status !== "approved") {
                     const reason = result.status === "unavailable"
                         ? `🛡️ 非交互模式下禁止读取敏感文件（${labels}）`
@@ -79,7 +80,7 @@ export default function (pi) {
                 }
                 try {
                     if (result.scope !== "once") {
-                        addTrust("bash", normalized, result.scope, ctx.cwd);
+                        addTrust("bash", result.allowPattern ?? normalized, result.scope, ctx.cwd);
                     }
                 }
                 catch (err) {
@@ -107,7 +108,7 @@ export default function (pi) {
                 reason: `🛡️ 非交互模式下拦截中危命令：${shown}`,
             };
         }
-        const result = await requestConfirm(ctx, "⚠️ 危险操作确认", `检测到潜在危险操作：\n\n> ${normalized.slice(0, 200)}\n\n是否仍然执行？`);
+        const result = await requestConfirm(ctx, "⚠️ 危险操作确认", `检测到潜在危险操作：\n\n> ${normalized.slice(0, 200)}\n\n是否仍然执行？`, { allowSuggestion: deriveAllowPattern(normalized) });
         if (result.status !== "approved") {
             const reason = result.status === "unavailable"
                 ? `🛡️ 非交互模式下拦截中危命令：${shown}`
@@ -120,7 +121,7 @@ export default function (pi) {
         }
         try {
             if (result.scope !== "once") {
-                addTrust("bash", normalized, result.scope, ctx.cwd);
+                addTrust("bash", result.allowPattern ?? normalized, result.scope, ctx.cwd);
             }
         }
         catch (err) {

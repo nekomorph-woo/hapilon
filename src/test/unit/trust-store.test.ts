@@ -15,6 +15,7 @@ import {
   clearSessionTrust,
   listSessionTrust,
   initProjectTrust,
+  isAllowed,
 } from "../../config/trust-store.js";
 
 describe("trust-store", () => {
@@ -99,6 +100,74 @@ describe("trust-store", () => {
       assert.strictEqual(list.length, 1);
       assert.strictEqual(list[0].toolName, "write");
       assert.strictEqual(list[0].targets[0], ".env");
+    });
+  });
+
+  describe("isAllowed() — allow 条目匹配", () => {
+    it("精确条目 → 精确命中", () => {
+      assert.strictEqual(isAllowed(["git push origin main"], "git push origin main"), true);
+    });
+
+    it("精确条目不前缀匹配（向后兼容）", () => {
+      assert.strictEqual(isAllowed(["git push"], "git push origin main"), false);
+    });
+
+    it("尾随 * → 前缀匹配命中", () => {
+      assert.strictEqual(isAllowed(["git push*"], "git push origin main"), true);
+      assert.strictEqual(isAllowed(["git push*"], "git push"), true);
+    });
+
+    it("尾随 * → 非前缀不命中", () => {
+      assert.strictEqual(isAllowed(["git push*"], "git pull origin main"), false);
+    });
+
+    it("条目不命中 → false", () => {
+      assert.strictEqual(isAllowed(["git push*", "npm install*"], "rm -rf ./x"), false);
+    });
+
+    it("空表 / undefined → false", () => {
+      assert.strictEqual(isAllowed([], "git push"), false);
+      assert.strictEqual(isAllowed(undefined, "git push"), false);
+    });
+
+    it("裸 * → 全匹配", () => {
+      assert.strictEqual(isAllowed(["*"], "anything at all"), true);
+    });
+  });
+
+  describe("通配 allow — session / project 两查共用", () => {
+    it("session 通配条目命中后续同类命令", () => {
+      clearSessionTrust();
+      addTrust("bash", "git push*", "session", "/tmp/proj");
+      assert.strictEqual(isSessionTrusted("bash", "git push origin main"), true);
+      assert.strictEqual(isTrusted("bash", "git push --force origin main", "/tmp/proj"), true);
+      assert.strictEqual(isTrusted("bash", "git pull origin main", "/tmp/proj"), false);
+      clearSessionTrust();
+    });
+
+    it("project 通配条目在 init 缓存中生效", () => {
+      const proj = join(tmpBase, "wildcard-proj");
+      const projHap = join(proj, ".hapilon");
+      mkdirSync(projHap, { recursive: true });
+      writeFileSync(join(projHap, "config.local.json"), JSON.stringify({
+        allow: { bash: ["git push*"] },
+      }));
+
+      initProjectTrust(proj);
+      assert.strictEqual(isTrusted("bash", "git push origin main", proj), true);
+      assert.strictEqual(isTrusted("bash", "git push", proj), true);
+      assert.strictEqual(isTrusted("bash", "git status", proj), false);
+    });
+
+    it("addTrust project 通配后立即命中（缓存同步）", () => {
+      const proj = join(tmpBase, "wildcard-proj2");
+      const projHap = join(proj, ".hapilon");
+      mkdirSync(projHap, { recursive: true });
+      writeFileSync(join(projHap, "config.local.json"), JSON.stringify({ allow: {} }));
+
+      initProjectTrust(proj);
+      addTrust("bash", "npm install*", "project", proj);
+      assert.strictEqual(isTrusted("bash", "npm install -g pkg", proj), true);
     });
   });
 

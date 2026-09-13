@@ -5,7 +5,7 @@
  * 不依赖 Pi ExtensionAPI mock。
  */
 
-import { describe, it, mock } from "node:test";
+import { describe, it, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 
 import {
@@ -13,6 +13,11 @@ import {
   hasShellInjection,
 } from "../../extensions/hpl-safety-gate/index.js";
 import safetyGateExtension from "../../extensions/hpl-safety-gate/index.js";
+import {
+  isSessionTrusted,
+  isTrusted,
+  clearSessionTrust,
+} from "../../config/trust-store.js";
 
 describe("hpl-safety-gate", () => {
   describe("classifyCommand()", () => {
@@ -527,6 +532,83 @@ describe("hpl-safety-gate", () => {
       } finally {
         warn.mock.restore();
       }
+    });
+  });
+
+  // ── Seam C：通配 allow 交互（tool_call + mock ui，验证 addTrust 收到的值）──
+  describe("通配 allow（tool_call + mock ui）", () => {
+    function captureToolCallHandler() {
+      let handler: ((event: unknown, ctx: unknown) => Promise<unknown>) | undefined;
+      const pi = {
+        on: (name: string, cb: unknown) => {
+          if (name === "tool_call") handler = cb as typeof handler;
+        },
+      };
+      safetyGateExtension(pi as never);
+      assert.ok(handler, "tool_call 回调已注册");
+      return handler;
+    }
+
+    const bashEvent = (command: string) => ({ toolName: "bash", input: { command } });
+
+    function ctxReturning(choice: string, typed: string | undefined, calls: { placeholder?: string }) {
+      return {
+        cwd: "/tmp",
+        hasUI: true,
+        ui: {
+          select: async () => choice,
+          input: async (_title: string, placeholder?: string) => {
+            calls.placeholder = placeholder;
+            return typed;
+          },
+        },
+      };
+    }
+
+    afterEach(() => clearSessionTrust());
+
+    it("中危选通配（会话）→ addTrust 收到编辑后的模式，后续同类命令免弹框", async () => {
+      clearSessionTrust();
+      const handler = captureToolCallHandler();
+      const calls: { placeholder?: string } = {};
+
+      const r1 = await handler(
+        bashEvent("git push origin main"),
+        ctxReturning("Allow Pattern this Session", "git push --force*", calls),
+      );
+      assert.strictEqual(r1, undefined, "本次放行");
+      assert.strictEqual(calls.placeholder, "git push*", "弹窗建议来自命令推导");
+      assert.strictEqual(isSessionTrusted("bash", "git push --force origin other"), true);
+
+      // 命中通配后不再弹框：select 抛错即证明未被调用
+      const noPromptCtx = {
+        cwd: "/tmp",
+        hasUI: true,
+        ui: {
+          select: async () => {
+            throw new Error("不应弹框");
+          },
+          input: async () => undefined,
+        },
+      };
+      const r2 = await handler(bashEvent("git push --force origin other"), noPromptCtx);
+      assert.strictEqual(r2, undefined, "通配命中 → 免确认放行");
+    });
+
+    it("敏感读取选通配 → 建议由命令推导，模式入 session trust", async () => {
+      clearSessionTrust();
+      const handler = captureToolCallHandler();
+      const calls: { placeholder?: string } = {};
+
+      const r1 = await handler(
+        bashEvent("cat .env"),
+        ctxReturning("Allow Pattern this Session", "", calls),
+      );
+      assert.strictEqual(r1, undefined, "本次放行");
+      assert.strictEqual(calls.placeholder, "cat .env*", "建议 = cat .env*");
+      // 留空 → 回退建议 → 通配条目命中同前缀敏感文件
+      assert.strictEqual(isSessionTrusted("bash", "cat .env.local"), true);
+      assert.strictEqual(isTrusted("bash", "cat .env", "/tmp"), true);
     });
   });
 });

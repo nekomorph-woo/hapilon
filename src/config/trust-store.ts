@@ -13,6 +13,23 @@
 import { readProjectConfigEffect, readProjectLocalConfigEffect, writeProjectLocalConfigEffect } from "./project-config.js";
 import { Effect } from "effect";
 
+// ─── 匹配语义 ────────────────────────────────────────────────────────
+
+/**
+ * allow 条目匹配（session / project 两查共用）。
+ * 条目以 `*` 结尾 → 前缀匹配（`git push*` 命中 `git push origin main`）；
+ * 不含 `*` → 精确匹配（向后兼容既有整串条目）。
+ */
+export function isAllowed(entries: Iterable<string> | undefined, target: string): boolean {
+  if (!entries) return false;
+  for (const pattern of entries) {
+    if (pattern.endsWith("*") ? target.startsWith(pattern.slice(0, -1)) : pattern === target) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // ─── Session 级信任（内存）──────────────────────────────────────────
 
 const sessionTrust: Map<string, Set<string>> = new Map();
@@ -29,8 +46,7 @@ export function addSessionTrust(toolName: string, target: string): void {
 }
 
 export function isSessionTrusted(toolName: string, target: string): boolean {
-  const set = sessionTrust.get(toolName);
-  return set?.has(target) ?? false;
+  return isAllowed(sessionTrust.get(toolName), target);
 }
 
 export function clearSessionTrust(): void {
@@ -108,8 +124,7 @@ export function addProjectTrust(toolName: string, target: string, cwd: string): 
 
 export function isProjectTrusted(toolName: string, target: string, cwd: string): boolean {
   const allow = projectCache.get(cwd) ?? loadMergedAllow(cwd);
-  const list = allow[toolName];
-  return list?.includes(target) ?? false;
+  return isAllowed(allow[toolName], target);
 }
 
 export function listProjectTrust(cwd: string): Array<{ toolName: string; targets: string[] }> {
