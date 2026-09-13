@@ -10,6 +10,7 @@ import {
   paneSplit,
   paneSplitEnvArgs,
   resolveDiscussantModel,
+  resolveRoleModel,
   resolveTierModelByTier,
   type AgentStatus,
   type SpawnFn,
@@ -241,7 +242,10 @@ async function ensurePane(
 
   const paneId = Effect.runSync(paneSplit(ctx.cwd, spawn, paneSplitEnvArgs(role.key, options)));
   if (!paneId) return undefined;
-  const command = buildPaneRunCommand(role.key, model);
+  // 创建路径存的可能是具体 id（tier 改了不传播）或 tier:name[i] 指代；
+  // 统一在 spawn 时解析，档位表变更后下次开面板即生效。
+  const resolvedModel = resolveRoleModel(model);
+  const command = buildPaneRunCommand(role.key, resolvedModel);
   if (!Effect.runSync(paneRun(paneId, command, spawn))) {
     Effect.runSync(runPaneClose(paneId, spawn));
     notify(ctx, `${role.label} 面板启动失败（herdr pane run 未成功）。`, "error");
@@ -252,7 +256,7 @@ async function ensurePane(
     notify(ctx, `${role.label} 面板启动后未就绪，已回收面板。`, "error");
     return undefined;
   }
-  return { paneId, model: model ?? null, reused: false };
+  return { paneId, model: resolvedModel ?? null, reused: false };
 }
 
 function emptyState(ownerPaneId: string, enabled: boolean): TeamState {

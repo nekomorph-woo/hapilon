@@ -176,6 +176,7 @@ export function paneSplitEnvArgs(role, options = {}) {
         envs.push(`HAPI_ORCH_ROLE_PROMPT=${options.prompt}`);
     return envs.flatMap((env) => ["--env", env]);
 }
+const TIER_ORDER = ["opus", "sonnet", "haiku"];
 function readResolvedTierModels() {
     const path = join(hapilonHome(), "model-tiers-resolved.json");
     if (!existsSync(path))
@@ -186,7 +187,7 @@ function readResolvedTierModels() {
     }
     const record = parsed;
     const result = { opus: [], sonnet: [], haiku: [] };
-    for (const tier of ["opus", "sonnet", "haiku"]) {
+    for (const tier of TIER_ORDER) {
         const models = record[tier];
         if (!Array.isArray(models))
             continue;
@@ -212,7 +213,50 @@ function readResolvedTierModelsSafely() {
 }
 export function resolveTierModelByTier(tier) {
     const first = readResolvedTierModelsSafely()[tier][0];
-    return first ? `${first.provider}/${first.id}` : undefined;
+    return first ? modelKey(first) : undefined;
+}
+function modelKey(model) {
+    return `${model.provider}/${model.id}`;
+}
+/** 首个非空档位的首选模型（opus → sonnet → haiku），全空时 undefined。 */
+function fallbackModel(tiers) {
+    for (const tier of TIER_ORDER) {
+        const first = tiers[tier][0];
+        if (first)
+            return modelKey(first);
+    }
+    return undefined;
+}
+function warnAndFallback(tiers, reason) {
+    const fallback = fallbackModel(tiers);
+    console.warn(`[hpl-orchestra] ${reason}，回落 ${fallback ?? "pi 默认模型"}`);
+    return fallback;
+}
+const TIER_REFERENCE = /^tier:(opus|sonnet|haiku)(?:\[(\d+)\])?$/;
+/**
+ * roles.<role>.model 在 spawn 时现解析：tier:<name>[<index>] 查当前档位表；
+ * 具体 provider/id 命中任一档位即原样使用；过期 id、拼写错误、非法/越界指代
+ * 回落到首个非空档位的首选。使创建时写死的模型名自动跟上档位配置变更。
+ */
+export function resolveRoleModel(spec, tiers = readResolvedTierModelsSafely()) {
+    const wanted = spec?.trim();
+    if (!wanted)
+        return undefined;
+    const reference = TIER_REFERENCE.exec(wanted);
+    if (reference) {
+        const tier = reference[1];
+        const index = reference[2] === undefined ? 0 : Number(reference[2]);
+        const model = tiers[tier][index];
+        if (model)
+            return modelKey(model);
+        return warnAndFallback(tiers, `模型指代 ${wanted} 解析失败（${tier} 档共 ${tiers[tier].length} 个模型）`);
+    }
+    if (wanted.startsWith("tier:")) {
+        return warnAndFallback(tiers, `模型指代 ${wanted} 格式非法（应为 tier:<opus|sonnet|haiku>[<index>]）`);
+    }
+    if (TIER_ORDER.some((tier) => tiers[tier].some((model) => modelKey(model) === wanted)))
+        return wanted;
+    return warnAndFallback(tiers, `模型 ${wanted} 不在任何档位（可能已过期或拼写错误）`);
 }
 /** 为讨论成员优先挑选与主面板不同 provider 的 opus 模型。 */
 export function resolveDiscussantModel(ownerProvider) {
