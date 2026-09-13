@@ -48,10 +48,13 @@ npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v<新�
 
 ```bash
 ./scripts/release.sh <patch|minor> "<一句话内容>"
+./scripts/release.sh --notes <文件> patch "..."   # 自定义 Release 说明全文（首发/重大版本）
 ./scripts/release.sh --dry-run patch "..."   # 只打印将执行的命令
 ```
 
-自动完成：版本号升级 → build + 全量测试门禁（不绿即中止回滚）→ commit（含 dist）→ 附注 tag → push（HTTPS 失败自动回退 ssh）→ `npm pack` → `gh release create` 附 tarball → 清理。
+自动完成：版本号升级 → 依赖精确锁定检查（`^`/`~` 范围直接拒绝）→ build + 全量测试门禁（不绿即中止回滚）→ commit（含 dist）→ 附注 tag → push（HTTPS 失败自动回退 ssh）→ `npm pack` → **全新安装冒烟验证**（隔离环境真装一遍：版本号 + 补丁钩子）→ `gh release create` 附 tarball → 清理。
+
+冒烟验证是 v0.4.0 事故的产物：依赖范围在用户全新安装时会漂移到未验证版本、运行时 pi-tui 嵌套副本未打补丁——包能装但能力失效。任何检查不过都不上 Release。
 
 版本语义（0.x 阶段）：patch（`0.x.y`）= 修复与小调整；minor（`0.x`）= 一批新能力收敛。
 
