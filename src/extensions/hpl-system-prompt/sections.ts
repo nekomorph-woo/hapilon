@@ -75,7 +75,7 @@ export const BUILTIN_GUIDELINES = {
 /**
  * MCP 环境段（通道 A）。
  *
- * pi-mcp-adapter运行时从 agentDir/mcp.json 读 server 声明，
+ * pi-mcp-adapter 运行时从 agentDir/mcp.json 读 server 声明，
  * 但「agent 帮用户添加 server」时靠的是 prompt 知识——不注入这段，
  * agent 只能按训练常识猜路径（~/.pi 或 .mcp.json），必错。此处写死
  * hapilon 的真实路径与 schema 摘要；内容静态，token 成本 ~120。
@@ -96,9 +96,8 @@ export function buildMcpSectionText(agentDirPath: string): string {
 /**
  * 代码风格约束：注释白名单 + fail fast。
  *
- * 背景：LLM 默认写长篇注释与厚重防御性编程。社区实证（anthropics/
- *）：单条规则会被默认 verbose 倾向压过，需要成体系的
- * section 约束。措辞要点：
+ * 背景：LLM 默认写长篇注释与厚重防御性编程。单条规则会被默认 verbose 倾向压过，
+ * 需要成体系的 section 约束。措辞要点：
  * - 注释只允许三类高价值注释（功能简述 / 编写决策 / 重大 bug 修复）
  * - 注释不得引用外部文档锚点（章节号 / ADR 编号 / 设计文档名）或追踪号
  *   （issue / PR / review 编号）——都会过期且下个读者拿不到；代码要自闭环，

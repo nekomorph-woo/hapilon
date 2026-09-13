@@ -108,7 +108,7 @@ export function planTaskDirFor(slug) {
 }
 /**
  * 状态文件按主面板 herdr pane id 绑定（并行编排天然隔离；主面板 /new
- * 换会话不受影响—— 的裁定方案）。冒号是 pane id 分隔符，转下划线。
+ * 换会话不受影响）。冒号是 pane id 分隔符，转下划线。
  */
 export function resolveSessionStatePath(ownerPaneId) {
     const pane = ownerPaneId ?? process.env.HERDR_PANE_ID ?? "";

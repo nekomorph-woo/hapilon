@@ -24,7 +24,7 @@ describe("ensureExtensionConfigs()", () => {
     assert.equal(cfg.autoCascade, true);
   });
 
-  it("首次调用写入 web-search.json（workflow: none，决策：不弹 curator 浏览器）", () => {
+  it("首次调用写入 web-search.json（workflow: none：不弹 curator 浏览器）", () => {
     ensureExtensionConfigs(agentDir);
     const path = join(agentDir, "web-search.json");
     assert.ok(existsSync(path));

@@ -330,7 +330,7 @@ describe("buildRightColumn()", () => {
         assert.ok(text.includes("  ext-b"), "应列出扩展名 b");
         assert.ok(text.includes("esc"), "应包含快捷键");
     });
-    it("piUpdate 存在时扩展名列表仍显示（逻辑 bug）", () => {
+    it("piUpdate 存在时扩展名列表仍显示（回归）", () => {
         const collapsed = buildRightColumn(base, false).join("\n");
         assert.ok(collapsed.includes("  ext-a"), "update 不应抢占扩展名列表");
     });

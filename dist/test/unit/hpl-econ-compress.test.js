@@ -49,7 +49,7 @@ describe("hpl-econ/compress", () => {
             assert.ok(existsSync(result.fullOutputPath), "全文已落盘");
             assert.equal(readFileSync(result.fullOutputPath, "utf8"), full, "落盘内容 = 原文");
         });
-        it("省略提示含内核 fullOutputPath（双层截断处理，警告段）", () => {
+        it("省略提示含内核 fullOutputPath（双层截断处理）", () => {
             const kernelPath = "/tmp/pi-bash-abc123.log";
             const full = "y".repeat(10000);
             const result = compressOutput(full, "bash-3", params(), kernelPath);

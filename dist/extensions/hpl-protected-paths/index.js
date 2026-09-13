@@ -164,7 +164,7 @@ export default function (pi) {
                 return;
             }
             if (args.kind === "clear") {
-                // 计数按路径条数（不是 toolName 分组数），发现 6
+                // 计数按路径条数（不是 toolName 分组数）
                 const count = listSessionTrust().reduce((n, g) => n + g.targets.length, 0);
                 clearSessionTrust();
                 notify(`已清空 ${count} 条 session 白名单`, "info");
@@ -174,7 +174,7 @@ export default function (pi) {
                 notify("用法：/allow <path>... | --list | --clear", "warning");
                 return;
             }
-            // /allow → 加入 session 白名单（支持空格分隔批量，发现 3）
+            // /allow → 加入 session 白名单（支持空格分隔批量）
             const added = [];
             for (const p of args.paths) {
                 const resolved = resolveTarget(p, ctx.cwd);

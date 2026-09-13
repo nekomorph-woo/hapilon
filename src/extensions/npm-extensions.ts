@@ -52,7 +52,7 @@ export function resolveExtensionEntry(
   resolve: (id: string) => string,
 ): string {
   // 主路径：resolve <pkg>/package.json 再拼入口。
-  // 部分包（如 pi-mcp-adapter，；ponytail）用 exports 字段锁死子路径，
+  // 部分包（如 pi-mcp-adapter、ponytail）用 exports 字段锁死子路径，
   // `./package.json` 不在白名单 → ERR_PACKAGE_PATH_NOT_EXPORTED。
   // 降级：resolve 包主入口，从其目录**向上找包根**（含 package.json 的目录）
   // 再拼接——主入口可能在深层子目录（ponytail 的主入口在 .opencode/plugins/），

@@ -81,8 +81,7 @@ export async function main() {
             filesystem: {
                 denyRead: ["~/.ssh", "~/.aws", "~/.netrc"],
                 // agentDir 必须可写：pi 运行时维护 settings.json 及其 .lock
-                // （起 settings 还承载安全门通道，修复 sandbox 路径的
-                // EPERM warning——沙箱挡住了 hapilon 自己的配置写入）
+                // （settings 还承载安全门通道）；沙箱挡住它会让写入报 EPERM warning
                 allowWrite: [".", "/tmp", agentDirPath],
                 denyWrite: [".env", ".git/config"],
             },

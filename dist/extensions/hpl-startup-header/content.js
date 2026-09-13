@@ -161,8 +161,7 @@ function centerLine(line, maxWidth) {
  * 将多行文本在给定宽度内居中（左边补空格）。
  *
  * 首部连续非空行视为「块」（logo），整体共享 pad 居中——
- * 行间相对位置固定，resize 时整块平移不变形（修复 ：
- * 逐行独立取整导致的行间抖动）。其余行保持独立居中。
+ * 行间相对位置固定，resize 时整块平移不变形（把「逐行独立取整」改成整体取整）。其余行保持独立居中。
  */
 export function centerLines(lines, maxWidth) {
     let blockEnd = 0;

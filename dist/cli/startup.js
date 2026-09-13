@@ -99,7 +99,7 @@ export const prepareStartupEffect = (args) => Effect.gen(function* () {
         : [...allExtensions, ...safetyExtensionPaths()];
     // hapilon 自身入口绝对路径：供 hpl-orchestra 等扩展在 worker/reviewer
     // 面板重新拉起完整 hapilon（扩展跑在 pi 子进程里，argv[1] 是 pi 的 cli.js，
-    // 不能用——）。本模块编译后在 dist/cli/ 下，上一级即 dist/cli.js。
+    // 重新拉起时必须用 hapilon 自己的入口）。本模块编译后在 dist/cli/ 下，上一级即 dist/cli.js。
     const hapilonCliPath = fileURLToPath(new URL("../cli.js", import.meta.url));
     const piEnv = {
         ...process.env,
