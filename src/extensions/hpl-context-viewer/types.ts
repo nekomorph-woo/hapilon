@@ -18,6 +18,8 @@ export interface SystemPromptMeta {
     guidelines: number;
     codeStyle: number;
     commitDiscipline: number;
+    dispatchDiscipline: number;
+    roleCommitBoundary: number;
     hapilonInstructions: number;
     hapilonRules: number;
     contextFiles: number;

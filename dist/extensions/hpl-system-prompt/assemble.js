@@ -13,7 +13,7 @@
 import { collectUpward, readHapilonMd, readRules, } from "../../shared/files.js";
 import { xmlEscape } from "../../shared/format.js";
 import { wrapSystemPrompt } from "./xml.js";
-import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildMcpSectionText, BUILTIN_GUIDELINES, CODE_STYLE_TEXT, COMMIT_DISCIPLINE_TEXT, } from "./sections.js";
+import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildMcpSectionText, BUILTIN_GUIDELINES, CODE_STYLE_TEXT, COMMIT_DISCIPLINE_TEXT, DISPATCH_DISCIPLINE_TEXT, ROLE_COMMIT_BOUNDARY_TEXT, } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
 import { getAddedDirs } from "../hpl-add-dir/bridge.js";
@@ -81,6 +81,14 @@ export function buildCodeStyleSection() {
 export function buildCommitDisciplineSection() {
     // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
     return `<commit_discipline>\n${COMMIT_DISCIPLINE_TEXT}\n</commit_discipline>`;
+}
+export function buildDispatchDisciplineSection() {
+    // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
+    return `<dispatch_discipline>\n${DISPATCH_DISCIPLINE_TEXT}\n</dispatch_discipline>`;
+}
+export function buildRoleCommitBoundarySection() {
+    // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
+    return `<role_commit_boundary>\n${ROLE_COMMIT_BOUNDARY_TEXT}\n</role_commit_boundary>`;
 }
 export function buildPiDocSection() {
     return `<pi_documentation>\n${buildPiDocText()}\n</pi_documentation>`;
@@ -199,6 +207,8 @@ export function assembleSystemPrompt(opts) {
             : (team?.orchestrator ?? ORCHESTRATOR_TAGGED);
     const codeStyleSection = buildCodeStyleSection();
     const commitDisciplineSection = buildCommitDisciplineSection();
+    const dispatchDisciplineSection = buildDispatchDisciplineSection();
+    const roleCommitBoundarySection = buildRoleCommitBoundarySection();
     const piDocSection = buildPiDocSection();
     const hapilonInstructions = buildHapilonInstructions(hapilonMd);
     const hapilonRulesSection = buildHapilonRules(hapilonRules);
@@ -219,6 +229,8 @@ export function assembleSystemPrompt(opts) {
             team: teamSection.length,
             codeStyle: codeStyleSection.length,
             commitDiscipline: commitDisciplineSection.length,
+            dispatchDiscipline: dispatchDisciplineSection.length,
+            roleCommitBoundary: roleCommitBoundarySection.length,
             hapilonInstructions: hapilonInstructions.length,
             hapilonRules: hapilonRulesSection.length,
             contextFiles: contextFilesSection.length,
@@ -238,6 +250,8 @@ export function assembleSystemPrompt(opts) {
         teamSection,
         codeStyleSection,
         commitDisciplineSection,
+        dispatchDisciplineSection,
+        roleCommitBoundarySection,
         piDocSection,
         hapilonInstructions,
         hapilonRulesSection,

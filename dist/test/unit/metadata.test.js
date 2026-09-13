@@ -18,6 +18,8 @@ describe("metadata", () => {
             guidelines: 400,
             codeStyle: 250,
             commitDiscipline: 0,
+            dispatchDiscipline: 0,
+            roleCommitBoundary: 0,
             hapilonInstructions: 0,
             hapilonRules: 800,
             contextFiles: 0,

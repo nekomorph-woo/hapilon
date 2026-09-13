@@ -117,3 +117,17 @@ Keep input validation at trust boundaries (user input, network, files, process b
 export const COMMIT_DISCIPLINE_TEXT = `Commit discipline:
 
 Before any git commit, produce the message through the snap skill's process (/skill:snap): subject at business altitude - one line, one idea, never enumerating files, versions, or flags; body, when present, at most three short lines answering why, in the reader's language. Never commit without following it.`;
+/**
+ * 派发纪律：把「人类提问 ≠ 放行」写进固定 prompt。
+ *
+ * 写在这里而非 orchestrator 段，是因为误读放行信号发生在任何编排会话里，
+ * 不限于 herdr 面板；orchestrator 段只在 team 模式下注入。
+ */
+export const DISPATCH_DISCIPLINE_TEXT = `**Dispatch discipline.** When orchestrating other agents or panes: for any planned or multi-step task, write the task brief as a draft and let the human refine it first. Human questions and design refinements are discussion input — never treat them as approval to execute. Dispatch only after the human explicitly approves the plan (READY / GO). When in doubt, present the plan and wait.`;
+/**
+ * 角色提交边界：worker/reviewer 无提交权。
+ *
+ * 明写「错的任务书要拒绝该步」——否则派发方写错指令时，执行方会照做，
+ * 边界就只存在于 orchestrator 一侧。
+ */
+export const ROLE_COMMIT_BOUNDARY_TEXT = `**Role commit boundary.** Orchestrated agents (worker / reviewer roles) never run \`git commit\`. They implement, review, and report — the orchestrator or the human commits. A task brief that tells a worker or reviewer to commit is itself in error: refuse that step, complete the rest, and say so in the report.`;
