@@ -8,8 +8,8 @@ import { resolveNpmExtensionPaths, resolveExtensionEntry } from "../../extension
 describe("resolveNpmExtensionPaths()", () => {
     it("解析出全部 npm 扩展的绝对入口路径", () => {
         const paths = resolveNpmExtensionPaths();
-        // 2 个 tintinweb 包 + #43 集成四包 + #49 pi-mcp-adapter
-        // + @nklisch/pi-background-tasks + #55 ponytail
+        // 2 个 tintinweb 包 + 集成四包 + pi-mcp-adapter
+        // + @nklisch/pi-background-tasks + ponytail
         assert.equal(paths.length, 9);
         for (const p of paths) {
             assert.ok(existsSync(p), `入口文件应存在: ${p}`);
@@ -20,14 +20,14 @@ describe("resolveNpmExtensionPaths()", () => {
         assert.ok(tasks.includes("@tintinweb/pi-tasks"), `第一个应是 pi-tasks: ${tasks}`);
         assert.ok(subagents.includes("@tintinweb/pi-subagents"), `第二个应是 pi-subagents: ${subagents}`);
     });
-    it("#43 四包入口与各自 pi.extensions 声明一致", () => {
+    it("四包入口与各自 pi.extensions 声明一致", () => {
         const [, , fff, askUser, btw, webAccess] = resolveNpmExtensionPaths();
         assert.ok(fff.endsWith("@ff-labs/pi-fff/src/index.ts"), `fff: ${fff}`);
         assert.ok(askUser.endsWith("@zhushanwen/pi-ask-user/index.ts"), `ask-user: ${askUser}`);
         assert.ok(btw.endsWith("@narumitw/pi-btw/dist/index.ts"), `btw: ${btw}`);
         assert.ok(webAccess.endsWith("pi-web-access/index.ts"), `web-access: ${webAccess}`);
     });
-    it("#49 pi-mcp-adapter 入口与包内 pi.extensions 声明一致", () => {
+    it("pi-mcp-adapter 入口与包内 pi.extensions 声明一致", () => {
         const paths = resolveNpmExtensionPaths();
         const adapter = paths.find((p) => p.includes("pi-mcp-adapter"));
         assert.ok(adapter?.endsWith("pi-mcp-adapter/index.ts"), `mcp-adapter: ${adapter}`);
@@ -40,7 +40,7 @@ describe("resolveNpmExtensionPaths()", () => {
         const ponytailIndex = paths.findIndex((p) => p.includes("ponytail"));
         assert.ok(bgIndex < ponytailIndex, "background-tasks 必须先于 ponytail 加载");
     });
-    it("#55 ponytail 入口在 NPM_EXTENSIONS 末位（保证 hpl 先跑、ponytail 尾部追加）", () => {
+    it("ponytail 入口在 NPM_EXTENSIONS 末位（保证 hpl 先跑、ponytail 尾部追加）", () => {
         const paths = resolveNpmExtensionPaths();
         const ponytail = paths[paths.length - 1];
         assert.ok(ponytail.includes("@dietrichgebert/ponytail"), `末位应是 ponytail: ${ponytail}`);
@@ -49,13 +49,13 @@ describe("resolveNpmExtensionPaths()", () => {
         // ponytail 的 before_agent_start 是「尾部追加」语义——若它先于 hpl-system-prompt 执行，
         // hpl 的全量替换会抹掉其追加。此断言钉死加载顺序前提。
     });
-    it("#49 hapilon package.json 未设 piConfig（adapter getAgentDir 依赖此前提）", () => {
+    it("hapilon package.json 未设 piConfig（adapter getAgentDir 依赖此前提）", () => {
         // pi-mcp-adapter 的 agent-dir.ts：若 PI_PACKAGE_DIR manifest 设了 piConfig.name，
         // 它会改找 `${NAME}_CODING_AGENT_DIR`。hapilon 靠 PI_CODING_AGENT_DIR 精确寻址，
         // 一旦未来设置 piConfig.name 而未同步导出新 env var，配置寻址会静默偏移。
         // 此测试把该前提钉死——改名时此处先红，逼实现者同步处理。
         const pkg = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../package.json"), "utf8"));
-        assert.equal(pkg.piConfig, undefined, "package.json 出现 piConfig 时必须同步处理 pi-mcp-adapter 的 getAgentDir 寻址（见 issue #49）");
+        assert.equal(pkg.piConfig, undefined, "package.json 出现 piConfig 时必须同步处理 pi-mcp-adapter 的 getAgentDir 寻址");
     });
 });
 describe("resolveExtensionEntry()（fail fast 分支）", () => {
@@ -73,7 +73,7 @@ describe("resolveExtensionEntry()（fail fast 分支）", () => {
             err.message.includes("dist/index.js") &&
             err.message.includes("npm install"));
     });
-    it("#49 exports 锁死 package.json 时降级为包主入口寻址", () => {
+    it("exports 锁死 package.json 时降级为包主入口寻址", () => {
         // pi-mcp-adapter 的 exports 不含 ./package.json——主路径抛
         // ERR_PACKAGE_PATH_NOT_EXPORTED，应降级到 resolve(包名) 向上找包根再拼接。
         // 用真实临时目录布局验证（tmp/pkgroot/index.ts + package.json，
@@ -100,7 +100,7 @@ describe("resolveExtensionEntry()（fail fast 分支）", () => {
             rmSync(tmp, { recursive: true, force: true });
         }
     });
-    it("#55 主入口在深层子目录时（ponytail 布局）降级向上找到包根", () => {
+    it("主入口在深层子目录时（ponytail 布局）降级向上找到包根", () => {
         // ponytail exports 主入口是 .opencode/plugins/ponytail.mjs——
         // 降级后 dirname 在深层，必须向上找含 package.json 的包根再拼接。
         const tmp = mkdtempSync(join(tmpdir(), "hapilon-entry-deep-"));
@@ -130,7 +130,7 @@ describe("resolveExtensionEntry()（fail fast 分支）", () => {
             rmSync(tmp, { recursive: true, force: true });
         }
     });
-    it("#49 非 exports 锁定的 resolve 错误（包不存在）不降级、向上传播", () => {
+    it("非 exports 锁定的 resolve 错误（包不存在）不降级、向上传播", () => {
         assert.throws(() => resolveExtensionEntry("pi-mcp-adapter", "index.ts", () => {
             const err = new Error("Cannot find module 'pi-mcp-adapter/package.json'");
             err.code = "MODULE_NOT_FOUND";

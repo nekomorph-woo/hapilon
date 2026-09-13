@@ -9,7 +9,7 @@
  * 4. Monorepo 包 —— workspace 成员（npm、Cargo、Go）
  * 5. 含 HAPILON.md 的目录 —— 对本扩展价值最高
  *
- * 按 hapilon 受控上下文设计（#29）：只把 HAPILON.md 作为价值信号，
+ * 按 hapilon 受控上下文设计：只把 HAPILON.md 作为价值信号，
  * AGENTS.md / CLAUDE.md / skills 不作为建议依据。
  *
  * 每条建议按命中的信号数量得到一个相关度分数（0–1）。

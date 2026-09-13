@@ -1,5 +1,5 @@
 /**
- * hpl-simplify 单元测试 — 审查 prompt 构建与 diff 范围解析（#56）
+ * hpl-simplify 单元测试 — 审查 prompt 构建与 diff 范围解析
  *
  * 覆盖 audit.ts 的纯函数部分：范围解析、审查 prompt 构建。
  * 命令 handler 的交互流程（ui.select / sendUserMessage）在
@@ -59,7 +59,7 @@ describe("buildApplyPrompt()", () => {
 });
 
 describe("SIMPLIFY_RULES_TEXT", () => {
-  it("与 #54 code_style 白名单同源：三类注释 + fail fast 红线", () => {
+  it("与 code_style 白名单同源：三类注释 + fail fast 红线", () => {
     assert.ok(SIMPLIFY_RULES_TEXT.includes("Functionality summary"), "注释一类");
     assert.ok(SIMPLIFY_RULES_TEXT.includes("Design decision"), "注释二类");
     assert.ok(SIMPLIFY_RULES_TEXT.includes("bug fix"), "注释三类");

@@ -19,14 +19,14 @@ describe("ensureExtensionConfigs()", () => {
         const cfg = JSON.parse(readFileSync(path, "utf8"));
         assert.equal(cfg.autoCascade, true);
     });
-    it("首次调用写入 web-search.json（workflow: none，#42 决策：不弹 curator 浏览器）", () => {
+    it("首次调用写入 web-search.json（workflow: none，决策：不弹 curator 浏览器）", () => {
         ensureExtensionConfigs(agentDir);
         const path = join(agentDir, "web-search.json");
         assert.ok(existsSync(path));
         const cfg = JSON.parse(readFileSync(path, "utf8"));
         assert.equal(cfg.workflow, "none");
     });
-    it("首次调用写入 mcp.json 空骨架（#49：pi-mcp-adapter 配置）", () => {
+    it("首次调用写入 mcp.json 空骨架（pi-mcp-adapter 配置）", () => {
         ensureExtensionConfigs(agentDir);
         const path = join(agentDir, "mcp.json");
         assert.ok(existsSync(path));

@@ -1,7 +1,7 @@
 /**
  * pi-listing.ts — spawn pi --list-models 与表格解析
  *
- * 从 config.ts 拆出的独立模块（issue #4）：职责单一，测试从本模块导入。
+ * 从 config.ts 拆出的独立模块：职责单一，测试从本模块导入。
  */
 import { spawn } from "node:child_process";
 import { resolvePiCli } from "./pi-cli-path.js";

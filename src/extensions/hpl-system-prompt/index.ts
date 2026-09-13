@@ -34,7 +34,7 @@ export default function hplSystemPrompt(pi: ExtensionAPI): void {
       const hapilonCtx = collectHapilonContext(cwd, userHome);
 
       // 全量组装
-      // 全量组装（agentDirPath 供 #50 MCP 环境段使用）
+      // 全量组装（agentDirPath 供 MCP 环境段使用）
       const systemPrompt = assembleSystemPrompt({
         toolSnippets: opts.toolSnippets ?? {},
         selectedTools: opts.selectedTools,

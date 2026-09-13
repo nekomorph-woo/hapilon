@@ -24,19 +24,19 @@ describe("hpl-safety-gate", () => {
         it("sudo rm -rf / --no-preserve-root → block", () => {
             assert.strictEqual(classifyCommand("sudo rm -rf / --no-preserve-root"), "block");
         });
-        it("rm -rf --one-file-system / → block（-rf 与目标间插参，issue #6）", () => {
+        it("rm -rf --one-file-system / → block（-rf 与目标间插参）", () => {
             assert.strictEqual(classifyCommand("rm -rf --one-file-system /"), "block");
         });
-        it("sudo rm -rf --no-preserve-root / → block（flag 在目标前，issue #6）", () => {
+        it("sudo rm -rf --no-preserve-root / → block（flag 在目标前）", () => {
             assert.strictEqual(classifyCommand("sudo rm -rf --no-preserve-root /"), "block");
         });
-        it("rm\\ -rf\\ / → block（反斜杠转义空白，issue #6）", () => {
+        it("rm\\ -rf\\ / → block（反斜杠转义空白）", () => {
             assert.strictEqual(classifyCommand("rm\\ -rf\\ /"), "block");
         });
-        it("rm -rf ${IFS}/ → block（变量展开为空白，issue #6）", () => {
+        it("rm -rf ${IFS}/ → block（变量展开为空白）", () => {
             assert.strictEqual(classifyCommand("rm -rf ${IFS}/"), "block");
         });
-        it("rm -rf $IFS/ → block（$IFS 无花括号变体，issue #6）", () => {
+        it("rm -rf $IFS/ → block（$IFS 无花括号变体）", () => {
             assert.strictEqual(classifyCommand("rm -rf $IFS/"), "block");
         });
         it("mkfs.ext4 /dev/sda1 → block", () => {
@@ -79,7 +79,7 @@ describe("hpl-safety-gate", () => {
         it("fork bomb 内部多空格变体仍 block", () => {
             assert.strictEqual(classifyCommand(":(){  :|: &  };:"), "block");
         });
-        it(":(){ :|:& }; → block（无尾冒号变体，issue #6）", () => {
+        it(":(){ :|:& }; → block（无尾冒号变体）", () => {
             assert.strictEqual(classifyCommand(":(){ :|:& };"), "block");
         });
         it("function bomb 变体 → allow（Spec 明确暂不拦截，不扩大范围）", () => {
@@ -182,13 +182,13 @@ describe("hpl-safety-gate", () => {
         it("rm -rf ./node_modules → confirm", () => {
             assert.strictEqual(classifyCommand("rm -rf ./node_modules"), "confirm");
         });
-        it("rm -rf 普通绝对路径 → confirm（#44：/private 开头不得误判为根目录）", () => {
+        it("rm -rf 普通绝对路径 → confirm（/private 开头不得误判为根目录）", () => {
             assert.strictEqual(classifyCommand("rm -rf /private/tmp/pi-github-repos/runtime-TOG0gd"), "confirm");
         });
-        it("rm -rf /private/tmp → confirm（#44）", () => {
+        it("rm -rf /private/tmp → confirm", () => {
             assert.strictEqual(classifyCommand("rm -rf /private/tmp"), "confirm");
         });
-        it("rm -rf ~/projects/x → confirm（#44：home 子路径不是 home 本身）", () => {
+        it("rm -rf ~/projects/x → confirm（home 子路径不是 home 本身）", () => {
             assert.strictEqual(classifyCommand("rm -rf ~/projects/x"), "confirm");
         });
         it("git push --force origin main → confirm", () => {
@@ -354,7 +354,7 @@ describe("hpl-safety-gate", () => {
             assert.strictEqual(hasShellInjection('echo "$HOME"'), false);
         });
     });
-    // ── Seam B：拦截日志（tool_call 回调 + spy console.warn，issue #6）──
+    // ── Seam B：拦截日志（tool_call 回调 + spy console.warn）──
     // 仅捕获注册的回调并直接调用，不经过 Pi 运行时，不执行任何命令。
     describe("拦截日志（tool_call 回调）", () => {
         function captureToolCallHandler() {

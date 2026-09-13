@@ -1,7 +1,7 @@
 /**
- * sensitive-args.ts — bash 命令敏感文件参数检测（issue #47）
+ * sensitive-args.ts — bash 命令敏感文件参数检测
  *
- * #39 的 READ_CONFIRM 只覆盖 read 工具；bash 通道（cat/head/grep 等）读
+ * READ_CONFIRM 只覆盖 read 工具；bash 通道（cat/head/grep 等）读
  * 敏感文件完全绕过。本模块从 bash 命令提取文件参数，复用 hpl-protected-paths
  * 的 READ_CONFIRM 规则做单一判定来源，避免两套敏感文件清单漂移。
  *

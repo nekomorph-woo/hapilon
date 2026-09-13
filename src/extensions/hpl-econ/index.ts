@@ -18,7 +18,7 @@ import {
 } from "./settings.js";
 
 /**
- * hpl-econ — bash 输出压缩扩展（issue #52）。
+ * hpl-econ — bash 输出压缩扩展。
  *
  * hook tool_result（仅 bash）：输出超阈值时替换为「头 N 行 + 省略提示 + 尾 M 行」，
  * 全文落盘供 grep；ctx_more 工具按行号取回省略片段。省略提示给行动指引
@@ -234,7 +234,7 @@ export default function hplEcon(pi: ExtensionAPI): void {
     }
 
     const ref = `econ-${++seq}`;
-    // 双层截断（#52）：内核 truncateTail 已跑过——从 details 取内核落盘路径与截断标志
+    // 双层截断：内核 truncateTail 已跑过——从 details 取内核落盘路径与截断标志
     const details = event.details as
       | { truncation?: { truncated?: boolean }; fullOutputPath?: string }
       | undefined;

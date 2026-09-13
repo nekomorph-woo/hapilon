@@ -141,7 +141,7 @@ describe("setup", () => {
       const content = readFileSync(authPath, "utf8");
       const parsed = JSON.parse(content);
 
-      // issue #1 增量合并后，auth.json 保留此前测试写入的条目——仅断言无效 ID 未被写入
+      // 增量合并后，auth.json 保留此前测试写入的条目——仅断言无效 ID 未被写入
       assert.equal(
         Object.hasOwn(parsed, "invalid-provider-id"),
         false,
@@ -149,7 +149,7 @@ describe("setup", () => {
       );
     });
 
-    it("🤖①②: 增量 setup 保留已有 provider，两轮配置共存（issue #1）", () => {
+    it("🤖①②: 增量 setup 保留已有 provider，两轮配置共存", () => {
       const isolated = mkdtempSync(join(tmpdir(), "hapilon-issue1-test-"));
       try {
         const run = (answers: string[]) =>
@@ -238,7 +238,7 @@ describe("setup", () => {
       }
     });
 
-    it("输出包含 pi binary 可解析检查（issue #14）", () => {
+    it("输出包含 pi binary 可解析检查", () => {
       const outputs: string[] = [];
       const originalLog = console.log;
       console.log = (...args: unknown[]) => {

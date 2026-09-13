@@ -62,7 +62,7 @@ export default function hplContextViewer(pi) {
                 };
                 const snapshot = collectContextSnapshot(input);
                 const lines = renderContextLines(snapshot);
-                // hpl-econ 压缩统计（#52）：有压缩记录时追加一行
+                // hpl-econ 压缩统计：有压缩记录时追加一行
                 try {
                     const { statsLine } = await import("../hpl-econ/index.js");
                     lines.push("", statsLine());

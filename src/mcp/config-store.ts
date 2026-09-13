@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Data, Effect } from "effect";
 
 /**
- * mcp.json 配置存取（#50 通道 B 的存储层）。
+ * mcp.json 配置存取（通道 B 的存储层）。
  *
  * pi-mcp-adapter 从 agentDir/mcp.json 读 server 声明（transport 有
  * stdio / http 两类）。此模块做 schema 校验 + 读-改-写，供

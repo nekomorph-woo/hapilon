@@ -18,8 +18,8 @@ import { hasSensitiveReadArg, sensitiveReadLabels } from "./sensitive-args.js";
 import { requestConfirm } from "../hpl-protected-paths/confirm.js";
 import { addTrust, isTrusted, initProjectTrust } from "../../config/trust-store.js";
 
-// subagent 会话探针（issue #47 分级依赖）：与 hpl-protected-paths 同款。
-// bash 读敏感文件时 subagent block、主会话 confirm——与 #39 read 分级一致。
+// subagent 会话探针（分级依赖）：与 hpl-protected-paths 同款。
+// bash 读敏感文件时 subagent block、主会话 confirm——与 read 分级一致。
 let subagentProbe: (() => boolean) | undefined;
 import("@tintinweb/pi-subagents/dist/child-context.js")
   .then((mod) => {
@@ -42,7 +42,7 @@ function compactCommand(command: string): string {
 export { classifyCommand, hasShellInjection } from "./classifier.js";
 
 export default function (pi: ExtensionAPI) {
-  // 加载时初始化项目信任缓存（issue #15）：本进程是 project trust 的消费方
+  // 加载时初始化项目信任缓存：本进程是 project trust 的消费方
   initProjectTrust(process.cwd());
 
   pi.on("tool_call", async (event, ctx) => {
@@ -58,9 +58,9 @@ export default function (pi: ExtensionAPI) {
 
     const verdict = classifyCommand(command);
     if (verdict === "allow") {
-      // 敏感文件 bash 读检测（issue #47）：危险命令规则放行后，
+      // 敏感文件 bash 读检测：危险命令规则放行后，
       // 参数命中 READ_CONFIRM 的命令进入分级拦截——
-      // subagent 会话硬拦（#39 read 同级），主会话走 confirm。
+      // subagent 会话硬拦（read 同级），主会话走 confirm。
       if (hasSensitiveReadArg(command, ctx.cwd)) {
         const labels = sensitiveReadLabels(command, ctx.cwd).join("、");
         if (inSubagentSession()) {
@@ -103,7 +103,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (verdict === "block") {
-      // 拦截必须留痕（Make It Observable），issue #6
+      // 拦截必须留痕（Make It Observable）
       console.warn(`[hpl-safety-gate] 危险命令已阻止: ${shown}`);
       return {
         block: true,
@@ -115,7 +115,7 @@ export default function (pi: ExtensionAPI) {
     if (isTrusted("bash", normalized, ctx.cwd)) return;
 
     if (!ctx.hasUI) {
-      // 拦截必须留痕（Make It Observable），issue #6
+      // 拦截必须留痕（Make It Observable）
       console.warn(`[hpl-safety-gate] 非交互模式下拦截中危命令: ${shown}`);
       return {
         block: true,
@@ -135,7 +135,7 @@ export default function (pi: ExtensionAPI) {
         : result.status === "error"
         ? `🛡️ 确认对话框异常，已阻止：${shown}`
         : `用户拒绝了此操作：${shown}`;
-      // 拦截必须留痕（Make It Observable），issue #6
+      // 拦截必须留痕（Make It Observable）
       console.warn(`[hpl-safety-gate] ${reason}`);
       return { block: true, reason };
     }

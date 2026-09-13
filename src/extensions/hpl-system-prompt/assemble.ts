@@ -58,7 +58,7 @@ export interface AssembleOptions {
   skills?: SkillEntry[];
   hapilonMd: FileEntry[];
   hapilonRules: RuleEntry[];
-  /** agentDir 绝对路径——提供时 environment section 附加 MCP 环境段（#50） */
+  /** agentDir 绝对路径——提供时 environment section 附加 MCP 环境段 */
   agentDirPath?: string;
   /** Team personality; the two fields are mutually exclusive at assembly time. */
   team?: { orchestrator?: string; role?: string };

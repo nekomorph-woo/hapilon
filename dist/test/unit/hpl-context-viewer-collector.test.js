@@ -150,7 +150,7 @@ describe("collectContextSnapshot", () => {
         assert.equal(freeCat.tokens, 0);
     });
 });
-describe("token 统计不重复计算（issue #8）", () => {
+describe("token 统计不重复计算", () => {
     beforeEach(() => {
         clearLastMeta();
     });

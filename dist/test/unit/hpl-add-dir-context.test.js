@@ -1,7 +1,7 @@
 /**
  * hpl-add-dir context.ts 单元测试 — 目录上下文扫描与注入构建纯函数
  *
- * 核心验收（#29）：只注入 HAPILON.md（目录根 + .pi/ 子目录），
+ * 核心验收：只注入 HAPILON.md（目录根 + .pi/ 子目录），
  * AGENTS.md / CLAUDE.md 存在但不注入——符合 hapilon 受控上下文设计。
  */
 import { describe, it, afterEach } from "node:test";

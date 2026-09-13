@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Data, Effect } from "effect";
 export class EconConfigError extends Data.TaggedError("EconConfigError") {
 }
-/** 组合甲 · 稳妥默认（issue #52 实测裁决） */
+/** 组合甲 · 稳妥默认（实测裁决） */
 export const ECON_DEFAULTS = {
     enabled: true,
     threshold: 8 * 1024,

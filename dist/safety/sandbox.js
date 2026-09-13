@@ -1,7 +1,7 @@
 /**
  * sandbox.ts — OS 沙箱支持（--sandbox flag）
  *
- * 目前提供 Linux bwrap 预检（issue #5）：
+ * 目前提供 Linux bwrap 预检：
  * - bwrapInstalled(): bwrap 是否可用
  * - bwrapInstallHint(): bwrap 缺失时的发行版安装提示
  *

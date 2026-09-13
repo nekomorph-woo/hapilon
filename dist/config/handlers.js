@@ -1,7 +1,7 @@
 /**
  * config/handlers.ts — config 子命令处理（show / provider）
  *
- * 从 config.ts 拆出（issue #4）：交互式问答在 prompts.ts，
+ * 从 config.ts 拆出：交互式问答在 prompts.ts，
  * pi --list-models 解析在 pi-listing.ts，本模块只做子命令分发与处理。
  */
 import { stdin, stdout } from "node:process";

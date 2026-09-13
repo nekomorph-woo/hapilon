@@ -195,7 +195,7 @@ describe("config-io", () => {
             assert.strictEqual(hasFlag(["--", "--model", "gpt-4o"], "--model"), true);
         });
     });
-    describe("stripHapilonFlags()（#38）", () => {
+    describe("stripHapilonFlags()", () => {
         it("剥离裸 --no-safety", () => {
             assert.deepStrictEqual(stripHapilonFlags(["--no-safety", "-p", "hello"]), ["-p", "hello"]);
         });

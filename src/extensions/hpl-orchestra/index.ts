@@ -13,7 +13,7 @@ import { buildTeamSectionsEffect } from "./state.js";
 import { setTeamSections } from "./bridge.js";
 import { parseRoleDefSentinel } from "./role-wizard.js";
 
-/** system-prompt 组装方只消费 setStatus 能力——收窄参数面（review #15） */
+/** system-prompt 组装方只消费 setStatus 能力——收窄参数面 */
 type StatusOnlyContext = { ui: { setStatus: (key: string, text: string | undefined) => void } };
 
 interface BeforeAgentStartContext {

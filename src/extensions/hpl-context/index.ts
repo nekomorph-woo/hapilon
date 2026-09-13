@@ -23,7 +23,7 @@ import {
 import { getEffectPolicyMode } from "../hpl-effect-policy/bridge.js";
 import { hapilonHome } from "../../config/hapilon-home.js";
 
-/** npm 扩展自带 skills 的接线表（#55）：包名 → 包内 skills 目录 */
+/** npm 扩展自带 skills 的接线表：包名 → 包内 skills 目录 */
 const NPM_SKILL_DIRS: readonly [pkg: string, dir: string][] = [
   ["@dietrichgebert/ponytail", "skills"],
 ];
@@ -122,7 +122,7 @@ export default function hplContext(pi: ExtensionAPI): void {
       ),
     );
 
-    // npm 扩展自带 skills（#55）：从模块位置解析（不依赖 cwd）。
+    // npm 扩展自带 skills：从模块位置解析（不依赖 cwd）。
     // 单个 SKILL.md 文件路径——Pi loadSkills 支持文件级条目。
     // 包缺失/布局变更时静默跳过：skill 是增强，不应炸掉上下文发现。
     const req = createRequire(import.meta.url);

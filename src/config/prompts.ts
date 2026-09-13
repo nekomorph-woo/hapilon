@@ -1,7 +1,7 @@
 /**
  * config/prompts.ts — 交互式问答 helpers（question / yesno）
  *
- * 从 config.ts 拆出（issue #4）：readline 问答与配置处理分离。
+ * 从 config.ts 拆出：readline 问答与配置处理分离。
  */
 
 import { stdin, stdout } from "node:process";

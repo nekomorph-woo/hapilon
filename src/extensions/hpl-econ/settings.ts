@@ -8,7 +8,7 @@ export class EconConfigError extends Data.TaggedError("EconConfigError")<{
 }> {}
 
 /**
- * settings.ts — hpl-econ 参数读取（issue #52 组合甲默认）。
+ * settings.ts — hpl-econ 参数读取（组合甲默认）。
  *
  * 配置文件 <agentDir>/econ-config.json；ensure-extension-configs 负责播种，
  * 本模块只读（读不到字段用默认值，文件不存在同样走默认——与内核
@@ -25,7 +25,7 @@ export interface EconSettings {
   tailLines: number;
 }
 
-/** 组合甲 · 稳妥默认（issue #52 实测裁决） */
+/** 组合甲 · 稳妥默认（实测裁决） */
 export const ECON_DEFAULTS: EconSettings = {
   enabled: true,
   threshold: 8 * 1024,

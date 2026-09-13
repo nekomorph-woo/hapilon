@@ -179,7 +179,7 @@ export default function hplEcon(pi) {
             return undefined;
         }
         const ref = `econ-${++seq}`;
-        // 双层截断（#52）：内核 truncateTail 已跑过——从 details 取内核落盘路径与截断标志
+        // 双层截断：内核 truncateTail 已跑过——从 details 取内核落盘路径与截断标志
         const details = event.details;
         const kernelPath = details?.fullOutputPath;
         const kernelTruncated = details?.truncation?.truncated ?? false;

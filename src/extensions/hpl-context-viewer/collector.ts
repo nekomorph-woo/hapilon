@@ -63,7 +63,7 @@ export function collectContextSnapshot(input: CollectorInput): ContextSnapshot {
 
   // 只累加纯 system 组成（role/guidelines/pi docs/env 等）。
   // tools/skills/contextFiles/hapilonRules/hapilonInstructions 各自独立成类，
-  // 避免被双倍计入（issue #8）。
+  // 避免被双倍计入。
   const PURE_SYSTEM_SECTIONS = [
     "roleAndIdentity",
     "piDocumentation",

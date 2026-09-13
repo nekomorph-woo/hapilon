@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { agentDir } from "../config/hapilon-home.js";
 import { addMcpServerEffect, loadMcpServersEffect, mcpConfigPath, removeMcpServerEffect, McpConfigError, } from "./config-store.js";
 /**
- * `hapi mcp` 子命令（#50 通道 B）：人不手写 mcp.json。
+ * `hapi mcp` 子命令（通道 B）：人不手写 mcp.json。
  *
  *   hapi mcp add <name> <type> -- <command> [args...] [--env K=V]...
  *   hapi mcp add <name> http <url> [--header K=V]...

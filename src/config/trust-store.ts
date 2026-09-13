@@ -89,7 +89,7 @@ function saveLocalAllow(allow: Record<string, string[]>, cwd: string): void {
   Effect.runSync(writeProjectLocalConfigEffect({ allow }, cwd));
 }
 
-// ─── Project trust 内存缓存（issue #15）──────────────────────────────
+// ─── Project trust 内存缓存──────────────────────────────
 // cwd → merged allow 快照。initProjectTrust 加载一次，此后检查走缓存；
 // addProjectTrust 同步更新缓存。未 init 的 cwd 仍实时读盘（懒加载不缓存）。
 

@@ -5,7 +5,7 @@ import { Data, Effect } from "effect";
 export class NpmExtensionError extends Data.TaggedError("NpmExtensionError") {
 }
 /**
- * npm 扩展接线（#37）：
+ * npm 扩展接线：
  *
  * hapilon 通过 `-e` 把 node_modules 里的第三方 pi 扩展注入 pi 内核，
  * 与 hpl-* 内置扩展同一加载通道。不走 `pi install`——那会写
@@ -19,12 +19,12 @@ export class NpmExtensionError extends Data.TaggedError("NpmExtensionError") {
 const NPM_EXTENSIONS = [
     ["@tintinweb/pi-tasks", "dist/index.js"],
     ["@tintinweb/pi-subagents", "dist/index.js"],
-    // #43 集成四包（入口取自各包 pi.extensions 声明，#42 原型验证过）
+    // 集成四包（入口取自各包 pi.extensions 声明，原型验证过）
     ["@ff-labs/pi-fff", "src/index.ts"],
     ["@zhushanwen/pi-ask-user", "index.ts"],
     ["@narumitw/pi-btw", "dist/index.ts"],
     ["pi-web-access", "index.ts"],
-    // #49 MCP 桥接（入口取自包内 pi.extensions 声明）
+    // MCP 桥接（入口取自包内 pi.extensions 声明）
     ["pi-mcp-adapter", "index.ts"],
     // 后台任务原语（background/monitor/jobs 三 tool）：命令退出经
     // pi.sendMessage(triggerTurn) 唤醒 agent。选极简版 @nklisch 而非
@@ -32,7 +32,7 @@ const NPM_EXTENSIONS = [
     // setStatus key "background-tasks" 与 hpl-orchestra "team" 不冲突。
     // 注意 background 直通 /bin/sh 不经 hpl-safety-gate（v1 接受）。
     ["@nklisch/pi-background-tasks", "extensions/background-tasks.ts"],
-    // #55 极简编码规则（防御性编程减脂）。必须在末位：其 before_agent_start
+    // 极简编码规则（防御性编程减脂）。必须在末位：其 before_agent_start
     // 是「尾部追加」语义，先于 hpl-system-prompt（全量替换）执行会被抹掉。
     // 顺序由 npm-extensions.test.ts 的末位断言 + ponytail-load-order 集成测试钉死。
     ["@dietrichgebert/ponytail", "pi-extension/index.js"],
@@ -43,7 +43,7 @@ const NPM_EXTENSIONS = [
  */
 export function resolveExtensionEntry(pkg, entry, resolve) {
     // 主路径：resolve <pkg>/package.json 再拼入口。
-    // 部分包（如 pi-mcp-adapter，#49；ponytail，#55）用 exports 字段锁死子路径，
+    // 部分包（如 pi-mcp-adapter，；ponytail）用 exports 字段锁死子路径，
     // `./package.json` 不在白名单 → ERR_PACKAGE_PATH_NOT_EXPORTED。
     // 降级：resolve 包主入口，从其目录**向上找包根**（含 package.json 的目录）
     // 再拼接——主入口可能在深层子目录（ponytail 的主入口在 .opencode/plugins/），

@@ -182,9 +182,9 @@ export function hasFlag(args: string[], flag: string): boolean {
 /**
  * 剥离 hapilon 自有 flag（含 --flag=value 形式，与 hasFlag 语义对称）。
  *
- * hapilon 是 pi 的薄包装：未知命令/参数原样透传（issue #14），
+ * hapilon 是 pi 的薄包装：未知命令/参数原样透传，
  * 但自有 flag 是 hapilon 的启动器语义，pi 不认识——透传会让 pi 直接
- * 报 Unknown option 退出（#38）。新增自有 flag 时在此注册一处。
+ * 报 Unknown option 退出。新增自有 flag 时在此注册一处。
  */
 export function stripHapilonFlags(args: string[]): string[] {
   return args.filter(

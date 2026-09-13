@@ -111,7 +111,7 @@ function sqlClientDangerous(rawCommand: string): boolean {
 /**
  * 归一化检测副本——不修改原始命令，仅用于规则匹配。
  * 反斜杠转义空白（`rm\ -rf\ /`）与 IFS 变量（`${IFS}`/`$IFS`，shell 展开为空白）
- * 在真实执行中等价于普通空白，检测时需同步归一化，否则绕过 `\s+` 匹配。issue #6
+ * 在真实执行中等价于普通空白，检测时需同步归一化，否则绕过 `\s+` 匹配。
  */
 function normalizeForInspection(command: string): string {
   return command

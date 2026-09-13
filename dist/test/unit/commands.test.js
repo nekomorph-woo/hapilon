@@ -39,7 +39,7 @@ describe("commands", () => {
             }
         }
     });
-    it("路由由注册表驱动：setup/doctor/config/help 均有 handler（issue #4）", () => {
+    it("路由由注册表驱动：setup/doctor/config/help 均有 handler", () => {
         for (const name of ["setup", "doctor", "config", "help"]) {
             const cmd = COMMANDS.find((c) => c.name === name);
             assert.ok(cmd, `应存在 ${name}`);
@@ -48,7 +48,7 @@ describe("commands", () => {
     });
 });
 describe("GLOBAL_FLAGS", () => {
-    it("含 --help / --no-safety / --sandbox（help 文本回源，issue #4）", () => {
+    it("含 --help / --no-safety / --sandbox（help 文本回源）", () => {
         const names = GLOBAL_FLAGS.map((f) => f.name);
         assert.ok(names.some((n) => n.includes("--help")), "应含 --help");
         assert.ok(names.some((n) => n.includes("--no-safety")), "应含 --no-safety");

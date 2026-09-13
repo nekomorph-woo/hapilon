@@ -105,7 +105,7 @@ describe("hpl-protected-paths", () => {
     it("read ~/.kube/config → confirm", () => assert.strictEqual(classifyPath("~/.kube/config", "read"), "confirm"));
     it("read project.kubeconfig → confirm", () => assert.strictEqual(classifyPath("project.kubeconfig", "read"), "confirm"));
     it("read ~/.npmrc → confirm", () => assert.strictEqual(classifyPath("~/.npmrc", "read"), "confirm"));
-    // .env 读保护（issue #39）
+    // .env 读保护
     it("read .env → confirm", () => assert.strictEqual(classifyPath(".env", "read"), "confirm"));
     it("read .env.local → confirm", () => assert.strictEqual(classifyPath(".env.local", "read"), "confirm"));
     it("read .env.production → confirm", () => assert.strictEqual(classifyPath(".env.production", "read"), "confirm"));
@@ -261,7 +261,7 @@ describe("hpl-protected-paths", () => {
     });
   });
 
-  // ── Seam B：拦截日志（tool_call 回调 + spy console.warn，issue #6）──
+  // ── Seam B：拦截日志（tool_call 回调 + spy console.warn）──
   // 仅捕获注册的回调并直接调用，不经过 Pi 运行时，不执行任何命令。
   describe("拦截日志（tool_call 回调）", () => {
     function captureToolCallHandler() {

@@ -5,13 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * settings 通道安全门生命周期（#37）：
+ * settings 通道安全门生命周期：
  * 以 cli.ts 的实际调用序列驱动 dist 产物（ensureSafetyExtensions /
  * removeSafetyExtensions / isSafetyExtensionPath），验证 HAPILON_HOME
  * 隔离下 settings.json 的安全门条目写入 → 移除 → 写回的完整语义。
  * pi 启动本身不在此覆盖（E2E 已人工验证 subagent 拦截）。
  */
-describe("settings 通道安全门生命周期（#37）", () => {
+describe("settings 通道安全门生命周期", () => {
   let tmpBase: string;
   const ORIGINAL_ENV = process.env.HAPILON_HOME;
   let safetySettings: typeof import("../../safety/safety-settings.js");

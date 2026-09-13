@@ -66,7 +66,7 @@ export async function setupInteractive(): Promise<void> {
 
   const dirs = Effect.runSync(ensureHapilonDirsEffect);
 
-  // issue #1: 先读已有配置，交互提示"已配置"状态，写入时增量合并
+  // 先读已有配置，交互提示"已配置"状态，写入时增量合并
   const existingAuth = Effect.runSync(readAuthFileEffect(dirs.agent));
 
   const yesno = async (q: string): Promise<boolean> => {
@@ -119,7 +119,7 @@ export async function setupInteractive(): Promise<void> {
     rl.close();
   }
 
-  // issue #1: 增量合并——已有条目（含 OAuth token）保留，本次输入覆盖同名条目
+  // 增量合并——已有条目（含 OAuth token）保留，本次输入覆盖同名条目
   const auth = mergeAuthEntries(existingAuth, collected);
   Effect.runSync(writeAuthFileNativeEffect(dirs.agent, auth));
   ensureSettingsFile(dirs.agent);
@@ -186,7 +186,7 @@ export function doctor(): void {
   console.log(`models.json:         ${existsSync(modelsPath) ? "✅ 自定义模型" : "ℹ 不存在（正常）"}`);
   console.log(`\nPI_CODING_AGENT_DIR: ${agentDir}  ${existsSync(agentDir) ? "✅" : "⚠ 目标目录缺失"}`);
 
-  // pi binary 可解析检查（issue #14）
+  // pi binary 可解析检查
   try {
     const piCli = Effect.runSync(resolvePiCliEffect);
     console.log(`pi binary:           ${existsSync(piCli) ? "✅" : "⚠ 解析到但文件缺失"} ${piCli}`);

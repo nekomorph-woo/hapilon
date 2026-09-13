@@ -8,7 +8,7 @@ export class SafetySettingsError extends Data.TaggedError("SafetySettingsError")
 }> {}
 
 /**
- * 安全门 settings 通道（#37）：
+ * 安全门 settings 通道：
  *
  * hpl-safety-gate / hpl-protected-paths 写入 ~/.hapilon/settings.json 的
  * `extensions` 数组——settings 是 pi 的持久扩展配置，父会话与 pi-subagents

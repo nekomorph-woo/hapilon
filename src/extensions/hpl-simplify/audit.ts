@@ -1,9 +1,9 @@
 /**
- * audit.ts — /simplify 的审查规则文本与 prompt 构建（#56）
+ * audit.ts — /simplify 的审查规则文本与 prompt 构建
  *
  * 纯函数模块：diff 范围解析、审查/执行 prompt 构建。
  * 规则文本内置（不依赖 ponytail 运行时激活）——ponytail off 时
- * /simplify 仍完整可用（issue #56 验收项）。
+ * /simplify 仍完整可用。
  */
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -13,7 +13,7 @@ export type AuditScope =
   | { kind: "staged" }
   | { kind: "range"; from: string; to: string };
 
-// ── 规则文本（#54 code_style 白名单 + ponytail 红线，单一来源内置于本扩展）──
+// ── 规则文本（code_style 白名单 + ponytail 红线，单一来源内置于本扩展）──
 
 export const SIMPLIFY_RULES_TEXT = `Audit rules:
 
@@ -26,7 +26,7 @@ Only three kinds of comments carry value; any other comment in the diff is a del
 
 Candidates for deletion: comments that restate the code, narrate obvious steps, or pad with textbook explanations. Comments already on the unmodified lines are out of scope.
 
-Also flag comments that only point at an external document (section number, ADR/design-doc id or name - e.g. "design §3.2", "ADR-0007"): the anchor stops resolving as docs move, and the reader cannot recover the reason from it. Suggest folding the reason itself into the comment, or deleting the comment when the reason turns out to be uninteresting.
+Also flag comments that only point at an external document or tracker (section number, ADR/design-doc id or name, issue/PR/review id - e.g. "design §3.2", "ADR-0007", "issue #42"): the anchor stops resolving as docs move and trackers age, and the reader cannot recover the reason from it. Suggest folding the reason itself into the comment, or deleting the comment when the reason turns out to be uninteresting.
 
 ## Defensive programming
 

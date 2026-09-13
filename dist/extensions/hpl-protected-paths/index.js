@@ -15,9 +15,9 @@ import { classifyPath, resolveTarget } from "./classifier.js";
 import { requestConfirm, requestHighRiskConfirm } from "./confirm.js";
 import { addTrust, isTrusted, isSessionTrusted, clearSessionTrust, listSessionTrust, listProjectTrust, initProjectTrust } from "../../config/trust-store.js";
 export { classifyPath, expandTilde, resolveTarget } from "./classifier.js";
-// 加载时初始化项目信任缓存（issue #15）：本进程是 project trust 的消费方
+// 加载时初始化项目信任缓存：本进程是 project trust 的消费方
 initProjectTrust(process.cwd());
-// subagent 会话探针（issue #39）：pi-subagents 用 AsyncLocalStorage 标记
+// subagent 会话探针：pi-subagents 用 AsyncLocalStorage 标记
 // 子会话构建/运行，探针在 tool_call 回调内实时求值即对应触发会话。
 // 该模块是 pi-subagents 的内部路径（非 exports 公共 API），上游重构可能
 // 破坏——不可得时退回 confirm 行为（多弹一次确认，安全侧），不硬崩。
@@ -60,7 +60,7 @@ export default function (pi) {
             if (verdict === "block") {
                 // block 路径 → 仅 session trust
                 if (!isSessionTrusted(toolName, filePath)) {
-                    // 拦截必须留痕（Make It Observable），issue #6
+                    // 拦截必须留痕（Make It Observable）
                     console.warn(`[hpl-protected-paths] 受保护的文件路径，不允许写入: ${filePath}`);
                     return { block: true, reason: `🛡️ 受保护的文件路径，不允许写入：${filePath}` };
                 }
@@ -77,7 +77,7 @@ export default function (pi) {
                         : result.status === "error"
                             ? `🛡️ 确认对话框异常，已阻止：${filePath}`
                             : `用户拒绝了写入：${filePath}`;
-                    // 拦截必须留痕（Make It Observable），issue #6
+                    // 拦截必须留痕（Make It Observable）
                     console.warn(`[hpl-protected-paths] ${reason}`);
                     return { block: true, reason };
                 }
@@ -106,7 +106,7 @@ export default function (pi) {
             const verdict = classifyPath(filePath, "read", ctx.cwd);
             if (verdict !== "confirm")
                 return;
-            // subagent 无人在场确认（issue #39）：confirm 框的 unavailable 分支
+            // subagent 无人在场确认：confirm 框的 unavailable 分支
             // 在子会话本就会 block，但语义上应显式区分——子会话内敏感读取一律
             // 直接拦截，不走 confirm 流程。
             if (inSubagentSession()) {
@@ -121,7 +121,7 @@ export default function (pi) {
                     : result.status === "error"
                         ? `🛡️ 确认对话框异常，已阻止读取：${filePath}`
                         : `用户拒绝了读取敏感文件：${filePath}`;
-                // 拦截必须留痕（Make It Observable），issue #6
+                // 拦截必须留痕（Make It Observable）
                 console.warn(`[hpl-protected-paths] ${reason}`);
                 return { block: true, reason };
             }
@@ -164,7 +164,7 @@ export default function (pi) {
                 return;
             }
             if (args.kind === "clear") {
-                // 计数按路径条数（不是 toolName 分组数），issue #10 发现 6
+                // 计数按路径条数（不是 toolName 分组数），发现 6
                 const count = listSessionTrust().reduce((n, g) => n + g.targets.length, 0);
                 clearSessionTrust();
                 notify(`已清空 ${count} 条 session 白名单`, "info");
@@ -174,7 +174,7 @@ export default function (pi) {
                 notify("用法：/allow <path>... | --list | --clear", "warning");
                 return;
             }
-            // /allow → 加入 session 白名单（支持空格分隔批量，issue #10 发现 3）
+            // /allow → 加入 session 白名单（支持空格分隔批量，发现 3）
             const added = [];
             for (const p of args.paths) {
                 const resolved = resolveTarget(p, ctx.cwd);

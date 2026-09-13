@@ -1,7 +1,7 @@
 /**
  * hpl-add-dir — 外部目录管理扩展（vendor 自 pi-add-dir v1.3.1，hapilon 改造）
  *
- * 按 hapilon 受控上下文设计改造（#29）：
+ * 按 hapilon 受控上下文设计改造：
  * - 只注入 HAPILON.md（目录根 + .pi/ 子目录）——AGENTS.md / CLAUDE.md
  *   不读取不注入（hapilon 以 --no-context-files 关闭内核 AGENTS/CLAUDE 识别，
  *   上下文体系由 HAPILON.md + rules 接管，外部目录同样遵守）

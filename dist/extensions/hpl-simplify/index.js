@@ -1,5 +1,5 @@
 /**
- * hpl-simplify — /simplify 事后清理命令（#56）
+ * hpl-simplify — /simplify 事后清理命令
  *
  * check → human → audit → modify 的人工闸门流程：
  *   /simplify [范围]        check 阶段：注入只读审查 prompt，agent 产出编号报告，零写入

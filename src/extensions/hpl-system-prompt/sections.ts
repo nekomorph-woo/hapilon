@@ -73,9 +73,9 @@ export const BUILTIN_GUIDELINES = {
 } as const;
 
 /**
- * MCP 环境段（#50 通道 A）。
+ * MCP 环境段（通道 A）。
  *
- * pi-mcp-adapter（#49 集成）运行时从 agentDir/mcp.json 读 server 声明，
+ * pi-mcp-adapter运行时从 agentDir/mcp.json 读 server 声明，
  * 但「agent 帮用户添加 server」时靠的是 prompt 知识——不注入这段，
  * agent 只能按训练常识猜路径（~/.pi 或 .mcp.json），必错。此处写死
  * hapilon 的真实路径与 schema 摘要；内容静态，token 成本 ~120。
@@ -94,14 +94,15 @@ export function buildMcpSectionText(agentDirPath: string): string {
 }
 
 /**
- * 代码风格约束（#54）：注释白名单 + fail fast。
+ * 代码风格约束：注释白名单 + fail fast。
  *
  * 背景：LLM 默认写长篇注释与厚重防御性编程。社区实证（anthropics/
- * claude-code#65961）：单条规则会被默认 verbose 倾向压过，需要成体系的
+ *）：单条规则会被默认 verbose 倾向压过，需要成体系的
  * section 约束。措辞要点：
  * - 注释只允许三类高价值注释（功能简述 / 编写决策 / 重大 bug 修复）
- * - 注释不得引用外部文档锚点（章节号 / ADR 编号 / 设计文档名）——文档会过期且
- *   下个读者拿不到，要写就把「为什么」本身写进去
+ * - 注释不得引用外部文档锚点（章节号 / ADR 编号 / 设计文档名）或追踪号
+ *   （issue / PR / review 编号）——都会过期且下个读者拿不到；代码要自闭环，
+ *   要写就把「为什么」本身写进去
  * - fail fast 用正面表述（让异常浮出），并显式保留外部输入校验边界——
  *   纯否定式规则效果差，边界缺失会被模型过度泛化删掉业务防御
  * - 英文书写（与 prompt 其余部分一致），token 成本 ~250
@@ -117,7 +118,7 @@ Write comments only when they carry one of three kinds of value; otherwise write
 
 Never write comments that restate the code, narrate obvious steps, or pad with textbook explanations. If a comment could be deleted without losing information the code does not already express, delete it.
 
-Never point at an external document from a comment: no section numbers, no ADR or design-doc ids/names (e.g. "design §3.2", "ADR-0007", "see the wiki"). Documents get moved, rewritten, or are simply not in front of the next reader - the pointer stops resolving while the comment keeps asserting it. When the reason matters, write the reason itself (kind 2) instead of pointing at it.
+Never point at an external document from a comment: no section numbers, no ADR or design-doc ids/names, and no issue, PR, ticket or review ids (e.g. "design §3.2", "ADR-0007", "issue #42", "see the wiki"). Documents and trackers get moved, rewritten, or are simply not in front of the next reader - the pointer stops resolving while the comment keeps asserting it. Code has to carry its own reason: write the reason itself (kind 2) instead of pointing at it.
 
 ## Defensive programming
 

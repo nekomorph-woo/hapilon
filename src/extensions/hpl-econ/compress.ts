@@ -10,11 +10,11 @@ export class EconStoreError extends Data.TaggedError("EconStoreError")<{
  * compress.ts — hpl-econ 压缩核心（纯函数，无事件依赖）。
  *
  * 输出超阈值时替换为「头 N 行 + 省略提示 + 尾 M 行」，全文落盘。
- * 省略提示的措辞是实测确定的关键变量（issue #52）：必须包含
+ * 省略提示的措辞是实测确定的关键变量：必须包含
  * 「省略行数 + 全文路径 + ctx_more 取回指引」——提示给行动指引，
  * agent 才会自救；内核的消极措辞（"you only saw the tail"）会让 agent 放弃。
  *
- * 双层截断（#52 警告段）：内核 truncateTail（50KB）先于本扩展执行，
+ * 双层截断：内核 truncateTail（50KB）先于本扩展执行，
  * >50KB 输出的头部在到达本层前已被裁剪。因此提示须同时引用内核的
  * fullOutputPath，且 kernelTruncated=true 时如实告知头部不完整。
  */

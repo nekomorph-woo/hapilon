@@ -172,7 +172,7 @@ describe("collectContextSnapshot", () => {
   });
 });
 
-describe("token 统计不重复计算（issue #8）", () => {
+describe("token 统计不重复计算", () => {
   beforeEach(() => {
     clearLastMeta();
   });

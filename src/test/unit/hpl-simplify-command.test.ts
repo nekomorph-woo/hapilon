@@ -1,5 +1,5 @@
 /**
- * hpl-simplify 命令 handler 测试 — 交互流程（#56）
+ * hpl-simplify 命令 handler 测试 — 交互流程
  *
  * 用 mock pi 验证：命令注册、check 阶段只读 prompt 派发、
  * apply 子命令的编号解析与人工确认闸门。

@@ -310,18 +310,18 @@ describe("buildEnvironmentSection", () => {
         const result = buildEnvironmentSection("C:\\Users\\test");
         assert.ok(result.includes("C:/Users/test"), "反斜杠应归一化");
     });
-    it("#50 提供 agentDirPath 时注入 MCP 环境段（配置路径 + schema 摘要）", () => {
+    it("提供 agentDirPath 时注入 MCP 环境段（配置路径 + schema 摘要）", () => {
         const result = buildEnvironmentSection("/home/user/project", "/home/user/.hapilon/agent");
         assert.ok(result.includes("MCP servers"), "含 MCP 段");
         assert.ok(result.includes("/home/user/.hapilon/agent/mcp.json"), "写明 mcp.json 绝对路径（agent 才不会猜 ~/.pi）");
         assert.ok(result.includes('"mcpServers"'), "含 schema 摘要");
         assert.ok(result.includes("never guess other locations"), "含禁止猜路径指引");
     });
-    it("#50 不提供 agentDirPath 时不含 MCP 段（向后兼容）", () => {
+    it("不提供 agentDirPath 时不含 MCP 段（向后兼容）", () => {
         const result = buildEnvironmentSection("/home/user/project");
         assert.ok(!result.includes("MCP servers"));
     });
-    it("#50 MCP 段 token 成本上界（<150 token ≈ 600 chars）", () => {
+    it("MCP 段 token 成本上界（<150 token ≈ 600 chars）", () => {
         const result = buildEnvironmentSection("/home/user/project", "/home/user/.hapilon/agent");
         const mcpPart = result.slice(result.indexOf("MCP servers"));
         assert.ok(mcpPart.length < 600, `MCP 段 ${mcpPart.length} chars 超 600（约 150 token）上界`);
@@ -460,7 +460,7 @@ describe("assembleSystemPrompt", () => {
         assert.ok(result.includes("<available_tools>"), "含 tools");
         assert.ok(result.includes("<custom_tools_note>"), "含 custom_tools_note");
         assert.ok(result.includes("<guidelines>"), "含 guidelines");
-        assert.ok(result.includes("<code_style>"), "含 code_style（#54）");
+        assert.ok(result.includes("<code_style>"), "含 code_style");
         assert.ok(result.includes("<commit_discipline>"), "含 commit_discipline");
         assert.ok(result.includes("/skill:snap"), "commit_discipline 正文端到端进入 final prompt");
         assert.ok(result.includes("<dispatch_discipline>"), "含 dispatch_discipline");
@@ -545,7 +545,7 @@ describe("assembleSystemPrompt", () => {
         const result = assembleSystemPrompt({ ...defaultOpts, hapilonRules: [] });
         assert.ok(!result.includes("<hapilon_rules>"));
     });
-    it("#50 assemble 传入 agentDirPath 时 environment 含 MCP 段", () => {
+    it("assemble 传入 agentDirPath 时 environment 含 MCP 段", () => {
         const result = assembleSystemPrompt({
             ...defaultOpts,
             agentDirPath: "/home/u/.hapilon/agent",

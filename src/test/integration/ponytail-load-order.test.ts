@@ -1,5 +1,5 @@
 /**
- * #55 ponytail 集成——加载顺序稳定性验证
+ * ponytail 集成——加载顺序稳定性验证
  *
  * 核心风险：ponytail 的 before_agent_start 是「尾部追加」语义
  * （返回 event.systemPrompt + "\n\n" + ponytail 指令），hpl-system-prompt
@@ -40,7 +40,7 @@ const promptOpts = {
   toolSnippets: { read: "Read files", bash: "Run commands", edit: "Edit files", write: "Write files" },
 } as never;
 
-describe("#55 加载顺序稳定性（hpl 先于 ponytail）", () => {
+describe("加载顺序稳定性（hpl 先于 ponytail）", () => {
   it("链式语义：追加型扩展的输出在替换型扩展之后（runner 真实链路）", async () => {
     const runtime = createExtensionRuntime();
 
@@ -120,7 +120,7 @@ describe("#55 加载顺序稳定性（hpl 先于 ponytail）", () => {
       prompt.indexOf("</system_prompt>") < prompt.toLowerCase().indexOf("ponytail"),
       "ponytail 指令位于 hpl XML 之后（尾部追加）",
     );
-    // #54 的 code_style section 与 ponytail 追加共存
+    // code_style section 与 ponytail 追加共存
     assert.ok(prompt.includes("<code_style>"), "code_style section 与 ponytail 共存");
   });
 });

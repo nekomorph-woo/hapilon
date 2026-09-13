@@ -171,7 +171,7 @@ describe("trust-store", () => {
     });
   });
 
-  describe("initProjectTrust() 缓存（issue #15）", () => {
+  describe("initProjectTrust() 缓存", () => {
     it("init 后走缓存快照：外部改盘不反映", () => {
       const proj = join(tmpBase, "cache-proj");
       const projHap = join(proj, ".hapilon");

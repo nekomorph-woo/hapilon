@@ -380,7 +380,7 @@ describe("providers", () => {
         });
     });
 });
-describe("mergeAuthEntries — 增量合并（issue #1）", () => {
+describe("mergeAuthEntries — 增量合并", () => {
     it("🤖①: 已有 provider 条目在合并后原样保留", () => {
         const existing = { deepseek: { type: "api_key", key: "sk-ds-old" } };
         const merged = mergeAuthEntries(existing, { zai: "sk-zai-new" });
@@ -411,7 +411,7 @@ describe("mergeAuthEntries — 增量合并（issue #1）", () => {
         assert.deepEqual(existing, snapshot); // 原对象不受返回值修改影响
     });
 });
-describe("ensureSettingsFile — settings.json 保护（issue #1）", () => {
+describe("ensureSettingsFile — settings.json 保护", () => {
     it("🤖③: settings.json 已存在且有内容时不被清空", () => {
         const dir = mkdtempSync(join(tmpdir(), "hapilon-settings-test-"));
         try {

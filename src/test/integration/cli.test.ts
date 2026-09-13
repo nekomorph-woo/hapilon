@@ -12,7 +12,7 @@ describe("cli integration", () => {
   const CONFIG_PATH = join(process.cwd(), "dist", "config", "handlers.js");
   const PKG_PATH = join(process.cwd(), "package.json");
 
-  describe("hapi 启动命令别名（#28）", () => {
+  describe("hapi 启动命令别名", () => {
     it("package.json bin 同时映射 hapilon 与 hapi", () => {
       const pkg = JSON.parse(readFileSync(PKG_PATH, "utf8"));
       assert.strictEqual(pkg.bin.hapilon, "./dist/cli.js");
@@ -24,7 +24,7 @@ describe("cli integration", () => {
       assert.ok(firstLine.startsWith("#!/usr/bin/env node"), `首行应为 shebang: ${firstLine}`);
     });
 
-    it("hapi 二进制实际执行：与 hapilon 入口行为一致（#28）", () => {
+    it("hapi 二进制实际执行：与 hapilon 入口行为一致", () => {
       // 模拟 npm 全局安装：bin 目录下 hapilon 与 hapi 都 symlink 到同一 cli.js
       const binDir = join(tmpBase, "bin");
       mkdirSync(binDir, { recursive: true });
@@ -184,7 +184,7 @@ describe("cli integration", () => {
 
       assert.strictEqual(result.status, 0, `--help 应成功退出: ${result.stderr}`);
       assert.ok(result.stdout.includes("hapilon"), "帮助应包含 hapilon");
-      assert.ok(result.stdout.includes("hapi"), "帮助应包含 hapi 别名（#28）");
+      assert.ok(result.stdout.includes("hapi"), "帮助应包含 hapi 别名");
       assert.ok(result.stdout.includes("setup"), "帮助应包含 setup");
       assert.ok(result.stdout.includes("doctor"), "帮助应包含 doctor");
       assert.ok(result.stdout.includes("config"), "帮助应包含 config");
@@ -256,7 +256,7 @@ describe("cli integration", () => {
   });
 
   describe("unknown command", () => {
-    it("hapilon foobar 不拦截，原样透传给 pi（issue #14）", () => {
+    it("hapilon foobar 不拦截，原样透传给 pi", () => {
       const result = spawnSync(process.execPath, [CLI_PATH, "foobar"], {
         env: { ...process.env, HAPILON_HOME: tmpBase },
         encoding: "utf8",

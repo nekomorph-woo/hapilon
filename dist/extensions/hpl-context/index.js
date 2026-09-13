@@ -16,7 +16,7 @@ import { Effect } from "effect";
 import { collectUpwardEffect, discoverSkillPathsEffect, } from "../../shared/files.js";
 import { getEffectPolicyMode } from "../hpl-effect-policy/bridge.js";
 import { hapilonHome } from "../../config/hapilon-home.js";
-/** npm 扩展自带 skills 的接线表（#55）：包名 → 包内 skills 目录 */
+/** npm 扩展自带 skills 的接线表：包名 → 包内 skills 目录 */
 const NPM_SKILL_DIRS = [
     ["@dietrichgebert/ponytail", "skills"],
 ];
@@ -96,7 +96,7 @@ export default function hplContext(pi) {
     // 使用 event.cwd（会话工作目录）而非 process.cwd()，与 hpl-system-prompt 一致
     pi.on("resources_discover", (event) => {
         const skillPaths = Effect.runSync(Effect.flatMap(collectUpwardEffect(event.cwd, userHome, "agents/skills", hapilonHome()), (dirs) => Effect.map(Effect.forEach(dirs, (dir) => discoverSkillPathsEffect([dir])), (paths) => paths.flat())));
-        // npm 扩展自带 skills（#55）：从模块位置解析（不依赖 cwd）。
+        // npm 扩展自带 skills：从模块位置解析（不依赖 cwd）。
         // 单个 SKILL.md 文件路径——Pi loadSkills 支持文件级条目。
         // 包缺失/布局变更时静默跳过：skill 是增强，不应炸掉上下文发现。
         const req = createRequire(import.meta.url);

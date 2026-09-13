@@ -20,8 +20,8 @@ export interface SafetyRule {
 export const BLOCK_PATTERNS: SafetyRule[] = [
   // ── 文件系统破坏 ──
   {
-    // `-rf` 与目标之间允许插参（`rm -rf --one-file-system /` 等仍应 BLOCK），issue #6。
-    // 目标必须是完整的 `/`、`~` 或 `/*`（token 边界 lookahead 锚定，#44）——
+    // `-rf` 与目标之间允许插参（`rm -rf --one-file-system /` 等仍应 BLOCK）。
+    // 目标必须是完整的 `/`、`~` 或 `/*`（token 边界 lookahead 锚定）——
     // 否则 `/private` 的开头 `/` 会被回溯当成根，任何绝对路径都被误拦。
     test: (c) =>
       /\b(?:sudo\s+)?rm\s+-rf\b(?:\s+[^\s]+)*?\s+(?:\/|~|\/\*)(?=\s|$)/.test(c),
@@ -100,7 +100,7 @@ export const BLOCK_PATTERNS: SafetyRule[] = [
 
   // ── fork bomb ──
   {
-    // 尾冒号 `;:` 可选——`:(){ :|:& };`（无尾冒号变体）同为 fork bomb，issue #6
+    // 尾冒号 `;:` 可选——`:(){ :|:& };`（无尾冒号变体）同为 fork bomb
     test: (c) => /:\(\)\s*\{\s*:\|\s*:\s*&\s*\};\s*:?/.test(c.replace(/\s+/g, " ")),
     label: "fork bomb",
     scope: "whole",
@@ -110,8 +110,8 @@ export const BLOCK_PATTERNS: SafetyRule[] = [
 export const CONFIRM_PATTERNS: SafetyRule[] = [
   // ── 文件删除 ──
   {
-    // 排除与 BLOCK 规则同语义（含插参），避免「BLOCK 未覆盖则降级 confirm」的耦合缺口，issue #6。
-    // 排除式与 BLOCK 同步使用 token 边界锚定（#44），两式必须保持镜像。
+    // 排除与 BLOCK 规则同语义（含插参），避免「BLOCK 未覆盖则降级 confirm」的耦合缺口。
+    // 排除式与 BLOCK 同步使用 token 边界锚定，两式必须保持镜像。
     test: (c) =>
       /\brm\s+-rf\b/.test(c) &&
       !/\b(?:sudo\s+)?rm\s+-rf\b(?:\s+[^\s]+)*?\s+(?:\/|~|\/\*)(?=\s|$)/.test(c),

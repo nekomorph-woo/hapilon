@@ -313,7 +313,7 @@ describe("centerLines()", () => {
     assert.strictEqual(result[2], "     ", "空行保持原行为（pad）");
   });
 
-  it("logo 块在 resize（maxWidth 变化）时行间相对位置不变（#27）", () => {
+  it("logo 块在 resize（maxWidth 变化）时行间相对位置不变", () => {
     const logo = ["      ▗▖", "    ▐▛███▜▌", "   ▝▜█████▛▘", "     ▘▘ ▝▝"];
     const w40 = centerLines(logo, 40);
     const w41 = centerLines(logo, 41);
@@ -394,7 +394,7 @@ describe("buildRightColumn()", () => {
     assert.ok(text.includes("esc"), "应包含快捷键");
   });
 
-  it("piUpdate 存在时扩展名列表仍显示（issue #13 逻辑 bug）", () => {
+  it("piUpdate 存在时扩展名列表仍显示（逻辑 bug）", () => {
     const collapsed = buildRightColumn(base, false).join("\n");
     assert.ok(collapsed.includes("  ext-a"), "update 不应抢占扩展名列表");
   });

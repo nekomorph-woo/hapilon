@@ -1,7 +1,7 @@
 /**
  * context.ts — hpl-add-dir 目录上下文扫描与注入构建（纯函数）
  *
- * vendor 自 pi-add-dir v1.3.1，按 hapilon 受控上下文设计改造（#29）：
+ * vendor 自 pi-add-dir v1.3.1，按 hapilon 受控上下文设计改造：
  * 只注入 HAPILON.md（目录根 + .pi/ 子目录），AGENTS.md / CLAUDE.md
  * 不读取、不注入；外部 skills 不注入、不注册。
  */

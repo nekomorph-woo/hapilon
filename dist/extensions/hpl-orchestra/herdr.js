@@ -244,7 +244,7 @@ function shellArg(value) {
 }
 /**
  * hapilon 自身入口的绝对路径。扩展跑在 pi 子进程里，process.argv[1] 是
- * pi 的 cli.js 而非 hapilon 入口（review P0 #1），因此入口路径由 startup.ts
+ * pi 的 cli.js 而非 hapilon 入口，因此入口路径由 startup.ts
  * 经 HAPILON_CLI_PATH 注入；无值时降级 argv[1] 并告警。
  */
 export function hapilonCliPath() {

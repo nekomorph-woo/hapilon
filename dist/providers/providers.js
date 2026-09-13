@@ -53,7 +53,7 @@ export function writeAuthFileNative(agentDir, auth) {
         throw new Error(result.left.message);
 }
 /**
- * 合并已有 auth 与本次收集的 API key（issue #1）：
+ * 合并已有 auth 与本次收集的 API key：
  * 已有条目（含 OAuth token）原样保留，同 id 新 key 覆盖。返回新对象，不修改入参。
  */
 export function mergeAuthEntries(existing, collected) {
@@ -63,7 +63,7 @@ export function mergeAuthEntries(existing, collected) {
     }
     return merged;
 }
-/** settings.json 仅在不存在时写入空骨架，存在时不触碰（issue #1） */
+/** settings.json 仅在不存在时写入空骨架，存在时不触碰 */
 export function ensureSettingsFile(agentDir) {
     const path = join(agentDir, "settings.json");
     if (!existsSync(path)) {

@@ -1,5 +1,5 @@
 /**
- * sandbox.ts 单元测试 — Linux bwrap 预检（issue #5）
+ * sandbox.ts 单元测试 — Linux bwrap 预检
  *
  * spawnFn 依赖注入测试：ESM namespace 属性不可配置，无法用 mock.method
  * 替换 named import，改用注入 fake spawnFn 保持纯函数可测。
