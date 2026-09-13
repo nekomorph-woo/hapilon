@@ -15,10 +15,12 @@ export const BLOCK_PATTERNS = [
         // 否则 `/private` 的开头 `/` 会被回溯当成根，任何绝对路径都被误拦。
         test: (c) => /\b(?:sudo\s+)?rm\s+-rf\b(?:\s+[^\s]+)*?\s+(?:\/|~|\/\*)(?=\s|$)/.test(c),
         label: "rm -rf 根目录/home",
+        scope: "whole",
     },
     {
         test: (c) => /\bfind\b.+-exec\s+rm\b/.test(c) || /\bfind\b.+-delete\b/.test(c),
         label: "find 批量删除",
+        scope: "whole",
     },
     // ── 磁盘/文件系统 ──
     {
@@ -28,10 +30,12 @@ export const BLOCK_PATTERNS = [
     {
         test: (c) => /\bdd\b.*\bof=\/dev\//.test(c),
         label: "dd 写入块设备",
+        scope: "whole",
     },
     {
         test: (c) => />\s*\/dev\/(sd[a-z]+|nvme\w+|hd[a-z]+|xvd[a-z]+|vd[a-z]+|mmcblk\d+|disk\d+|dm-\d+)/.test(c),
         label: "输出重定向到块设备",
+        scope: "whole",
     },
     // ── 系统进程/电源 ──
     {
@@ -65,20 +69,24 @@ export const BLOCK_PATTERNS = [
         test: (c) => /\bchmod\s+(-R\s+)?(777|0777)\s+\//.test(c) ||
             /\bchmod\s+.*\b[augo]+[+-=][rwxXst]+\s+\//.test(c),
         label: "chmod 提权根目录",
+        scope: "whole",
     },
     {
         test: (c) => /\bchmod\s+-R\s+000\b/.test(c),
         label: "chmod -R 000 锁定文件",
+        scope: "whole",
     },
     {
         test: (c) => /\bchown\s+-R\s+\//.test(c),
         label: "chown -R 根目录",
+        scope: "whole",
     },
     // ── fork bomb ──
     {
         // 尾冒号 `;:` 可选——`:(){ :|:& };`（无尾冒号变体）同为 fork bomb，issue #6
         test: (c) => /:\(\)\s*\{\s*:\|\s*:\s*&\s*\};\s*:?/.test(c.replace(/\s+/g, " ")),
         label: "fork bomb",
+        scope: "whole",
     },
 ];
 export const CONFIRM_PATTERNS = [
@@ -136,6 +144,7 @@ export const CONFIRM_PATTERNS = [
     {
         test: (c) => /\b(curl|wget)\b.+\|\s*(sudo\s+)?\s*(sh|bash)\b/.test(c),
         label: "curl/wget 管道到 shell",
+        scope: "whole",
     },
     // ── 权限变更 ──
     {
@@ -166,6 +175,7 @@ export const CONFIRM_PATTERNS = [
         test: (c) => /\b(?:sudo\s+)?(?:tee|cp|mv|cat\s*>)\s+\/etc\//.test(c) ||
             /(?:>>?)\s*\/etc\//.test(c),
         label: "系统配置文件写入",
+        scope: "whole",
     },
     // ── 包管理器全局安装 ──
     {
@@ -241,6 +251,7 @@ export const CONFIRM_PATTERNS = [
     {
         test: (c) => /\b(DROP\s+(DATABASE|TABLE|SCHEMA)|TRUNCATE\s+(TABLE\s+)?)\b/i.test(c),
         label: "数据库 DROP/TRUNCATE",
+        scope: "whole",
     },
 ];
 export const SHELL_INJECTION_PATTERNS = [

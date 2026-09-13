@@ -42,6 +42,17 @@ npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v<新�
 
 > 开发环境提示：本仓库 `npm ci` 需要 `--legacy-peer-deps`。`@zhushanwen/pi-ask-user` 的 peer 声明 `pi@^0.84.1` 落后于根依赖，npm 会 ERESOLVE 报错——属上游待升问题，不是本地配置错误。
 
+## 危险命令防护
+
+bash 工具调用先过安全门（`hpl-safety-gate`）分类为 block / confirm / allow，另有敏感路径保护与可选 OS 沙箱。
+
+分类只看「真正的命令」，不误伤搜索词：
+
+- **引号内容不参与匹配**——`grep -n "shutdown" file`、`git commit -m "fix git push"` 正常放行
+- **只读命令整体跳过**（grep/rg/find/ls/cat/ps/jq…）——`rg -n "chmod 777"` 不弹窗；破坏性用法（`find -exec rm`、`find -delete`）仍由目标规则拦住
+- **命令替换递归判定**——`S=$(ls -t dir | head -1)` 放行，`echo $(shutdown -h now)` 与 `rm -rf $(echo /)` 拦截；`sh -c "…"` 与 `eval "…"` 的脚本载荷同样递归检查
+- **SQL 关键字只对数据库客户端生效**——`psql -c "DROP TABLE t"` 弹确认，`grep -c "DROP TABLE" schema.sql` 放行
+
 ## herdr 集成
 
 在 herdr pane 内运行时，hapilon **以自己的身份 `hapi`** 向 herdr 上报（herdr 官方自定义集成协议）：

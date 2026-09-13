@@ -8,7 +8,16 @@
  * 来源：社区 6 套方案 + 真实事故 (PocketOS DB 清空、spinspire 生产推送、boucle2026 find-exec 删除)
  */
 
-export const BLOCK_PATTERNS: Array<{ test: (cmd: string) => boolean; label: string }> = [
+/** 规则作用域：command = 只在该简单命令的命令词区命中；whole = 对整条命令（去引号视图）匹配 */
+export type RuleScope = "command" | "whole";
+
+export interface SafetyRule {
+  test: (cmd: string) => boolean;
+  label: string;
+  scope?: RuleScope;
+}
+
+export const BLOCK_PATTERNS: SafetyRule[] = [
   // ── 文件系统破坏 ──
   {
     // `-rf` 与目标之间允许插参（`rm -rf --one-file-system /` 等仍应 BLOCK），issue #6。
@@ -17,10 +26,12 @@ export const BLOCK_PATTERNS: Array<{ test: (cmd: string) => boolean; label: stri
     test: (c) =>
       /\b(?:sudo\s+)?rm\s+-rf\b(?:\s+[^\s]+)*?\s+(?:\/|~|\/\*)(?=\s|$)/.test(c),
     label: "rm -rf 根目录/home",
+    scope: "whole",
   },
   {
     test: (c) => /\bfind\b.+-exec\s+rm\b/.test(c) || /\bfind\b.+-delete\b/.test(c),
     label: "find 批量删除",
+    scope: "whole",
   },
 
   // ── 磁盘/文件系统 ──
@@ -31,10 +42,12 @@ export const BLOCK_PATTERNS: Array<{ test: (cmd: string) => boolean; label: stri
   {
     test: (c) => /\bdd\b.*\bof=\/dev\//.test(c),
     label: "dd 写入块设备",
+    scope: "whole",
   },
   {
     test: (c) => />\s*\/dev\/(sd[a-z]+|nvme\w+|hd[a-z]+|xvd[a-z]+|vd[a-z]+|mmcblk\d+|disk\d+|dm-\d+)/.test(c),
     label: "输出重定向到块设备",
+    scope: "whole",
   },
 
   // ── 系统进程/电源 ──
@@ -72,14 +85,17 @@ export const BLOCK_PATTERNS: Array<{ test: (cmd: string) => boolean; label: stri
     test: (c) => /\bchmod\s+(-R\s+)?(777|0777)\s+\//.test(c) ||
       /\bchmod\s+.*\b[augo]+[+-=][rwxXst]+\s+\//.test(c),
     label: "chmod 提权根目录",
+    scope: "whole",
   },
   {
     test: (c) => /\bchmod\s+-R\s+000\b/.test(c),
     label: "chmod -R 000 锁定文件",
+    scope: "whole",
   },
   {
     test: (c) => /\bchown\s+-R\s+\//.test(c),
     label: "chown -R 根目录",
+    scope: "whole",
   },
 
   // ── fork bomb ──
@@ -87,10 +103,11 @@ export const BLOCK_PATTERNS: Array<{ test: (cmd: string) => boolean; label: stri
     // 尾冒号 `;:` 可选——`:(){ :|:& };`（无尾冒号变体）同为 fork bomb，issue #6
     test: (c) => /:\(\)\s*\{\s*:\|\s*:\s*&\s*\};\s*:?/.test(c.replace(/\s+/g, " ")),
     label: "fork bomb",
+    scope: "whole",
   },
 ];
 
-export const CONFIRM_PATTERNS: Array<{ test: (cmd: string) => boolean; label: string }> = [
+export const CONFIRM_PATTERNS: SafetyRule[] = [
   // ── 文件删除 ──
   {
     // 排除与 BLOCK 规则同语义（含插参），避免「BLOCK 未覆盖则降级 confirm」的耦合缺口，issue #6。
@@ -148,6 +165,7 @@ export const CONFIRM_PATTERNS: Array<{ test: (cmd: string) => boolean; label: st
   {
     test: (c) => /\b(curl|wget)\b.+\|\s*(sudo\s+)?\s*(sh|bash)\b/.test(c),
     label: "curl/wget 管道到 shell",
+    scope: "whole",
   },
 
   // ── 权限变更 ──
@@ -183,6 +201,7 @@ export const CONFIRM_PATTERNS: Array<{ test: (cmd: string) => boolean; label: st
     test: (c) => /\b(?:sudo\s+)?(?:tee|cp|mv|cat\s*>)\s+\/etc\//.test(c) ||
       /(?:>>?)\s*\/etc\//.test(c),
     label: "系统配置文件写入",
+    scope: "whole",
   },
 
   // ── 包管理器全局安装 ──
@@ -269,6 +288,7 @@ export const CONFIRM_PATTERNS: Array<{ test: (cmd: string) => boolean; label: st
   {
     test: (c) => /\b(DROP\s+(DATABASE|TABLE|SCHEMA)|TRUNCATE\s+(TABLE\s+)?)\b/i.test(c),
     label: "数据库 DROP/TRUNCATE",
+    scope: "whole",
   },
 ];
 

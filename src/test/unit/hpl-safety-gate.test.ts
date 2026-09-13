@@ -136,18 +136,50 @@ describe("hpl-safety-gate", () => {
       );
     });
 
-    // ── BLOCK：shell 注入（通过 classifyCommand 集成路径）──
+    // ── 命令替换：不再一律 block，改为递归检查（假阳性治理）──
 
-    it("反引号注入 → classifyCommand 返回 block", () => {
-      assert.strictEqual(classifyCommand("ls `whoami`"), "block");
+    it("只读命令里的命令替换 → allow（不再直接阻拦）", () => {
+      assert.strictEqual(classifyCommand("ls `whoami`"), "allow");
+      assert.strictEqual(classifyCommand("echo $(id)"), "allow");
+      assert.strictEqual(classifyCommand("diff <(ls) <(ls -a)"), "allow");
+      assert.strictEqual(classifyCommand("cat >(grep pattern)"), "allow");
+      assert.strictEqual(classifyCommand("S=$(ls -t dir | head -1); echo \"$S\""), "allow");
     });
 
-    it("$() 注入 → classifyCommand 返回 block", () => {
-      assert.strictEqual(classifyCommand("echo $(id)"), "block");
+    it("替换体自身危险 → block（递归）", () => {
+      assert.strictEqual(classifyCommand("echo $(shutdown -h now)"), "block");
+      assert.strictEqual(classifyCommand("echo $(rm -rf /)"), "block");
     });
 
-    it("<() 注入 → classifyCommand 返回 block", () => {
-      assert.strictEqual(classifyCommand("diff <(ls) <(ls -a)"), "block");
+    it("命令替换藏在破坏性目标位 → block", () => {
+      assert.strictEqual(classifyCommand("rm -rf $(echo /)"), "block");
+    });
+
+    it("sh -c 脚本载荷递归检查", () => {
+      assert.strictEqual(classifyCommand('sh -c "shutdown -h now"'), "block");
+      assert.strictEqual(classifyCommand('bash -c "ls -la"'), "allow");
+    });
+
+    // ── 假阳性治理：引号内容与只读命令参数里的危险词不是命令 ──
+
+    it("引号内的危险词不再被当作命令", () => {
+      assert.strictEqual(classifyCommand('grep -n "shutdown" file.ts'), "allow");
+      assert.strictEqual(classifyCommand('rg -n "reboot" src/'), "allow");
+      assert.strictEqual(classifyCommand('grep -rn "git push" README.md'), "allow");
+      assert.strictEqual(classifyCommand('grep -c "DROP TABLE" schema.sql'), "allow");
+      assert.strictEqual(classifyCommand('grep -n "sed -i" docs.md'), "allow");
+      assert.strictEqual(classifyCommand('git commit -m "fix git push handling"'), "allow");
+    });
+
+    it("只读命令的参数是危险词 → allow", () => {
+      assert.strictEqual(classifyCommand("echo shutdown"), "allow");
+      assert.strictEqual(classifyCommand('rg -n "chmod 777" src/'), "allow");
+      assert.strictEqual(classifyCommand("find . -name shutdown -print"), "allow");
+    });
+
+    it("shell 载荷与 SQL 客户端仍受控", () => {
+      assert.strictEqual(classifyCommand('psql -c "DROP TABLE t"'), "confirm");
+      assert.strictEqual(classifyCommand('mysql -e "truncate table x"'), "confirm");
     });
 
     // ── BLOCK：新增社区补全 ──
