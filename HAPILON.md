@@ -4,7 +4,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 
 ## 语言
 
-- 默认简体中文交流；commit message 统一简体中文（标题与正文，含 type/scope 后的描述）；代码、标识符遵循英文惯例。
+- 默认简体中文交流；代码注释，commit message 统一简体中文（标题与正文，含 type/scope 后的描述）；代码、标识符、术语遵循英文惯例。
 
 ## 构建与验证
 
