@@ -751,7 +751,7 @@ describe("collectHapilonContext", () => {
   });
 
   it("正常路径: 收集 HAPILON.md 与 rules，全局在前项目在后", () => {
-    const { hapilonMd, hapilonRules } = collectHapilonContext(projectDir, tmpHome);
+    const { hapilonMd, hapilonRules } = collectHapilonContext(projectDir, tmpHome, join(tmpHome, ".hapilon"));
     assert.equal(hapilonMd.length, 2, "两层 HAPILON.md");
     assert.ok(hapilonMd[0]!.content.includes("global md"), "全局在前");
     assert.ok(hapilonMd[1]!.content.includes("project md"), "项目在后");
@@ -770,11 +770,11 @@ describe("collectHapilonContext", () => {
     }
   });
 
-  it("正常路径: 项目在 home 之外时全局 ~/.hapilon 仍被收集（挂载卷场景）", () => {
+  it("正常路径: 项目在 home 之外时全局层仍被收集（挂载卷场景）", () => {
     // 项目目录与 home 目录处于两棵独立目录树
     const outsideProject = mkdtempSync(join(tmpdir(), "hapilon-outside-"));
     try {
-      const { hapilonMd } = collectHapilonContext(outsideProject, tmpHome);
+      const { hapilonMd } = collectHapilonContext(outsideProject, tmpHome, join(tmpHome, ".hapilon"));
       assert.equal(hapilonMd.length, 1, "全局 HAPILON.md 通过补查被收集");
       assert.ok(hapilonMd[0]!.content.includes("global md"));
     } finally {

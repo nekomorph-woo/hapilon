@@ -33,6 +33,7 @@ import {
 } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
+import { hapilonHome } from "../../config/hapilon-home.js";
 import { getAddedDirs } from "../hpl-add-dir/bridge.js";
 import { buildContextInjection } from "../hpl-add-dir/context.js";
 import { buildTeamRoleSection, MISSING_ROLE_SECTION, ORCHESTRATOR_TAGGED } from "../hpl-orchestra/roles.js";
@@ -247,15 +248,16 @@ const RULES_RELATIVE = "agents/rules";
 /** Pi 默认工具集（与 Pi system-prompt.ts 的 selectedTools 缺省一致） */
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write"];
 
-/** 收集 HAPILON.md 和 rules 文件（从 cwd 向上遍历，home 外项目补查全局） */
+/** 收集 HAPILON.md 和 rules：项目/祖先层 .hapilon/ + 全局层（缺省 HAPILON_HOME 数据根） */
 function collectHapilonContext(
   cwd: string,
   userHome: string,
+  globalBase: string = hapilonHome(),
 ): { hapilonMd: FileEntry[]; hapilonRules: RuleEntry[] } {
-  const hapilonMdPaths = collectUpward(cwd, userHome, HAPILON_RELATIVE);
+  const hapilonMdPaths = collectUpward(cwd, userHome, HAPILON_RELATIVE, globalBase);
   const hapilonMd = readHapilonMd(hapilonMdPaths);
 
-  const ruleDirs = collectUpward(cwd, userHome, RULES_RELATIVE);
+  const ruleDirs = collectUpward(cwd, userHome, RULES_RELATIVE, globalBase);
   const hapilonRules = readRules(ruleDirs);
 
   return { hapilonMd, hapilonRules };

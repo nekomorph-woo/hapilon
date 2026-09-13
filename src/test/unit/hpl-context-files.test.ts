@@ -10,6 +10,7 @@ import { join } from "node:path";
 import {
   listFiles,
   collectUpward,
+  collectUpwardLocal,
   readHapilonMd,
   readRules,
   discoverSkillPaths,
@@ -63,6 +64,41 @@ describe("collectUpward", () => {
       assert.equal(result.length, 2);
       assert.ok(result[0].endsWith(join(r, ".hapilon", "HAPILON.md")), "祖先级应在最前");
       assert.ok(result[1].endsWith(join(r, "a", ".hapilon", "HAPILON.md")), "近层级在最后");
+    } finally { rmSync(r, { recursive: true, force: true }); }
+  });
+
+  it("全局层: globalBase 指向数据根时不叠 .hapilon（HAPILON_HOME 语义）", () => {
+    const r = mkdtempSync(join(tmpdir(), "hapilon-global-"));
+    try {
+      const dataRoot = join(r, "hapilon-home");
+      mkdirSync(dataRoot, { recursive: true });
+      writeFileSync(join(dataRoot, "HAPILON.md"), "global md");
+      const cwd = join(r, "proj");
+      mkdirSync(cwd, { recursive: true });
+
+      assert.deepEqual(collectUpward(cwd, r, "HAPILON.md", dataRoot), [join(dataRoot, "HAPILON.md")]);
+      // 同路径在祖先层出现时不重复读（默认 globalBase = <home>/.hapilon 的情形）
+      const homeDot = join(r, ".hapilon");
+      mkdirSync(homeDot, { recursive: true });
+      writeFileSync(join(homeDot, "HAPILON.md"), "global md");
+      const deduped = collectUpward(cwd, r, "HAPILON.md");
+      assert.equal(deduped.length, 1, `不得重复: ${JSON.stringify(deduped)}`);
+    } finally { rmSync(r, { recursive: true, force: true }); }
+  });
+
+  it("collectUpwardLocal 只回项目/祖先层,不含全局数据根", () => {
+    const r = mkdtempSync(join(tmpdir(), "hapilon-local-"));
+    try {
+      const dataRoot = join(r, "hapilon-home");
+      mkdirSync(dataRoot, { recursive: true });
+      writeFileSync(join(dataRoot, "HAPILON.md"), "global md");
+      const cwd = join(r, "proj");
+      mkdirSync(cwd, { recursive: true });
+      assert.deepEqual(collectUpwardLocal(cwd, r, "HAPILON.md"), [], "全局层不参与本项目信号判断");
+
+      mkdirSync(join(cwd, ".hapilon"), { recursive: true });
+      writeFileSync(join(cwd, ".hapilon", "HAPILON.md"), "project md");
+      assert.deepEqual(collectUpwardLocal(cwd, r, "HAPILON.md"), [join(cwd, ".hapilon", "HAPILON.md")]);
     } finally { rmSync(r, { recursive: true, force: true }); }
   });
 

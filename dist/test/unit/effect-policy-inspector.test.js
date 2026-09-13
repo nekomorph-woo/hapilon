@@ -56,11 +56,16 @@ describe("inspectProjectEffect", () => {
         clean(dir);
         clean(empty);
     });
-    it("HAPILON.md 存在即 hasHapilonMd（AGENTS/CLAUDE 不是 hapilon 信号源）", () => {
+    it("项目内 .hapilon/HAPILON.md 即 hasHapilonMd（根目录裸文件与 AGENTS/CLAUDE 都不是信号源）", () => {
         const hap = repo({});
-        writeFileSync(join(hap, "HAPILON.md"), "rules");
+        mkdirSync(join(hap, ".hapilon"), { recursive: true });
+        writeFileSync(join(hap, ".hapilon", "HAPILON.md"), "rules");
         assert.equal(inspectProject(hap).hasHapilonMd, true);
         clean(hap);
+        const bare = repo({});
+        writeFileSync(join(bare, "HAPILON.md"), "rules");
+        assert.equal(inspectProject(bare).hasHapilonMd, false, "根目录裸 HAPILON.md 不被注入,不算信号");
+        clean(bare);
         const agents = repo({});
         writeFileSync(join(agents, "AGENTS.md"), "rules");
         writeFileSync(join(agents, "CLAUDE.md"), "rules");

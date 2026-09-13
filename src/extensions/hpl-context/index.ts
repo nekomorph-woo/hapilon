@@ -21,6 +21,7 @@ import {
   discoverSkillPathsEffect,
 } from "../../shared/files.js";
 import { getEffectPolicyMode } from "../hpl-effect-policy/bridge.js";
+import { hapilonHome } from "../../config/hapilon-home.js";
 
 /** npm 扩展自带 skills 的接线表（#55）：包名 → 包内 skills 目录 */
 const NPM_SKILL_DIRS: readonly [pkg: string, dir: string][] = [
@@ -113,7 +114,7 @@ export default function hplContext(pi: ExtensionAPI): void {
   pi.on("resources_discover", (event) => {
     const skillPaths = Effect.runSync(
       Effect.flatMap(
-        collectUpwardEffect(event.cwd, userHome, "agents/skills"),
+        collectUpwardEffect(event.cwd, userHome, "agents/skills", hapilonHome()),
         (dirs) => Effect.map(
           Effect.forEach(dirs, (dir) => discoverSkillPathsEffect([dir])),
           (paths) => paths.flat(),

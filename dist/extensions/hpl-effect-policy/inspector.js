@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { Effect } from "effect";
+import { collectUpwardLocal } from "../../shared/files.js";
 const EMPTY_SIGNALS = {
     language: "other",
     effectInstalled: false,
@@ -96,9 +98,9 @@ function inspectProjectSync(cwd) {
         if (!pkg)
             return { ...EMPTY_SIGNALS };
         const source = sourceScan(cwd);
-        // hapilon 的架构指示文档是 HAPILON.md（hpl-system-prompt 同款祖先遍历语义）；
-        // AGENTS.md/CLAUDE.md 被内核 --no-context-files 恒关闭，不是 hapilon 的信号源
-        const hasHapilonMd = exists(join(cwd, "HAPILON.md"));
+        // hapilon 的架构指示文档是 .hapilon/HAPILON.md（项目级 + 祖先级，与
+        // hpl-system-prompt 同一套遍历）；根目录裸 HAPILON.md 不被注入，不认。
+        const hasHapilonMd = collectUpwardLocal(cwd, homedir(), "HAPILON.md").length > 0;
         const manager = packageManager(cwd);
         const dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
         const hasEffect = Object.hasOwn(dependencies, "effect");

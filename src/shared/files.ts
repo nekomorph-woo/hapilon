@@ -6,7 +6,7 @@
  */
 
 import { readdirSync, readFileSync, existsSync } from "node:fs";
-import { join, dirname, resolve, basename, sep } from "node:path";
+import { join, dirname, resolve, basename } from "node:path";
 import { Data, Effect } from "effect";
 
 export class ReadHapilonMdError extends Data.TaggedError("ReadHapilonMdError")<{
@@ -79,46 +79,64 @@ export const listFilesEffect = (dir: string, pattern: string): Effect.Effect<str
   Effect.sync(() => listFiles(dir, pattern));
 
 /**
- * 从 startDir 逐级向上遍历目录树，在每层检查 `<dir>/.hapilon/<relative>`：
- * 若存在则收集其路径（文件或目录均可，目录供后续 listFiles 扫描）。
- *
+ * 从 startDir 逐级向上遍历目录树，在每层检查 `<dir>/.hapilon/<relative>`，
+ * 返回深→浅顺序（供上层去重/倒序）。
  * 终止条件：到达 home 或文件系统根目录。
- * 当 startDir 不在 home 目录树内（如项目位于外置卷 /Volumes/...），
- * 遍历到根后会显式补查 `<home>/.hapilon/<relative>`，
- * 保证全局用户级配置在任何项目位置都能被加载。
- *
- * 返回数组按 全局 home → 祖先 → 深层 顺序排列（深层在后），
- * 使合并时最深层的同名条目覆盖浅层。
  */
-export function collectUpward(startDir: string, home: string, relative: string): string[] {
+function walkUpward(startDir: string, home: string, relative: string): string[] {
   const results: string[] = [];
   let dir = resolve(startDir);
   const resolvedHome = resolve(home);
-  const withinHome = dir === resolvedHome || dir.startsWith(resolvedHome + sep);
   while (true) {
     const candidate = join(dir, ".hapilon", relative);
-    if (existsSync(candidate)) {
-      results.push(candidate);
-    }
+    if (existsSync(candidate)) results.push(candidate);
     if (dir === resolvedHome) break;
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  // startDir 在 home 之外时遍历不经过 home——显式补查全局 ~/.hapilon
-  if (!withinHome) {
-    const globalCandidate = join(resolvedHome, ".hapilon", relative);
-    if (existsSync(globalCandidate)) results.push(globalCandidate);
-  }
-  results.reverse(); // 全局/祖先在前，近层在后
   return results;
+}
+
+/**
+ * 项目/祖先层 + 全局层，全部收集（浅层在前、深层在后，合并时深层覆盖浅层）。
+ *
+ * - 项目/祖先层：每层 `<dir>/.hapilon/<relative>`，从 cwd 向上到 home
+ * - 全局层：globalBase 下的 `<relative>`。缺省是 `<home>/.hapilon`；传
+ *   `hapilonHome()` 时直接落在数据根下（`~/.hapilon/HAPILON.md`、
+ *   `$HAPILON_HOME/agents/rules`）——与 agent/、config.json 同级，
+ *   dev 环境（HAPILON_HOME 重定向）也保持一致。
+ *
+ * 项目在 home 之外时遍历不经过 home，全局层依然会被收集。
+ */
+export function collectUpward(
+  startDir: string,
+  home: string,
+  relative: string,
+  globalBase?: string,
+): string[] {
+  const seen = new Set<string>();
+  const results: string[] = [];
+  const push = (p: string) => { if (!seen.has(p)) { seen.add(p); results.push(p); } };
+  for (const p of walkUpward(startDir, home, relative)) push(p);
+  const resolvedHome = resolve(home);
+  const globalCandidate = join(resolve(globalBase ?? join(resolvedHome, ".hapilon")), relative);
+  if (existsSync(globalCandidate)) push(globalCandidate);
+  results.reverse();
+  return results;
+}
+
+/** 仅项目/祖先层（不含全局层）——供「本项目是否有 hapilon 文档」类判断使用 */
+export function collectUpwardLocal(startDir: string, home: string, relative: string): string[] {
+  return walkUpward(startDir, home, relative).reverse();
 }
 
 export const collectUpwardEffect = (
   startDir: string,
   home: string,
   relative: string,
-): Effect.Effect<string[], never> => Effect.sync(() => collectUpward(startDir, home, relative));
+  globalBase?: string,
+): Effect.Effect<string[], never> => Effect.sync(() => collectUpward(startDir, home, relative, globalBase));
 
 /** 读取 HAPILON.md 文件，失败直接抛出（Fail Fast） */
 export function readHapilonMd(paths: string[]): FileEntry[] {
