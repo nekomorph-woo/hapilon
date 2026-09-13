@@ -102,7 +102,7 @@ export const COMMANDS: CommandDef[] = [
   },
   {
     name: "mcp",
-    description: "管理 MCP server 配置（pi-mcp-adapter，#49/#50）",
+    description: "管理 MCP server 配置",
     subcommands: [
       {
         name: "add <name> stdio -- <command> [args...] [--env K=V]...",
