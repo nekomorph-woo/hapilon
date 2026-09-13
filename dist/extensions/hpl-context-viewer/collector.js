@@ -30,6 +30,7 @@ export function collectContextSnapshot(input) {
         "piDocumentation",
         "guidelines",
         "codeStyle",
+        "commitDiscipline",
         "customToolsNote",
         "additionalData",
         "environment",

@@ -120,3 +120,14 @@ Never write comments that restate the code, narrate obvious steps, or pad with t
 Fail fast: let errors surface loudly. Make invalid states unrepresentable. Never swallow errors (empty catch, silent fallback values, catch-and-continue) - a swallowed error hides the real problem and resurfaces worse.
 
 Keep input validation at trust boundaries (user input, network, files, process boundaries, external APIs). Do not defensively re-validate internal data or guard against states that cannot occur: if the type system or preceding code already guarantees it, trust it and move on.`;
+
+/**
+ * 提交纪律：任何 git commit 前必须走 snap skill 的流程产出提交信息。
+ *
+ * 内置于 prompt（而非本机 rules 文件）的原因：纪律要随包分发给所有 hapi
+ * 用户；snap 随 hapilon 分发，/skill:snap 对每个会话都存在，而规则文件
+ * 只覆盖装了它的那台机器。单一事实源，纪律随版本走。
+ */
+export const COMMIT_DISCIPLINE_TEXT = `Commit discipline:
+
+Before any git commit, produce the message through the snap skill's process (/skill:snap): subject at business altitude - one line, one idea, never enumerating files, versions, or flags; body, when present, at most three short lines answering why, in the reader's language. Never commit without following it.`;

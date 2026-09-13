@@ -27,6 +27,7 @@ import {
   buildMcpSectionText,
   BUILTIN_GUIDELINES,
   CODE_STYLE_TEXT,
+  COMMIT_DISCIPLINE_TEXT,
 } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
@@ -134,6 +135,11 @@ export function buildGuidelinesSection(
 export function buildCodeStyleSection(): string {
   // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildRoleSection 同策略
   return `<code_style>\n${CODE_STYLE_TEXT}\n</code_style>`;
+}
+
+export function buildCommitDisciplineSection(): string {
+  // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
+  return `<commit_discipline>\n${COMMIT_DISCIPLINE_TEXT}\n</commit_discipline>`;
 }
 
 export function buildPiDocSection(): string {
@@ -285,6 +291,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
       ? (buildTeamRoleSection(team?.role ?? (process.env.HAPI_ORCH_ROLE as string)) ?? MISSING_ROLE_SECTION)
       : (team?.orchestrator ?? ORCHESTRATOR_TAGGED);
   const codeStyleSection = buildCodeStyleSection();
+  const commitDisciplineSection = buildCommitDisciplineSection();
   const piDocSection = buildPiDocSection();
   const hapilonInstructions = buildHapilonInstructions(hapilonMd);
   const hapilonRulesSection = buildHapilonRules(hapilonRules);
@@ -305,6 +312,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
       guidelines: guidelinesSection.length,
       team: teamSection.length,
       codeStyle: codeStyleSection.length,
+      commitDiscipline: commitDisciplineSection.length,
       hapilonInstructions: hapilonInstructions.length,
       hapilonRules: hapilonRulesSection.length,
       contextFiles: contextFilesSection.length,
@@ -324,6 +332,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     guidelinesSection,
     teamSection,
     codeStyleSection,
+    commitDisciplineSection,
     piDocSection,
     hapilonInstructions,
     hapilonRulesSection,
