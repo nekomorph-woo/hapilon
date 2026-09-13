@@ -24,6 +24,26 @@ hapilon          # 或 hapi —— 进入 TUI
 
 > 为什么是 tarball 而不是 `npm install -g github:nekomorph-woo/hapilon`？npm 对 git 依赖的 `prepare` 是强沙箱（目标机无 devDeps、无 npx 重入、无嵌套 install，无法构建 dist），且 git 依赖实时解析在 express 5 嵌套依赖树上存在 npm reify bug。tarball 是构建完成的完整快照，两条坑都绕开。
 
+## Windows Terminal 换行键
+
+Windows Terminal 经 ConPTY 传输按键，Enter 与 Shift+Enter 送出同一个 `\r`，Ctrl+J 也被上报为 Enter（WT 已知问题 #6912 / #18852）——所以 `Shift+Enter`/`Ctrl+J` 在 Windows 上都会直接发送。两条可行路径：
+
+- **零配置**：输入 `\` 再按 Enter（内置兜底，任何终端都可用）
+- **推荐**：给 Windows Terminal 加一条 sendInput 动作（设置 → 打开 JSON 文件，加到 `actions` 数组里，改完完全退出重启终端）
+
+```json
+{
+  "actions": [
+    {
+      "command": { "action": "sendInput", "input": "\u001b[13;2u" },
+      "keys": "shift+enter"
+    }
+  ]
+}
+```
+
+WSL 里同样适用（sendInput 原样透传序列）。若 hapilon 跑在 herdr pane 内而该 pane 又展平了序列，回退到 `\` + Enter。
+
 ## 升级
 
 ```bash
