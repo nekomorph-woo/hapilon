@@ -11,7 +11,7 @@ Topic: Use the topic supplied by the user after `/skill:eli5` (Pi appends it as 
 
 ## How
 
-Speak the domain's language, not the code's. The reader has never seen the system, so every label names something they can point at, never the module it lives in. Each step is one picture and one short caption — if a step needs a paragraph, it is two steps. Move in order: what the thing is, what it does, then the one mechanism that makes it click.
+Speak the domain's language, not the code's — use the established terms from `.hapilon/CONTEXT.md` when the project has a glossary. The reader has never seen the system, so every label names something they can point at, never the module it lives in. Each step is one picture and one short caption — if a step needs a paragraph, it is two steps. Move in order: what the thing is, what it does, then the one mechanism that makes it click.
 
 Before producing the page, read the **artifact** skill's `references/design.md`, and hold to the non-negotiables even if you skip the rest:
 

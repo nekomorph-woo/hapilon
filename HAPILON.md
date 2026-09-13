@@ -25,7 +25,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 - `resources/skills/` — 内置技能库（随版本分发）；`resources/themes/` — TUI 主题（hapilon-dark/light）。
 - `src/patch/ensure-pi-patch.ts` — 对 node_modules 里 pi 包的幂等补丁（代码块底色）；pi 升级锚点失配会有启动警告，需对照新源码更新锚点表。
 - `.hapilon/` — 本地运行时目录（gitignored）：artifacts、handoff 等 skill 产物。
-- 文档落盘：调研/决策笔记 → `docs/research/`；用户明示留存的交付物 → `docs/artifacts/`；临时产物 → `.hapilon/<skill>/` 或 OS temp；领域词汇表（ubiquitous language）→ `docs/glossary.md`（懒创建，第一个术语敲定时建）。
+- 文档落盘：调研/决策笔记 → `docs/research/`；用户明示留存的交付物 → `docs/artifacts/`；临时产物 → `.hapilon/<skill>/` 或 OS temp；领域词汇表（ubiquitous language）→ `.hapilon/CONTEXT.md`。
 
 ## 已知坑
 

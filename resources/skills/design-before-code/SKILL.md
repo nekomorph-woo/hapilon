@@ -55,6 +55,8 @@ Derive the concepts and rules required by the flow:
 
 Do not model concepts solely because they may be useful later.
 
+Check the project's glossary (`.hapilon/CONTEXT.md`) for established terms before coining new ones.
+
 ### 4. Boundaries
 
 Decide where important responsibilities belong:
@@ -76,6 +78,7 @@ Before committing to the design, ask AI to attack it:
 - Is any abstraction unnecessary?
 - Can the design be simpler without losing correctness?
 - What decision would be expensive to reverse?
+- Does any term here contradict the project's glossary?
 
 Separate real current risks from hypothetical future concerns.
 
