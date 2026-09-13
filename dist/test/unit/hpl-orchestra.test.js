@@ -1,6 +1,6 @@
 import { after, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -230,12 +230,34 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         const filled = fillOrchestratorSection([{ key: "worker", paneId: "w1:p8" }]);
         assert.ok(filled.includes("worker w1:p8"));
         assert.ok(filled.includes("reviewer not open"));
-        assert.ok(filled.includes("reviewer not open — tell the user to open it via /team menu; do not dispatch until open"));
-        const dispatchLine = filled.split("\n").find((line) => line.includes("3. Dispatch:"));
+        const reviewerLine = filled.split("\n").find((line) => line.startsWith("- reviewer not open")) ?? "";
+        assert.ok(reviewerLine.includes("review necessity is your call"), reviewerLine);
+        assert.ok(reviewerLine.includes("/team:open-reviewer"), reviewerLine);
+        assert.ok(reviewerLine.includes("wait for it in the crew table"), reviewerLine);
+        assert.equal(reviewerLine.includes("tell the user to open it via /team menu"), false);
+        assert.equal(reviewerLine.includes("do not dispatch until open"), false);
+        const dispatchLine = filled.split("\n").find((line) => line.includes("2. Dispatch:"));
         assert.ok(dispatchLine?.includes("background(command="));
         assert.ok(dispatchLine?.includes("--wait --timeout 600000"));
         assert.equal(filled.split("\n").some((line) => line.includes("herdr agent prompt <id>") && !line.includes("background(command=")), false);
         assert.ok(filled.includes("end your turn"));
+    });
+    it("owner 文本承载五态处理规则，旧四态判定已退役", () => {
+        const filled = fillOrchestratorSection([{ key: "worker", paneId: "w1:p8" }]);
+        assert.ok(filled.includes("Crew state handling (states from the /team panel):"));
+        for (const line of ["working →", "waiting-input →", "done →", "dead →", "unknown →"]) {
+            assert.ok(filled.includes(line), `缺五态处理行：${line}`);
+        }
+        assert.ok(filled.includes("interrupt and\n  demand the report"));
+        assert.ok(filled.includes("escalate to the human — never\n  auto-answer"));
+        assert.ok(filled.includes("read worker-report.md in the task's dossier directory"));
+        assert.ok(filled.includes("respawn per the crew table"));
+        assert.ok(filled.includes("read the pane manually before acting"));
+        // 旧四态分支必须整体消失：idle/done、blocked、unknown: do not send
+        assert.equal(filled.includes("Check worker state: herdr agent get"), false);
+        assert.equal(filled.includes("idle/done: proceed"), false);
+        assert.equal(filled.includes("blocked: read the pane"), false);
+        assert.equal(filled.includes("unknown: do not send"), false);
     });
     it("编排段带任务书落盘约定，每任务一目录且路径按 hapilonHome 运行时插值", () => {
         const filled = fillOrchestratorSection([{ key: "worker", paneId: "w1:p8" }]);
@@ -431,6 +453,83 @@ describe("hpl-orchestra pane actions", { concurrency: false }, () => {
         assert.match(ctx.statuses.at(-1)?.text ?? "", /Worker w1:p8 ✓ w1:p10 ✓/);
     });
 });
+describe("hpl-orchestra /team:open-reviewer 命令", { concurrency: false }, () => {
+    // 命令走 defaultSpawn，无法注入 spawn：用假 herdr 顶替二进制，端到端覆盖
+    // 「注册 → 新建/复用」两条分支（含 waitPaneReady 与状态登记）。
+    function fakeHerdr() {
+        const binDir = mkdtempSync(join(tmpdir(), "hapilon-fake-herdr-"));
+        const logPath = join(binDir, "calls.log");
+        writeFileSync(join(binDir, "herdr"), `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+if (process.env.FAKE_HERDR_LOG) appendFileSync(process.env.FAKE_HERDR_LOG, args.join(" ") + "\\n");
+const [group, action, paneId] = args;
+const out = (value) => process.stdout.write(JSON.stringify(value));
+if (group === "pane" && action === "get") out({ result: { pane: { pane_id: paneId } } });
+else if (group === "pane" && action === "split") out({ result: { pane: { pane_id: "w1:p9" } } });
+else if (group === "agent" && action === "get") out({ result: { agent: { agent_status: "idle", pane_id: paneId } } });
+else out({ result: {} });
+`, { mode: 0o755 });
+        return { binDir, logPath };
+    }
+    it("新建分支：split+run 到 reviewer 档位并登记状态；复用分支：不 split 且提示已在运行", async () => {
+        const { binDir, logPath } = fakeHerdr();
+        process.env.HERDR_BIN_PATH = join(binDir, "herdr");
+        process.env.FAKE_HERDR_LOG = logPath;
+        try {
+            writeFileSync(join(home, "model-tiers-resolved.json"), JSON.stringify({
+                sonnet: [{ provider: "anthropic", id: "claude-sonnet" }],
+                opus: [{ provider: "anthropic", id: "claude-opus" }],
+            }));
+            saveState();
+            const mock = makePi();
+            hplOrchestra(mock.pi);
+            const command = mock.commands.get("team:open-reviewer");
+            assert.ok(command, "必须注册 team:open-reviewer 命令");
+            const created = makeContext();
+            await command.handler("", created.ctx);
+            assert.ok(created.notices.some(({ message }) => message.includes("Review 面板已打开：w1:p9")), JSON.stringify(created.notices));
+            const log = readFileSync(logPath, "utf8");
+            const runLine = log.split("\n").find((line) => line.startsWith("pane run ")) ?? "";
+            assert.ok(runLine.includes("--model anthropic/claude-opus"), `reviewer 应用 opus 档：${runLine}`);
+            const createdState = readTeamState(statePath());
+            assert.deepEqual(findRoleEntry(createdState, "reviewer")?.instances, [
+                { paneId: "w1:p9", model: "anthropic/claude-opus" },
+            ]);
+            writeFileSync(logPath, "");
+            const reused = makeContext();
+            await command.handler("", reused.ctx);
+            assert.ok(reused.notices.some(({ message }) => message.includes("已在 w1:p9 运行")), JSON.stringify(reused.notices));
+            assert.equal(readFileSync(logPath, "utf8").includes("pane split"), false, "已开面板必须复用而非新建");
+            const reusedState = readTeamState(statePath());
+            assert.deepEqual(findRoleEntry(reusedState, "reviewer")?.instances, [
+                { paneId: "w1:p9", model: "anthropic/claude-opus" },
+            ]);
+        }
+        finally {
+            delete process.env.HERDR_BIN_PATH;
+            delete process.env.FAKE_HERDR_LOG;
+            rmSync(binDir, { recursive: true, force: true });
+        }
+    });
+    it("角色面板内拒绝写操作，无 HERDR_ENV 时报错且不动作", async () => {
+        const mock = makePi();
+        hplOrchestra(mock.pi);
+        const command = mock.commands.get("team:open-reviewer");
+        process.env.HAPI_ORCH_ROLE = "worker";
+        const roleCtx = makeContext();
+        await command.handler("", roleCtx.ctx);
+        assert.ok(roleCtx.notices.some(({ message, type }) => type === "error" && message.includes("拒绝写操作")));
+        delete process.env.HAPI_ORCH_ROLE;
+        delete process.env.HERDR_ENV;
+        const noEnv = makeContext();
+        await command.handler("", noEnv.ctx);
+        assert.equal(noEnv.selectedOptions.length, 0);
+        assert.equal(noEnv.notices[0]?.type, "error");
+        assert.ok(noEnv.notices[0]?.message.includes("/team:open-reviewer"));
+        process.env.HERDR_ENV = "1";
+    });
+});
 describe("hpl-orchestra system prompt exclusivity", { concurrency: false }, () => {
     it("worker/reviewer/orchestrator 三种场景每次最多注入一个 team section", async () => {
         const handler = promptHandler();
@@ -453,7 +552,7 @@ describe("hpl-orchestra system prompt exclusivity", { concurrency: false }, () =
         assert.ok(result.systemPrompt.includes("<team mode=\"orchestrator\">"));
         assert.ok(result.systemPrompt.includes("worker w1:p8"));
         assert.equal((result.systemPrompt.match(/<team mode=/g) ?? []).length, 1);
-        const dispatchLine = ORCHESTRATOR_SECTION.split("\n").find((line) => line.includes("3. Dispatch:"));
+        const dispatchLine = ORCHESTRATOR_SECTION.split("\n").find((line) => line.includes("2. Dispatch:"));
         assert.ok(dispatchLine?.includes("background(command="));
         assert.ok(dispatchLine?.includes("--wait --timeout 600000"));
     });

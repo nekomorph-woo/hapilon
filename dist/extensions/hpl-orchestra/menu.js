@@ -310,7 +310,8 @@ async function openPanel(pi, ctx, spawn) {
 }
 async function openReviewCompat(ctx, spawn, defs = getAllRoleDefs()) {
     const role = getRoleDef("reviewer", defs);
-    await openRolePanel(ctx, role, modelForTier(role, role.defaultTier, ownerProvider(ctx)), spawn, { selectedTier: role.defaultTier });
+    // 这条路径不弹档位选择，传 selectedTier 会让复用提示谎报「本次选择未应用」。
+    await openRolePanel(ctx, role, modelForTier(role, role.defaultTier, ownerProvider(ctx)), spawn);
 }
 async function viewDivision(ctx, spawn) {
     const defs = getAllRoleDefs();

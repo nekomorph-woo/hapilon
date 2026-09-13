@@ -20,18 +20,26 @@ Task briefs: one dossier directory per task,
    dispatching. Workers and reviewers file their reports in the same directory.
    /tmp is never a brief home.
 
+Crew state handling (states from the /team panel):
+- working → wait; if stale (no report past the threshold) → interrupt and
+  demand the report.
+- waiting-input → read the pane to see the question. Design clarifications
+  and constraint arbitration: answer it yourself via send-keys. Irreversible
+  operations, credentials, external effects: escalate to the human — never
+  auto-answer.
+- done → collect: read worker-report.md in the task's dossier directory (the
+  pane line is only a pointer; the file is the record).
+- dead → respawn per the crew table, then have the worker assess partial work.
+- unknown → read the pane manually before acting; ask the human if still unclear.
+
 Dispatch discipline (a "new task" includes fix rounds from review):
-1. Check worker state: herdr agent get <id>
-   - idle/done: proceed. working: end your turn — the dispatch job wakes you when it settles.
-     blocked: read the pane (herdr agent read), resolve with the user.
-     unknown: do not send; report to the user.
-2. ALWAYS clear before dispatching (never judge whether the old context
+1. ALWAYS clear before dispatching (never judge whether the old context
    matters): herdr agent send-keys <id> / n e w enter
    then re-check state returns to idle.
-3. Dispatch: background(command="herdr agent prompt <id> \"<task>\" --wait --timeout 600000")
+2. Dispatch: background(command="herdr agent prompt <id> \"<task>\" --wait --timeout 600000")
    Then end your turn — the background job wakes you when the worker settles.
-4. Collect: herdr agent read <id> --source recent-unwrapped --lines 120
-5. Review routing: every code change goes to the reviewer (docs/research
+3. Collect: herdr agent read <id> --source recent-unwrapped --lines 120
+4. Review routing: every code change goes to the reviewer (docs/research
    only: skip). Verdict approve → wrap up. fix-then-approve → this is a
    new task: clear worker, dispatch findings + fix instructions, then
    re-dispatch reviewer; loop until approve. reject → re-scope with the
@@ -79,14 +87,17 @@ export function buildTeamRoleSection(key) {
 export const MISSING_ROLE_SECTION = `<team mode="unknown">
 This panel's team role definition is missing. Ask the user to re-create the role or run /team.
 </team>`;
+/** reviewer 缺席时的唯一定义：crew 行与无 reviewer 兜底行共用，避免两处文案漂移。 */
+const REVIEWER_NOT_OPEN_LINE = "- reviewer not open — review necessity is your call: code or behavior"
+    + " changes → spawn it yourself (send `/team:open-reviewer` to your own pane), wait for it in the"
+    + " crew table, then dispatch the review. Docs/research-only changes → no reviewer.";
 function crewLine(key, paneId) {
     if (key === "worker" && paneId !== "not open")
         return `- worker ${paneId}: all code changes happen there`;
     if (key === "reviewer" && paneId !== "not open")
         return `- reviewer ${paneId}: code review — every code change goes there`;
-    if (key === "reviewer" && paneId === "not open") {
-        return "- reviewer not open — tell the user to open it via /team menu; do not dispatch until open";
-    }
+    if (key === "reviewer")
+        return REVIEWER_NOT_OPEN_LINE;
     return paneId === "not open"
         ? `- ${key} not open — do not dispatch until open`
         : `- ${key} ${paneId}`;
@@ -94,7 +105,7 @@ function crewLine(key, paneId) {
 export function fillOrchestratorSection(roles) {
     const crew = roles.map(({ key, paneId }) => crewLine(key, paneId));
     if (!roles.some(({ key }) => key === "reviewer")) {
-        crew.push("- reviewer not open — tell the user to open it via /team menu; do not dispatch until open");
+        crew.push(REVIEWER_NOT_OPEN_LINE);
     }
     return ORCHESTRATOR_TEMPLATE
         .replace("<CREW>", crew.join("\n"))
