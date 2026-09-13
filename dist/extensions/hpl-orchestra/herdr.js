@@ -152,25 +152,36 @@ export function paneAgentAlive(paneId, spawn = defaultSpawn) {
         return yield* paneForegroundBusy(paneId, spawn);
     });
 }
-export function agentGet(paneId, spawn = defaultSpawn) {
-    // herdr api schema 的 AgentInfo 字段是 agent_status（无 status/state）；
-    // 同时按 pane_id 匹配，防止 findRecord 命中嵌套的其它记录。
-    return Effect.map(runJsonEffect(["agent", "get", paneId], spawn), (raw) => {
-        const agent = findRecord(raw, (record) => typeof record.agent_status === "string" && record.pane_id === paneId);
-        const rawStatus = agent?.agent_status;
-        if (typeof rawStatus !== "string")
-            return "unknown";
-        const normalized = rawStatus.toLowerCase();
-        if (normalized === "idle")
-            return "idle";
-        if (normalized === "working" || normalized === "running")
-            return "working";
-        if (normalized === "blocked")
-            return "blocked";
-        if (normalized === "done" || normalized === "completed" || normalized === "complete")
-            return "done";
+/** herdr api schema 的 AgentInfo 字段是 agent_status（无 status/state）；
+ *  同时按 pane_id 匹配，防止 findRecord 命中嵌套的其它记录。 */
+function agentRecord(raw, paneId) {
+    return findRecord(raw, (record) => typeof record.agent_status === "string" && record.pane_id === paneId);
+}
+function normalizeAgentStatus(rawStatus) {
+    if (typeof rawStatus !== "string")
         return "unknown";
+    const normalized = rawStatus.toLowerCase();
+    if (normalized === "idle")
+        return "idle";
+    if (normalized === "working" || normalized === "running")
+        return "working";
+    if (normalized === "blocked")
+        return "blocked";
+    if (normalized === "done" || normalized === "completed" || normalized === "complete")
+        return "done";
+    return "unknown";
+}
+export function agentStateWithSeq(paneId, spawn = defaultSpawn) {
+    return Effect.map(runJsonEffect(["agent", "get", paneId], spawn), (raw) => {
+        const agent = agentRecord(raw, paneId);
+        return {
+            status: normalizeAgentStatus(agent?.agent_status),
+            seq: typeof agent?.state_change_seq === "number" ? agent.state_change_seq : undefined,
+        };
     });
+}
+export function agentGet(paneId, spawn = defaultSpawn) {
+    return Effect.map(agentStateWithSeq(paneId, spawn), (snapshot) => snapshot.status);
 }
 export function paneSplit(cwd, spawn = defaultSpawn, envArgs = [], options = {}) {
     // 默认 --current 固定到调用面板（herdr skill 要求，不依赖对端聚焦面板）；

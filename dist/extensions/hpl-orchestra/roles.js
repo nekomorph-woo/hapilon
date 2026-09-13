@@ -39,7 +39,11 @@ Dispatch discipline (a "new task" includes fix rounds from review):
    then re-check state returns to idle.
 2. Dispatch (pane 级输入——hapi 是自定义 agent 类型,agent prompt 会以
    agent_not_ready 拒绝):
-   background(command="herdr pane send-text <id> \"<task>\" && herdr pane send-keys <id> enter && herdr agent wait <id> --until idle")
+   background(command="herdr pane send-text <id> \"<task>\" && herdr pane send-keys <id> enter && hapi wait-pane <id>")
+   wait-pane 以「状态**变过**且落到 idle/blocked」为收敛判据;不要用 herdr
+   的 agent wait --until idle——它只看当前值,而 pane 派发前就是 idle,会秒回。
+   退出码:0 收敛、2 卡在等待输入、3 到时未收敛(重新 get 状态:仍 working 就再
+   开一次等待,仍无变化按 stale 处理)。
    Then end your turn — the background job wakes you when the pane settles.
 3. Collect: herdr agent read <id> --source recent-unwrapped --lines 120
 4. Review routing: every code change goes to the reviewer (docs/research

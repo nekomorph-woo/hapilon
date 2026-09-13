@@ -108,6 +108,22 @@ export const COMMANDS = [
         },
     },
     {
+        name: "wait-pane",
+        description: "等待某个 pane 收敛（团队模式派发的等待原语，供 orchestrator 后台调用）",
+        usage: `${cliIdentity.cliName} wait-pane <pane-id> [--timeout <秒>]`,
+        subcommands: [
+            {
+                name: "--timeout <秒>",
+                description: `多久未收敛就放弃（默认 900）；退出码 0 收敛 / 2 等待输入 / 3 超时 / 4 用法错误`,
+            },
+        ],
+        handler: async (args) => {
+            // 同步阻塞轮询：background 工具以退出码唤醒 orchestrator，故码表即结果
+            const { runWaitPaneCommand } = await import("../extensions/hpl-orchestra/wait-pane.js");
+            process.exitCode = runWaitPaneCommand(args.slice(1));
+        },
+    },
+    {
         name: "help",
         description: "显示帮助信息",
         usage: `${cliIdentity.cliName} help [command]`,

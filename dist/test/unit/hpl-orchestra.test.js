@@ -278,7 +278,9 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         const dispatchLine = filled.split("\n").find((line) => line.includes("background(command=")) ?? "";
         assert.ok(dispatchLine.includes("herdr pane send-text <id>"), JSON.stringify(dispatchLine));
         assert.ok(dispatchLine.includes("herdr pane send-keys <id> enter"), JSON.stringify(dispatchLine));
-        assert.ok(dispatchLine.includes("herdr agent wait <id> --until idle"), JSON.stringify(dispatchLine));
+        assert.ok(dispatchLine.includes("hapi wait-pane <id>"), JSON.stringify(dispatchLine));
+        // 回归：herdr 的 wait --until idle 只看当前状态，pane 派发前本来就是 idle → 秒回
+        assert.equal(dispatchLine.includes("herdr agent wait"), false, "不得再用 herdr agent wait 做派发等待");
         assert.ok(filled.includes("2. Dispatch"), "新任务的派发纪律标题保留");
         assert.equal(filled.split("\n").some((line) => line.includes("herdr agent prompt <id>")), false, "自定义 agent 类型下 agent prompt 不可用,提示文本不得再用");
         assert.equal(filled.includes("herdr agent send-keys"), false, "agent send-keys 同样只认已知类型,统一走 pane 级");
@@ -866,7 +868,7 @@ describe("hpl-orchestra system prompt exclusivity", { concurrency: false }, () =
         const dispatchLine = ORCHESTRATOR_SECTION.split("\n").find((line) => line.includes("background(command=")) ?? "";
         assert.ok(dispatchLine.includes("herdr pane send-text <id>"));
         assert.ok(dispatchLine.includes("herdr pane send-keys <id> enter"));
-        assert.ok(dispatchLine.includes("herdr agent wait <id> --until idle"));
+        assert.ok(dispatchLine.includes("hapi wait-pane <id>"));
     });
     it("普通会话不注入兜底段，herdr 空状态保留 worker 占位行", async () => {
         const handler = promptHandler();
