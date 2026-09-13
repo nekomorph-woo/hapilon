@@ -1,20 +1,70 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Data, Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
+import { getAllRoleDefs } from "./role-registry.js";
 import { fillOrchestratorSection } from "./roles.js";
-import { herdrEnvAvailable } from "./herdr.js";
+import { herdrEnvAvailable, paneAgentAlive } from "./herdr.js";
+/** crew 生成时的死 pane 过滤；herdr 不可用（测试/无 herdr 环境）时跳过过滤 */
+function paneAlive(paneId) {
+    if (!herdrEnvAvailable())
+        return true;
+    return Effect.runSync(paneAgentAlive(paneId));
+}
 export class TeamStateError extends Data.TaggedError("TeamStateError") {
 }
 const disabledState = () => ({ enabled: false });
-const isPaneState = (value) => {
+/**
+ * round-1 之前的状态形态：`roles: {worker: {paneId, model}}`（paneId:null = 未打开）。
+ * 读侧兼容，写侧只写新形态——旧状态下一次写入即自动升级，不必单独迁移。
+ */
+function upgradeLegacyRoles(parsed) {
+    if (!parsed || typeof parsed !== "object")
+        return parsed;
+    const roles = parsed.roles;
+    if (!roles || typeof roles !== "object" || Array.isArray(roles))
+        return parsed;
+    const entries = [];
+    for (const [key, value] of Object.entries(roles)) {
+        if (!value || typeof value !== "object")
+            continue;
+        const pane = value;
+        if (typeof pane.paneId !== "string")
+            continue;
+        entries.push({
+            key,
+            instances: [{ paneId: pane.paneId, model: typeof pane.model === "string" ? pane.model : null }],
+        });
+    }
+    return { ...parsed, roles: entries };
+}
+export const isTeamRole = (value, defs = getAllRoleDefs()) => typeof value === "string" && defs.some((role) => role.key === value);
+const isRoleInstance = (value) => {
     if (!value || typeof value !== "object")
         return false;
-    const pane = value;
-    return (typeof pane.paneId === "string" || pane.paneId === null)
-        && (typeof pane.model === "string" || pane.model === null);
+    const instance = value;
+    return typeof instance.paneId === "string"
+        && (typeof instance.model === "string" || instance.model === null)
+        && (instance.transient === undefined || typeof instance.transient === "boolean")
+        && (instance.nickname === undefined || typeof instance.nickname === "string");
 };
-const isTeamState = (value) => {
+const isRoleEntry = (value, defs) => {
+    if (!value || typeof value !== "object")
+        return false;
+    const entry = value;
+    if (typeof entry.key !== "string" || !Array.isArray(entry.instances))
+        return false;
+    const validInstances = entry.instances.every(isRoleInstance);
+    if (!validInstances)
+        return false;
+    const transientOnly = entry.instances.length > 0
+        && entry.instances.every((instance) => instance.transient === true);
+    // 注册表角色是正常路径；带实例的未知 key 可能是已删除定义的残留，
+    // 仍需保留以便状态/菜单显示原 key。transient 同样不写注册表。
+    return (isTeamRole(entry.key, defs) || transientOnly || entry.instances.length > 0)
+        && entry.key.length > 0;
+};
+const isTeamState = (value, defs) => {
     if (!value || typeof value !== "object")
         return false;
     const state = value;
@@ -27,13 +77,30 @@ const isTeamState = (value) => {
     const ownerRecord = owner;
     if (typeof ownerRecord.paneId !== "string")
         return false;
-    if (!roles || typeof roles !== "object")
+    if (ownerRecord.session !== undefined && typeof ownerRecord.session !== "string")
         return false;
-    const roleRecord = roles;
-    return isPaneState(roleRecord.worker) && isPaneState(roleRecord.reviewer);
+    if (ownerRecord.nickname !== undefined && typeof ownerRecord.nickname !== "string")
+        return false;
+    if (state.name !== undefined && typeof state.name !== "string")
+        return false;
+    if (!Array.isArray(roles) || !roles.every((entry) => isRoleEntry(entry, defs)))
+        return false;
+    return new Set(roles.map((entry) => entry.key)).size === roles.length;
 };
+export function findRoleEntry(state, key) {
+    return state.roles.find((entry) => entry.key === key);
+}
+export function allInstances(state) {
+    return state.roles.flatMap((entry) => entry.instances);
+}
 export function teamsDir() {
     return join(hapilonHome(), "teams");
+}
+/** 任务档案根目录；每任务一子目录，见 planTaskDirFor */
+const planTaskRoot = () => join(hapilonHome(), "plan-task");
+/** 单个任务的档案目录（task-brief.md + 回执）；slug 约定 YYYY-MM-DD-短横线小写 */
+export function planTaskDirFor(slug) {
+    return join(planTaskRoot(), slug);
 }
 /**
  * 状态文件按主面板 herdr pane id 绑定（并行编排天然隔离；主面板 /new
@@ -43,17 +110,41 @@ export function resolveSessionStatePath(ownerPaneId) {
     const pane = ownerPaneId ?? process.env.HERDR_PANE_ID ?? "";
     return join(teamsDir(), `${pane.replaceAll(":", "_")}.json`);
 }
-export function currentRole() {
-    const role = process.env.HAPI_ORCH_ROLE;
-    return role === "worker" || role === "reviewer" ? role : undefined;
+export function currentRole(defs = getAllRoleDefs()) {
+    const roleValue = process.env.HAPI_ORCH_ROLE;
+    if (typeof roleValue === "string" && defs.some((role) => role.key === roleValue))
+        return roleValue;
+    if (typeof roleValue !== "string" || roleValue.length === 0)
+        return undefined;
+    const transientPrompt = process.env.HAPI_ORCH_ROLE_PROMPT;
+    if (process.env.HAPI_ORCH_TRANSIENT_ROLE === "1" && typeof transientPrompt === "string" && transientPrompt.length > 0) {
+        return roleValue;
+    }
+    // 自定义定义可能在角色面板仍存活时被删除；该 pane 仍应保持角色
+    // prompt，而不是因缺失 registry 定义退回 orchestrator。
+    const paneId = process.env.HERDR_PANE_ID;
+    if (!paneId || !existsSync(teamsDir()))
+        return undefined;
+    try {
+        const roleState = findTeamStateForPane(paneId, defs);
+        return roleState && "roles" in roleState
+            && roleState.roles.some((entry) => entry.key === roleValue
+                && entry.instances.some((instance) => instance.paneId === paneId))
+            ? roleValue
+            : undefined;
+    }
+    catch {
+        return undefined;
+    }
 }
-export const readTeamStateEffect = (path) => Effect.try({
+export const readTeamStateEffect = (path, defs = getAllRoleDefs()) => Effect.try({
     try: () => {
         const statePath = path ?? resolveSessionStatePath();
         if (!existsSync(statePath))
             return disabledState();
         const parsed = JSON.parse(readFileSync(statePath, "utf8"));
-        return isTeamState(parsed) ? parsed : disabledState();
+        const upgraded = upgradeLegacyRoles(parsed);
+        return isTeamState(upgraded, defs) ? upgraded : disabledState();
     },
     catch: (error) => new TeamStateError({
         message: error instanceof Error ? error.message : String(error),
@@ -62,23 +153,44 @@ export const readTeamStateEffect = (path) => Effect.try({
     console.warn(`[hpl-orchestra] 状态文件读取失败，按未启用处理：${error.message}`);
     return disabledState();
 })));
-export function readTeamState(path) {
-    return Effect.runSync(readTeamStateEffect(path));
+export function readTeamState(path, defs) {
+    return Effect.runSync(readTeamStateEffect(path, defs));
+}
+/** 盘上所有可用的团队状态（接管候选扫描、按 pane 查找共用）。 */
+export function listTeamStates(defs = getAllRoleDefs()) {
+    const directory = teamsDir();
+    if (!existsSync(directory))
+        return [];
+    const found = [];
+    for (const name of readdirSync(directory)) {
+        if (!name.endsWith(".json"))
+            continue; // 原子写的 .tmp 残留一并排除
+        const path = join(directory, name);
+        const state = readTeamState(path, defs);
+        if ("roles" in state)
+            found.push({ path, state });
+    }
+    return found;
+}
+/** 状态文件存在但不可用时的原因；无文件或文件可用时返回 undefined（只给 UI 提示用）。 */
+export function teamStateError(path, defs = getAllRoleDefs()) {
+    const statePath = path ?? resolveSessionStatePath();
+    if (!existsSync(statePath))
+        return undefined;
+    try {
+        const parsed = JSON.parse(readFileSync(statePath, "utf8"));
+        return isTeamState(upgradeLegacyRoles(parsed), defs) ? undefined : "结构不合法（可能被写坏或来自不兼容版本）";
+    }
+    catch (error) {
+        return error instanceof Error ? error.message : String(error);
+    }
 }
 /** Role panes have their own Pi session id; locate their owner's state by pane id. */
-export const findTeamStateForPaneEffect = (paneId) => Effect.try({
+export const findTeamStateForPaneEffect = (paneId, defs = getAllRoleDefs()) => Effect.try({
     try: () => {
-        const directory = teamsDir();
-        if (!existsSync(directory))
-            return undefined;
-        for (const name of readdirSync(directory)) {
-            if (!name.endsWith(".json"))
-                continue;
-            const state = readTeamState(join(directory, name));
-            if (!isTeamState(state))
-                continue;
-            if (state.roles.worker.paneId === paneId || state.roles.reviewer.paneId === paneId)
-                return state;
+        for (const entry of listTeamStates(defs)) {
+            if (allInstances(entry.state).some((instance) => instance.paneId === paneId))
+                return entry.state;
         }
         return undefined;
     },
@@ -89,14 +201,21 @@ export const findTeamStateForPaneEffect = (paneId) => Effect.try({
     console.warn(`[hpl-orchestra] 按 pane 查找状态失败：${error.message}`);
     return undefined;
 })));
-export function findTeamStateForPane(paneId) {
-    return Effect.runSync(findTeamStateForPaneEffect(paneId));
+export function findTeamStateForPane(paneId, defs = getAllRoleDefs()) {
+    return Effect.runSync(findTeamStateForPaneEffect(paneId, defs));
 }
 export const writeTeamStateEffect = (state, path) => Effect.try({
     try: () => {
         const statePath = path ?? resolveSessionStatePath();
         mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
-        writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+        // 任务书的原生落盘位置：随每一次 team 状态写入（创建/启用/打开角色面板）
+        // 一并确保存在，/tmp 里的 brief 重启即失。
+        mkdirSync(planTaskRoot(), { recursive: true, mode: 0o700 });
+        // 原子写：主 agent 崩溃正好撞上写盘时会留下半截 JSON，整个团队会被当成「未启用」
+        // 静默丢失。tmp + rename 保证读侧要么看到旧版、要么看到新版。
+        const tmpPath = `${statePath}.tmp`;
+        writeFileSync(tmpPath, `${JSON.stringify(state, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+        renameSync(tmpPath, statePath);
         return true;
     },
     catch: (error) => new TeamStateError({
@@ -121,8 +240,8 @@ export const deleteTeamStateEffect = (path) => Effect.try({
     console.warn(`[hpl-orchestra] 状态文件删除失败：${error.message}`);
     return false;
 })));
-export function isTeamOwner(state) {
-    if (!isTeamState(state))
+export function isTeamOwner(state, defs) {
+    if (!("roles" in state) || !isTeamState(state, defs ?? getAllRoleDefs()))
         return false;
     const paneId = process.env.HERDR_PANE_ID;
     return Boolean(paneId) && state.owner.paneId === paneId;
@@ -132,15 +251,39 @@ export const buildTeamSectionsEffect = () => Effect.try({
     try: () => {
         if (!herdrEnvAvailable())
             return {};
-        const role = currentRole();
+        const defs = getAllRoleDefs();
+        const role = currentRole(defs);
         if (role)
             return { role };
-        const state = readTeamState(resolveSessionStatePath());
-        if (!state.enabled || !isTeamOwner(state))
+        const state = readTeamState(resolveSessionStatePath(), defs);
+        if (!state.enabled || !isTeamOwner(state, defs))
             return {};
-        return {
-            orchestrator: fillOrchestratorSection(state.roles.worker.paneId, state.roles.reviewer.paneId),
-        };
+        const stateRoles = new Map(state.roles.map((entry) => [entry.key, entry]));
+        const keys = [
+            ...defs.map((roleDef) => roleDef.key),
+            ...state.roles.map((entry) => entry.key).filter((key) => !defs.some((roleDef) => roleDef.key === key)),
+        ];
+        const crew = keys.flatMap((key) => {
+            const instances = stateRoles.get(key)?.instances ?? [];
+            if (instances.length === 0)
+                return [{ key, paneId: "not open" }];
+            // 探活过滤：死 pane 不能进 crew——orchestrator 会按提示词往这些
+            // pane 派发，只会拿到 herdr 报错（review-r3 N7）。代价：每个实例
+            // 每轮一次同步 pane get（~10s 超时上限，正常 <50ms）；实例数通常
+            // ≤4，可接受。非 herdr 环境跳过（paneAlive 内有 guard）。
+            return instances
+                .filter((instance) => paneAlive(instance.paneId))
+                .map((instance) => ({ key, paneId: instance.paneId }));
+        }).concat(
+        // 全部实例已死的角色保留一行 not open，而不是从 crew 消失
+        keys
+            .filter((key) => {
+            const instances = stateRoles.get(key)?.instances ?? [];
+            return instances.length > 0
+                && instances.every((instance) => !paneAlive(instance.paneId));
+        })
+            .map((key) => ({ key, paneId: "not open" })));
+        return { orchestrator: fillOrchestratorSection(crew) };
     },
     catch: (error) => new TeamStateError({
         message: error instanceof Error ? error.message : String(error),

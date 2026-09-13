@@ -13,12 +13,12 @@
 import { collectUpward, readHapilonMd, readRules, } from "../../shared/files.js";
 import { xmlEscape } from "../../shared/format.js";
 import { wrapSystemPrompt } from "./xml.js";
-import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildMcpSectionText, BUILTIN_GUIDELINES, CODE_STYLE_TEXT, } from "./sections.js";
+import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildMcpSectionText, BUILTIN_GUIDELINES, CODE_STYLE_TEXT, COMMIT_DISCIPLINE_TEXT, DISPATCH_DISCIPLINE_TEXT, ROLE_COMMIT_BOUNDARY_TEXT, } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
 import { getAddedDirs } from "../hpl-add-dir/bridge.js";
 import { buildContextInjection } from "../hpl-add-dir/context.js";
-import { REVIEWER_SECTION, WORKER_SECTION, ORCHESTRATOR_TAGGED } from "../hpl-orchestra/roles.js";
+import { buildTeamRoleSection, MISSING_ROLE_SECTION, ORCHESTRATOR_TAGGED } from "../hpl-orchestra/roles.js";
 // ── Individual builders ────────────────────────────────────────────────
 export function buildRoleSection() {
     return `<role>\n${ROLE_TEXT}\n</role>`;
@@ -77,6 +77,18 @@ export function buildGuidelinesSection(promptGuidelines, selectedTools) {
 export function buildCodeStyleSection() {
     // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildRoleSection 同策略
     return `<code_style>\n${CODE_STYLE_TEXT}\n</code_style>`;
+}
+export function buildCommitDisciplineSection() {
+    // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
+    return `<commit_discipline>\n${COMMIT_DISCIPLINE_TEXT}\n</commit_discipline>`;
+}
+export function buildDispatchDisciplineSection() {
+    // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
+    return `<dispatch_discipline>\n${DISPATCH_DISCIPLINE_TEXT}\n</dispatch_discipline>`;
+}
+export function buildRoleCommitBoundarySection() {
+    // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
+    return `<role_commit_boundary>\n${ROLE_COMMIT_BOUNDARY_TEXT}\n</role_commit_boundary>`;
 }
 export function buildPiDocSection() {
     return `<pi_documentation>\n${buildPiDocText()}\n</pi_documentation>`;
@@ -184,13 +196,19 @@ export function assembleSystemPrompt(opts) {
     // Keep this branch deliberately exclusive: before_agent_start returns a full prompt,
     // so a worker/reviewer role must never coexist with the orchestrator section.
     // Orchestrator 段文本由 hpl-orchestra 经 bridge 提供（含实值 pane id）；
-    // bridge 为空时的兜底用无 id 版常量，避免程序顺序意外时整段消失。
-    const teamSection = team?.role === "worker"
-        ? WORKER_SECTION
-        : team?.role === "reviewer"
-            ? REVIEWER_SECTION
+    // 仅 herdr 会话启用兜底，普通会话不应读到大段 orchestrator 纪律。
+    // 不变量（review-r3 N2）：HAPI_ORCH_ROLE 非空的面板永远不落回 orchestrator 段——
+    // 即使它的角色定义与状态文件都被删除，也只能拿到 MISSING_ROLE_SECTION。
+    const hasRoleEnv = Boolean(process.env.HAPI_ORCH_ROLE);
+    const teamSection = process.env.HERDR_ENV !== "1"
+        ? ""
+        : hasRoleEnv || team?.role
+            ? (buildTeamRoleSection(team?.role ?? process.env.HAPI_ORCH_ROLE) ?? MISSING_ROLE_SECTION)
             : (team?.orchestrator ?? ORCHESTRATOR_TAGGED);
     const codeStyleSection = buildCodeStyleSection();
+    const commitDisciplineSection = buildCommitDisciplineSection();
+    const dispatchDisciplineSection = buildDispatchDisciplineSection();
+    const roleCommitBoundarySection = buildRoleCommitBoundarySection();
     const piDocSection = buildPiDocSection();
     const hapilonInstructions = buildHapilonInstructions(hapilonMd);
     const hapilonRulesSection = buildHapilonRules(hapilonRules);
@@ -210,6 +228,9 @@ export function assembleSystemPrompt(opts) {
             guidelines: guidelinesSection.length,
             team: teamSection.length,
             codeStyle: codeStyleSection.length,
+            commitDiscipline: commitDisciplineSection.length,
+            dispatchDiscipline: dispatchDisciplineSection.length,
+            roleCommitBoundary: roleCommitBoundarySection.length,
             hapilonInstructions: hapilonInstructions.length,
             hapilonRules: hapilonRulesSection.length,
             contextFiles: contextFilesSection.length,
@@ -228,6 +249,9 @@ export function assembleSystemPrompt(opts) {
         guidelinesSection,
         teamSection,
         codeStyleSection,
+        commitDisciplineSection,
+        dispatchDisciplineSection,
+        roleCommitBoundarySection,
         piDocSection,
         hapilonInstructions,
         hapilonRulesSection,

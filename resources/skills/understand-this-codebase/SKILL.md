@@ -135,6 +135,8 @@ Keep the first pass compact:
 
 Do not automatically continue into exhaustive implementation details.
 
+Use the project's established domain terms (`.hapilon/CONTEXT.md` when a glossary exists) so the explanation speaks the team's language.
+
 ## Guardrails
 
 - Do not dump the repository tree.

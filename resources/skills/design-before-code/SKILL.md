@@ -55,6 +55,8 @@ Derive the concepts and rules required by the flow:
 
 Do not model concepts solely because they may be useful later.
 
+Check the project's glossary (`.hapilon/CONTEXT.md`) for established terms before coining new ones.
+
 ### 4. Boundaries
 
 Decide where important responsibilities belong:
@@ -76,6 +78,7 @@ Before committing to the design, ask AI to attack it:
 - Is any abstraction unnecessary?
 - Can the design be simpler without losing correctness?
 - What decision would be expensive to reverse?
+- Does any term here contradict the project's glossary?
 
 Separate real current risks from hypothetical future concerns.
 
@@ -111,6 +114,13 @@ If an unresolved decision materially affects the next step, stop for human judgm
 Otherwise mark:
 
 `READY FOR IMPLEMENTATION`
+
+## Archiving
+
+When the user wants a design kept as a record, write it in that task's dossier,
+`plan-task/<YYYY-MM-DD-slug>/design.md` in HAPILON_HOME (`$HAPILON_HOME/plan-task/`;
+devhapi: `~/.hapilon-dev/plan-task/`), alongside the task's brief — `/tmp` is
+never a landing zone.
 
 ## Guardrails
 

@@ -13,6 +13,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { classifyCommand } from "./classifier.js";
+import { deriveAllowPattern } from "./derive-allow.js";
 import { hasSensitiveReadArg, sensitiveReadLabels } from "./sensitive-args.js";
 import { requestConfirm } from "../hpl-protected-paths/confirm.js";
 import { addTrust, isTrusted, initProjectTrust } from "../../config/trust-store.js";
@@ -81,6 +82,7 @@ export default function (pi: ExtensionAPI) {
           ctx,
           "⚠️ 敏感文件读取确认",
           `命令将读取敏感文件（${labels}）：\n\n> ${normalized.slice(0, 200)}\n\n是否仍然执行？`,
+          { allowSuggestion: deriveAllowPattern(normalized) },
         );
         if (result.status !== "approved") {
           const reason = result.status === "unavailable"
@@ -91,7 +93,7 @@ export default function (pi: ExtensionAPI) {
         }
         try {
           if (result.scope !== "once") {
-            addTrust("bash", normalized, result.scope, ctx.cwd);
+            addTrust("bash", result.allowPattern ?? normalized, result.scope, ctx.cwd);
           }
         } catch (err) {
           console.warn("添加信任失败（不影响本次操作）:", err instanceof Error ? err.message : String(err));
@@ -125,6 +127,7 @@ export default function (pi: ExtensionAPI) {
       ctx,
       "⚠️ 危险操作确认",
       `检测到潜在危险操作：\n\n> ${normalized.slice(0, 200)}\n\n是否仍然执行？`,
+      { allowSuggestion: deriveAllowPattern(normalized) },
     );
     if (result.status !== "approved") {
       const reason = result.status === "unavailable"
@@ -138,7 +141,7 @@ export default function (pi: ExtensionAPI) {
     }
     try {
       if (result.scope !== "once") {
-        addTrust("bash", normalized, result.scope, ctx.cwd);
+        addTrust("bash", result.allowPattern ?? normalized, result.scope, ctx.cwd);
       }
     } catch (err) {
       console.warn("添加信任失败（不影响本次操作）:", err instanceof Error ? err.message : String(err));

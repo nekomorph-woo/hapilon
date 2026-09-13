@@ -127,3 +127,6 @@ Desktop.ini
 # --- Claude ---
 .claude/settings.json
 .claude/settings.local.json
+
+# --- hapilon dev harness（任务面板运行时产物，永不入库）---
+.pi/

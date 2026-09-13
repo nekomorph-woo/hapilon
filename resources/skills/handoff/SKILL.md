@@ -4,7 +4,7 @@ description: Compact the current conversation into a handoff document for anothe
 disable-model-invocation: true
 ---
 
-Write a handoff document summarising the current conversation so a fresh agent can continue the work. Save it to `.hapilon/handoff/<timestamp>.md` in the repo — create the directory regardless, and add `.hapilon/` to the repo's `.gitignore` if there is one. If the user names a location, use that instead. Only when you're not inside a git repo, fall back to the temporary directory of the user's OS.
+Write a handoff document summarising the current conversation so a fresh agent can continue the work. Save it to `.hapilon/handoff/<slug>-<timestamp>.md` in the repo — create the directory regardless, and add `.hapilon/` to the repo's `.gitignore` if there is one. If the user names a location, use that instead. Only when you're not inside a git repo, fall back to the temporary directory of the user's OS.
 
 Include a "suggested skills" section in the document, which suggests skills that the agent should invoke.
 

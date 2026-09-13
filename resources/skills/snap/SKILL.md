@@ -1,6 +1,6 @@
 ---
 name: snap
-description: Write one conventional-commit message for the staged diff and commit it, linking any issue the conversation already references.
+description: MANDATORY before every git commit — no commit happens without this skill, including trivial one-file commits. Writes one conventional-commit message for the staged diff (business-altitude subject, why-only body) and commits it, linking any issue the conversation already references.
 ---
 
 # Snap
@@ -37,9 +37,10 @@ Format:
 
 - `description` in the detected language, single line, imperative.
 - **Altitude ladder — start at the top, drop only when forced:**
-  - **Business altitude (default).** Say what the product or system can now do, or what problem no longer exists: what a user notices, which workflow changed, what got fixed for them. The reader should understand the commit without knowing any file name.
+  - **Business altitude (default).** Say what the product or system can now do, or what problem no longer exists: what a user notices, which workflow changed, what got fixed for them. The reader should understand the commit without knowing any file name. Use the project's own terms for them (see `.hapilon/CONTEXT.md` when a glossary exists).
   - **Technical fallback.** Only when the change has no business face at all — pure refactor, deps bump, CI, tooling — state the technical fact plainly instead.
 - **One line, one idea.** Never enumerate code points: a description listing functions, fields, or files means the altitude is wrong — climb back up until the scattered items collapse into one purpose.
+- **Body.** Optional but recommended for non-trivial changes; at most three short lines. It answers **why the change exists**, in the reader's language — a colleague who wasn't in the conversation reads subject and body and understands both problem and fix. The diff already says **what** moved: never enumerate file names, version numbers, flag names, or counts. If a line could be a changelog entry, delete it. Same altitude ladder as the subject: problem gone / capability gained first; mechanism only when it is the point.
 
 Completion: one line names the capability gained or the problem closed — or, when none exists, the single technical fact.
 

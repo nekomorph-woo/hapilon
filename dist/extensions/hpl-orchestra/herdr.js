@@ -55,7 +55,7 @@ function runJsonEffect(args, spawn = defaultSpawn) {
         return undefined;
     })));
 }
-function runCommandEffect(args, spawn = defaultSpawn, timeoutMs) {
+function runTextEffect(args, spawn = defaultSpawn, timeoutMs) {
     return Effect.try({
         try: () => {
             const bin = process.env.HERDR_BIN_PATH ?? "herdr";
@@ -65,13 +65,16 @@ function runCommandEffect(args, spawn = defaultSpawn, timeoutMs) {
             if (result.status !== 0) {
                 throw new HerdrError({ message: outputText(result.stderr) || `herdr exited with status ${result.status}` });
             }
-            return true;
+            return outputText(result.stdout);
         },
         catch: (error) => error,
     }).pipe(Effect.catchAll((error) => Effect.sync(() => {
         console.warn(`[hpl-orchestra] herdr ${args.join(" ")} 失败：${error instanceof Error ? error.message : String(error)}`);
-        return false;
+        return undefined;
     })));
+}
+function runCommandEffect(args, spawn = defaultSpawn, timeoutMs) {
+    return Effect.map(runTextEffect(args, spawn, timeoutMs), (text) => text !== undefined);
 }
 function findRecord(value, predicate) {
     if (!value || typeof value !== "object")
@@ -102,7 +105,51 @@ export function paneGet(paneId, spawn = defaultSpawn) {
             return undefined;
         const id = typeof pane.pane_id === "string" ? pane.pane_id : String(pane.id);
         const status = typeof pane.status === "string" ? pane.status : undefined;
-        return { paneId: id, status };
+        const agent = typeof pane.agent === "string" ? pane.agent : undefined;
+        const label = typeof pane.label === "string" && pane.label.length > 0 ? pane.label : undefined;
+        return { paneId: id, status, ...(agent ? { agent } : {}), ...(label ? { label } : {}) };
+    });
+}
+/** 给 pane 打/换 herdr 标签（显示在 pane 边框上，用于分辨角色） */
+export function paneRename(paneId, label, spawn = defaultSpawn) {
+    return runCommandEffect(["pane", "rename", paneId, label], spawn);
+}
+/**
+ * pane 里是否还有前台进程（跑在 shell 之上的 agent）。agent 字段尚未上报的启动窗口
+ * 只能靠这个信号：
+ * pi 已经在跑 → 前台进程不是 shell → true；pi 已崩、只剩 shell 提示符 → false。
+ */
+export function paneForegroundBusy(paneId, spawn = defaultSpawn) {
+    return Effect.map(runJsonEffect(["pane", "process-info", "--pane", paneId], spawn), (raw) => {
+        const info = findRecord(raw, (record) => "shell_pid" in record || "foreground_processes" in record);
+        if (!info)
+            return false;
+        const shellPid = typeof info.shell_pid === "number" ? info.shell_pid : undefined;
+        const foreground = info.foreground_processes;
+        if (Array.isArray(foreground) && foreground.length > 0) {
+            return foreground.some((entry) => {
+                if (!entry || typeof entry !== "object")
+                    return false;
+                const pid = entry.pid;
+                return shellPid === undefined || (typeof pid === "number" && pid !== shellPid);
+            });
+        }
+        const pgid = typeof info.foreground_process_group_id === "number" ? info.foreground_process_group_id : undefined;
+        return pgid !== undefined && shellPid !== undefined && pgid !== shellPid;
+    });
+}
+/**
+ * 角色 pane 的存活判定：pane 在，且里面还有 agent。
+ * 只看 pane 存不存在会把「pi 崩了、只剩 shell」误判为健康——主 agent 会照旧往空 shell 派发。
+ */
+export function paneAgentAlive(paneId, spawn = defaultSpawn) {
+    return Effect.gen(function* () {
+        const pane = yield* paneGet(paneId, spawn);
+        if (!pane)
+            return false;
+        if (pane.agent !== undefined)
+            return true;
+        return yield* paneForegroundBusy(paneId, spawn);
     });
 }
 export function agentGet(paneId, spawn = defaultSpawn) {
@@ -125,21 +172,48 @@ export function agentGet(paneId, spawn = defaultSpawn) {
         return "unknown";
     });
 }
-export function paneSplit(cwd, spawn = defaultSpawn, envArgs = []) {
-    // --current 固定到调用面板（herdr skill 要求，不依赖对端聚焦面板）；方向显式
-    return Effect.map(runJsonEffect(["pane", "split", "--current", "--direction", "right", ...envArgs, "--cwd", cwd, "--no-focus"], spawn), (raw) => {
+export function paneSplit(cwd, spawn = defaultSpawn, envArgs = [], options = {}) {
+    // 默认 --current 固定到调用面板（herdr skill 要求，不依赖对端聚焦面板）；
+    // 指定 target 时改为在目标 pane 上切（布局决定了角色 pane 要叠在右列）
+    const anchor = options.target ? ["--pane", options.target] : ["--current"];
+    return Effect.map(runJsonEffect(["pane", "split", ...anchor, "--direction", options.direction ?? "right", ...envArgs, "--cwd", cwd, "--no-focus"], spawn), (raw) => {
         const pane = findRecord(raw, (record) => typeof record.pane_id === "string");
         return typeof pane?.pane_id === "string" ? pane.pane_id : undefined;
+    });
+}
+/** 同 tab 各 pane 的显示宽度（`herdr pane layout`）；用于判断右列还能不能塞下新面板 */
+export function paneWidths(spawn = defaultSpawn) {
+    return Effect.map(runJsonEffect(["pane", "layout"], spawn), (raw) => {
+        const widths = new Map();
+        const layout = findRecord(raw, (record) => Array.isArray(record.panes));
+        const panes = layout?.panes;
+        if (!Array.isArray(panes))
+            return widths;
+        for (const pane of panes) {
+            if (!pane || typeof pane !== "object")
+                continue;
+            const record = pane;
+            const rect = record.rect;
+            if (typeof record.pane_id === "string" && rect && typeof rect.width === "number") {
+                widths.set(record.pane_id, rect.width);
+            }
+        }
+        return widths;
     });
 }
 export function paneRun(paneId, command, spawn = defaultSpawn) {
     return runCommandEffect(["pane", "run", paneId, command], spawn, SPAWN_TIMEOUT_MS);
 }
+/**
+ * pane 当前屏文本（agent 状态判定用）。herdr pane read 只输出纯文本，无 JSON 外壳；
+ * 读取失败返回 undefined（调用方按「采样失败」保守处理）。
+ */
+export function paneRead(paneId, spawn = defaultSpawn, options = {}) {
+    const args = ["pane", "read", paneId, "--source", options.source ?? "visible", "--lines", String(options.lines ?? 40)];
+    return runTextEffect(args, spawn, SPAWN_TIMEOUT_MS);
+}
 export function agentSendKeys(paneId, keys, spawn = defaultSpawn) {
     return runCommandEffect(["agent", "send-keys", paneId, ...keys], spawn);
-}
-export function agentWait(paneId, timeout = 600_000, spawn = defaultSpawn) {
-    return runCommandEffect(["agent", "wait", paneId, "--timeout", String(timeout)], spawn);
 }
 function shellArg(value) {
     return /^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
@@ -161,43 +235,112 @@ export function hapilonCliPath() {
     console.warn("[hpl-orchestra] HAPILON_CLI_PATH 未注入，降级用 argv[1]（可能不是 hapilon 入口）");
     return script;
 }
-export function buildPaneRunCommand(role, model) {
+export function buildPaneRunCommand(_role, model) {
     const command = [process.execPath, shellArg(hapilonCliPath() ?? "UNKNOWN_HAPILON_CLI")];
     if (model)
         command.push("--model", shellArg(model));
     return command.join(" ");
 }
 /** pane split 的 --env 参数（herdr 原生注入，跨 shell/win32 安全） */
-export function paneSplitEnvArgs(role) {
+export function paneSplitEnvArgs(role, options = {}) {
     const envs = [`HAPI_ORCH_ROLE=${role}`];
     const home = process.env.HAPILON_HOME;
     if (home)
         envs.push(`HAPILON_HOME=${home}`);
+    if (options.transient)
+        envs.push("HAPI_ORCH_TRANSIENT_ROLE=1");
+    if (options.prompt)
+        envs.push(`HAPI_ORCH_ROLE_PROMPT=${options.prompt}`);
     return envs.flatMap((env) => ["--env", env]);
 }
-export function resolveTierModel(tier) {
-    const result = Effect.runSync(Effect.try({
-        try: () => {
-            const path = join(hapilonHome(), "model-tiers-resolved.json");
-            if (!existsSync(path))
-                return undefined;
-            const parsed = JSON.parse(readFileSync(path, "utf8"));
-            if (!parsed || typeof parsed !== "object")
-                return undefined;
-            const models = parsed[tier];
-            if (!Array.isArray(models) || models.length === 0)
-                return undefined;
-            const first = models[0];
-            if (!first || typeof first !== "object")
-                return undefined;
-            const provider = first.provider;
-            const id = first.id;
-            return typeof provider === "string" && typeof id === "string" ? `${provider}/${id}` : undefined;
-        },
+const TIER_ORDER = ["opus", "sonnet", "haiku"];
+function readResolvedTierModels() {
+    const path = join(hapilonHome(), "model-tiers-resolved.json");
+    if (!existsSync(path))
+        return { opus: [], sonnet: [], haiku: [] };
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return { opus: [], sonnet: [], haiku: [] };
+    }
+    const record = parsed;
+    const result = { opus: [], sonnet: [], haiku: [] };
+    for (const tier of TIER_ORDER) {
+        const models = record[tier];
+        if (!Array.isArray(models))
+            continue;
+        result[tier] = models.flatMap((model) => {
+            if (!model || typeof model !== "object")
+                return [];
+            const candidate = model;
+            return typeof candidate.provider === "string" && typeof candidate.id === "string"
+                ? [{ provider: candidate.provider, id: candidate.id }]
+                : [];
+        });
+    }
+    return result;
+}
+function readResolvedTierModelsSafely() {
+    return Effect.runSync(Effect.try({
+        try: readResolvedTierModels,
         catch: (error) => error,
     }).pipe(Effect.catchAll((error) => Effect.sync(() => {
         console.warn(`[hpl-orchestra] 读取 resolved model 失败：${error instanceof Error ? error.message : String(error)}`);
-        return undefined;
+        return { opus: [], sonnet: [], haiku: [] };
     }))));
-    return result;
+}
+export function resolveTierModelByTier(tier) {
+    const first = readResolvedTierModelsSafely()[tier][0];
+    return first ? modelKey(first) : undefined;
+}
+function modelKey(model) {
+    return `${model.provider}/${model.id}`;
+}
+/** 首个非空档位的首选模型（opus → sonnet → haiku），全空时 undefined。 */
+function fallbackModel(tiers) {
+    for (const tier of TIER_ORDER) {
+        const first = tiers[tier][0];
+        if (first)
+            return modelKey(first);
+    }
+    return undefined;
+}
+function warnAndFallback(tiers, reason) {
+    const fallback = fallbackModel(tiers);
+    console.warn(`[hpl-orchestra] ${reason}，回落 ${fallback ?? "pi 默认模型"}`);
+    return fallback;
+}
+const TIER_REFERENCE = /^tier:(opus|sonnet|haiku)(?:\[(\d+)\])?$/;
+/**
+ * roles.<role>.model 在 spawn 时现解析：tier:<name>[<index>] 查当前档位表；
+ * 具体 provider/id 命中任一档位即原样使用；过期 id、拼写错误、非法/越界指代
+ * 回落到首个非空档位的首选。使创建时写死的模型名自动跟上档位配置变更。
+ */
+export function resolveRoleModel(spec, tiers = readResolvedTierModelsSafely()) {
+    const wanted = spec?.trim();
+    if (!wanted)
+        return undefined;
+    const reference = TIER_REFERENCE.exec(wanted);
+    if (reference) {
+        const tier = reference[1];
+        const index = reference[2] === undefined ? 0 : Number(reference[2]);
+        const model = tiers[tier][index];
+        if (model)
+            return modelKey(model);
+        return warnAndFallback(tiers, `模型指代 ${wanted} 解析失败（${tier} 档共 ${tiers[tier].length} 个模型）`);
+    }
+    if (wanted.startsWith("tier:")) {
+        return warnAndFallback(tiers, `模型指代 ${wanted} 格式非法（应为 tier:<opus|sonnet|haiku>[<index>]）`);
+    }
+    if (TIER_ORDER.some((tier) => tiers[tier].some((model) => modelKey(model) === wanted)))
+        return wanted;
+    return warnAndFallback(tiers, `模型 ${wanted} 不在任何档位（可能已过期或拼写错误）`);
+}
+/** 为讨论成员优先挑选与主面板不同 provider 的 opus 模型。 */
+export function resolveDiscussantModel(ownerProvider) {
+    const models = readResolvedTierModelsSafely().opus;
+    if (models.length === 0)
+        return undefined;
+    const heterogeneous = models.filter((model) => model.provider !== ownerProvider);
+    const selected = heterogeneous[0] ?? models[1] ?? models[0];
+    return `${selected.provider}/${selected.id}`;
 }
