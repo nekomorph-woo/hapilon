@@ -2,16 +2,17 @@ import { accessSync, constants, existsSync, readFileSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 /**
- * pi 主题补丁（自补丁器，替代 patch-package）。
+ * pi / 第三方扩展补丁（自补丁器，替代 patch-package）。
  *
  * 背景：代码块底色靠 pi 的 `mdCodeBlockBg` token 实现，而该 token 只存在于
- * hapilon 的补丁里。patch-package 在非 dev 安装（全局 tarball）下没有
- * devDeps 可依赖，所以改成这份零依赖、幂等的字符串级补丁表；postinstall
- * 与 hapilon 启动链都调用它（pi 单独升级时 postinstall 不会跑，靠启动链补上）。
+ * hapilon 的补丁里；后台任务插件把 shell 写成 `/bin/sh`，Windows 上直接 spawn
+ * 失败。两处都是我们没有扩展点可用的地方。patch-package 在非 dev 安装（全局
+ * tarball）下没有 devDeps 可依赖，所以改成这份零依赖、幂等的字符串级补丁表；
+ * postinstall 与 hapilon 启动链都调用它（pi 单独升级时 postinstall 不会跑，
+ * 靠启动链补上）。
  *
- * 韧性优先于完整性：pi 升级导致锚点失配时**只警告不阻断**——主题 JSON 里的
- * `mdCodeBlockBg` 对未打补丁的 pi 是多余字段，fence 视觉消失而已。
- */
+ * 韧性优先于完整性：升级导致锚点失配时**只警告不阻断**。
+
 /** 补丁锚点目标包 */
 const PI_PACKAGE = "@earendil-works/pi-coding-agent";
 /** 第二目标包:编辑器组件在 pi-tui 里(与 pi 同 scope、同层安装) */
@@ -22,6 +23,10 @@ const PATCH_MARKER = "mdCodeBlockBg";
 const MID_TEXT_SLASH_MARKER = "__hapiMidTextSlash";
 /** 「/」键中段触发钩子的 marker(独立 marker,防同 marker 早退漏应用) */
 const MID_TEXT_SLASH_OPEN_MARKER = "__hapiMidTextSlashOpen";
+/** 后台任务插件 shell 修复的 marker */
+const HAPI_SHELL_MARKER = "hapiShell";
+/** 后台任务插件包名（hapilon 自身的依赖，不在 pi 包树里） */
+const BACKGROUND_TASKS_PACKAGE = "@nklisch/pi-background-tasks";
 /**
  * 全部改动均为字符串级替换，逐条 anchors 与实际 pi dist 产物 byte-for-byte 校验过
  * （theme.js 7 条 + theme-json.js 1 条 + theme-schema.json 1 条 + bundle chunk 8 条）。
@@ -165,19 +170,62 @@ export const PATCH_RULES = [
         occurrences: 1,
         marker: MID_TEXT_SLASH_OPEN_MARKER,
     },
+    // 后台任务插件（background/monitor）把 shell 写死成 "/bin/sh"：Windows 上无此路径，
+    // spawn 直接 ENOENT——team 模式的派发链就跑在 background 里，于是整个机制失效。
+    // 改用 pi 导出的 getShellConfig()：与 pi 的 bash 工具同一套平台解析（Windows 优先
+    // Git Bash、尊重 settings.shellPath），POSIX 保持原样。上游若自行修复，删掉这三条。
+    {
+        base: "hapilon",
+        package: BACKGROUND_TASKS_PACKAGE,
+        file: "extensions/background-tasks.ts",
+        find: 'import { spawn, type ChildProcess } from "node:child_process";',
+        replace: 'import { spawn, type ChildProcess } from "node:child_process";\n\n'
+            + '// hapilon: Windows 没有 /bin/sh；Windows 下复用 pi 的平台 shell 解析（懒解析一次）\n'
+            + 'import { getShellConfig } from "@earendil-works/pi-coding-agent";\n'
+            + "let hapiShellCache: string | undefined;\n"
+            + "function hapiShell(): string {\n"
+            + '    if (process.platform !== "win32") return "/bin/sh";\n'
+            + "    return (hapiShellCache ??= getShellConfig().shell);\n"
+            + "}",
+        occurrences: 1,
+        marker: HAPI_SHELL_MARKER,
+    },
+    {
+        base: "hapilon",
+        package: BACKGROUND_TASKS_PACKAGE,
+        file: "extensions/background-tasks.ts",
+        find: 'shell: "/bin/sh",',
+        replace: "shell: hapiShell(),",
+        occurrences: 1,
+        marker: HAPI_SHELL_MARKER,
+    },
+    {
+        base: "hapilon",
+        package: BACKGROUND_TASKS_PACKAGE,
+        file: "extensions/background-tasks.ts",
+        find: 'result = await pi.exec!("/bin/sh", ["-c", command], {',
+        replace: 'result = await pi.exec!(hapiShell(), ["-c", command], {',
+        occurrences: 1,
+        marker: HAPI_SHELL_MARKER,
+    },
 ];
 /**
  * 目标文件的唯一键与磁盘路径:pi 主包用 findPiDir,其余包按同 scope 同层解析
  * (node_modules/@earendil-works/pi-tui 与 pi-coding-agent 并排;全局/提升安装同构)。
+ * base="hapilon" 的包从 hapilon 自身依赖树解析（不在 pi 包树里）。
  */
-function resolveTargets(piDir) {
+function resolveTargets(piDir, hapilonRoot) {
     const seen = new Map();
     for (const rule of PATCH_RULES) {
         const pkg = rule.package ?? PI_PACKAGE;
-        const key = `${pkg}::${rule.file}`;
+        const base = rule.base ?? "pi";
+        const key = `${base}::${pkg}::${rule.file}`;
         if (seen.has(key))
             continue;
-        seen.set(key, { key, path: join(resolvePackageDir(piDir, pkg), rule.file), label: `${pkg}/${rule.file}`, pkg, file: rule.file });
+        const pkgDir = base === "hapilon"
+            ? (findAncestorPackageDir(pkg, hapilonRoot) ?? join(hapilonRoot, "node_modules", pkg))
+            : resolvePackageDir(piDir, pkg);
+        seen.set(key, { key, path: join(pkgDir, rule.file), label: `${pkg}/${rule.file}`, pkg, file: rule.file });
     }
     return [...seen.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
@@ -200,11 +248,11 @@ function rulesForTarget(pkg, file) {
 function errorMessage(error) {
     return error instanceof Error ? error.message : String(error);
 }
-/** 从本模块位置向上找 pi 包（兼容 npm 提升与全局安装） */
-function findPiDir() {
-    let dir = dirname(fileURLToPath(import.meta.url));
+/** 从 startDir 向上找某个包（兼容 npm 提升与全局安装） */
+function findAncestorPackageDir(pkg, startDir) {
+    let dir = startDir;
     for (;;) {
-        const candidate = join(dir, "node_modules", PI_PACKAGE);
+        const candidate = join(dir, "node_modules", pkg);
         if (existsSync(join(candidate, "package.json")))
             return candidate;
         const parent = dirname(dir);
@@ -213,18 +261,21 @@ function findPiDir() {
         dir = parent;
     }
 }
+function findPiDir() {
+    return findAncestorPackageDir(PI_PACKAGE, dirname(fileURLToPath(import.meta.url)));
+}
 function anchorLabel(find) {
     return find.trim().split("\n")[0].slice(0, 60);
 }
 /**
  * 检查并（必要时）应用补丁。同步、零依赖、已补丁时只读判标记。
- * @param piDirOverride 测试注入;缺省向上探测真实 pi 包
  */
-export function ensurePiPatch(piDirOverride) {
-    const piDir = piDirOverride ?? findPiDir();
+export function ensurePiPatch(options = {}) {
+    const piDir = options.piDir ?? findPiDir();
     if (piDir === undefined)
         return { kind: "pi-not-found" };
-    const targets = resolveTargets(piDir);
+    const hapilonRoot = options.hapilonRoot ?? dirname(fileURLToPath(import.meta.url));
+    const targets = resolveTargets(piDir, hapilonRoot);
     const contents = new Map();
     const readProblems = [];
     for (const target of targets) {
@@ -304,12 +355,13 @@ export function ensurePiPatch(piDirOverride) {
  */
 export function warnIfPiPatchStale(result) {
     if (result.kind === "stale") {
-        console.warn("⚠ pi 已升级，hapilon 补丁（代码块背景/中段 slash 触发门）未应用；请更新 src/patch/ensure-pi-patch.ts 的锚点");
+        console.warn("⚠ pi 或插件已变更，hapilon 补丁（代码块背景/中段 slash/后台任务 shell）未应用"
+            + "；请更新 src/patch/ensure-pi-patch.ts 的锚点");
         for (const problem of result.problems.slice(0, 3))
             console.warn(`   · ${problem}`);
     }
     else if (result.kind === "unwritable") {
-        console.warn("⚠ pi 安装目录不可写，hapilon 补丁未应用（代码块无底色；中段 slash 无补全提示）");
+        console.warn("⚠ pi 或插件目录不可写，hapilon 补丁未应用（代码块无底色；中段 slash 无补全；Windows 后台任务不可用）");
         for (const problem of result.problems)
             console.warn(`   · ${problem}`);
     }

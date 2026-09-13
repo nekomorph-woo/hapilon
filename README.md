@@ -58,7 +58,9 @@ npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v<新�
 
 代码块底色来自 `mdCodeBlockBg` 颜色 token，而上游 pi-tui 的 markdown 渲染没有代码块背景通道（颜色 token 只有前景）。hapilon 因此在安装时（postinstall）与每次启动时对 pi 包做**幂等字符串补丁**（`src/patch/ensure-pi-patch.ts`）：新增 `mdCodeBlockBg` 背景通道，并隐藏代码块围栏。补丁可重复执行，已打过即只读判标记。
 
-补丁锚点按 `pi-coding-agent` 0.85.1 的代码字符串写死。pi 大版本重构后锚点会失配——此时 hapilon 启动会打印 `⚠ pi 已升级，代码块背景补丁未应用` 警告并**优雅降级**：主题仍然生效，围栏与底色同色故视觉隐形，只是失去背景色块，其余功能完全不受影响。修复方式是对照新版 pi 源码更新 `src/patch/ensure-pi-patch.ts` 的锚点表，重新发版。
+补丁锚点按 `pi-coding-agent` 0.85.1 的代码字符串写死。pi 大版本重构后锚点会失配——此时 hapilon 启动会打印 `⚠ pi 或插件已变更，hapilon 补丁（代码块背景/中段 slash/后台任务 shell）未应用` 警告并**优雅降级**：主题仍然生效，围栏与底色同色故视觉隐形，只是失去背景色块，其余功能完全不受影响。修复方式是对照新版 pi 源码更新 `src/patch/ensure-pi-patch.ts` 的锚点表，重新发版。
+
+同一张表也补第三方扩展：后台任务插件（`@nklisch/pi-background-tasks`）把 shell 写死成 `/bin/sh`，而 Windows 上没有这个路径，`background`/`monitor` 直接 spawn 失败（team 模式的派发链就跑在 `background` 里）。补丁让 Windows 改走 pi 的 `getShellConfig()`（优先 Git Bash，尊重 settings 里的 `shellPath`），POSIX 仍用 `/bin/sh`。上游自行修复后可删掉这三条规则。
 
 > 开发环境提示：本仓库 `npm ci` 需要 `--legacy-peer-deps`。`@zhushanwen/pi-ask-user` 的 peer 声明 `pi@^0.84.1` 落后于根依赖，npm 会 ERESOLVE 报错——属上游待升问题，不是本地配置错误。
 

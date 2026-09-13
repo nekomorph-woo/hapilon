@@ -151,8 +151,22 @@ if [[ "$LETTERS" != "3" || "$OPEN" != "1" ]]; then
   echo "✗ 补丁钩子未落在运行时副本（letters=$LETTERS open=${OPEN}）——中段补全会失效，不上 Release"
   cleanup_smoke; exit 1
 fi
+# 后台任务插件的 Windows shell 补丁（写死的 /bin/sh 在 Windows 上 spawn 失败）
+RUNTIME_BG=""
+for candidate in \
+  "$SMOKE_DIR/node_modules/hapilon/node_modules/@nklisch/pi-background-tasks/extensions/background-tasks.ts" \
+  "$SMOKE_DIR/node_modules/@nklisch/pi-background-tasks/extensions/background-tasks.ts"; do
+  [[ -f "$candidate" ]] && RUNTIME_BG="$candidate" && break
+done
+[[ -n "$RUNTIME_BG" ]] || { echo "✗ 未找到后台任务插件（background/monitor 不可用）"; cleanup_smoke; exit 1; }
+BG_SPAWN=$(grep -oF 'shell: hapiShell(),' "$RUNTIME_BG" | wc -l | tr -d ' ')
+BG_EXEC=$(grep -oF 'pi.exec!(hapiShell(),' "$RUNTIME_BG" | wc -l | tr -d ' ')
+if [[ "$BG_SPAWN" != "1" || "$BG_EXEC" != "1" ]]; then
+  echo "✗ 后台任务 shell 补丁未落在已安装插件（spawn=$BG_SPAWN exec=$BG_EXEC）——Windows 上派发链会失效，不上 Release"
+  cleanup_smoke; exit 1
+fi
 cleanup_smoke
-echo "  版本 $SMOKE_VERSION ✓ 补丁钩子 letters=3 open=1 ✓"
+echo "  版本 $SMOKE_VERSION ✓ 补丁钩子 letters=3 open=1 shell=1+1 ✓"
 
 echo "▶ 7/7 建 Release 并附 tarball"
 if [[ -n "$NOTES_FILE" ]]; then

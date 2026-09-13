@@ -29,12 +29,14 @@ describe("ensurePiPatch()", () => {
             writeFileSync(join(base, "node_modules", pkg, file), content);
             void dir;
         }
-        // pi 包根需要 package.json 供 findPiDir 探测
+        // pi 包根需要 package.json 供 findPiDir 探测；hapilon 依赖树里的包同理
         writeFileSync(join(piDir, "package.json"), "{}");
+        const hapilonPkgDir = join(base, "node_modules", "@nklisch/pi-background-tasks");
+        writeFileSync(join(hapilonPkgDir, "package.json"), "{}");
     });
     after(() => rmSync(base, { recursive: true, force: true }));
     it("首跑全部命中:每个锚点替换恰好 occurrences 次,无重复插入", () => {
-        const result = ensurePiPatch(piDir);
+        const result = ensurePiPatch({ piDir, hapilonRoot: base });
         assert.equal(result.kind, "patched", JSON.stringify(result, null, 2));
         for (const rule of PATCH_RULES) {
             const pkg = rule.package ?? PI;
@@ -50,7 +52,7 @@ describe("ensurePiPatch()", () => {
             const pkg = rule.package ?? PI;
             return readFileSync(join(base, "node_modules", pkg, rule.file), "utf8");
         });
-        const result = ensurePiPatch(piDir);
+        const result = ensurePiPatch({ piDir, hapilonRoot: base });
         assert.equal(result.kind, "already-patched");
         PATCH_RULES.forEach((rule, index) => {
             const pkg = rule.package ?? PI;
@@ -72,7 +74,7 @@ describe("ensurePiPatch()", () => {
         content += "\n" + newRules.map((r) => Array(r.occurrences).fill(r.find).join("\n")).join("\n");
         const path = join(base, "node_modules", PI, file);
         writeFileSync(path, content);
-        const result = ensurePiPatch(piDir);
+        const result = ensurePiPatch({ piDir, hapilonRoot: base });
         assert.ok(result.kind === "patched" || result.kind === "already-patched", JSON.stringify(result));
         // 字节级断言:旧批次区域原样不动(不得重入双插),新批次锚点恰好转为替换产物
         const oldSeed = oldRules
@@ -86,5 +88,14 @@ describe("ensurePiPatch()", () => {
         for (const r of oldRules) {
             assert.ok(text.split(r.replace).length - 1 >= r.occurrences, `旧批次替换产物不得翻倍: ${r.find.slice(0, 40)}`);
         }
+    });
+    it("Windows shell 修复落在后台任务插件（hapilon 依赖树，不在 pi 包里）", () => {
+        const text = readFileSync(join(base, "node_modules", "@nklisch/pi-background-tasks", "extensions/background-tasks.ts"), "utf8");
+        assert.ok(text.includes('import { getShellConfig } from "@earendil-works/pi-coding-agent";'), "应注入 pi 的平台 shell 解析");
+        assert.equal(text.split("shell: hapiShell(),").length - 1, 1, "background 的 spawn 应改走 hapiShell()");
+        assert.equal(text.split("pi.exec!(hapiShell(),").length - 1, 1, "monitor 的 pi.exec 应改走 hapiShell()");
+        // 两处 spawn 站点的写死 shell 不得残留（helper 内部的 POSIX 分支是另一回事）
+        assert.equal(text.includes('shell: "/bin/sh"'), false);
+        assert.equal(text.includes('pi.exec!("/bin/sh"'), false);
     });
 });
