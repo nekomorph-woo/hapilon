@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { Effect } from "effect";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import {
   agentGet,
   agentSendKeys,
@@ -37,7 +37,9 @@ import {
   listTeamStates,
   readTeamStateEffect,
   resolveSessionStatePath,
+  rolePromptPathFor,
   teamStateError,
+  teamsDir,
   writeTeamStateEffect,
   type RoleEntry,
   type RoleInstance,
@@ -58,8 +60,6 @@ export const TEAM_ACTIONS = {
   clear: "清空面板上下文",
   create: "创建自定义角色",
   manage: "管理自定义角色",
-  // 保留旧命令直达兼容；菜单 v2 不再展示此项。
-  review: "打开 Review 面板",
   dispatch: "派发给 Worker",
   view: "查看面板分工",
   resume: "接续主 agent 会话",
@@ -290,12 +290,30 @@ function applyPaneLabel(
   Effect.runSync(paneRename(paneId, label, spawn));
 }
 
+/** transient 角色 prompt 落盘：多行文本不上命令行，revive 按 pane id 找回。 */
+function writeRolePromptFile(paneId: string, prompt: string): string {
+  const path = rolePromptPathFor(paneId);
+  mkdirSync(teamsDir(), { recursive: true, mode: 0o700 });
+  writeFileSync(path, prompt);
+  return path;
+}
+
+function removeRolePromptFile(paneId: string): void {
+  rmSync(rolePromptPathFor(paneId), { force: true });
+}
+
 /**
  * 把角色启动命令重灌进仍然存在的 pane（pi 崩了、只剩 shell 的场景）。
- * pane id 不变 → 状态不用改，也不会留下一个没人认领的孤儿面板。
+ * role/prompt 都随命令行自带（创建时落的 prompt 文件按 pane id 找回），
+ * 不依赖 pane 里的残留 env。pane id 不变 → 状态不用改。
  */
-async function revivePane(instance: RoleInstance, spawn: SpawnFn): Promise<boolean> {
-  const command = buildPaneRunCommand("", resolveRoleModel(instance.model ?? undefined));
+async function revivePane(instance: RoleInstance, roleKey: string, spawn: SpawnFn): Promise<boolean> {
+  const promptFile = rolePromptPathFor(instance.paneId);
+  const command = buildPaneRunCommand(
+    roleKey,
+    resolveRoleModel(instance.model ?? undefined),
+    existsSync(promptFile) ? promptFile : undefined,
+  );
   if (!Effect.runSync(paneRun(instance.paneId, command, spawn))) return false;
   return waitPaneReady(instance.paneId, spawn);
 }
@@ -417,7 +435,7 @@ async function ensurePane(
       }
       // pane 还在但 agent 已经不在（pi 崩溃/退出）：原地重灌角色命令，而不是
       // 谎报「已在运行」或另开新面板留下孤儿（review D1）
-      if (Effect.runSync(paneGet(instance.paneId, spawn)) && await revivePane(instance, spawn)) {
+      if (Effect.runSync(paneGet(instance.paneId, spawn)) && await revivePane(instance, role.key, spawn)) {
         const nickname = instance.nickname ?? nextNickname(allNicknames(state));
         applyPaneLabel(instance.paneId, role.key, nickname, spawn);
         notify(ctx, `${role.label} 面板 ${instance.paneId} 里的 agent 已不在，已在该 pane 重灌角色命令。`, "warning");
@@ -426,19 +444,22 @@ async function ensurePane(
     }
   }
 
-  const paneId = Effect.runSync(paneSplit(ctx.cwd, spawn, paneSplitEnvArgs(role.key, options), planRoleSplit(state, spawn)));
+  const paneId = Effect.runSync(paneSplit(ctx.cwd, spawn, paneSplitEnvArgs(), planRoleSplit(state, spawn)));
   if (!paneId) return undefined;
+  const promptFile = options.prompt ? writeRolePromptFile(paneId, options.prompt) : undefined;
   // 创建路径存的可能是具体 id（tier 改了不传播）或 tier:name[i] 指代；
   // 统一在 spawn 时解析，档位表变更后下次开面板即生效。
   const resolvedModel = resolveRoleModel(model);
-  const command = buildPaneRunCommand(role.key, resolvedModel);
+  const command = buildPaneRunCommand(role.key, resolvedModel, promptFile);
   if (!Effect.runSync(paneRun(paneId, command, spawn))) {
     Effect.runSync(runPaneClose(paneId, spawn));
+    removeRolePromptFile(paneId);
     notify(ctx, `${role.label} 面板启动失败（herdr pane run 未成功）。`, "error");
     return undefined;
   }
   if (!await waitPaneReady(paneId, spawn)) {
     Effect.runSync(runPaneClose(paneId, spawn));
+    removeRolePromptFile(paneId);
     notify(ctx, `${role.label} 面板启动后未就绪，已回收面板。`, "error");
     return undefined;
   }
@@ -572,16 +593,6 @@ async function openPanel(pi: ExtensionAPI, ctx: ExtensionCommandContext, spawn: 
     return;
   }
   await openRolePanel(ctx, role!, tierChoice.model, spawn, { selectedTier: tierChoice.tier });
-}
-
-async function openReviewCompat(
-  ctx: ExtensionCommandContext,
-  spawn: SpawnFn,
-  defs: readonly TeamRoleDef[] = getAllRoleDefs(),
-): Promise<void> {
-  const role = getRoleDef("reviewer", defs)!;
-  // 这条路径不弹档位选择，传 selectedTier 会让复用提示谎报「本次选择未应用」。
-  await openRolePanel(ctx, role, modelForTier(role, role.defaultTier, ownerProvider(ctx)), spawn);
 }
 
 async function viewDivision(ctx: ExtensionCommandContext, spawn: SpawnFn): Promise<void> {
@@ -1138,7 +1149,6 @@ export async function handleTeamCommand(
   switch (action) {
     case TEAM_ACTIONS.start: await startOrchestration(ctx, spawn); break;
     case TEAM_ACTIONS.open: await openPanel(pi, ctx, spawn); break;
-    case TEAM_ACTIONS.review: await openReviewCompat(ctx, spawn, defs); break;
     case TEAM_ACTIONS.pause: await pause(ctx, spawn); break;
     case TEAM_ACTIONS.finish: await finish(ctx); break;
     case TEAM_ACTIONS.kick: await kickRoles(ctx, spawn, undefined, defs); break;

@@ -16,24 +16,35 @@ import { fileURLToPath } from "node:url";
 
 /** 补丁锚点目标包 */
 const PI_PACKAGE = "@earendil-works/pi-coding-agent";
+/** 第二目标包:编辑器组件在 pi-tui 里(与 pi 同 scope、同层安装) */
+const PI_TUI_PACKAGE = "@earendil-works/pi-tui";
 
-/** 补丁标记：任一目标文件出现它即视为已补丁 */
+/** 补丁标记:任一目标文件出现它即视为已补丁 */
 const PATCH_MARKER = "mdCodeBlockBg";
+/** 中段 slash 触发钩子的 marker(editor 触发门补丁专用) */
+const MID_TEXT_SLASH_MARKER = "__hapiMidTextSlash";
+/** 「/」键中段触发钩子的 marker(独立 marker,防同 marker 早退漏应用) */
+const MID_TEXT_SLASH_OPEN_MARKER = "__hapiMidTextSlashOpen";
 
 interface PatchRule {
-  /** 相对 pi 包根 */
+  /** 相对包根 */
   file: string;
   find: string;
   replace: string;
-  /** 期望出现次数；实际不符 = 锚点失配（视为 pi 升级） */
+  /** 期望出现次数;实际不符 = 锚点失配(视为 pi 升级) */
   occurrences: number;
+  /** 目标包;缺省 pi 主包 */
+  package?: string;
+  /** 本规则的已补丁标记;缺省 PATCH_MARKER */
+  marker?: string;
 }
 
 /**
  * 全部改动均为字符串级替换，逐条 anchors 与实际 pi dist 产物 byte-for-byte 校验过
  * （theme.js 7 条 + theme-json.js 1 条 + theme-schema.json 1 条 + bundle chunk 8 条）。
  */
-const PATCH_RULES: readonly PatchRule[] = [
+/** 补丁规则表(导出仅供测试构造 fixture;运行时只读) */
+export const PATCH_RULES: readonly PatchRule[] = [
   {
     file: "dist/modes/interactive/theme/theme.js",
     find: "        ...colors,\n",
@@ -136,9 +147,85 @@ const PATCH_RULES: readonly PatchRule[] = [
     replace: "mdCodeBlockBorder:ColorValueSchema,mdCodeBlockBg:typebox_exports.Optional(ColorValueSchema),",
     occurrences: 1,
   },
+  // ── 中段 slash 补全触发门(hpl-editor-slash):provider 在编辑器触发门之后,
+  //    门的行首判定会让中段打字永远不请求补全。给「字母键触发分支」加一个
+  //    全局钩子,由扩展注入中段片段判定;钩子缺席时行为与原版一致。
+  {
+    package: PI_TUI_PACKAGE,
+    file: "dist/components/editor.js",
+    find: "if (this.isInSlashCommandContext(textBeforeCursor)) {",
+    replace:
+      "if (this.isInSlashCommandContext(textBeforeCursor) || globalThis.__hapiMidTextSlash?.(textBeforeCursor)) {",
+    occurrences: 3,
+    marker: MID_TEXT_SLASH_MARKER,
+  },
+  {
+    file: "dist/bundle/chunks/chunk-JVUZSMYM.js",
+    find: "this.isInSlashCommandContext(textBeforeCursor)?this.tryTriggerAutocomplete()",
+    replace:
+      "this.isInSlashCommandContext(textBeforeCursor)||globalThis.__hapiMidTextSlash?.(textBeforeCursor)?this.tryTriggerAutocomplete()",
+    occurrences: 3,
+    marker: MID_TEXT_SLASH_MARKER,
+  },
+  // 同一需求的另一半:「/」键本身也要能在中段触发(行首门槛 isAtStartOfMessage 之外
+  // 加钩子;钩子判定与补全建议同一片段正则)。独立 marker,避免被已应用的同名 marker 早退吞掉
+  {
+    package: PI_TUI_PACKAGE,
+    file: "dist/components/editor.js",
+    find: 'if (char === "/" && this.isAtStartOfMessage()) {',
+    replace:
+      'if (char === "/" && (this.isAtStartOfMessage() || globalThis.__hapiMidTextSlashOpen?.(before + char))) {',
+    occurrences: 1,
+    marker: MID_TEXT_SLASH_OPEN_MARKER,
+  },
+  {
+    file: "dist/bundle/chunks/chunk-JVUZSMYM.js",
+    find: 'else if(char==="/"&&this.isAtStartOfMessage())this.tryTriggerAutocomplete()',
+    replace:
+      'else if(char==="/"&&(this.isAtStartOfMessage()||globalThis.__hapiMidTextSlashOpen?.(this.state.lines[this.state.cursorLine].slice(0,this.state.cursorCol)+char)))this.tryTriggerAutocomplete()',
+    occurrences: 1,
+    marker: MID_TEXT_SLASH_OPEN_MARKER,
+  },
 ];
 
-const PATCHED_FILES: readonly string[] = [...new Set(PATCH_RULES.map((rule) => rule.file))].sort();
+interface PatchTarget {
+  key: string;
+  path: string;
+  label: string;
+  pkg: string;
+  file: string;
+}
+
+/**
+ * 目标文件的唯一键与磁盘路径:pi 主包用 findPiDir,其余包按同 scope 同层解析
+ * (node_modules/@earendil-works/pi-tui 与 pi-coding-agent 并排;全局/提升安装同构)。
+ */
+function resolveTargets(piDir: string): PatchTarget[] {
+  const seen = new Map<string, PatchTarget>();
+  for (const rule of PATCH_RULES) {
+    const pkg = rule.package ?? PI_PACKAGE;
+    const key = `${pkg}::${rule.file}`;
+    if (seen.has(key)) continue;
+    seen.set(key, { key, path: join(resolvePackageDir(piDir, pkg), rule.file), label: `${pkg}/${rule.file}`, pkg, file: rule.file });
+  }
+  return [...seen.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/**
+ * 非 pi 主包的解析:遵循 npm 嵌套规则 —— pi 包内嵌套副本优先(pi 依赖冲突时
+ * npm 会把 pi-tui 装进 pi-coding-agent/node_modules,运行时用的正是那份),
+ * 否则回退同 scope 提升层。
+ */
+function resolvePackageDir(piDir: string, pkg: string): string {
+  if (pkg === PI_PACKAGE) return piDir;
+  const nested = join(piDir, "node_modules", pkg);
+  if (existsSync(join(nested, "package.json"))) return nested;
+  return join(dirname(dirname(piDir)), pkg);
+}
+
+function rulesForTarget(pkg: string, file: string): PatchRule[] {
+  return PATCH_RULES.filter((rule) => (rule.package ?? PI_PACKAGE) === pkg && rule.file === file);
+}
 
 export type PiPatchResult =
   /** 本包没带 pi（或 node_modules 还没装）——不关 hapilon 的事，静默跳过 */
@@ -173,70 +260,79 @@ function anchorLabel(find: string): string {
 }
 
 /**
- * 检查并（必要时）应用补丁。同步、零依赖、约 3ms（4 个文件共 4MB，已补丁时只读判标记）。
+ * 检查并（必要时）应用补丁。同步、零依赖、已补丁时只读判标记。
+ * @param piDirOverride 测试注入;缺省向上探测真实 pi 包
  */
-export function ensurePiPatch(): PiPatchResult {
-  const piDir = findPiDir();
+export function ensurePiPatch(piDirOverride?: string): PiPatchResult {
+  const piDir = piDirOverride ?? findPiDir();
   if (piDir === undefined) return { kind: "pi-not-found" };
 
+  const targets = resolveTargets(piDir);
   const contents = new Map<string, string>();
   const readProblems: string[] = [];
-  for (const file of PATCHED_FILES) {
-    const path = join(piDir, file);
-    if (!existsSync(path)) {
-      readProblems.push(`文件不存在：${file}`);
+  for (const target of targets) {
+    if (!existsSync(target.path)) {
+      readProblems.push(`文件不存在：${target.label}`);
       continue;
     }
     try {
-      contents.set(file, readFileSync(path, "utf8"));
+      contents.set(target.key, readFileSync(target.path, "utf8"));
     } catch (error) {
-      readProblems.push(`读取失败：${file}（${errorMessage(error)}）`);
+      readProblems.push(`读取失败：${target.label}（${errorMessage(error)}）`);
     }
   }
   if (readProblems.length > 0) return { kind: "stale", piDir, problems: readProblems };
 
-  if (PATCHED_FILES.every((file) => contents.get(file)!.includes(PATCH_MARKER))) {
+  const alreadyPatched = targets.every((target) =>
+    rulesForTarget(target.pkg, target.file)
+      .every((rule) => contents.get(target.key)!.includes(rule.marker ?? PATCH_MARKER)));
+  if (alreadyPatched) {
     return { kind: "already-patched", piDir };
   }
 
   const next = new Map<string, string>();
   const problems: string[] = [];
-  for (const file of PATCHED_FILES) {
-    let text = contents.get(file)!;
+  for (const target of targets) {
+    let text = contents.get(target.key)!;
     let fileOk = true;
-    for (const rule of PATCH_RULES) {
-      if (rule.file !== file) continue;
+    for (const rule of rulesForTarget(target.pkg, target.file)) {
+      // 替换产物已在 → 规则已应用,幂等跳过。必须在锚点计数之前判:
+      // 插入式规则(替换文本包含锚点)在已补丁文件上锚点依然存活,
+      // 重入会重复插入(曾把 theme.js 打出重复函数声明,ESM 直接 SyntaxError)
+      if (text.includes(rule.replace)) continue;
       const found = text.split(rule.find).length - 1;
       if (found !== rule.occurrences) {
-        problems.push(`${file}: 锚点出现 ${found} 次（期望 ${rule.occurrences}）「${anchorLabel(rule.find)}」`);
+        problems.push(`${target.label}: 锚点出现 ${found} 次（期望 ${rule.occurrences}）「${anchorLabel(rule.find)}」`);
         fileOk = false;
         continue;
       }
       text = text.replaceAll(rule.find, rule.replace);
     }
-    if (fileOk) next.set(file, text);
+    if (fileOk) next.set(target.key, text);
   }
   // 任一锚点失配 → 整个补丁都不落盘：半补丁（一部分文件带 token 一部分不带）比不补更难查
   if (problems.length > 0) return { kind: "stale", piDir, problems };
 
   // 落盘前先把可写性问完：否则写到一半被 EACCES 打断会留下半补丁
   const unwritable: string[] = [];
-  for (const file of PATCHED_FILES) {
+  for (const target of targets) {
     try {
-      accessSync(join(piDir, file), constants.W_OK);
+      accessSync(target.path, constants.W_OK);
     } catch (error) {
-      unwritable.push(`${file}: ${errorMessage(error)}`);
+      unwritable.push(`${target.label}: ${errorMessage(error)}`);
     }
   }
   if (unwritable.length > 0) return { kind: "unwritable", piDir, problems: unwritable };
 
   const files: string[] = [];
-  for (const [file, text] of next) {
+  for (const target of targets) {
+    const text = next.get(target.key);
+    if (text === undefined) continue;
     try {
-      writeFileSync(join(piDir, file), text, "utf8");
-      files.push(file);
+      writeFileSync(target.path, text, "utf8");
+      files.push(target.label);
     } catch (error) {
-      return { kind: "unwritable", piDir, problems: [`${file}: ${errorMessage(error)}`] };
+      return { kind: "unwritable", piDir, problems: [`${target.label}: ${errorMessage(error)}`] };
     }
   }
   return { kind: "patched", piDir, files };
@@ -248,10 +344,10 @@ export function ensurePiPatch(): PiPatchResult {
  */
 export function warnIfPiPatchStale(result: PiPatchResult): void {
   if (result.kind === "stale") {
-    console.warn("⚠ pi 已升级，代码块背景补丁未应用；请更新 src/patch/ensure-pi-patch.ts 的锚点");
+    console.warn("⚠ pi 已升级，hapilon 补丁（代码块背景/中段 slash 触发门）未应用；请更新 src/patch/ensure-pi-patch.ts 的锚点");
     for (const problem of result.problems.slice(0, 3)) console.warn(`   · ${problem}`);
   } else if (result.kind === "unwritable") {
-    console.warn("⚠ pi 安装目录不可写，代码块背景补丁未应用（代码块将无底色）");
+    console.warn("⚠ pi 安装目录不可写，hapilon 补丁未应用（代码块无底色；中段 slash 无补全提示）");
     for (const problem of result.problems) console.warn(`   · ${problem}`);
   }
 }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readHapilonConfig, writeHapilonConfig, hasFlag, stripHapilonFlags, migrateLegacyDefaultsEffect, } from "../../config/config-io.js";
+import { readHapilonConfig, writeHapilonConfig, hasFlag, stripHapilonFlags, takeTeamRoleFlags, migrateLegacyDefaultsEffect, } from "../../config/config-io.js";
 import { Effect } from "effect";
 describe("config-io", () => {
     let tmpBase;
@@ -241,6 +241,39 @@ describe("config-io", () => {
                 theme: "light",
             });
             assert.deepStrictEqual(JSON.parse(readFileSync(join(tmpBase, "config.json"), "utf8")), {});
+        });
+    });
+    describe("takeTeamRoleFlags()", () => {
+        it("空格取值形式提取并消费参数", () => {
+            const r = takeTeamRoleFlags(["--team-role", "reviewer", "-p", "hi"]);
+            assert.equal(r.role, "reviewer");
+            assert.equal(r.promptFile, undefined);
+            assert.equal(r.dangling, undefined);
+            assert.deepStrictEqual(r.rest, ["-p", "hi"]);
+        });
+        it("等号取值形式", () => {
+            const r = takeTeamRoleFlags(["--team-role=worker"]);
+            assert.equal(r.role, "worker");
+            assert.deepStrictEqual(r.rest, []);
+        });
+        it("两种 flag 同时出现", () => {
+            const r = takeTeamRoleFlags([
+                "--team-role-prompt-file", "/tmp/x.prompt",
+                "--team-role", "ux-tester",
+            ]);
+            assert.equal(r.role, "ux-tester");
+            assert.equal(r.promptFile, "/tmp/x.prompt");
+            assert.deepStrictEqual(r.rest, []);
+        });
+        it("无 flag 时原样保留", () => {
+            const r = takeTeamRoleFlags(["--model", "m", "--team-rolex"]);
+            assert.equal(r.role, undefined);
+            assert.deepStrictEqual(r.rest, ["--model", "m", "--team-rolex"]);
+        });
+        it("悬空 flag 报 dangling", () => {
+            const r = takeTeamRoleFlags(["--team-role"]);
+            assert.equal(r.role, undefined);
+            assert.equal(r.dangling, "--team-role");
         });
     });
 });

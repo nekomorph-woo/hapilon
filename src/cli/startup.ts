@@ -1,10 +1,10 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { Data, Effect } from "effect";
 import { getVersion } from "./help.js";
-import { hasFlag, migrateLegacyDefaultsEffect, readHapilonConfigEffect, writeHapilonConfigEffect, stripHapilonFlags } from "../config/config-io.js";
+import { hasFlag, migrateLegacyDefaultsEffect, readHapilonConfigEffect, writeHapilonConfigEffect, stripHapilonFlags, takeTeamRoleFlags } from "../config/config-io.js";
 import { hapilonHomeEffect } from "../config/hapilon-home.js";
 import { ensureQuietStartupEffect } from "../providers/providers.js";
 import { resolvePiCliEffect } from "../providers/pi-cli-path.js";
@@ -62,7 +62,21 @@ export const prepareStartupEffect = (args: string[]): Effect.Effect<PiLaunchPlan
 
   yield* migrateLegacyDefaultsEffect;
   const config = yield* readHapilonConfigEffect;
-  const piArgs = stripHapilonFlags(args);
+  const { role: teamRole, promptFile: teamRolePromptFile, dangling, rest: withoutTeamFlags } = takeTeamRoleFlags(args);
+  if (dangling) {
+    return yield* Effect.fail(new StartupError({ message: `${dangling} 缺少取值` }));
+  }
+  if (teamRolePromptFile && !teamRole) {
+    return yield* Effect.fail(new StartupError({ message: "--team-role-prompt-file 需要与 --team-role 一起使用" }));
+  }
+  // prompt 文件缺失时宁可启动失败：静默降级会把角色面板变成无提示的普通面板
+  const teamRolePrompt = teamRolePromptFile
+    ? yield* Effect.try({
+      try: () => readFileSync(teamRolePromptFile, "utf8"),
+      catch: () => new StartupError({ message: `team role prompt 文件不可读：${teamRolePromptFile}` }),
+    })
+    : undefined;
+  const piArgs = stripHapilonFlags(withoutTeamFlags);
   piArgs.push("--no-context-files", "--no-skills");
 
   if (!config.safetyNoticeShown && !isNonInteractive) {
@@ -117,6 +131,11 @@ export const prepareStartupEffect = (args: string[]): Effect.Effect<PiLaunchPlan
     HAPILON_EXTENSIONS: JSON.stringify(extensionNames(displayedExtensions)),
     HAPILON_VERSION: getVersion(),
     HAPILON_CLI_PATH: hapilonCliPath,
+    // role 只注入 pi 子进程自身的 env（随进程生灭），不在 pane shell 留残留
+    ...(teamRole ? { HAPI_ORCH_ROLE: teamRole } : {}),
+    ...(teamRolePrompt !== undefined
+      ? { HAPI_ORCH_ROLE_PROMPT: teamRolePrompt, HAPI_ORCH_TRANSIENT_ROLE: "1" }
+      : {}),
     // 隐藏 ponytail footer 指示器；ponytail ruleset 仍保持激活。
     PONYTAIL_HIDE_STATUS: "1",
   };
