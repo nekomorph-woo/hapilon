@@ -140,7 +140,7 @@ gh release create v<X.Y.Z> /tmp/hapilon-<版本>.tgz --generate-notes --title "v
 | `hapilon mcp list` / `remove <name>` | 列出 / 移除 MCP server |
 | `hapilon config show` | 查看配置 |
 
-TUI 内常用 slash command：`/econ`（bash 输出压缩开关）、`/simplify`（事后代码清理：check → 人工裁决 → apply）、`/ponytail lite|full|ultra|off`（极简编码强度）、`/context`（上下文面板）。
+TUI 内常用 slash command：`/econ`（bash 输出压缩开关）、`/simplify`（事后代码清理：check → 人工裁决 → apply）、`/ponytail lite|full|ultra|off`（极简编码强度）、`/context`（上下文面板）、`/hapi-metrics ponytail`（会话级统计：token/成本/文本-代码比/编辑规模，按 ponytail 档位·模型·天·项目分组；不带子命令只打印用法）。
 
 ## 开发
 
