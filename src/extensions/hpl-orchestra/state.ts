@@ -136,6 +136,11 @@ export function teamsDir(): string {
   return join(hapilonHome(), "teams");
 }
 
+/** transient 角色 prompt 落盘路径（pane id 派生，revive 无需另行存储）。 */
+export function rolePromptPathFor(paneId: string): string {
+  return join(teamsDir(), `${paneId.replaceAll(":", "_")}.prompt`);
+}
+
 /** 任务档案根目录；每任务一子目录，见 planTaskDirFor */
 const planTaskRoot = (): string => join(hapilonHome(), "plan-task");
 

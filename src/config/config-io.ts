@@ -193,3 +193,48 @@ export function stripHapilonFlags(args: string[]): string[] {
     ),
   );
 }
+
+/** team role 启动 flag：取空格/等号两种取值形式，其余参数原样保留 */
+export interface TeamRoleFlags {
+  role?: string;
+  promptFile?: string;
+  /** 有 flag 但没取到值（悬空在 argv 末尾）*/
+  dangling?: string;
+  rest: string[];
+}
+
+/**
+ * 提取 --team-role / --team-role-prompt-file 并从参数中剥离。
+ * role 身份只随命令行走：pane split --env 注入的变量会永久留在 pane shell
+ * 里，之后人工在该 shell 重启会被静默变回角色面板。
+ */
+export function takeTeamRoleFlags(args: string[]): TeamRoleFlags {
+  const rest: string[] = [];
+  let role: string | undefined;
+  let promptFile: string | undefined;
+  let dangling: string | undefined;
+  const flags = ["--team-role", "--team-role-prompt-file"] as const;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const flag = flags.find((f) => arg === f || arg.startsWith(f + "="));
+    if (!flag) {
+      rest.push(arg);
+      continue;
+    }
+    const target = flag === "--team-role" ? "role" : "promptFile";
+    let value: string | undefined;
+    if (arg === flag) {
+      value = args[i + 1];
+      if (value === undefined) {
+        dangling = flag;
+        continue;
+      }
+      i++;
+    } else {
+      value = arg.slice(flag.length + 1);
+    }
+    if (target === "role") role = value;
+    else promptFile = value;
+  }
+  return { role, promptFile, dangling, rest };
+}

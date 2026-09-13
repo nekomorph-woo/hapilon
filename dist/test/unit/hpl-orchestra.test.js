@@ -371,7 +371,7 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
     });
 });
 describe("hpl-orchestra pane actions", { concurrency: false }, () => {
-    it("开始编排 split/run 参数正确：--current/--env 注入/--model", async () => {
+    it("开始编排 split/run 参数正确：--current/身份走命令行/--model", async () => {
         delete process.env.HAPI_ORCH_ROLE;
         writeFileSync(join(home, "model-tiers-resolved.json"), JSON.stringify({
             sonnet: [{ provider: "anthropic", id: "claude-sonnet" }],
@@ -386,10 +386,10 @@ describe("hpl-orchestra pane actions", { concurrency: false }, () => {
         assert.ok(run, "expected a pane run call");
         assert.ok(split?.args.includes("--current"));
         assert.ok(split.args.includes("--direction"));
-        assert.deepEqual(split.args.filter((arg, i) => arg === "--env" && split.args[i + 1]?.startsWith("HAPI_ORCH_ROLE=")).length === 1
-            && split.args.includes("HAPI_ORCH_ROLE=worker"), true);
+        // 身份不再经 split --env 注入（会永久留在 pane shell）；只允许配置类 HAPILON_HOME
+        assert.ok(split.args.every((arg, i) => !(arg === "--env" && split.args[i + 1]?.startsWith("HAPI_ORCH"))), "split args must not carry HAPI_ORCH_* env");
         assert.equal(run.args[2], "w1:p8");
-        assert.match(run.args[3], /cli\.js --model anthropic\/claude-sonnet$/);
+        assert.match(run.args[3], /cli\.js --team-role worker --model anthropic\/claude-sonnet$/);
         assert.ok(run.args[3].startsWith(process.execPath), "run command must use process.execPath, not bare node");
         const started = readTeamState(statePath());
         assert.equal(started.enabled, true);
@@ -445,8 +445,8 @@ describe("hpl-orchestra pane actions", { concurrency: false }, () => {
         }));
         saveState();
         const { spawn, calls } = makeSpawn({ paneId: "w1:p9", agentStatuses: ["idle"] });
-        const ctx = makeContext(["打开 Review 面板"]);
-        await handleTeamCommand(makePi().pi, "", ctx.ctx, spawn);
+        const ctx = makeContext();
+        await handleTeamCommand(makePi().pi, "打开角色 reviewer", ctx.ctx, spawn);
         const run = calls.find((call) => call.args[0] === "pane" && call.args[1] === "run");
         assert.ok(run);
         assert.ok(run.args[3].includes("--model anthropic/claude-opus"));
@@ -761,7 +761,7 @@ describe("hpl-orchestra team 恢复与解散", { concurrency: false }, () => {
         assert.equal(teamStateError(), undefined);
     });
 });
-describe("hpl-orchestra /team:open-reviewer 命令", { concurrency: false }, () => {
+describe("hpl-orchestra /team:open reviewer 自愈直达", { concurrency: false }, () => {
     // 命令走 defaultSpawn，无法注入 spawn：用假 herdr 顶替二进制，端到端覆盖
     // 「注册 → 新建/复用」两条分支（含 waitPaneReady 与状态登记）。
     function fakeHerdr() {
@@ -792,10 +792,10 @@ else out({ result: {} });
             saveState();
             const mock = makePi();
             hplOrchestra(mock.pi);
-            const command = mock.commands.get("team:open-reviewer");
-            assert.ok(command, "必须注册 team:open-reviewer 命令");
+            const command = mock.commands.get("team:open");
+            assert.ok(command, "必须注册 team:open 命令");
             const created = makeContext();
-            await command.handler("", created.ctx);
+            await command.handler("reviewer", created.ctx);
             assert.ok(created.notices.some(({ message }) => message.includes("Review 面板已打开：w1:p9")), JSON.stringify(created.notices));
             const log = readFileSync(logPath, "utf8");
             const runLine = log.split("\n").find((line) => line.startsWith("pane run ")) ?? "";
@@ -806,7 +806,7 @@ else out({ result: {} });
             ]);
             writeFileSync(logPath, "");
             const reused = makeContext();
-            await command.handler("", reused.ctx);
+            await command.handler("reviewer", reused.ctx);
             assert.ok(reused.notices.some(({ message }) => message.includes("已在 w1:p9 运行")), JSON.stringify(reused.notices));
             assert.equal(readFileSync(logPath, "utf8").includes("pane split"), false, "已开面板必须复用而非新建");
             const reusedState = readTeamState(statePath());
@@ -823,18 +823,18 @@ else out({ result: {} });
     it("角色面板内拒绝写操作，无 HERDR_ENV 时报错且不动作", async () => {
         const mock = makePi();
         hplOrchestra(mock.pi);
-        const command = mock.commands.get("team:open-reviewer");
+        const command = mock.commands.get("team:open");
         process.env.HAPI_ORCH_ROLE = "worker";
         const roleCtx = makeContext();
-        await command.handler("", roleCtx.ctx);
+        await command.handler("reviewer", roleCtx.ctx);
         assert.ok(roleCtx.notices.some(({ message, type }) => type === "error" && message.includes("拒绝写操作")));
         delete process.env.HAPI_ORCH_ROLE;
         delete process.env.HERDR_ENV;
         const noEnv = makeContext();
-        await command.handler("", noEnv.ctx);
+        await command.handler("reviewer", noEnv.ctx);
         assert.equal(noEnv.selectedOptions.length, 0);
         assert.equal(noEnv.notices[0]?.type, "error");
-        assert.ok(noEnv.notices[0]?.message.includes("/team:open-reviewer"));
+        assert.ok(noEnv.notices[0]?.message.includes("/team:open"));
         process.env.HERDR_ENV = "1";
     });
 });

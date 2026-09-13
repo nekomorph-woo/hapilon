@@ -235,23 +235,23 @@ export function hapilonCliPath() {
     console.warn("[hpl-orchestra] HAPILON_CLI_PATH 未注入，降级用 argv[1]（可能不是 hapilon 入口）");
     return script;
 }
-export function buildPaneRunCommand(_role, model) {
+export function buildPaneRunCommand(role, model, promptFile) {
     const command = [process.execPath, shellArg(hapilonCliPath() ?? "UNKNOWN_HAPILON_CLI")];
+    // role 随命令行走（hapilon 入口把 --team-role 转成 pi 子进程自身 env），
+    // 不用 pane split --env：那会把 role 永久留进 pane shell，人工在该
+    // shell 重启会被静默变回角色面板。
+    if (role)
+        command.push("--team-role", shellArg(role));
+    if (promptFile)
+        command.push("--team-role-prompt-file", shellArg(promptFile));
     if (model)
         command.push("--model", shellArg(model));
     return command.join(" ");
 }
-/** pane split 的 --env 参数（herdr 原生注入，跨 shell/win32 安全） */
-export function paneSplitEnvArgs(role, options = {}) {
-    const envs = [`HAPI_ORCH_ROLE=${role}`];
+/** pane split 仅注入配置（HAPILON_HOME）；身份类变量一律走 paneRun 命令行。 */
+export function paneSplitEnvArgs() {
     const home = process.env.HAPILON_HOME;
-    if (home)
-        envs.push(`HAPILON_HOME=${home}`);
-    if (options.transient)
-        envs.push("HAPI_ORCH_TRANSIENT_ROLE=1");
-    if (options.prompt)
-        envs.push(`HAPI_ORCH_ROLE_PROMPT=${options.prompt}`);
-    return envs.flatMap((env) => ["--env", env]);
+    return home ? ["--env", `HAPILON_HOME=${home}`] : [];
 }
 const TIER_ORDER = ["opus", "sonnet", "haiku"];
 function readResolvedTierModels() {

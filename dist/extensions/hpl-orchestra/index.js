@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { assistantMessageText, completePendingRole, getPendingRoleWizard, handlePendingUserMessage, handleTeamCommand, TEAM_ACTIONS, updateTeamStatus, } from "./menu.js";
+import { assistantMessageText, completePendingRole, getPendingRoleWizard, handlePendingUserMessage, handleTeamCommand, updateTeamStatus, } from "./menu.js";
 import { herdrEnvAvailable } from "./herdr.js";
 import { buildTeamSectionsEffect } from "./state.js";
 import { setTeamSections } from "./bridge.js";
@@ -44,17 +44,6 @@ export default function hplOrchestra(pi) {
                 return;
             }
             await handleTeamCommand(pi, `踢出角色 ${target}`, ctx);
-        },
-    });
-    pi.registerCommand("team:open-reviewer", {
-        description: "Open the reviewer pane (reuse it if already open)",
-        handler: async (_args, ctx) => {
-            if (!herdrEnvAvailable()) {
-                ctx.ui.notify("/team:open-reviewer 仅能在 herdr 面板环境中使用。", "error");
-                return;
-            }
-            // 复用菜单同一路径：role 解析/ensurePane 复用判定/状态注册只有一份实现。
-            await handleTeamCommand(pi, TEAM_ACTIONS.review, ctx);
         },
     });
     pi.on("before_agent_start", async (_event, ctx) => {
