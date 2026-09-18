@@ -72,6 +72,7 @@ export function collectContextSnapshot(input: CollectorInput): ContextSnapshot {
     "commitDiscipline",
     "dispatchDiscipline",
     "roleCommitBoundary",
+    "workflow",
     "customToolsNote",
     "additionalData",
     "environment",

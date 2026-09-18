@@ -33,6 +33,7 @@ export function collectContextSnapshot(input) {
         "commitDiscipline",
         "dispatchDiscipline",
         "roleCommitBoundary",
+        "workflow",
         "customToolsNote",
         "additionalData",
         "environment",

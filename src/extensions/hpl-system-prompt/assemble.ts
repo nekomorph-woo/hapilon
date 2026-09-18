@@ -30,6 +30,7 @@ import {
   COMMIT_DISCIPLINE_TEXT,
   DISPATCH_DISCIPLINE_TEXT,
   ROLE_COMMIT_BOUNDARY_TEXT,
+  WORKFLOW_TEXT,
 } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
@@ -153,6 +154,11 @@ export function buildDispatchDisciplineSection(): string {
 export function buildRoleCommitBoundarySection(): string {
   // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
   return `<role_commit_boundary>\n${ROLE_COMMIT_BOUNDARY_TEXT}\n</role_commit_boundary>`;
+}
+
+export function buildWorkflowSection(): string {
+  // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
+  return `<workflow>\n${WORKFLOW_TEXT}\n</workflow>`;
 }
 
 export function buildPiDocSection(): string {
@@ -308,6 +314,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   const commitDisciplineSection = buildCommitDisciplineSection();
   const dispatchDisciplineSection = buildDispatchDisciplineSection();
   const roleCommitBoundarySection = buildRoleCommitBoundarySection();
+  const workflowSection = buildWorkflowSection();
   const piDocSection = buildPiDocSection();
   const hapilonInstructions = buildHapilonInstructions(hapilonMd);
   const hapilonRulesSection = buildHapilonRules(hapilonRules);
@@ -331,6 +338,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
       commitDiscipline: commitDisciplineSection.length,
       dispatchDiscipline: dispatchDisciplineSection.length,
       roleCommitBoundary: roleCommitBoundarySection.length,
+      workflow: workflowSection.length,
       hapilonInstructions: hapilonInstructions.length,
       hapilonRules: hapilonRulesSection.length,
       contextFiles: contextFilesSection.length,
@@ -353,6 +361,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     commitDisciplineSection,
     dispatchDisciplineSection,
     roleCommitBoundarySection,
+    workflowSection,
     piDocSection,
     hapilonInstructions,
     hapilonRulesSection,

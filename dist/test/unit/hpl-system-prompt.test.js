@@ -12,8 +12,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { xmlEscape } from "../../shared/format.js";
 import { wrapSystemPrompt } from "../../extensions/hpl-system-prompt/xml.js";
-import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, BUILTIN_GUIDELINES, COMMIT_DISCIPLINE_TEXT, DISPATCH_DISCIPLINE_TEXT, ROLE_COMMIT_BOUNDARY_TEXT, } from "../../extensions/hpl-system-prompt/sections.js";
-import { buildRoleSection, buildCodeStyleSection, buildCommitDisciplineSection, buildDispatchDisciplineSection, buildRoleCommitBoundarySection, buildToolsSection, buildCustomToolsNote, buildGuidelinesSection, buildPiDocSection, buildHapilonInstructions, buildHapilonRules, buildContextSection, buildSkillsSection, buildAppendSection, buildExternalDirsSection, buildEnvironmentSection, assembleSystemPrompt, collectHapilonContext, } from "../../extensions/hpl-system-prompt/assemble.js";
+import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, BUILTIN_GUIDELINES, COMMIT_DISCIPLINE_TEXT, DISPATCH_DISCIPLINE_TEXT, ROLE_COMMIT_BOUNDARY_TEXT, WORKFLOW_TEXT, } from "../../extensions/hpl-system-prompt/sections.js";
+import { buildRoleSection, buildCodeStyleSection, buildCommitDisciplineSection, buildDispatchDisciplineSection, buildRoleCommitBoundarySection, buildWorkflowSection, buildToolsSection, buildCustomToolsNote, buildGuidelinesSection, buildPiDocSection, buildHapilonInstructions, buildHapilonRules, buildContextSection, buildSkillsSection, buildAppendSection, buildExternalDirsSection, buildEnvironmentSection, assembleSystemPrompt, collectHapilonContext, } from "../../extensions/hpl-system-prompt/assemble.js";
 import hplSystemPrompt from "../../extensions/hpl-system-prompt/index.js";
 import { setAddedDirs, resetAddedDirs } from "../../extensions/hpl-add-dir/bridge.js";
 import { getLastMeta as getSpMeta, clearLastMeta as clearSpMeta } from "../../extensions/hpl-system-prompt/metadata.js";
@@ -106,6 +106,23 @@ describe("sections", () => {
     });
 });
 // ── assemble.ts: individual builders ──────────────────────────────────
+describe("buildWorkflowSection", () => {
+    it("正常路径: 包裹 <workflow> 标签且含四步工作流核心", () => {
+        const result = buildWorkflowSection();
+        assert.ok(result.startsWith("<workflow>\n"), "以 workflow 开标签开头");
+        assert.ok(result.endsWith("\n</workflow>"), "以闭标签结尾");
+        assert.ok(result.includes("Explore before editing"), "第一步: 探索先行");
+        assert.ok(result.includes("Debug from cause to symptom"), "第二步: 根因调试");
+        assert.ok(result.includes("Verify before calling it done"), "第三步: 交付验证");
+        assert.ok(result.includes("Lead with the conclusion"), "第四步: 结论先行");
+    });
+    it("正文含反例约束与验证要求（非空泛口号）", () => {
+        assert.ok(WORKFLOW_TEXT.includes("never build on an unexplained red"), "失败必查");
+        assert.ok(WORKFLOW_TEXT.includes("Never suppress the symptom"), "禁止修症不修因");
+        assert.ok(WORKFLOW_TEXT.includes("while tests are red"), "红测试不报完成");
+        assert.ok(WORKFLOW_TEXT.length > 800 && WORKFLOW_TEXT.length < 2000, "体量在预算内（~1.3KB）");
+    });
+});
 describe("buildCodeStyleSection", () => {
     it("正常路径: 包裹 <code_style> 标签且含三类注释白名单", () => {
         const result = buildCodeStyleSection();
@@ -482,7 +499,7 @@ describe("assembleSystemPrompt", () => {
             skills: [{ name: "s1", description: "skill one", filePath: "/s1/SKILL.md" }],
             appendSystemPrompt: "appended text",
         });
-        // 全部 15 个 section 标签
+        // 全部 16 个 section 标签
         const tags = [
             "<role>",
             "<available_tools>",
@@ -492,6 +509,7 @@ describe("assembleSystemPrompt", () => {
             "<commit_discipline>",
             "<dispatch_discipline>",
             "<role_commit_boundary>",
+            "<workflow>",
             "<pi_documentation>",
             "<hapilon_instructions>",
             "<hapilon_rules>",
@@ -513,6 +531,8 @@ describe("assembleSystemPrompt", () => {
             result.indexOf("<dispatch_discipline>") < result.indexOf("<role_commit_boundary>"), "dispatch_discipline 紧随 commit_discipline");
         assert.ok(result.indexOf("<role_commit_boundary>") > result.indexOf("<dispatch_discipline>") &&
             result.indexOf("<role_commit_boundary>") < result.indexOf("<pi_documentation>"), "role_commit_boundary 位于 dispatch_discipline 与 pi_documentation 之间");
+        assert.ok(result.indexOf("<workflow>") > result.indexOf("<role_commit_boundary>") &&
+            result.indexOf("<workflow>") < result.indexOf("<pi_documentation>"), "workflow 位于 role_commit_boundary 与 pi_documentation 之间");
         assert.ok(result.indexOf("<environment>") > result.indexOf("<additional_instructions>"), "environment 收尾");
     });
     it("正常路径: HAPILON.md 正文 XML 转义", () => {
