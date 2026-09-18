@@ -16,9 +16,6 @@
 import { BLOCK_PATTERNS, CONFIRM_PATTERNS, SHELL_INJECTION_PATTERNS, } from "./rules.js";
 import { commandWordAt, extractSubstitutions, extractShellPayloads, splitSimpleCommands, stripQuotedText, substitutionInDestructiveTarget, } from "./parse.js";
 const RANK = { allow: 0, confirm: 1, block: 2 };
-function maxVerdict(a, b) {
-    return RANK[a] >= RANK[b] ? a : b;
-}
 /**
  * 只读命令：自身不会执行危险操作，其参数里的危险词（`grep "shutdown"`）
  * 不是命令，跳过命令规则。破坏性删除等由 whole 规则先行覆盖
@@ -37,46 +34,61 @@ const DB_CLIENT_WORDS = /^(psql|mysql|mariadb|sqlite3?|mongo|mongosh|clickhouse-
 function ruleHit(rules, scope, text) {
     return rules.find((rule) => (rule.scope ?? "command") === scope && rule.test(text));
 }
-export function classifyCommand(command) {
+export function classifyWithLabel(command) {
     const trimmed = command.trim();
     if (!trimmed)
-        return "allow";
+        return { verdict: "allow" };
     const normalized = normalizeForInspection(trimmed);
     const { view: subView, bodies } = extractSubstitutions(normalized);
     const unquoted = stripQuotedText(subView);
     const simpleCommands = splitSimpleCommands(unquoted);
     let verdict = "allow";
+    let label;
+    const escalate = (next, ruleLabel) => {
+        if (RANK[next] > RANK[verdict]) {
+            verdict = next;
+            label = ruleLabel;
+        }
+    };
     // 1. 命令替换藏在破坏性目标位（`rm -rf $(...)`）——目标不可静态求值，直接 block
     if (bodies.length > 0 && substitutionInDestructiveTarget(subView)) {
-        verdict = "block";
+        escalate("block", "破坏性目标位命令替换");
     }
     // 2. whole 规则：目标型/跨命令型（去引号视图）
-    if (ruleHit(BLOCK_PATTERNS, "whole", unquoted))
-        return "block";
+    const wholeBlock = ruleHit(BLOCK_PATTERNS, "whole", unquoted);
+    if (wholeBlock)
+        return { verdict: "block", label: wholeBlock.label };
     // 3. 逐简单命令（只读命令跳过）
     for (const simple of simpleCommands) {
         if (READ_ONLY_COMMANDS.has(commandWordAt(simple).word))
             continue;
-        if (ruleHit(BLOCK_PATTERNS, "command", simple))
-            return "block";
+        const hit = ruleHit(BLOCK_PATTERNS, "command", simple);
+        if (hit)
+            return { verdict: "block", label: hit.label };
     }
     for (const simple of simpleCommands) {
         if (READ_ONLY_COMMANDS.has(commandWordAt(simple).word))
             continue;
-        if (ruleHit(CONFIRM_PATTERNS, "command", simple))
-            verdict = maxVerdict(verdict, "confirm");
+        const hit = ruleHit(CONFIRM_PATTERNS, "command", simple);
+        if (hit)
+            escalate("confirm", hit.label);
     }
     // 4. whole 的 confirm 规则
-    if (ruleHit(CONFIRM_PATTERNS, "whole", unquoted))
-        verdict = maxVerdict(verdict, "confirm");
+    const wholeConfirm = ruleHit(CONFIRM_PATTERNS, "whole", unquoted);
+    if (wholeConfirm)
+        escalate("confirm", wholeConfirm.label);
     // 5. SQL 客户端：关键字在引号参数里，故看原始命令
     if (sqlClientDangerous(trimmed))
-        verdict = maxVerdict(verdict, "confirm");
+        escalate("confirm", "数据库 DROP/TRUNCATE");
     // 6. 递归：命令替换体与 shell 脚本载荷（sh -c "..." / eval "..."）
     for (const body of [...bodies, ...extractShellPayloads(trimmed)]) {
-        verdict = maxVerdict(verdict, classifyCommand(body));
+        const child = classifyWithLabel(body);
+        escalate(child.verdict, child.label);
     }
-    return verdict;
+    return { verdict, label };
+}
+export function classifyCommand(command) {
+    return classifyWithLabel(command).verdict;
 }
 /** sql 客户端判定：命令词是 DB 客户端且原始命令里出现 SQL 危险关键字 */
 function sqlClientDangerous(rawCommand) {
@@ -90,7 +102,7 @@ function sqlClientDangerous(rawCommand) {
  * 反斜杠转义空白（`rm\ -rf\ /`）与 IFS 变量（`${IFS}`/`$IFS`，shell 展开为空白）
  * 在真实执行中等价于普通空白，检测时需同步归一化，否则绕过 `\s+` 匹配。
  */
-function normalizeForInspection(command) {
+export function normalizeForInspection(command) {
     return command
         .replace(/\\ /g, " ")
         .replace(/\$\{IFS\}/g, " ")

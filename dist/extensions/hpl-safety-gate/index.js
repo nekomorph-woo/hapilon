@@ -10,7 +10,14 @@
  * 拦截点: pi 的 tool_call 事件（能读到工具入参，也就能放行/改写）
  */
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
-import { classifyCommand } from "./classifier.js";
+import { appendFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { Effect } from "effect";
+import { agentDir, hapilonHome } from "../../config/hapilon-home.js";
+import { classifyWithLabel } from "./classifier.js";
+import { checkSandboxWrite } from "./sandbox-allow.js";
+import { judgeCommand, readGateAutoConfig, } from "./auto-judge.js";
 import { deriveAllowPattern } from "./derive-allow.js";
 import { hasSensitiveReadArg, sensitiveReadLabels } from "./sensitive-args.js";
 import { requestConfirm } from "../hpl-protected-paths/confirm.js";
@@ -33,10 +40,123 @@ function compactCommand(command) {
     const oneLine = command.trim().replace(/\s+/g, " ");
     return oneLine.length > 80 ? `${oneLine.slice(0, 80)}…` : oneLine;
 }
-export { classifyCommand, hasShellInjection } from "./classifier.js";
+/** 审计 append-only；写失败只 warn 不阻塞主流程 */
+export function appendGateAutoAudit(entry, filePath = join(agentDir(), "gate-auto.jsonl")) {
+    try {
+        appendFileSync(filePath, `${JSON.stringify(entry)}\n`, "utf8");
+    }
+    catch (err) {
+        console.warn(`[hpl-safety-gate] gate-auto 审计写入失败（不阻塞）: ${err instanceof Error ? err.message : String(err)}`);
+    }
+}
+function sandboxSummary(targets) {
+    if (targets.length === 0)
+        return "无写目标";
+    return targets
+        .map((t) => `${t.raw} → ${t.resolved}${t.note ? `（${t.note}）` : ""}`)
+        .join("; ");
+}
+function gateAutoErrorReason(error) {
+    return error._tag === "GateAutoTimeout"
+        ? `判定超时（${error.timeoutMs}ms）`
+        : error.message;
+}
+/** HAPILON_HOME 非法（相对路径）时退回默认，不让审计/沙箱判定炸掉主流程 */
+function safeHapilonHome() {
+    try {
+        return hapilonHome();
+    }
+    catch {
+        return join(homedir(), ".hapilon");
+    }
+}
+export { classifyCommand, classifyWithLabel, hasShellInjection } from "./classifier.js";
 export default function (pi) {
     // 加载时初始化项目信任缓存：本进程是 project trust 的消费方
     initProjectTrust(process.cwd());
+    // Auto 模式会话级开关：--gate-auto 强制开启（settings gateAuto.enabled 亦可）
+    pi.registerFlag("gate-auto", {
+        type: "boolean",
+        default: false,
+        description: "会话级开启安全门 Auto 判定（confirm 级命令由沙箱规则/档位模型自动放行）",
+    });
+    // Auto 会话状态：配置 + 同命令判定缓存（会话级，session_start 重置）
+    let gateAutoConfig;
+    let verdictCache = new Map();
+    pi.on("session_start", () => {
+        gateAutoConfig = readGateAutoConfig();
+        verdictCache = new Map();
+    });
+    /** Auto 判定 + 审计；返回 true 表示已放行/已决，调用方直接返回；false 回落现状 */
+    const runAutoGate = async (command, normalized, ruleLabel, ctx) => {
+        if (gateAutoConfig === undefined)
+            gateAutoConfig = readGateAutoConfig();
+        const enabled = gateAutoConfig.enabled || pi.getFlag("gate-auto") === true;
+        if (!enabled)
+            return false;
+        const audit = (entry) => appendGateAutoAudit({ ts: new Date().toISOString(), cwd: ctx.cwd, command: normalized, ruleLabel, ...entry });
+        // 1. 会话内缓存：沿用上次 verdict，不重复调模型
+        const cached = verdictCache.get(normalized);
+        if (cached) {
+            if (cached.verdict === "allow") {
+                audit({ layer: "cache", verdict: "allow", reason: cached.reason, model: "cache", outcome: "auto-allow" });
+                return true;
+            }
+            audit({
+                layer: "cache",
+                verdict: cached.verdict,
+                reason: cached.reason,
+                model: "cache",
+                outcome: ctx.hasUI ? "fallback-confirm" : "fallback-block",
+            });
+            return false;
+        }
+        // 2. 沙箱规则先行：破坏性命令词 + 全部写目标在沙箱集 → 免模型直接放行
+        const sandbox = checkSandboxWrite(command, { cwd: ctx.cwd, home: safeHapilonHome() });
+        if (sandbox.allowed) {
+            audit({ layer: "sandbox", verdict: "allow", reason: sandboxSummary(sandbox.targets), model: "sandbox", outcome: "auto-allow" });
+            return true;
+        }
+        // 3. 档位模型判定；超时/错误/不合法 → 按 unsure 回落现状
+        const startedAt = Date.now();
+        const result = await Effect.runPromise(Effect.either(judgeCommand({
+            modelSpec: gateAutoConfig.model,
+            timeoutMs: gateAutoConfig.timeoutMs,
+            command,
+            cwd: ctx.cwd,
+            ruleLabel,
+            sandboxSummary: sandboxSummary(sandbox.targets),
+            available: ctx.modelRegistry.getAvailable(),
+            complete: (model, request, options) => ctx.modelRegistry.complete(model, request, options),
+        })));
+        const latencyMs = Date.now() - startedAt;
+        if (result._tag === "Right") {
+            const judgement = result.right;
+            verdictCache.set(normalized, { verdict: judgement.verdict, reason: judgement.reason });
+            if (judgement.verdict === "allow") {
+                audit({ layer: "model", verdict: "allow", reason: judgement.reason, model: judgement.model ?? gateAutoConfig.model, latencyMs, outcome: "auto-allow" });
+                return true;
+            }
+            audit({
+                layer: "model",
+                verdict: judgement.verdict,
+                reason: judgement.reason,
+                model: judgement.model ?? gateAutoConfig.model,
+                latencyMs,
+                outcome: ctx.hasUI ? "fallback-confirm" : "fallback-block",
+            });
+            return false;
+        }
+        audit({
+            layer: "model",
+            verdict: "unsure",
+            reason: gateAutoErrorReason(result.left),
+            model: gateAutoConfig.model,
+            latencyMs,
+            outcome: ctx.hasUI ? "fallback-confirm" : "fallback-block",
+        });
+        return false;
+    };
     pi.on("tool_call", async (event, ctx) => {
         if (!isToolCallEventType("bash", event))
             return;
@@ -47,7 +167,7 @@ export default function (pi) {
         const normalized = command.trim().replace(/\s+/g, " ");
         // 折叠后的单行命令（超长截断），所有 warn/reason 提示文本共用
         const shown = compactCommand(command);
-        const verdict = classifyCommand(command);
+        const { verdict, label } = classifyWithLabel(command);
         if (verdict === "allow") {
             // 敏感文件 bash 读检测：危险命令规则放行后，
             // 参数命中 READ_CONFIRM 的命令进入分级拦截——
@@ -99,6 +219,9 @@ export default function (pi) {
         }
         // confirm → 先查 trust（用标准化后的命令）
         if (isTrusted("bash", normalized, ctx.cwd))
+            return;
+        // Auto 模式：缓存 → 沙箱规则 → 模型判定先行接管 confirm 级（block 级永不放松）
+        if (await runAutoGate(command, normalized, label, ctx))
             return;
         if (!ctx.hasUI) {
             // 拦截必须留痕（Make It Observable）

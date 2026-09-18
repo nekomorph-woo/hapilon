@@ -13,7 +13,7 @@
  */
 
 /** 只做修饰、不构成危险操作自身的命令前缀 */
-const PREFIX_WORDS = new Set([
+export const PREFIX_WORDS = new Set([
   "sudo", "doas", "command", "builtin", "env", "time", "nohup",
   "nice", "ionice", "stdbuf", "exec", "xargs",
 ]);

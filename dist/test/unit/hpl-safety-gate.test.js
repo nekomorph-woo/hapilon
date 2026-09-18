@@ -364,6 +364,9 @@ describe("hpl-safety-gate", () => {
                     if (name === "tool_call")
                         handler = cb;
                 },
+                // Auto 模式关闭态：无 flag、无 gateAuto 配置
+                registerFlag: (_name, _options) => { },
+                getFlag: (_name) => false,
             };
             safetyGateExtension(pi);
             assert.ok(handler, "tool_call 回调已注册");
@@ -415,6 +418,8 @@ describe("hpl-safety-gate", () => {
                     if (name === "tool_call")
                         handler = cb;
                 },
+                registerFlag: (_name, _options) => { },
+                getFlag: (_name) => false,
             };
             safetyGateExtension(pi);
             assert.ok(handler, "tool_call 回调已注册");
