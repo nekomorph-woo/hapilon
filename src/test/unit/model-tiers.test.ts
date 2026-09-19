@@ -10,7 +10,6 @@ import {
   resolveTierModels,
   type AvailableModel,
 } from "../../extensions/hpl-model-tiers/index.js";
-import { getTierModels, resetTierModels, setTierModels } from "../../extensions/hpl-model-tiers/bridge.js";
 
 const available: AvailableModel[] = [
   { provider: "anthropic", id: "claude-opus-4" },
@@ -33,7 +32,6 @@ describe("hpl-model-tiers 模型解析与 Pi settings 合并", () => {
     rmSync(join(home, "model-tiers-resolved.json"), { force: true });
     rmSync(join(home, "agent"), { recursive: true, force: true });
     rmSync(join(project, ".hapilon"), { recursive: true, force: true });
-    resetTierModels();
   });
 
   after(() => {
@@ -127,13 +125,5 @@ describe("hpl-model-tiers 模型解析与 Pi settings 合并", () => {
     const result = await Effect.runPromise(applyModelTiersEffect(project, available));
     assert.equal(result.settingsChanged, false);
     assert.equal(readFileSync(settingsPath, "utf8"), "{broken-json");
-  });
-
-  it("opus 为空时不写 default，且 bridge 返回隔离副本", () => {
-    setTierModels({ opus: [], sonnet: ["glm-*"], haiku: [] });
-    const values = getTierModels("sonnet");
-    values.push("mutated");
-    assert.deepEqual(getTierModels("sonnet"), ["glm-*"]);
-    assert.deepEqual(getTierModels("opus"), []);
   });
 });

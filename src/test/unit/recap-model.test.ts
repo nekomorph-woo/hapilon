@@ -4,8 +4,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { recapModelLabel, selectRecapModel, type RecapModelShape, type ResolvedTierModels } from "../../extensions/hpl-recap/model.js";
-import { readResolvedTiersEffect } from "../../extensions/hpl-recap/resolved.js";
+import { recapModelLabel, selectRecapModel, type RecapModelShape } from "../../extensions/hpl-recap/model.js";
+import { readResolvedTiersEffect, type ResolvedTierModels } from "../../extensions/hpl-model-tiers/resolved.js";
 
 const haiku: RecapModelShape = { provider: "fast", id: "flash", name: "Flash", reasoning: false };
 const reasoningMid: RecapModelShape = { provider: "work", id: "think", reasoning: true };

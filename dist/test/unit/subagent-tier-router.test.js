@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { routeTierEffect, readResolvedTiersEffect, } from "../../subagent/tier-router.js";
+import { routeTierEffect, } from "../../subagent/tier-router.js";
+import { readResolvedTiersEffect } from "../../extensions/hpl-model-tiers/resolved.js";
 describe("subagent tier-router", { concurrency: false }, () => {
     let home;
     let project;

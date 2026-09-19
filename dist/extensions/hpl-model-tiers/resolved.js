@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
+export const MODEL_TIERS = ["opus", "sonnet", "haiku"];
 const EMPTY_RESOLVED = { opus: [], sonnet: [], haiku: [] };
 function parseModelList(value) {
     if (!Array.isArray(value))
@@ -20,6 +21,7 @@ function parseModelList(value) {
             }];
     });
 }
+/** 唯一的 model-tiers-resolved.json 读取实现：损坏条目忽略，读取失败降为空档。 */
 export const readResolvedTiersEffect = Effect.try({
     try: () => {
         const path = join(hapilonHome(), "model-tiers-resolved.json");

@@ -1,8 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { join, isAbsolute, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { Data, Effect } from "effect";
-import { hapilonHome } from "../../config/hapilon-home.js";
+import { readResolvedTiersEffect } from "../hpl-model-tiers/resolved.js";
 
 export type HerdrPane = {
   paneId: string;
@@ -362,39 +361,8 @@ const TIER_ORDER: readonly ModelTier[] = ["opus", "sonnet", "haiku"];
 
 export type ResolvedModel = { provider: string; id: string };
 
-function readResolvedTierModels(): Record<ModelTier, ResolvedModel[]> {
-  const path = join(hapilonHome(), "model-tiers-resolved.json");
-  if (!existsSync(path)) return { opus: [], sonnet: [], haiku: [] };
-  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { opus: [], sonnet: [], haiku: [] };
-  }
-  const record = parsed as Record<string, unknown>;
-  const result = { opus: [], sonnet: [], haiku: [] } as Record<ModelTier, ResolvedModel[]>;
-  for (const tier of TIER_ORDER) {
-    const models = record[tier];
-    if (!Array.isArray(models)) continue;
-    result[tier] = models.flatMap((model) => {
-      if (!model || typeof model !== "object") return [];
-      const candidate = model as Record<string, unknown>;
-      return typeof candidate.provider === "string" && typeof candidate.id === "string"
-        ? [{ provider: candidate.provider, id: candidate.id }]
-        : [];
-    });
-  }
-  return result;
-}
-
 function readResolvedTierModelsSafely(): Record<ModelTier, ResolvedModel[]> {
-  return Effect.runSync(Effect.try({
-    try: readResolvedTierModels,
-    catch: (error) => error,
-  }).pipe(
-    Effect.catchAll((error) => Effect.sync(() => {
-      console.warn(`[hpl-orchestra] 读取 resolved model 失败：${error instanceof Error ? error.message : String(error)}`);
-      return { opus: [], sonnet: [], haiku: [] } as Record<ModelTier, ResolvedModel[]>;
-    })),
-  ));
+  return Effect.runSync(readResolvedTiersEffect);
 }
 
 export function resolveTierModelByTier(tier: ModelTier): string | undefined {

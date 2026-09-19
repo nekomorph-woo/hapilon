@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
-import { MODEL_TIERS } from "./bridge.js";
+import { MODEL_TIERS } from "./resolved.js";
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 function warnInvalid(path, tier, value) {
     console.warn(`[hpl-model-tiers] ${path} 中 ${tier} 无效（需要 string[]，收到 ${JSON.stringify(value)}），该档按空处理。`);

@@ -5,7 +5,7 @@
  * （allow / block / unsure，unsure 与一切失败都回落现有人工路径，不存在 fail-open）。
  *
  * - 模型指代：`tier:<opus|sonnet|haiku>[<index>]` 经 model-tiers-resolved.json 解析
- *   （与 hpl-recap 同源读取），或直接用 glob/具体 id 对可用模型匹配，不硬编码 id。
+ *   （hpl-model-tiers/resolved.ts 的共享 reader），或直接用 glob/具体 id 对可用模型匹配，不硬编码 id。
  * - 超时 / API 错误 / 输出不合法 → typed error（GateAutoTimeout / GateAutoApiError /
  *   GateAutoInvalidOutput），调用方统一按 unsure 回落。
  * - 判定结果 {verdict, reason} 走 Schema 校验，模型输出属不可信边界。
@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { Data, Effect, Schema } from "effect";
 import { agentDir } from "../../config/hapilon-home.js";
 import { matchesModelPattern } from "../hpl-model-tiers/index.js";
-import { readResolvedTiersEffect } from "../hpl-recap/resolved.js";
+import { readResolvedTiersEffect } from "../hpl-model-tiers/resolved.js";
 
 // ─── 配置 ────────────────────────────────────────────────────────────
 
@@ -124,7 +124,7 @@ const VERDICT_SCHEMA = Schema.Struct({
 
 const decodeVerdict = Schema.decodeUnknownSync(VERDICT_SCHEMA);
 
-/** 结构化模型形状（Model<Api> 可直接赋值）；与 hpl-recap 的 RecapModelShape 同源 */
+/** 结构化模型形状（Model<Api> 可直接赋值）；与 resolved.ts 的 ResolvedTierModel 同源 */
 export interface JudgeModelShape {
   provider: string;
   id: string;

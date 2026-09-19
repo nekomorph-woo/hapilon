@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { readRecapConfig } from "./config.js";
 import { buildRecapMessages } from "./context.js";
 import { recapModelLabel, selectRecapModel } from "./model.js";
-import { readResolvedTiersEffect } from "./resolved.js";
+import { readResolvedTiersEffect } from "../hpl-model-tiers/resolved.js";
 import { createRecapTimer } from "./timer.js";
 const WIDGET_KEY = "hpl-recap";
 const RECAP_SYSTEM_PROMPT = "你是一个后台 recap 助手。请用简洁中文总结最近对话：刚才做了什么、当前状态、下一步建议。只输出正文，不要标题，不超过 200 字。";

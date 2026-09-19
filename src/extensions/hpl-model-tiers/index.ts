@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
-import { MODEL_TIERS, setTierModels, type ModelTier, type TierModels } from "./bridge.js";
 import { readModelTiersEffect, saveModelTiersEffect } from "./config.js";
+import { MODEL_TIERS, type ModelTier, type ResolvedTierModels, type TierModels } from "./resolved.js";
 
 export interface AvailableModel {
   provider: string;
@@ -12,9 +12,6 @@ export interface AvailableModel {
   name?: string;
   reasoning?: boolean;
 }
-
-export type ResolvedTierModel = Pick<AvailableModel, "provider" | "id" | "name" | "reasoning">;
-export type ResolvedTierModels = Record<ModelTier, ResolvedTierModel[]>;
 
 interface SettingsObject {
   [key: string]: unknown;
@@ -217,7 +214,6 @@ export default function hplModelTiers(pi: ExtensionAPI): void {
         return emptyResult();
       })),
     ));
-    setTierModels(result.tiers);
     const reloadHint = result.settingsChanged ? "，已写入 Pi settings；请执行 /reload" : "";
     console.log(
       `[hpl-model-tiers] opus=${result.tiers.opus.length} sonnet=${result.tiers.sonnet.length} haiku=${result.tiers.haiku.length}${reloadHint}`,

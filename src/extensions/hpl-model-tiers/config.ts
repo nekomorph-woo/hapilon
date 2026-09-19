@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
-import { MODEL_TIERS, type ModelTier, type TierModels } from "./bridge.js";
+import { MODEL_TIERS, type ModelTier, type TierModels } from "./resolved.js";
 
 export type PartialTierModels = Partial<Record<ModelTier, string[]>>;
 

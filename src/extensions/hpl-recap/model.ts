@@ -1,11 +1,11 @@
+import type { ResolvedTierModels } from "../hpl-model-tiers/resolved.js";
+
 export interface RecapModelShape {
   provider: string;
   id: string;
   name?: string;
   reasoning?: boolean;
 }
-
-export type ResolvedTierModels = Record<"opus" | "sonnet" | "haiku", RecapModelShape[]>;
 
 export interface RecapModelChoice<T extends RecapModelShape> {
   model?: T;

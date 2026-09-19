@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { recapModelLabel, selectRecapModel } from "../../extensions/hpl-recap/model.js";
-import { readResolvedTiersEffect } from "../../extensions/hpl-recap/resolved.js";
+import { readResolvedTiersEffect } from "../../extensions/hpl-model-tiers/resolved.js";
 const haiku = { provider: "fast", id: "flash", name: "Flash", reasoning: false };
 const reasoningMid = { provider: "work", id: "think", reasoning: true };
 const plainMid = { provider: "work", id: "plain", reasoning: false };

@@ -6,11 +6,11 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import {
   routeTierEffect,
-  readResolvedTiersEffect,
   type TierModel,
   type TierRouteRequest,
   type TierRouterContext,
 } from "../../subagent/tier-router.js";
+import { readResolvedTiersEffect } from "../../extensions/hpl-model-tiers/resolved.js";
 
 describe("subagent tier-router", { concurrency: false }, () => {
   let home: string;

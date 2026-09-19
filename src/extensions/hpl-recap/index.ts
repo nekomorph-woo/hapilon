@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { readRecapConfig, type RecapConfig } from "./config.js";
 import { buildRecapMessages } from "./context.js";
 import { recapModelLabel, selectRecapModel, type RecapModelShape } from "./model.js";
-import { readResolvedTiersEffect } from "./resolved.js";
+import { readResolvedTiersEffect } from "../hpl-model-tiers/resolved.js";
 import { createRecapTimer, type RecapTimer } from "./timer.js";
 
 const WIDGET_KEY = "hpl-recap";

@@ -1,14 +1,15 @@
 /**
  * subagent tier-router
  *
- * 这是 subagent 调度层的纯路由器，不依赖 hpl-model-tiers / hpl-recap
- * extension 的模块状态。解析后的模型清单通过文件共享，避免 pi loader
- * 为每个 extension 创建独立模块实例。
+ * 这是 subagent 调度层的纯路由器；解析后的档位模型清单由
+ * hpl-model-tiers/resolved.ts 的共享 reader 从文件读取（无模块状态），
+ * 避免 pi loader 为每个 extension 创建独立模块实例。
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Data, Effect } from "effect";
 import { hapilonHome } from "../config/hapilon-home.js";
+import { readResolvedTiersEffect } from "../extensions/hpl-model-tiers/resolved.js";
 export const TIER_NAMES = ["opus", "sonnet", "haiku"];
 /**
  * 路由内部所有可恢复错误都在边界降为 never；保留 TaggedError 使 Effect
@@ -17,9 +18,6 @@ export const TIER_NAMES = ["opus", "sonnet", "haiku"];
 export class TierRouterError extends Data.TaggedError("TierRouterError") {
 }
 const EMPTY_TASK_MAP = {};
-function emptyResolvedTiers() {
-    return { opus: [], sonnet: [], haiku: [] };
-}
 function errorMessage(error) {
     return error instanceof Error ? error.message : String(error);
 }
@@ -78,52 +76,6 @@ export const readTaskTierMapEffect = (cwd) => Effect.try({
 /** 同步文件读取边界，供不在异步调度链中的调用方使用。 */
 export function readTaskTierMap(cwd) {
     return Effect.runSync(readTaskTierMapEffect(cwd));
-}
-function parseResolvedModelList(value) {
-    if (!Array.isArray(value))
-        return [];
-    return value.flatMap((item) => {
-        if (!isObject(item) || typeof item.provider !== "string" || typeof item.id !== "string") {
-            return [];
-        }
-        return [{
-                provider: item.provider,
-                id: item.id,
-                ...(typeof item.name === "string" ? { name: item.name } : {}),
-                ...(typeof item.reasoning === "boolean" ? { reasoning: item.reasoning } : {}),
-            }];
-    });
-}
-/**
- * 与 hpl-recap/resolved.ts 同源语义：损坏条目忽略，读取失败降为空档；
- * 这里就地实现，避免跨 extension import。
- */
-export const readResolvedTiersEffect = Effect.try({
-    try: () => {
-        const filePath = join(hapilonHome(), "model-tiers-resolved.json");
-        if (!existsSync(filePath))
-            return emptyResolvedTiers();
-        const parsed = JSON.parse(readFileSync(filePath, "utf8"));
-        if (!isObject(parsed)) {
-            warn(`${filePath} 顶层非法，按空档处理。`);
-            return emptyResolvedTiers();
-        }
-        return {
-            opus: parseResolvedModelList(parsed.opus),
-            sonnet: parseResolvedModelList(parsed.sonnet),
-            haiku: parseResolvedModelList(parsed.haiku),
-        };
-    },
-    catch: (cause) => new TierRouterError({
-        message: "读取 model-tiers-resolved.json 失败",
-        cause,
-    }),
-}).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    warn(`${error.message}：${errorMessage(error.cause)}，按空档处理。`);
-    return emptyResolvedTiers();
-})));
-export function readResolvedTiers() {
-    return Effect.runSync(readResolvedTiersEffect);
 }
 function firstAvailable(tier, resolved, available) {
     return resolved[tier].map((reference) => available.find((candidate) => candidate.provider === reference.provider && candidate.id === reference.id)).find((model) => model !== undefined);

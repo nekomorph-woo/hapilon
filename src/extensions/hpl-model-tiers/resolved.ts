@@ -2,11 +2,25 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
-import type { RecapModelShape, ResolvedTierModels } from "./model.js";
+
+export const MODEL_TIERS = ["opus", "sonnet", "haiku"] as const;
+
+export type ModelTier = (typeof MODEL_TIERS)[number];
+export type TierModels = Record<ModelTier, string[]>;
+
+/** 解析后的档位模型条目：recap / safety-gate / orchestra / tier-router 共用的最小形状。 */
+export interface ResolvedTierModel {
+  provider: string;
+  id: string;
+  name?: string;
+  reasoning?: boolean;
+}
+
+export type ResolvedTierModels = Record<ModelTier, ResolvedTierModel[]>;
 
 const EMPTY_RESOLVED: ResolvedTierModels = { opus: [], sonnet: [], haiku: [] };
 
-function parseModelList(value: unknown): RecapModelShape[] {
+function parseModelList(value: unknown): ResolvedTierModel[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
     if (!item || typeof item !== "object") return [];
@@ -21,6 +35,7 @@ function parseModelList(value: unknown): RecapModelShape[] {
   });
 }
 
+/** 唯一的 model-tiers-resolved.json 读取实现：损坏条目忽略，读取失败降为空档。 */
 export const readResolvedTiersEffect: Effect.Effect<ResolvedTierModels, never> = Effect.try({
   try: () => {
     const path = join(hapilonHome(), "model-tiers-resolved.json");

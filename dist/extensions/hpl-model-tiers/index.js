@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
-import { MODEL_TIERS, setTierModels } from "./bridge.js";
 import { readModelTiersEffect, saveModelTiersEffect } from "./config.js";
+import { MODEL_TIERS } from "./resolved.js";
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 function globRegex(pattern) {
     let source = "^";
@@ -167,7 +167,6 @@ export default function hplModelTiers(pi) {
             console.warn(`[hpl-model-tiers] 读取可用模型失败，按空档位继续：${String(error)}`);
             return emptyResult();
         }))));
-        setTierModels(result.tiers);
         const reloadHint = result.settingsChanged ? "，已写入 Pi settings；请执行 /reload" : "";
         console.log(`[hpl-model-tiers] opus=${result.tiers.opus.length} sonnet=${result.tiers.sonnet.length} haiku=${result.tiers.haiku.length}${reloadHint}`);
     });
