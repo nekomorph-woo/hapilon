@@ -3,10 +3,9 @@ import { Effect } from "effect";
 import { agentGet, defaultSpawn, paneAgentAlive, paneRead, type AgentStatus, type SpawnFn } from "./herdr.js";
 
 /**
- * 五态 + unknown。判定与展示分离：本模块只出状态，按键/代答由 orchestrator LLM
- * 执行（代码不按键）。
+ * 状态判定与展示分离：本模块只出状态，按键/代答由 orchestrator LLM 执行（代码不按键）。
  */
-export type AgentState = "dead" | "waiting-input" | "done" | "stale" | "working" | "unknown";
+export type AgentState = "dead" | "waiting-input" | "done" | "stale" | "idle" | "working" | "unknown";
 
 /**
  * 弹窗标记的单一出处：pi 升级改文案只动这里。命中任一即视为「人机交互弹窗」。
@@ -34,8 +33,13 @@ export interface AgentSignals {
   paneSamples?: readonly string[] | undefined;
   /** 回执文件（worker-report.md / reviewer-report.md）是否存在——done 的唯一凭证 */
   reportExists: boolean;
-  /** 距最后一次观察到的活动（herdr 状态变化）的毫秒数；undefined = 未知 */
-  lastActivityMs?: number | undefined;
+  /**
+   * 该 pane 确有 in_progress 任务时，距任务最后一次更新的毫秒数；
+   * undefined = 没有在办任务（不期待报告 → 永不 stale）。任务时间戳由调用方从
+   * 任务列表读出，跨 CLI 进程持久，替代以前每次进程都清零的内存活动计时；
+   * 仅在 herdr 已停（idleLike）时参与 stale 判定。
+   */
+  expectedReportAgeMs?: number | undefined;
   staleThresholdMs?: number | undefined;
 }
 
@@ -56,8 +60,9 @@ function dialogConfirmed(samples: readonly string[] | undefined): boolean {
 
 /**
  * 判定优先级：dead（无 pane）→ waiting-input（两次采样确认弹窗）→ done（herdr 已停
- * 且回执在）→ stale（已停/工作中超阈且回执缺席）→ working → unknown。
- * 连通性永不作为完成性证据；信号不足时不猜，落到 unknown。
+ * 且回执在）→ stale（herdr 已停、在办任务超阈且回执缺席）→ idle（活着、当前无 turn）
+ * → working → unknown。
+ * 连通性永不作为完成性证据；idle 与无报告都不是完成凭证；信号不足时不猜，落到 unknown。
  */
 export function resolveAgentState(signals: AgentSignals): AgentState {
   if (!signals.paneAlive) return "dead";
@@ -66,44 +71,26 @@ export function resolveAgentState(signals: AgentSignals): AgentState {
   const { herdrStatus, reportExists } = signals;
   if (idleLike(herdrStatus) && reportExists) return "done";
 
+  // stale 只适用于已停下的 pane：任务记录年龄是记账新鲜度，不是活动心跳，不能推翻
+  // herdr 的 working（hapi 每个 turn_start 都上报），否则长任务会被误判 stale 而遭打断。
   const threshold = signals.staleThresholdMs ?? DEFAULT_STALE_THRESHOLD_MS;
-  const stoppedOrBusy = herdrStatus === "working" || idleLike(herdrStatus);
-  if (!reportExists && stoppedOrBusy && signals.lastActivityMs !== undefined
-    && signals.lastActivityMs >= threshold) {
+  if (idleLike(herdrStatus) && !reportExists && signals.expectedReportAgeMs !== undefined
+    && signals.expectedReportAgeMs >= threshold) {
     return "stale";
   }
 
-  // idle/done 但回执缺席：不是 done（回执才是凭证），也不足以判 stale
-  if (stoppedOrBusy) return "working";
+  // herdr 报告已停：活着、当前没有 turn。回执缺席只说明任务没做完，不能反推忙碌
+  if (idleLike(herdrStatus)) return "idle";
+  if (herdrStatus === "working") return "working";
   return "unknown";
-}
-
-/**
- * herdr 不提供活动时间戳，只提供状态；因此 lastActivity 由本进程观察状态串的
- * 最后一次变化得到。首次观察即算活动——宁可晚报 stale，不在未知时长上误报。
- */
-interface PaneActivity {
-  status: AgentStatus;
-  since: number;
-}
-
-const activities = new Map<string, PaneActivity>();
-
-export function resetAgentStateActivity(): void {
-  activities.clear();
-}
-
-function observeActivity(paneId: string, status: AgentStatus, at: number): number {
-  const previous = activities.get(paneId);
-  const since = previous && previous.status === status ? previous.since : at;
-  activities.set(paneId, { status, since });
-  return at - since;
 }
 
 export interface PaneProbeOptions {
   spawn?: SpawnFn;
   /** 回执文件绝对路径；调用方拿不到当前任务目录时不传 → done 不成立 */
   reportPath?: string;
+  /** 在办任务最后一次更新的时间戳；缺省 = 没有在办任务 → stale 不成立 */
+  expectedReportSince?: number;
   /** 测试注入时钟 */
   now?: () => number;
 }
@@ -133,6 +120,8 @@ export const sampleAgentStateEffect = (
       herdrStatus,
       paneSamples: samples,
       reportExists: options.reportPath !== undefined && existsSync(options.reportPath),
-      lastActivityMs: observeActivity(paneId, herdrStatus, now()),
+      expectedReportAgeMs: options.expectedReportSince === undefined
+        ? undefined
+        : now() - options.expectedReportSince,
     });
   });

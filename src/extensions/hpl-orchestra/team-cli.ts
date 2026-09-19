@@ -10,7 +10,7 @@ import { Effect } from "effect";
 import { agentPrompt, defaultSpawn, paneAgentAlive, type SpawnFn } from "./herdr.js";
 import { allInstances, findTeamStateForPane, isTeamOwner, readTeamState, teamTasksPathFor } from "./state.js";
 import { sampleAgentStateEffect } from "./agent-state.js";
-import { briefDirOf, appendPendingTaskEffect, readTaskStoreEffect, taskLabel, type StoredTask } from "./team-tasks.js";
+import { briefDirOf, appendPendingTaskEffect, readTaskStoreEffect, taskLabel, taskUpdatedAt, type StoredTask } from "./team-tasks.js";
 
 export const TEAM_STATUS_EXIT = { ok: 0, noTeam: 2 } as const;
 export const TEAM_ENQUEUE_EXIT = { ok: 0, notInTeam: 2, store: 3, usage: 4 } as const;
@@ -60,17 +60,14 @@ function labels(tasks: readonly StoredTask[], limit: number): string {
   return tasks.length > limit ? `${listed.join(", ")}, +${tasks.length - limit} more` : listed.join(", ");
 }
 
-/** 任务里有 brief 的最新一条（优先在做的），用它推回执路径。 */
-function reportPathFor(roleKey: string, tasks: readonly StoredTask[]): string | undefined {
-  const reportFile = REPORT_FILES[roleKey];
-  if (!reportFile) return undefined;
+/**
+ * 回执与超时基准都取自「当前任务」：优先在办里 id 最新的一条，其次按 id 最新的带
+ * brief 任务。任务列表空或无 brief → 无当前任务，done/stale 都不成立。
+ */
+function currentTaskOf(tasks: readonly StoredTask[]): StoredTask | undefined {
   const ordered = byId(tasks).reverse();
   const inProgress = ordered.filter((task) => task.status === "in_progress");
-  for (const task of [...inProgress, ...ordered]) {
-    const dir = briefDirOf(task);
-    if (dir) return join(dir, reportFile);
-  }
-  return undefined;
+  return [...inProgress, ...ordered].find((task) => briefDirOf(task) !== undefined);
 }
 
 function readStore(path: string): { tasks: StoredTask[]; error?: string } {
@@ -82,10 +79,16 @@ function readStore(path: string): { tasks: StoredTask[]; error?: string } {
 function paneLines(key: string, paneId: string, nickname: string | undefined, spawn: SpawnFn): string[] {
   const who = `${key} ${paneId}${nickname ? ` ${nickname}` : ""}`;
   const { tasks, error } = readStore(teamTasksPathFor(paneId));
-  const reportPath = reportPathFor(key, tasks);
+  const reportFile = REPORT_FILES[key];
+  const current = currentTaskOf(tasks);
+  const currentDir = current ? briefDirOf(current) : undefined;
+  const reportPath = reportFile && currentDir ? join(currentDir, reportFile) : undefined;
+  // 只有「在办」才期待回执；pending 只是排队，不能当停滞时钟
+  const expectedReportSince = current?.status === "in_progress" ? taskUpdatedAt(current) : undefined;
   const state = Effect.runSync(sampleAgentStateEffect(paneId, {
     spawn,
     ...(reportPath ? { reportPath } : {}),
+    ...(expectedReportSince !== undefined ? { expectedReportSince } : {}),
   }));
   const report = reportPath === undefined
     ? "n/a"

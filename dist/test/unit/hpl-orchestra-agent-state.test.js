@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { DEFAULT_STALE_THRESHOLD_MS, DIALOG_MARKERS, resetAgentStateActivity, resolveAgentState, sampleAgentStateEffect, } from "../../extensions/hpl-orchestra/agent-state.js";
+import { DEFAULT_STALE_THRESHOLD_MS, DIALOG_MARKERS, resolveAgentState, sampleAgentStateEffect, } from "../../extensions/hpl-orchestra/agent-state.js";
 import { handleTeamCommand, resetProbeCache } from "../../extensions/hpl-orchestra/menu.js";
 import { resolveSessionStatePath, writeTeamStateEffect, } from "../../extensions/hpl-orchestra/state.js";
 /** fixture：ask_user 表单（question-view.ts 底部提示行） */
@@ -118,7 +118,6 @@ before(() => {
 });
 beforeEach(() => {
     rmSync(resolveSessionStatePath(), { force: true });
-    resetAgentStateActivity();
     resetProbeCache();
     process.env.HERDR_PANE_ID = "w1:p7";
     delete process.env.HAPI_ORCH_ROLE;
@@ -148,7 +147,7 @@ describe("hpl-orchestra agent state resolution", { concurrency: false }, () => {
             paneAlive: false,
             herdrStatus: "idle",
             reportExists: true,
-            lastActivityMs: 0,
+            expectedReportAgeMs: 0,
         })), "dead");
     });
     it("两次连续采样都命中 ask_user 标记才是 waiting-input", () => {
@@ -187,21 +186,44 @@ describe("hpl-orchestra agent state resolution", { concurrency: false }, () => {
     it("done 的唯一凭证是回执文件：herdr idle/done 且回执在", () => {
         assert.equal(resolveAgentState(baseSignals({ herdrStatus: "idle", reportExists: true })), "done");
         assert.equal(resolveAgentState(baseSignals({ herdrStatus: "done", reportExists: true })), "done");
-        assert.equal(resolveAgentState(baseSignals({ herdrStatus: "idle", reportExists: false })), "working");
+    });
+    it("herdr idle/done 且回执缺席 → idle，不再折叠成 working", () => {
+        assert.equal(resolveAgentState(baseSignals({ herdrStatus: "idle", reportExists: false })), "idle");
+        assert.equal(resolveAgentState(baseSignals({ herdrStatus: "done", reportExists: false })), "idle");
     });
     it("回执在但 pane 仍在 working：working 优先，不误报 done", () => {
         assert.equal(resolveAgentState(baseSignals({ herdrStatus: "working", reportExists: true })), "working");
     });
-    it("已停/工作中超阈且回执缺席为 stale，边界按 >= 判定", () => {
-        const over = { herdrStatus: "idle", lastActivityMs: DEFAULT_STALE_THRESHOLD_MS };
+    it("stale 必须有「在办任务」这个输入：超阈且有在办任务、回执缺席才成立", () => {
+        const over = { herdrStatus: "idle", expectedReportAgeMs: DEFAULT_STALE_THRESHOLD_MS };
         assert.equal(resolveAgentState(baseSignals(over)), "stale");
-        assert.equal(resolveAgentState(baseSignals({ ...over, lastActivityMs: DEFAULT_STALE_THRESHOLD_MS - 1 })), "working");
-        assert.equal(resolveAgentState(baseSignals({ herdrStatus: "working", lastActivityMs: DEFAULT_STALE_THRESHOLD_MS })), "stale");
+        assert.equal(resolveAgentState(baseSignals({ ...over, expectedReportAgeMs: DEFAULT_STALE_THRESHOLD_MS - 1 })), "idle");
         assert.equal(resolveAgentState(baseSignals({ ...over, staleThresholdMs: 60_000 })), "stale");
-        assert.equal(resolveAgentState(baseSignals({ ...over, staleThresholdMs: DEFAULT_STALE_THRESHOLD_MS + 1 })), "working");
-        // 回执在 → 不是 stale；活动时间未知 → 不猜
+        assert.equal(resolveAgentState(baseSignals({ ...over, staleThresholdMs: DEFAULT_STALE_THRESHOLD_MS + 1 })), "idle");
+        // 回执在 → done；没有在办任务（无时钟）→ 永不 stale；herdr 不可得时不猜
         assert.equal(resolveAgentState(baseSignals({ ...over, reportExists: true })), "done");
-        assert.equal(resolveAgentState(baseSignals({ ...over, lastActivityMs: undefined })), "working");
+        assert.equal(resolveAgentState(baseSignals({ ...over, expectedReportAgeMs: undefined })), "idle");
+        assert.equal(resolveAgentState(baseSignals({ ...over, herdrStatus: undefined })), "unknown");
+        assert.equal(resolveAgentState(baseSignals({ ...over, herdrStatus: "blocked" })), "unknown");
+    });
+    it("working 不被任务记录年龄覆盖：长任务不因记账陈旧变 stale", () => {
+        // 任务记录年龄只反映记账新鲜度，不是 pane 活动心跳；herdr 说 working 就是活着
+        assert.equal(resolveAgentState(baseSignals({
+            herdrStatus: "working",
+            expectedReportAgeMs: DEFAULT_STALE_THRESHOLD_MS,
+        })), "working");
+        assert.equal(resolveAgentState(baseSignals({
+            herdrStatus: "working",
+            expectedReportAgeMs: DEFAULT_STALE_THRESHOLD_MS * 100,
+            staleThresholdMs: 1,
+        })), "working");
+        // 同条件换成已停的 pane 才是 stale
+        assert.equal(resolveAgentState(baseSignals({
+            herdrStatus: "idle",
+            expectedReportAgeMs: DEFAULT_STALE_THRESHOLD_MS,
+        })), "stale");
+        // idle 但没有在办任务 → idle，不是 stale
+        assert.equal(resolveAgentState(baseSignals({ herdrStatus: "idle", reportExists: false })), "idle");
     });
     it("信号全缺（herdr 不可得 / unknown）保守落 unknown", () => {
         assert.equal(resolveAgentState(baseSignals({ herdrStatus: undefined })), "unknown");
@@ -230,37 +252,43 @@ describe("hpl-orchestra agent state sampling", { concurrency: false }, () => {
         const both = makeSpawn({ reads: [ASK_USER_SAMPLE, ASK_USER_SAMPLE] });
         assert.equal(Effect.runSync(sampleAgentStateEffect("w1:p8", { spawn: both.spawn })), "waiting-input");
         const halfFrame = makeSpawn({ reads: [HALF_FRAME_SAMPLE, ORDINARY_SAMPLE] });
-        assert.equal(Effect.runSync(sampleAgentStateEffect("w1:p8", { spawn: halfFrame.spawn })), "working");
+        assert.equal(Effect.runSync(sampleAgentStateEffect("w1:p8", { spawn: halfFrame.spawn })), "idle");
     });
     it("屏文本读失败（采样不全）不判 waiting-input", () => {
         const { spawn } = makeSpawn({ reads: [ASK_USER_SAMPLE] });
-        assert.equal(Effect.runSync(sampleAgentStateEffect("w1:p8", { spawn })), "working");
+        assert.equal(Effect.runSync(sampleAgentStateEffect("w1:p8", { spawn })), "idle");
     });
-    it("回执文件存在 + herdr idle → done；文件随后消失回到 working", () => {
+    it("回执文件存在 + herdr idle → done；文件随后消失回到 idle", () => {
         const report = join(home, "worker-report.md");
         const { spawn } = makeSpawn({ statuses: ["idle", "idle"], reads: [ORDINARY_SAMPLE, ORDINARY_SAMPLE, ORDINARY_SAMPLE, ORDINARY_SAMPLE] });
         writeFileSync(report, "report", "utf8");
         assert.equal(Effect.runSync(sampleAgentStateEffect("w1:p8", { spawn, reportPath: report })), "done");
         rmSync(report, { force: true });
-        assert.equal(Effect.runSync(sampleAgentStateEffect("w1:p8", { spawn, reportPath: report })), "working");
+        assert.equal(Effect.runSync(sampleAgentStateEffect("w1:p8", { spawn, reportPath: report })), "idle");
     });
-    it("活动观察：同一状态持续超阈 → stale；状态翻转即重置", () => {
+    it("stale 时钟取自持久化的在办任务时间戳，不靠就地累积的内存活动", () => {
         const t0 = 1_000_000;
-        const idle = makeSpawn({ statuses: ["idle", "idle", "idle"], reads: [ORDINARY_SAMPLE, ORDINARY_SAMPLE, ORDINARY_SAMPLE, ORDINARY_SAMPLE, ORDINARY_SAMPLE, ORDINARY_SAMPLE] });
-        const first = Effect.runSync(sampleAgentStateEffect("w1:p8", { spawn: idle.spawn, now: () => t0 }));
-        assert.equal(first, "working", "首次观察算活动，不报 stale");
-        const later = Effect.runSync(sampleAgentStateEffect("w1:p8", {
-            spawn: idle.spawn,
-            now: () => t0 + DEFAULT_STALE_THRESHOLD_MS,
-        }));
-        assert.equal(later, "stale");
-        resetAgentStateActivity();
-        const flapped = makeSpawn({ statuses: ["idle", "working"], reads: [ORDINARY_SAMPLE, ORDINARY_SAMPLE, ORDINARY_SAMPLE, ORDINARY_SAMPLE] });
-        Effect.runSync(sampleAgentStateEffect("w1:p8", { spawn: flapped.spawn, now: () => t0 }));
+        const idle = makeSpawn({ statuses: ["idle"], reads: [ORDINARY_SAMPLE, ORDINARY_SAMPLE] });
+        // 超阈的在办任务：首次采样即 stale（新进程没有历史观察也能判）
         assert.equal(Effect.runSync(sampleAgentStateEffect("w1:p8", {
-            spawn: flapped.spawn,
-            now: () => t0 + DEFAULT_STALE_THRESHOLD_MS,
-        })), "working", "状态刚翻转 → 活动时间重置");
+            spawn: idle.spawn,
+            now: () => t0,
+            expectedReportSince: t0 - DEFAULT_STALE_THRESHOLD_MS,
+        })), "stale");
+        // 刚更新过的在办任务：idle，不是 stale
+        const recent = makeSpawn({ statuses: ["idle"], reads: [ORDINARY_SAMPLE, ORDINARY_SAMPLE] });
+        assert.equal(Effect.runSync(sampleAgentStateEffect("w1:p8", {
+            spawn: recent.spawn,
+            now: () => t0,
+            expectedReportSince: t0 - 1_000,
+        })), "idle");
+        // 她的 herdr 报 working：再长的在办任务也不 stale
+        const working = makeSpawn({ statuses: ["working"], reads: [ORDINARY_SAMPLE, ORDINARY_SAMPLE] });
+        assert.equal(Effect.runSync(sampleAgentStateEffect("w1:p8", {
+            spawn: working.spawn,
+            now: () => t0,
+            expectedReportSince: t0 - DEFAULT_STALE_THRESHOLD_MS * 100,
+        })), "working");
     });
 });
 describe("hpl-orchestra /team 面板状态展示", { concurrency: false }, () => {

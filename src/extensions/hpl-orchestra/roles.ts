@@ -87,8 +87,15 @@ Unmanaged panes (a hapi pane in this tab that is not in the crew table):
 5. Never keep a hapi pane "just for now".
 
 Crew state handling (states from the /team panel):
-- working → wait; if stale (no report past the threshold) → interrupt and
-  demand the report.
+- idle → alive with no turn running and nothing owed: clear and dispatch
+  directly. If its queue still has pending tasks, wake it with one send-keys
+  line and let it claim the lowest pending id at its own boundary — never
+  dispatch the whole queue for it.
+- working → wait. A pane reporting working is active — its task record age is
+  never evidence of staleness, and its turn is never interrupted.
+- stale → alive but stopped (herdr idle) with an in_progress task whose report
+  is still missing past the threshold: read the pane, then re-poll, re-dispatch,
+  or report to the user.
 - waiting-input → read the pane to see the question. Design clarifications
   and constraint arbitration: answer it yourself via send-keys. Irreversible
   operations, credentials, external effects: escalate to the human — never
@@ -111,7 +118,7 @@ Dispatch discipline (a "new task" includes fix rounds from review):
    wait-pane 以「状态**变过**且落到 idle/blocked」为收敛判据;不要用 herdr
    的 agent wait --until idle——它只看当前值,而 pane 派发前就是 idle,会秒回。
    退出码:0 收敛、2 卡在等待输入、3 到时未收敛(重新 get 状态:仍 working 就再
-   开一次等待,仍无变化按 stale 处理)。
+   开一次等待;状态已变但未落到终态则读屏确认,回报用户)。
    Then end your turn — the background job wakes you when the pane settles.
 3. Collect: herdr agent read <id> --source recent-unwrapped --lines 120
 4. Review routing — pick the tier, do not send everything:
@@ -141,13 +148,18 @@ read a pane by hand only when it reports waiting-input or unknown.
    herdr pane read <id> --source visible --lines 40. Two consecutive samples
    showing an ask_user or approval dialog mean waiting-input — a single sample
    can be a half-drawn frame.
-2. States: working | waiting-input | stale | dead | done | unknown.
+2. States: working | idle | waiting-input | stale | dead | done | unknown.
    done requires the report file in the task dossier (worker-report.md /
    reviewer-report.md): a live pane is never evidence that work finished,
-   and idle alone is not done. working/idle with no report file past 15
-   minutes of no observed change is stale — read the pane, then re-poll,
-   re-dispatch, or report to the user. unknown means contradictory signals
-   or a failed read: tell the user, never guess.
+   and idle alone is not done. idle = alive, no turn running, nothing owed:
+   clear and dispatch directly, or wake it to claim a pending task. stale requires
+   a stopped pane (herdr idle/done) with an in_progress task whose report is still
+   missing past 15 minutes without an update — idle with no task is never stale,
+   and a pane that reports working is never stale (task record age is bookkeeping,
+   not an activity signal). Read a stale pane, then re-poll, re-dispatch, or report
+   to the user.
+   unknown means contradictory signals or a failed read: tell the user,
+   never guess.
    The /team menu shows the same state per pane.
 3. Answer policy at waiting-input:
    | question kind                                            | action |
@@ -163,8 +175,9 @@ Waking and reports — the panes wake you, you do not poll them:
   identical in herdr, and a pane waiting on its own background job also looks
   idle. Re-arm instead of escalating —
     background(command="node \"$HAPILON_CLI_PATH\" wait-pane <id>")
-  — and end your turn. Only after 2-3 re-arms with no state change, or past the
-  15-minute stale threshold, treat it as stale and read the pane.
+  — and end your turn. Only after 2-3 re-arms with no state change — and only
+  once herdr reports that pane stopped — treat it as stale and read the pane; a
+  pane still reporting working keeps waiting.
 </team>`;
 
 function customSection(key: string, prompt: string): string {

@@ -30,8 +30,9 @@ function dialogConfirmed(samples) {
 }
 /**
  * 判定优先级：dead（无 pane）→ waiting-input（两次采样确认弹窗）→ done（herdr 已停
- * 且回执在）→ stale（已停/工作中超阈且回执缺席）→ working → unknown。
- * 连通性永不作为完成性证据；信号不足时不猜，落到 unknown。
+ * 且回执在）→ stale（herdr 已停、在办任务超阈且回执缺席）→ idle（活着、当前无 turn）
+ * → working → unknown。
+ * 连通性永不作为完成性证据；idle 与无报告都不是完成凭证；信号不足时不猜，落到 unknown。
  */
 export function resolveAgentState(signals) {
     if (!signals.paneAlive)
@@ -41,26 +42,19 @@ export function resolveAgentState(signals) {
     const { herdrStatus, reportExists } = signals;
     if (idleLike(herdrStatus) && reportExists)
         return "done";
+    // stale 只适用于已停下的 pane：任务记录年龄是记账新鲜度，不是活动心跳，不能推翻
+    // herdr 的 working（hapi 每个 turn_start 都上报），否则长任务会被误判 stale 而遭打断。
     const threshold = signals.staleThresholdMs ?? DEFAULT_STALE_THRESHOLD_MS;
-    const stoppedOrBusy = herdrStatus === "working" || idleLike(herdrStatus);
-    if (!reportExists && stoppedOrBusy && signals.lastActivityMs !== undefined
-        && signals.lastActivityMs >= threshold) {
+    if (idleLike(herdrStatus) && !reportExists && signals.expectedReportAgeMs !== undefined
+        && signals.expectedReportAgeMs >= threshold) {
         return "stale";
     }
-    // idle/done 但回执缺席：不是 done（回执才是凭证），也不足以判 stale
-    if (stoppedOrBusy)
+    // herdr 报告已停：活着、当前没有 turn。回执缺席只说明任务没做完，不能反推忙碌
+    if (idleLike(herdrStatus))
+        return "idle";
+    if (herdrStatus === "working")
         return "working";
     return "unknown";
-}
-const activities = new Map();
-export function resetAgentStateActivity() {
-    activities.clear();
-}
-function observeActivity(paneId, status, at) {
-    const previous = activities.get(paneId);
-    const since = previous && previous.status === status ? previous.since : at;
-    activities.set(paneId, { status, since });
-    return at - since;
 }
 /**
  * 生产侧采样：pane 存活 + herdr 状态 + 两次屏文本 + 回执存在性。
@@ -82,6 +76,8 @@ export const sampleAgentStateEffect = (paneId, options = {}) => Effect.gen(funct
         herdrStatus,
         paneSamples: samples,
         reportExists: options.reportPath !== undefined && existsSync(options.reportPath),
-        lastActivityMs: observeActivity(paneId, herdrStatus, now()),
+        expectedReportAgeMs: options.expectedReportSince === undefined
+            ? undefined
+            : now() - options.expectedReportSince,
     });
 });

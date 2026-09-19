@@ -156,3 +156,14 @@ export function briefDirOf(task) {
         return undefined;
     return brief.endsWith(".md") ? dirname(brief) : brief;
 }
+/**
+ * 任务最后一次更新的时间戳。pi-tasks 改状态时会写 updatedAt，旧记录没有则退回
+ * createdAt；两者都不可得时返回 undefined——宁可不报 stale，也不在未知时长上错判。
+ */
+export function taskUpdatedAt(task) {
+    for (const value of [task.updatedAt, task.createdAt]) {
+        if (typeof value === "number" && Number.isFinite(value))
+            return value;
+    }
+    return undefined;
+}

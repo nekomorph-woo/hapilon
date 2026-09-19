@@ -472,13 +472,14 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         assert.equal(filled.includes("herdr agent send-keys"), false, "agent send-keys 同样只认已知类型,统一走 pane 级");
         assert.ok(filled.includes("end your turn"));
     });
-    it("owner 文本承载五态处理规则，旧四态判定已退役", () => {
+    it("owner 文本承载各状态处理规则，旧四态判定已退役", () => {
         const filled = fillOrchestratorSection([{ key: "worker", paneId: "w1:p8" }]);
         assert.ok(filled.includes("Crew state handling (states from the /team panel):"));
-        for (const line of ["working →", "waiting-input →", "done →", "dead →", "unknown →"]) {
-            assert.ok(filled.includes(line), `缺五态处理行：${line}`);
+        for (const line of ["idle →", "working →", "stale →", "waiting-input →", "done →", "dead →", "unknown →"]) {
+            assert.ok(filled.includes(line), `缺状态处理行：${line}`);
         }
-        assert.ok(filled.includes("interrupt and\n  demand the report"));
+        assert.ok(filled.includes("its turn is never interrupted"));
+        assert.ok(filled.includes("a pane that reports working is never stale"));
         assert.ok(filled.includes("escalate to the human — never\n  auto-answer"));
         assert.ok(filled.includes("read that pane's own report file in the task's dossier"));
         assert.ok(filled.includes("worker-report.md for the worker, reviewer-report.md for the"));

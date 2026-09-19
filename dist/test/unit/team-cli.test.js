@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Effect } from "effect";
 import { appendPendingTaskEffect, readTaskStoreEffect } from "../../extensions/hpl-orchestra/team-tasks.js";
+import { DEFAULT_STALE_THRESHOLD_MS } from "../../extensions/hpl-orchestra/agent-state.js";
 import { TEAM_ENQUEUE_EXIT, TEAM_STATUS_EXIT, WAKE_OWNER_EXIT, runTeamEnqueueCommand, runTeamStatusCommand, runWakeOwnerCommand, } from "../../extensions/hpl-orchestra/team-cli.js";
 import { resolveSessionStatePath, teamTasksPathFor, teamsDir, writeTeamStateEffect, } from "../../extensions/hpl-orchestra/state.js";
 const ownerPane = "w1:p7";
@@ -191,8 +192,65 @@ describe("hapi team-status", { concurrency: false }, () => {
         assert.match(text, /团队 摸鱼突击队 — owner w1:p7 阿岚/);
         assert.match(text, /- worker w1:p8 阿澈 · done · report exists \(.*worker-report\.md\)/);
         assert.match(text, /tasks: 1 pending \[#1 \[阿澈\] 修 X\], 0 in_progress, 0 completed/);
-        assert.match(text, /- reviewer w1:p9 · working · report n\/a/);
+        assert.match(text, /- reviewer w1:p9 · idle · report n\/a/);
         assert.match(text, /tasks: 空/);
+    });
+    it("herdr idle + 只有 pending 任务 → idle，任务摘要照旧显示 pending", () => {
+        saveState();
+        const dossier = join(home, "plan-task", "2026-09-19-idle");
+        mkdirSync(dossier, { recursive: true });
+        Effect.runSync(appendPendingTaskEffect(teamTasksPathFor(workerPane), {
+            paneId: workerPane,
+            subject: "[阿澈] 排队中",
+            brief: dossier,
+        }));
+        const { code, logs } = capture(() => runTeamStatusCommand([], makeSpawn().spawn));
+        assert.equal(code, TEAM_STATUS_EXIT.ok);
+        const text = logs.join("\n");
+        assert.match(text, /- worker w1:p8 阿澈 · idle · report missing/);
+        assert.match(text, /tasks: 1 pending \[#1 \[阿澈\] 排队中\]/);
+    });
+    it("in_progress 超阈且缺回执 → stale", () => {
+        saveState();
+        const dossier = join(home, "plan-task", "2026-09-19-stale");
+        mkdirSync(dossier, { recursive: true });
+        const path = teamTasksPathFor(workerPane);
+        const staleAt = Date.now() - DEFAULT_STALE_THRESHOLD_MS - 60_000;
+        Effect.runSync(appendPendingTaskEffect(path, {
+            paneId: workerPane,
+            subject: "[阿澈] 卡住了",
+            brief: dossier,
+        }, () => staleAt));
+        // pi-tasks 置为 in_progress 时更新时间戳；这里直接造出「在办且久未更新」
+        const store = JSON.parse(readFileSync(path, "utf8"));
+        store.tasks[0].status = "in_progress";
+        writeFileSync(path, `${JSON.stringify(store, null, 2)}\n`);
+        const { logs } = capture(() => runTeamStatusCommand([], makeSpawn().spawn));
+        const text = logs.join("\n");
+        assert.match(text, /- worker w1:p8 阿澈 · stale · report missing/);
+        assert.match(text, /tasks: 0 pending, 1 in_progress/);
+    });
+    it("herdr working + in_progress 超阈 → working，记账年龄不打断在跑的 pane", () => {
+        saveState();
+        const dossier = join(home, "plan-task", "2026-09-19-working-long");
+        mkdirSync(dossier, { recursive: true });
+        const path = teamTasksPathFor(workerPane);
+        const longAgo = Date.now() - DEFAULT_STALE_THRESHOLD_MS * 10;
+        Effect.runSync(appendPendingTaskEffect(path, {
+            paneId: workerPane,
+            subject: "[阿澈] 长任务",
+            brief: dossier,
+        }, () => longAgo));
+        const store = JSON.parse(readFileSync(path, "utf8"));
+        store.tasks[0].status = "in_progress";
+        writeFileSync(path, `${JSON.stringify(store, null, 2)}\n`);
+        const { logs } = capture(() => runTeamStatusCommand([], makeSpawn({
+            agentStatuses: { [workerPane]: "working" },
+        }).spawn));
+        const text = logs.join("\n");
+        assert.match(text, /- worker w1:p8 阿澈 · working · report missing/);
+        assert.match(text, /tasks: 0 pending, 1 in_progress/);
+        assert.doesNotMatch(text, /- worker w1:p8 阿澈 · stale/);
     });
     it("非 owner 面板退出 2", () => {
         saveState();
