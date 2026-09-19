@@ -1,14 +1,35 @@
 /**
- * hpl-safety-gate 单元测试 — 命令分类 + shell 注入检测
+ * hpl-safety-gate 单元测试 — 命令分类 + shell 注入检测 + tool_call 拦截/信任
  *
  * 测试纯函数 classifyCommand() 和 hasShellInjection()，
  * 不依赖 Pi ExtensionAPI mock。
+ *
+ * HAPILON_HOME 指向临时目录（顶层 before 内设置）：本文件断言的是 Auto 关闭态下的原有
+ * confirm/trust 行为，不能让本机 settings.json 的 gateAuto.enabled 泄漏进来改写判定路径。
  */
-import { describe, it, afterEach, mock } from "node:test";
+import { describe, it, before, after, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { classifyCommand, hasShellInjection, } from "../../extensions/hpl-safety-gate/index.js";
 import safetyGateExtension from "../../extensions/hpl-safety-gate/index.js";
 import { isSessionTrusted, isTrusted, clearSessionTrust, } from "../../config/trust-store.js";
+const ORIGINAL_HAPILON_HOME = process.env.HAPILON_HOME;
+let testHome = "";
+// settings 与 model-tiers-resolved 都以 HAPILON_HOME 为唯一来源：临时空目录即「默认配置」基线
+before(() => {
+    testHome = mkdtempSync(join(tmpdir(), "safety-gate-confirm-"));
+    process.env.HAPILON_HOME = testHome;
+    mkdirSync(join(testHome, "agent"), { recursive: true });
+});
+after(() => {
+    if (ORIGINAL_HAPILON_HOME === undefined)
+        delete process.env.HAPILON_HOME;
+    else
+        process.env.HAPILON_HOME = ORIGINAL_HAPILON_HOME;
+    rmSync(testHome, { recursive: true, force: true });
+});
 describe("hpl-safety-gate", () => {
     describe("classifyCommand()", () => {
         // ── BLOCK：高危命令 ──
@@ -474,6 +495,62 @@ describe("hpl-safety-gate", () => {
             // 留空 → 回退建议 → 通配条目命中同前缀敏感文件
             assert.strictEqual(isSessionTrusted("bash", "cat .env.local"), true);
             assert.strictEqual(isTrusted("bash", "cat .env", "/tmp"), true);
+        });
+    });
+    // ── Seam D：Auto 判定层的运行时依赖注入 ──
+    // settings 配置与 modelRegistry 都由测试显式注入：同一 confirm 级命令，Auto 关闭走原有
+    // confirm 分支、Auto 开启经注入的 modelRegistry 走模型层。
+    describe("Auto 判定依赖注入", () => {
+        const settingsPath = () => join(testHome, "agent", "settings.json");
+        const bashEvent = (command) => ({ toolName: "bash", input: { command } });
+        function captureToolCallHandler() {
+            let handler;
+            const pi = {
+                on: (name, cb) => {
+                    if (name === "tool_call")
+                        handler = cb;
+                },
+                registerFlag: (_name, _options) => { },
+                registerCommand: (_name, _options) => { },
+                getFlag: (_name) => false,
+            };
+            safetyGateExtension(pi);
+            assert.ok(handler, "tool_call 回调已注册");
+            return handler;
+        }
+        /** 注入 modelRegistry：complete 被调用即计数，判定固定 allow */
+        function ctxWithModelRegistry(onModelCall) {
+            return {
+                cwd: "/tmp",
+                hasUI: false,
+                modelRegistry: {
+                    getAvailable: () => [{ provider: "zai", id: "glm-4.7" }],
+                    complete: () => {
+                        onModelCall();
+                        return Promise.resolve({ content: [{ type: "text", text: '{"verdict":"allow","reason":"常规工作流"}' }] });
+                    },
+                },
+            };
+        }
+        before(() => {
+            writeFileSync(join(testHome, "model-tiers-resolved.json"), JSON.stringify({ opus: [], sonnet: [], haiku: [{ provider: "zai", id: "glm-4.7" }] }));
+        });
+        afterEach(() => rmSync(settingsPath(), { force: true }));
+        it("Auto 关闭（无 gateAuto 配置）：confirm 级命令走原有人工分支，不触模型", async () => {
+            const handler = captureToolCallHandler();
+            let modelCalls = 0;
+            const result = (await handler(bashEvent("git push origin main"), ctxWithModelRegistry(() => { modelCalls++; })));
+            assert.strictEqual(result?.block, true);
+            assert.match(String(result?.reason), /非交互模式下拦截中危命令/);
+            assert.strictEqual(modelCalls, 0, "Auto 关闭态不得触达模型层");
+        });
+        it("Auto 开启（settings 注入）：同一命令经注入的 modelRegistry 放行", async () => {
+            writeFileSync(settingsPath(), JSON.stringify({ gateAuto: { enabled: true } }));
+            const handler = captureToolCallHandler();
+            let modelCalls = 0;
+            const result = await handler(bashEvent("git push origin main"), ctxWithModelRegistry(() => { modelCalls++; }));
+            assert.strictEqual(result, undefined, "模型 allow → 放行");
+            assert.strictEqual(modelCalls, 1, "Auto 开启态应经注入的 modelRegistry 判定一次");
         });
     });
 });
