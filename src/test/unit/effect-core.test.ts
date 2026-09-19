@@ -302,6 +302,43 @@ describe("Effect 核心 API", () => {
     assert.equal(hapilonConfig.defaultModel, undefined);
   });
 
+  it("prepareStartupEffect：角色 pane 的任务列表落成 PI_TASKS，owner 与非 role 不注入", async () => {
+    // 测试进程自己可能在角色 pane 里跑（环境里带 HAPI_ORCH_ROLE）：先清干净
+    const savedRole = process.env.HAPI_ORCH_ROLE;
+    const savedTasks = process.env.PI_TASKS;
+    delete process.env.HAPI_ORCH_ROLE;
+    delete process.env.PI_TASKS;
+    try {
+      const tasksPath = join(tmpBase, "teams", "w1_p8.tasks.json");
+      const rolePlan = await Effect.runPromise(prepareStartupEffect([
+        "--print", "--team-role", "worker", "--team-tasks", tasksPath,
+      ]));
+      assert.equal(rolePlan.piEnv.HAPI_ORCH_ROLE, "worker");
+      assert.equal(rolePlan.piEnv.PI_TASKS, tasksPath);
+      assert.ok(!rolePlan.piArgs.includes("--team-tasks"), "--team-tasks 不得透传给 pi");
+
+      const ownerPlan = await Effect.runPromise(prepareStartupEffect(["--print"]));
+      assert.equal(ownerPlan.piEnv.HAPI_ORCH_ROLE, undefined);
+      assert.equal(ownerPlan.piEnv.PI_TASKS, undefined, "owner / 非 team pane 一律不注入任务列表");
+    } finally {
+      if (savedRole === undefined) delete process.env.HAPI_ORCH_ROLE;
+      else process.env.HAPI_ORCH_ROLE = savedRole;
+      if (savedTasks === undefined) delete process.env.PI_TASKS;
+      else process.env.PI_TASKS = savedTasks;
+    }
+  });
+
+  it("--team-tasks 必须是绝对路径，且与 --team-role 同用", async () => {
+    await assert.rejects(
+      () => Effect.runPromise(prepareStartupEffect(["--team-role", "worker", "--team-tasks", "rel.json"])),
+      (error: Error) => /绝对路径/.test(error.message),
+    );
+    await assert.rejects(
+      () => Effect.runPromise(prepareStartupEffect(["--team-tasks", "/tmp/x.tasks.json"])),
+      (error: Error) => /--team-role/.test(error.message),
+    );
+  });
+
   it("readHapilonMdEffect 读取失败走 ReadHapilonMdError Fail 通道", () => {
     const missing = join(tmpBase, "missing-HAPILON.md");
     const exit = Effect.runSyncExit(readHapilonMdEffect([missing]));

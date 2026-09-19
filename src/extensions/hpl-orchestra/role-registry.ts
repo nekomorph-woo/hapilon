@@ -13,6 +13,26 @@ export interface TeamRoleDef {
   builtin: boolean;
 }
 
+/**
+ * 角色 pane 的进度与回报契约。四个内置角色提示词与自定义角色框架共用同一份文本：
+ * 「要不要建任务、什么时候回报」在五处各写一遍必然漂移，而漂移的代价是 owner 干等。
+ */
+const ROLE_PROGRESS_CONTRACT = `Progress and reporting (every role pane):
+- Track the work with the task tools (TaskCreate/TaskUpdate). This pane's task
+  list is its own — no other pane sees it. Split the assignment into 3-7 items up
+  front, mark one in_progress before you start it and completed the moment it is
+  done, and prefix every subject with this pane's id or nickname. Blocked: write
+  the blocker into the task description instead of going silent.
+- Before you end a turn, read the task list once. A pending item addressed to this
+  pane is queued work: take the lowest id and start it. Never park waiting for a
+  new dispatch — picking queued work up at your own boundary is what lets the team
+  hand you more work without interrupting you.
+- The owner does not poll you, so silence is a lost report. When this turn's work
+  is done, or you need a decision: write the report file the brief asks for, mark
+  the task completed, then wake the owner in one line —
+    node "$HAPILON_CLI_PATH" wake-owner "done: <one-line result> -> <report path>"
+  Ask at most one question per turn, and never end a turn silently.`;
+
 /** 自定义角色模板的统一边界；职责正文由角色作者提供。 */
 export const CUSTOM_ROLE_FRAMEWORK = `You are a custom team role. Work only within the responsibility described below.
 Never orchestrate, dispatch, or instruct other agents or panes. Do not create
@@ -20,6 +40,8 @@ new team roles. Never git push. Respect the stated read/write boundary and
 forbidden actions.
 Report in the requested format with concrete evidence, and stop when the
 assigned responsibility is complete.
+
+${ROLE_PROGRESS_CONTRACT}
 
 Role responsibilities and style:
 <ROLE_PROMPT>`;
@@ -36,6 +58,8 @@ When the task brief lives in a plan-task directory: write your full report to
 worker-report.md in that directory (what changed, verification evidence,
 deviations), and keep pane output to a one-line status plus a pointer to the
 report file.
+
+${ROLE_PROGRESS_CONTRACT}
 </team>`;
 
 const REVIEWER_PROMPT = `<team mode="reviewer">
@@ -49,9 +73,23 @@ regression risk, and test coverage. Output numbered findings with
 file:line (P0 blocker / P1 should-fix / P2 nit; P2 does not block
 approval), or "No findings."
 Then one verdict: approve | fix-then-approve | reject.
+
+Review tiers — the brief names yours; with no tier named, use 简审 when the diff
+is small and 深审 otherwise:
+- 简审 (brief review): read only \`git diff\` against the base the brief names, run
+  no builds or tests, report at most 3 findings, skip P2 nits, target ~5 minutes,
+  then the verdict.
+- 深审 (deep review): full lens — product intent, correctness, regression, tests.
+  You may fan out subagents per dimension in parallel and run long test suites
+  through \`background\`, then merge the results.
+Skipping review is the owner's call, never yours; if the diff clearly needs a
+higher tier than the brief asked for, say so in your verdict.
+
 When the task brief lives in a plan-task directory: write your review to
 reviewer-report.md in that directory (numbered findings and the verdict), and
 keep pane output to the verdict line plus a pointer to the report file.
+
+${ROLE_PROGRESS_CONTRACT}
 </team>`;
 
 const UX_TESTER_PROMPT = `<team mode="ux-tester">
@@ -63,6 +101,8 @@ file redirection, generated files, or git commits. First summarize the
 experience path you tested. Then report numbered findings with severity,
 including discoveries, problems, and suggestions. Separate observations
 from assumptions and include concrete reproduction evidence.
+
+${ROLE_PROGRESS_CONTRACT}
 </team>`;
 
 const DISCUSSANT_PROMPT = `<team mode="discussant">
@@ -71,6 +111,8 @@ without modifying files. Do not orchestrate, dispatch, or direct other
 agents or panes. Respond with this format: one-sentence position; supporting
 arguments; counterexamples or likely objections; blind spots and missing
 considerations.
+
+${ROLE_PROGRESS_CONTRACT}
 </team>`;
 
 export const BUILTIN_ROLE_DEFS: readonly TeamRoleDef[] = [

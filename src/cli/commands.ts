@@ -143,6 +143,45 @@ export const COMMANDS: CommandDef[] = [
     },
   },
   {
+    name: "team-status",
+    description: "看本团队各角色 pane 的状态、任务队列与回执（只读，替掉逐 pane 轮询）",
+    usage: `${cliIdentity.cliName} team-status`,
+    handler: async (args) => {
+      const { runTeamStatusCommand } = await import("../extensions/hpl-orchestra/team-cli.js");
+      process.exitCode = runTeamStatusCommand(args.slice(1));
+    },
+  },
+  {
+    name: "team-enqueue",
+    description: "向某个角色 pane 自己的任务队列追加一条待办（不打断正在干活的 pane）",
+    usage: `${cliIdentity.cliName} team-enqueue <pane-id> <subject> [--brief <档案目录|task-brief.md>]`,
+    subcommands: [
+      {
+        name: "--brief <路径>",
+        description: "任务档案（回执目录）：写进任务 metadata.brief，供 team-status 定位回执",
+      },
+    ],
+    handler: async (args) => {
+      const { runTeamEnqueueCommand } = await import("../extensions/hpl-orchestra/team-cli.js");
+      process.exitCode = runTeamEnqueueCommand(args.slice(1));
+    },
+  },
+  {
+    name: "wake-owner",
+    description: "角色 pane 一轮结束/需要决策时主动通知 owner（退出码 0 已投递 / 2 无归属团队 / 3 投递失败）",
+    usage: `${cliIdentity.cliName} wake-owner [--message <一行>]`,
+    subcommands: [
+      {
+        name: "--message <一行>",
+        description: "给 owner 的一行结论（缺省「一轮结束」）",
+      },
+    ],
+    handler: async (args) => {
+      const { runWakeOwnerCommand } = await import("../extensions/hpl-orchestra/team-cli.js");
+      process.exitCode = runWakeOwnerCommand(args.slice(1));
+    },
+  },
+  {
     name: "help",
     description: "显示帮助信息",
     usage: `${cliIdentity.cliName} help [command]`,

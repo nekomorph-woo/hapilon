@@ -363,6 +363,20 @@ describe("config-io", () => {
       assert.deepStrictEqual(r.rest, []);
     });
 
+    it("--team-tasks 两种取值形式都剥离，不落给 pi", () => {
+      const spaced = takeTeamRoleFlags(["--team-role", "worker", "--team-tasks", "/tmp/teams/w1_p8.tasks.json"]);
+      assert.equal(spaced.tasks, "/tmp/teams/w1_p8.tasks.json");
+      assert.deepStrictEqual(spaced.rest, []);
+      const equals = takeTeamRoleFlags(["--team-tasks=/tmp/teams/w1_p8.tasks.json", "-p", "hi"]);
+      assert.equal(equals.tasks, "/tmp/teams/w1_p8.tasks.json");
+      assert.deepStrictEqual(equals.rest, ["-p", "hi"]);
+    });
+
+    it("--team-tasks 悬空同样报 dangling", () => {
+      const r = takeTeamRoleFlags(["--team-role", "worker", "--team-tasks"]);
+      assert.equal(r.dangling, "--team-tasks");
+    });
+
     it("无 flag 时原样保留", () => {
       const r = takeTeamRoleFlags(["--model", "m", "--team-rolex"]);
       assert.equal(r.role, undefined);

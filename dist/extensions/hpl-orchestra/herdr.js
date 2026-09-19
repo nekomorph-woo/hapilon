@@ -295,13 +295,16 @@ export function hapilonCliPath() {
     console.warn("[hpl-orchestra] HAPILON_CLI_PATH 未注入，降级用 argv[1]（可能不是 hapilon 入口）");
     return script;
 }
-export function buildPaneRunCommand(role, model, promptFile) {
+export function buildPaneRunCommand(role, model, promptFile, tasksPath) {
     const command = [process.execPath, shellArg(hapilonCliPath() ?? "UNKNOWN_HAPILON_CLI")];
     // role 随命令行走（hapilon 入口把 --team-role 转成 pi 子进程自身 env），
     // 不用 pane split --env：那会把 role 永久留进 pane shell，人工在该
     // shell 重启会被静默变回角色面板。
     if (role)
         command.push("--team-role", shellArg(role));
+    // 任务列表路径同理走命令行：每个角色 pane 一份自己的 pi-tasks 文件（PI_TASKS）。
+    if (role && tasksPath)
+        command.push("--team-tasks", shellArg(tasksPath));
     if (promptFile)
         command.push("--team-role-prompt-file", shellArg(promptFile));
     if (model)

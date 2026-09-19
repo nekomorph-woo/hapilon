@@ -94,6 +94,13 @@ export function teamsDir() {
 export function rolePromptPathFor(paneId) {
     return join(teamsDir(), `${paneId.replaceAll(":", "_")}.prompt`);
 }
+/**
+ * 角色 pane 自己的 pi-tasks 任务列表路径（pane id 派生，与 rolePromptPathFor 同款）。
+ * 一个 role 一份列表：不共享、不聚合，owner 想看得走 team-status。
+ */
+export function teamTasksPathFor(paneId) {
+    return join(teamsDir(), `${paneId.replaceAll(":", "_")}.tasks.json`);
+}
 /** 任务档案根目录；每任务一子目录，见 planTaskDirFor */
 const planTaskRoot = () => join(hapilonHome(), "plan-task");
 /** 单个任务的档案目录（task-brief.md + 回执）；slug 约定 YYYY-MM-DD-短横线小写 */

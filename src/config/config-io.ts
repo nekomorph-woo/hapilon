@@ -198,22 +198,25 @@ export function stripHapilonFlags(args: string[]): string[] {
 export interface TeamRoleFlags {
   role?: string;
   promptFile?: string;
+  /** 该角色 pane 自己的 pi-tasks 任务列表绝对路径（→ 子进程 PI_TASKS） */
+  tasks?: string;
   /** 有 flag 但没取到值（悬空在 argv 末尾）*/
   dangling?: string;
   rest: string[];
 }
 
 /**
- * 提取 --team-role / --team-role-prompt-file 并从参数中剥离。
+ * 提取 --team-role / --team-role-prompt-file / --team-tasks 并从参数中剥离。
  * role 身份只随命令行走：pane split --env 注入的变量会永久留在 pane shell
- * 里，之后人工在该 shell 重启会被静默变回角色面板。
+ * 里，之后人工在该 shell 重启会被静默变回角色面板。任务列表路径同理。
  */
 export function takeTeamRoleFlags(args: string[]): TeamRoleFlags {
   const rest: string[] = [];
   let role: string | undefined;
   let promptFile: string | undefined;
+  let tasks: string | undefined;
   let dangling: string | undefined;
-  const flags = ["--team-role", "--team-role-prompt-file"] as const;
+  const flags = ["--team-role", "--team-role-prompt-file", "--team-tasks"] as const;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const flag = flags.find((f) => arg === f || arg.startsWith(f + "="));
@@ -221,7 +224,7 @@ export function takeTeamRoleFlags(args: string[]): TeamRoleFlags {
       rest.push(arg);
       continue;
     }
-    const target = flag === "--team-role" ? "role" : "promptFile";
+    const target = flag === "--team-role" ? "role" : flag === "--team-tasks" ? "tasks" : "promptFile";
     let value: string | undefined;
     if (arg === flag) {
       value = args[i + 1];
@@ -234,7 +237,8 @@ export function takeTeamRoleFlags(args: string[]): TeamRoleFlags {
       value = arg.slice(flag.length + 1);
     }
     if (target === "role") role = value;
+    else if (target === "tasks") tasks = value;
     else promptFile = value;
   }
-  return { role, promptFile, dangling, rest };
+  return { role, promptFile, tasks, dangling, rest };
 }

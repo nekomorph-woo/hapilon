@@ -135,6 +135,14 @@ export function rolePromptPathFor(paneId: string): string {
   return join(teamsDir(), `${paneId.replaceAll(":", "_")}.prompt`);
 }
 
+/**
+ * 角色 pane 自己的 pi-tasks 任务列表路径（pane id 派生，与 rolePromptPathFor 同款）。
+ * 一个 role 一份列表：不共享、不聚合，owner 想看得走 team-status。
+ */
+export function teamTasksPathFor(paneId: string): string {
+  return join(teamsDir(), `${paneId.replaceAll(":", "_")}.tasks.json`);
+}
+
 /** 任务档案根目录；每任务一子目录，见 planTaskDirFor */
 const planTaskRoot = (): string => join(hapilonHome(), "plan-task");
 

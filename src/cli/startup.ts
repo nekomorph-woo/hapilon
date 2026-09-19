@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { Data, Effect } from "effect";
@@ -62,12 +62,20 @@ export const prepareStartupEffect = (args: string[]): Effect.Effect<PiLaunchPlan
 
   yield* migrateLegacyDefaultsEffect;
   const config = yield* readHapilonConfigEffect;
-  const { role: teamRole, promptFile: teamRolePromptFile, dangling, rest: withoutTeamFlags } = takeTeamRoleFlags(args);
+  const { role: teamRole, promptFile: teamRolePromptFile, tasks: teamTasks, dangling, rest: withoutTeamFlags } = takeTeamRoleFlags(args);
   if (dangling) {
     return yield* Effect.fail(new StartupError({ message: `${dangling} 缺少取值` }));
   }
   if (teamRolePromptFile && !teamRole) {
     return yield* Effect.fail(new StartupError({ message: "--team-role-prompt-file 需要与 --team-role 一起使用" }));
+  }
+  if (teamTasks && !teamRole) {
+    return yield* Effect.fail(new StartupError({ message: "--team-tasks 需要与 --team-role 一起使用" }));
+  }
+  // 任务列表只能是绝对路径：相对路径会被 pi-tasks 当成 ~/.pi/tasks 下的列表名，
+  // 静默写错地方比启动失败难查得多。
+  if (teamTasks && !isAbsolute(teamTasks)) {
+    return yield* Effect.fail(new StartupError({ message: `--team-tasks 必须是绝对路径：${teamTasks}` }));
   }
   // prompt 文件缺失时宁可启动失败：静默降级会把角色面板变成无提示的普通面板
   const teamRolePrompt = teamRolePromptFile
@@ -138,6 +146,9 @@ export const prepareStartupEffect = (args: string[]): Effect.Effect<PiLaunchPlan
     HAPILON_CLI_PATH: hapilonCliPath,
     // role 只注入 pi 子进程自身的 env（随进程生灭），不在 pane shell 留残留
     ...(teamRole ? { HAPI_ORCH_ROLE: teamRole } : {}),
+    // 角色 pane 的任务列表：每个 role 一份自己的（不共享），owner 与非 team pane 不注入。
+    // pi-tasks 在扩展工厂里捕获 PI_TASKS，所以只能在这里给。
+    ...(teamRole && teamTasks ? { PI_TASKS: teamTasks } : {}),
     ...(teamRolePrompt !== undefined
       ? { HAPI_ORCH_ROLE_PROMPT: teamRolePrompt, HAPI_ORCH_TRANSIENT_ROLE: "1" }
       : {}),

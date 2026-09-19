@@ -39,6 +39,7 @@ import {
   resolveSessionStatePath,
   rolePromptPathFor,
   teamStateError,
+  teamTasksPathFor,
   teamsDir,
   writeTeamStateEffect,
   type RoleEntry,
@@ -313,6 +314,7 @@ async function revivePane(instance: RoleInstance, roleKey: string, spawn: SpawnF
     roleKey,
     resolveRoleModel(instance.model ?? undefined),
     existsSync(promptFile) ? promptFile : undefined,
+    teamTasksPathFor(instance.paneId),
   );
   if (!Effect.runSync(paneRun(instance.paneId, command, spawn))) return false;
   return waitPaneReady(instance.paneId, spawn);
@@ -452,7 +454,7 @@ async function ensurePane(
   // 创建路径存的可能是具体 id（tier 改了不传播）或 tier:name[i] 指代；
   // 统一在 spawn 时解析，档位表变更后下次开面板即生效。
   const resolvedModel = resolveRoleModel(model);
-  const command = buildPaneRunCommand(role.key, resolvedModel, promptFile);
+  const command = buildPaneRunCommand(role.key, resolvedModel, promptFile, teamTasksPathFor(paneId));
   if (!Effect.runSync(paneRun(paneId, command, spawn))) {
     Effect.runSync(runPaneClose(paneId, spawn));
     removeRolePromptFile(paneId);
@@ -633,27 +635,27 @@ async function clearOne(
   spawn: SpawnFn,
   instancesOverride?: RoleInstance[],
   defs: readonly TeamRoleDef[] = getAllRoleDefs(),
-): Promise<boolean> {
+): Promise<ClearOutcome> {
   const state = await readEnabledState(ctx, defs);
   const instances = instancesOverride ?? (state ? findRoleEntry(state, key)?.instances ?? [] : []);
   const label = instances.some((instance) => instance.transient === true) ? "临时" : roleLabel(key, defs);
+  const fail = (line: string, type: "warning" | "error" = "warning"): ClearOutcome => {
+    notify(ctx, line, type);
+    return { ok: false, line };
+  };
   if (instances.length === 0) {
-    notify(ctx, `${label} 面板尚未打开。`, "warning");
-    return true;
+    return fail(`${label} 面板尚未打开。`);
   }
   for (const instance of instances) {
     const before = Effect.runSync(agentGet(instance.paneId, spawn));
     if (before === "working") {
-      notify(ctx, `${label} 正在工作中，等它完成后重试`, "warning");
-      return false;
+      return fail(`${label} 正在工作中，等它完成后重试`);
     }
     if (before === "blocked" || before === "unknown") {
-      notify(ctx, `${label} 状态为 ${before}，暂不清空。`, "warning");
-      return false;
+      return fail(`${label} 状态为 ${before}，暂不清空。`);
     }
     if (!Effect.runSync(agentSendKeys(instance.paneId, ["/", "n", "e", "w", "enter"], spawn))) {
-      notify(ctx, `${label} 清空失败，请检查 herdr。`, "error");
-      return false;
+      return fail(`${label} 清空失败，请检查 herdr。`, "error");
     }
     let after: AgentStatus = "unknown";
     for (let i = 0; i < 5; i++) {
@@ -662,12 +664,50 @@ async function clearOne(
       if (after === "idle" || after === "done") break;
     }
     if (after !== "idle" && after !== "done") {
-      notify(ctx, `${label} 清空已发送但未确认（当前状态 ${after}），请稍后检查。`, "warning");
-      return false;
+      return fail(`${label} 清空已发送但未确认（当前状态 ${after}），请稍后检查。`);
     }
   }
-  notify(ctx, `${label} 面板上下文已清空。`);
-  return true;
+  const line = `${label} 面板上下文已清空。`;
+  notify(ctx, line);
+  return { ok: true, line };
+}
+
+/** clearOne 的结果：ok 给调用方判断，line 给 owner 模型看（命令回执不进模型上下文）。 */
+export interface ClearOutcome {
+  ok: boolean;
+  line: string;
+}
+
+/**
+ * `/team:clear <key|paneId>`：无对话框清空指定角色的上下文（owner 唯一能走的清空入口）。
+ * 忙/blocked/unknown 的拒绝完全复用 clearOne，命令级拒绝替代「靠模型自觉」。
+ */
+async function clearRoleBySelector(
+  ctx: ExtensionCommandContext,
+  spawn: SpawnFn,
+  selector: string,
+  defs: readonly TeamRoleDef[],
+): Promise<ClearOutcome> {
+  const state = await readEnabledState(ctx, defs);
+  const roles = state?.roles ?? [];
+  const matches = roles
+    .flatMap((entry) => entry.instances.map((instance) => ({ entry, instance })))
+    .filter(({ entry, instance }) => entry.key === selector || instance.paneId === selector);
+  if (matches.length === 0) {
+    const line = `没有匹配 ${selector} 的角色面板。`;
+    notify(ctx, line, "warning");
+    return { ok: false, line };
+  }
+  const outcomes: ClearOutcome[] = [];
+  for (const entry of roles) {
+    const instances = matches
+      .filter((match) => match.entry.key === entry.key)
+      .map((match) => match.instance);
+    if (instances.length === 0) continue;
+    outcomes.push(await clearOne(ctx, entry.key, spawn, instances, defs));
+  }
+  const failed = outcomes.find((outcome) => !outcome.ok);
+  return failed ?? { ok: true, line: outcomes.map((outcome) => outcome.line).join("；") };
 }
 
 async function clearContexts(ctx: ExtensionCommandContext, spawn: SpawnFn): Promise<void> {
@@ -683,7 +723,7 @@ async function clearContexts(ctx: ExtensionCommandContext, spawn: SpawnFn): Prom
   if (!target) return;
   if (target === "都清") {
     for (const entry of activeRoles) {
-      if (!await clearOne(ctx, entry.key, spawn, entry.instances, defs)) return;
+      if (!(await clearOne(ctx, entry.key, spawn, entry.instances, defs)).ok) return;
     }
   } else {
     const entry = activeRoles.find((candidate) => entryLabel(candidate, defs) === target);
@@ -1104,7 +1144,7 @@ export async function handleTeamCommand(
   args: string,
   ctx: ExtensionCommandContext,
   spawn: SpawnFn = defaultSpawn,
-): Promise<void> {
+): Promise<ClearOutcome | undefined> {
   const defs = getAllRoleDefs();
   // 菜单侧与 prompt 侧同一条不变量（assemble.ts review-r3 N2）：HAPI_ORCH_ROLE 非空
   // 的面板永远是角色面板、只读——哪怕它的角色定义与状态都已不在，也不能退回主面板权限。
@@ -1130,6 +1170,11 @@ export async function handleTeamCommand(
   if (kickTarget) {
     await kickRoles(ctx, spawn, kickTarget[1], defs);
     return;
+  }
+  // 清空需要一个返回值：命令回执只进 UI，拒绝原因要能回到 owner 的上下文
+  const clearTarget = /^清空角色\s+(\S+)$/.exec(args.trim());
+  if (clearTarget) {
+    return clearRoleBySelector(ctx, spawn, clearTarget[1], defs);
   }
 
   const persisted = await readPersistedState(ctx, defs);

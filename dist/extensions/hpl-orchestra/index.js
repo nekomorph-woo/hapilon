@@ -46,6 +46,25 @@ export default function hplOrchestra(pi) {
             await handleTeamCommand(pi, `踢出角色 ${target}`, ctx);
         },
     });
+    pi.registerCommand("team:clear", {
+        description: "Clear a role pane's context, no dialogs (role key or pane id)",
+        handler: async (args, ctx) => {
+            if (!herdrEnvAvailable()) {
+                ctx.ui.notify("/team:clear 仅能在 herdr 面板环境中使用。", "error");
+                return;
+            }
+            const target = args.trim();
+            if (!target) {
+                ctx.ui.notify("用法：/team:clear <角色 key | pane id>", "error");
+                return;
+            }
+            const result = await handleTeamCommand(pi, `清空角色 ${target}`, ctx);
+            // 拒绝原因必须进模型上下文：命令回执只到 UI，owner 看不到自己刚被拒了
+            if (result && !result.ok) {
+                await pi.sendMessage({ customType: "team:clear-refused", content: `[team:clear ${target}] ${result.line}`, display: false }, { deliverAs: "nextTurn" });
+            }
+        },
+    });
     pi.on("before_agent_start", async (_event, ctx) => {
         // 每轮现读 env + 状态文件写入 bridge，供 hpl-system-prompt 组装消费；
         // 无模块缓存（jiti 每扩展独立实例，跨扩展必须走本进程内显式传递）。

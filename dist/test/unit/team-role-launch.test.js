@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { buildPaneRunCommand, paneSplitEnvArgs } from "../../extensions/hpl-orchestra/herdr.js";
-import { rolePromptPathFor } from "../../extensions/hpl-orchestra/state.js";
+import { rolePromptPathFor, teamTasksPathFor } from "../../extensions/hpl-orchestra/state.js";
 describe("team role 启动链路", () => {
     describe("buildPaneRunCommand()", () => {
         it("role 与 prompt 文件随命令行携带", () => {
@@ -18,6 +18,15 @@ describe("team role 启动链路", () => {
             const command = buildPaneRunCommand("worker");
             assert.match(command, /--team-role worker/);
             assert.ok(!command.includes("--team-role-prompt-file"));
+        });
+        it("任务列表路径随命令行携带（角色 pane 自己的 PI_TASKS）", () => {
+            const command = buildPaneRunCommand("worker", undefined, undefined, "/tmp/teams/w1_p8.tasks.json");
+            assert.match(command, /--team-tasks \/tmp\/teams\/w1_p8\.tasks\.json/);
+        });
+        it("无任务列表路径时不带 --team-tasks", () => {
+            assert.ok(!buildPaneRunCommand("worker").includes("--team-tasks"));
+            // 没有角色就没有任务列表：flag 不许单独出现
+            assert.ok(!buildPaneRunCommand("", undefined, undefined, "/tmp/x.tasks.json").includes("--team-tasks"));
         });
     });
     describe("paneSplitEnvArgs()", () => {
@@ -52,6 +61,12 @@ describe("team role 启动链路", () => {
         it("pane id 冒号转下划线，落在 teams 目录", () => {
             const path = rolePromptPathFor("w1:tJ:3");
             assert.match(path, /teams[/\\]w1_tJ_3\.prompt$/);
+        });
+    });
+    describe("teamTasksPathFor()", () => {
+        it("与 prompt 同款命名：pane id 冒号转下划线 + .tasks.json", () => {
+            const path = teamTasksPathFor("w1:tJ:3");
+            assert.match(path, /teams[/\\]w1_tJ_3\.tasks\.json$/);
         });
     });
 });

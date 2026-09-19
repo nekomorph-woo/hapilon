@@ -73,12 +73,16 @@ function makePi() {
     const commands = new Map();
     const events = new Map();
     const sent = [];
+    const sentCustom = [];
     const pi = {
         registerCommand: (name, definition) => commands.set(name, definition),
         on: (event, handler) => events.set(event, handler),
         sendUserMessage: (message) => sent.push(message),
+        sendMessage: async (message, options) => {
+            sentCustom.push({ content: message.content, ...(options?.deliverAs ? { deliverAs: options.deliverAs } : {}) });
+        },
     };
-    return { pi, commands, events, sent };
+    return { pi, commands, events, sent, sentCustom };
 }
 /**
  * mock herdr 输出。真实响应形状（herdr api schema，勿改字段名）：
@@ -451,7 +455,8 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         assert.ok(filled.includes("worker w1:p8"));
         assert.ok(filled.includes("reviewer not open"));
         const reviewerLine = filled.split("\n").find((line) => line.startsWith("- reviewer not open")) ?? "";
-        assert.ok(reviewerLine.includes("review necessity is your call"), reviewerLine);
+        assert.ok(reviewerLine.includes("pick the tier from the table"), reviewerLine);
+        assert.ok(reviewerLine.includes("Never skip review for a non-trivial change"), reviewerLine);
         assert.ok(reviewerLine.includes("/team:open reviewer"), reviewerLine);
         assert.ok(reviewerLine.includes("wait for it in the crew table"), reviewerLine);
         assert.equal(reviewerLine.includes("tell the user to open it via /team menu"), false);
@@ -459,7 +464,7 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         const dispatchLine = filled.split("\n").find((line) => line.includes("background(command=")) ?? "";
         assert.ok(dispatchLine.includes("herdr pane send-text <id>"), JSON.stringify(dispatchLine));
         assert.ok(dispatchLine.includes("herdr pane send-keys <id> enter"), JSON.stringify(dispatchLine));
-        assert.ok(dispatchLine.includes("hapi wait-pane <id>"), JSON.stringify(dispatchLine));
+        assert.ok(dispatchLine.includes('node "$HAPILON_CLI_PATH" wait-pane <id>'), JSON.stringify(dispatchLine));
         // 回归：herdr 的 wait --until idle 只看当前状态，pane 派发前本来就是 idle → 秒回
         assert.equal(dispatchLine.includes("herdr agent wait"), false, "不得再用 herdr agent wait 做派发等待");
         assert.ok(filled.includes("2. Dispatch"), "新任务的派发纪律标题保留");
@@ -575,7 +580,8 @@ describe("hpl-orchestra pane actions", { concurrency: false }, () => {
         // 身份不再经 split --env 注入（会永久留在 pane shell）；只允许配置类 HAPILON_HOME
         assert.ok(split.args.every((arg, i) => !(arg === "--env" && split.args[i + 1]?.startsWith("HAPI_ORCH"))), "split args must not carry HAPI_ORCH_* env");
         assert.equal(run.args[2], "w1:p8");
-        assert.match(run.args[3], /cli\.js --team-role worker --model anthropic\/claude-sonnet$/);
+        assert.match(run.args[3], /cli\.js --team-role worker --team-tasks \S+ --model anthropic\/claude-sonnet$/);
+        assert.ok(run.args[3].includes(`--team-tasks ${join(home, "teams", "w1_p8.tasks.json")}`), "任务列表必须是该 pane 自己的绝对路径");
         assert.ok(run.args[3].startsWith(process.execPath), "run command must use process.execPath, not bare node");
         const started = readTeamState(statePath());
         assert.equal(started.enabled, true);
@@ -622,6 +628,74 @@ describe("hpl-orchestra pane actions", { concurrency: false }, () => {
         await handleTeamCommand(makePi().pi, "清空面板上下文", idleCtx.ctx, idle.spawn);
         const clear = idle.calls.find((call) => call.args[1] === "send-keys");
         assert.deepEqual(clear?.args, ["pane", "send-keys", "w1:p8", "/", "n", "e", "w", "enter"]);
+    });
+    it("/team:clear 复用忙守卫：working 拒绝并回一行原因，idle 才清空", async () => {
+        saveState({
+            ...stateFor(),
+            roles: [
+                ...stateFor().roles,
+                { key: "reviewer", instances: [{ paneId: "w1:p9", model: "anthropic/opus" }] },
+            ],
+        });
+        const working = makeSpawn({ agentStatuses: ["working"] });
+        const refused = await handleTeamCommand(makePi().pi, "清空角色 w1:p8", makeContext().ctx, working.spawn);
+        assert.equal(refused?.ok, false);
+        assert.match(refused?.line ?? "", /正在工作中/);
+        assert.equal(working.calls.some((call) => call.args[1] === "send-keys"), false, "拒绝时不得按 /new");
+        const idle = makeSpawn({ paneId: "w1:p9", agentStatuses: ["idle", "done"] });
+        const cleared = await handleTeamCommand(makePi().pi, "清空角色 reviewer", makeContext().ctx, idle.spawn);
+        assert.equal(cleared?.ok, true);
+        const keys = idle.calls.find((call) => call.args[1] === "send-keys");
+        assert.deepEqual(keys?.args, ["pane", "send-keys", "w1:p9", "/", "n", "e", "w", "enter"]);
+    });
+    it("/team:clear 认不出目标时明说没有匹配，不动任何 pane", async () => {
+        saveState();
+        const { spawn, calls } = makeSpawn();
+        const result = await handleTeamCommand(makePi().pi, "清空角色 nope", makeContext().ctx, spawn);
+        assert.equal(result?.ok, false);
+        assert.match(result?.line ?? "", /没有匹配 nope/);
+        assert.equal(calls.some((call) => call.args[1] === "send-keys"), false);
+    });
+    it("/team:clear 在角色面板里同样被拒（只读）", async () => {
+        process.env.HAPI_ORCH_ROLE = "worker";
+        const mock = makePi();
+        hplOrchestra(mock.pi);
+        const ctx = makeContext();
+        await mock.commands.get("team:clear").handler("w1:p8", ctx.ctx);
+        assert.ok(ctx.notices.some(({ message, type }) => type === "error" && message.includes("拒绝写操作")));
+        assert.equal(mock.sentCustom.length, 0);
+        delete process.env.HAPI_ORCH_ROLE;
+    });
+    it("/team:clear 被拒时把原因投进 owner 的下一轮上下文", async () => {
+        saveState();
+        const binDir = mkdtempSync(join(tmpdir(), "hapilon-clear-herdr-"));
+        const bin = join(binDir, "herdr");
+        // 走注册命令 => 用 defaultSpawn，只能拿 HERDR_BIN_PATH 上的假 herdr 注入口
+        writeFileSync(bin, `#!/usr/bin/env node
+const [group, action, id] = process.argv.slice(2);
+if (group === "agent" && action === "get") {
+  process.stdout.write(JSON.stringify({ result: { agent: { agent_status: "working", pane_id: id } } }));
+} else {
+  process.stdout.write(JSON.stringify({ result: {} }));
+}
+`, { mode: 0o755 });
+        const previous = process.env.HERDR_BIN_PATH;
+        process.env.HERDR_BIN_PATH = bin;
+        try {
+            const mock = makePi();
+            hplOrchestra(mock.pi);
+            await mock.commands.get("team:clear").handler("w1:p8", makeContext().ctx);
+            assert.equal(mock.sentCustom.length, 1, JSON.stringify(mock.sentCustom));
+            assert.match(mock.sentCustom[0].content, /正在工作中/);
+            assert.equal(mock.sentCustom[0].deliverAs, "nextTurn");
+        }
+        finally {
+            if (previous === undefined)
+                delete process.env.HERDR_BIN_PATH;
+            else
+                process.env.HERDR_BIN_PATH = previous;
+            rmSync(binDir, { recursive: true, force: true });
+        }
     });
     it("reviewer 懒创建使用 opus 档", async () => {
         delete process.env.HAPI_ORCH_ROLE;
@@ -1107,7 +1181,7 @@ describe("hpl-orchestra system prompt exclusivity", { concurrency: false }, () =
         const dispatchLine = ORCHESTRATOR_SECTION.split("\n").find((line) => line.includes("background(command=")) ?? "";
         assert.ok(dispatchLine.includes("herdr pane send-text <id>"));
         assert.ok(dispatchLine.includes("herdr pane send-keys <id> enter"));
-        assert.ok(dispatchLine.includes("hapi wait-pane <id>"));
+        assert.ok(dispatchLine.includes('node "$HAPILON_CLI_PATH" wait-pane <id>'));
     });
     it("普通会话不注入兜底段，herdr 空状态保留 worker 占位行", async () => {
         const handler = promptHandler();
