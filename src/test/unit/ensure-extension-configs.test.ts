@@ -16,12 +16,39 @@ describe("ensureExtensionConfigs()", () => {
     rmSync(agentDir, { recursive: true, force: true });
   });
 
-  it("首次调用写入 tasks-config.json（autoCascade: true）", () => {
+  it("首次调用写入 tasks-config.json（autoCascade: true，taskScope: session-global）", () => {
     ensureExtensionConfigs(agentDir);
     const path = join(agentDir, "tasks-config.json");
     assert.ok(existsSync(path));
     const cfg = JSON.parse(readFileSync(path, "utf8"));
     assert.equal(cfg.autoCascade, true);
+    assert.equal(cfg.taskScope, "session-global", "任务文件落 agentDir，不进用户仓库");
+  });
+
+  it("存量安装：已有 tasks-config.json 缺失的默认键被补齐，且重复调用不重写", () => {
+    const fresh = join(agentDir, "tasks-backfill");
+    mkdirSync(fresh, { recursive: true });
+    const path = join(fresh, "tasks-config.json");
+    writeFileSync(path, JSON.stringify({ autoCascade: true }, null, 2));
+    ensureExtensionConfigs(fresh);
+    const cfg = JSON.parse(readFileSync(path, "utf8"));
+    assert.equal(cfg.taskScope, "session-global", "新增默认键落到存量文件");
+    assert.equal(cfg.autoCascade, true);
+    const afterFirst = readFileSync(path, "utf8");
+    ensureExtensionConfigs(fresh);
+    assert.equal(readFileSync(path, "utf8"), afterFirst, "键齐了就不再写");
+  });
+
+  it("补齐缺失键时不覆盖用户已设置的键", () => {
+    const fresh = join(agentDir, "tasks-backfill-keep");
+    mkdirSync(fresh, { recursive: true });
+    const path = join(fresh, "tasks-config.json");
+    writeFileSync(path, JSON.stringify({ taskScope: "project", autoCascade: false, maxVisible: 7 }, null, 2));
+    ensureExtensionConfigs(fresh);
+    const cfg = JSON.parse(readFileSync(path, "utf8"));
+    assert.equal(cfg.taskScope, "project", "用户显式选的 scope 不被默认值顶掉");
+    assert.equal(cfg.autoCascade, false);
+    assert.equal(cfg.maxVisible, 7);
   });
 
   it("首次调用写入 web-search.json（workflow: none：不弹 curator 浏览器）", () => {

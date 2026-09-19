@@ -10,11 +10,18 @@ import { ConfigWriteError } from "../config/config-io.js";
  * 身份预置（如 autoCascade——上游默认关是因为 pi 可能没装 pi-subagents，
  * 而 hapilon 捆绑了它，级联的联合体验才成立）。
  *
- * ensure 语义：目标文件**不存在时才写**；已存在（含用户手工编辑过的）
- * 一律不碰。上游默认值本身已成熟，hapilon 只写"捆绑发行方才知道"的少数几条。
+ * ensure 语义：目标文件不存在时写入 defaults；已存在时只补齐**缺失的顶层键**
+ * （存量安装靠这一步拿到后续新增的默认值），用户写过的键一律保留。
+ * 上游默认值本身已成熟，hapilon 只写"捆绑发行方才知道"的少数几条。
  */
-/** hapilon 预置的 pi-tasks 默认值（决策：级联默认开） */
-const TASKS_CONFIG_DEFAULTS = { autoCascade: true };
+/**
+ * hapilon 预置的 pi-tasks 默认值：
+ * - autoCascade 默认开：级联依赖 pi-subagents，上游默认关是因为 pi 可能没装它。
+ * - taskScope 用 session-global：上游默认 session 会把 tasks-<sessionId>.json
+ *   写进项目根 .pi/tasks/，那是运行时状态而非项目内容；session-global 让它落到
+ *   <agentDir>/tasks/sessions/<projectKey>/，用户仓库保持干净（上游原生配置，升级免疫）。
+ */
+const TASKS_CONFIG_DEFAULTS = { autoCascade: true, taskScope: "session-global" };
 /**
  * pi-subagents 无预置（决策：outputTranscript 保持上游默认 true，
  * 用户选择保留 transcript 以便复盘）。上游"missing file is silent"，
@@ -38,8 +45,8 @@ const MCP_CONFIG_DEFAULTS = { mcpServers: {} };
  */
 const ECON_CONFIG_DEFAULTS = { enabled: true, threshold: 8192, headLines: 40, tailLines: 20 };
 /**
- * 文件不存在时写入 defaults；存在时不碰（含解析失败——不覆盖用户数据）。
- * agentDir 不存在时创建（与 ensureQuietStartup 同模式）。
+ * 文件不存在时写入 defaults；存在时补齐缺失的顶层键，用户已设置的键与损坏
+ * 文件（解析失败）一律不碰。agentDir 不存在时创建（与 ensureQuietStartup 同模式）。
  */
 const ensureJsonConfigEffect = (agentDir, filename, defaults) => Effect.gen(function* () {
     if (!existsSync(agentDir)) {
@@ -49,12 +56,25 @@ const ensureJsonConfigEffect = (agentDir, filename, defaults) => Effect.gen(func
         });
     }
     const path = join(agentDir, filename);
-    if (existsSync(path))
-        return;
-    yield* Effect.try({
-        try: () => writeFileSync(path, JSON.stringify(defaults, null, 2) + "\n", "utf8"),
+    const write = (value) => Effect.try({
+        try: () => writeFileSync(path, JSON.stringify(value, null, 2) + "\n", "utf8"),
         catch: (err) => new ConfigWriteError({ message: err instanceof Error ? err.message : String(err) }),
     });
+    if (!existsSync(path))
+        return yield* write(defaults);
+    let existing;
+    try {
+        existing = JSON.parse(readFileSync(path, "utf8"));
+    }
+    catch {
+        return; // 损坏文件不碰：解析失败不覆盖用户数据
+    }
+    if (typeof existing !== "object" || existing === null || Array.isArray(existing))
+        return;
+    const record = existing;
+    if (Object.keys(defaults).every((key) => key in record))
+        return; // 幂等
+    yield* write({ ...defaults, ...record });
 });
 /**
  * hapilon 主题：仓库 resources/themes 直接当 pi 的主题目录用（settings.themes 通道）。
