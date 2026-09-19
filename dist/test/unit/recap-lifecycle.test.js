@@ -4,12 +4,13 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import hplRecap from "../../extensions/hpl-recap/index.js";
-function makeExtension() {
+function makeExtension(recapModel = { provider: "fast", id: "flash", name: "Flash", reasoning: false }, texts = ["已完成：当前状态正常；下一步继续验证。"]) {
     const handlers = new Map();
     const widgets = [];
+    const completeOptions = [];
     let completeCount = 0;
     let pending = false;
-    const model = { provider: "fast", id: "flash", name: "Flash", reasoning: false };
+    const model = recapModel;
     const ctx = {
         mode: "tui",
         hasUI: true,
@@ -26,9 +27,11 @@ function makeExtension() {
         },
         modelRegistry: {
             getAvailable: () => [model],
-            complete: async () => {
+            complete: async (_model, _context, opts) => {
+                const text = texts[completeCount] ?? texts.at(-1) ?? "";
                 completeCount++;
-                return { content: [{ type: "text", text: "已完成：当前状态正常；下一步继续验证。" }] };
+                completeOptions.push(opts);
+                return { content: [{ type: "text", text }] };
             },
         },
         setPending(value) {
@@ -38,7 +41,7 @@ function makeExtension() {
     hplRecap({
         on: ((event, handler) => handlers.set(event, handler)),
     });
-    return { ctx, handlers, widgets, getCompleteCount: () => completeCount };
+    return { ctx, handlers, widgets, getCompleteCount: () => completeCount, completeOptions };
 }
 function fire(test, event, payload = {}) {
     return test.handlers.get(event)?.(payload, test.ctx);
@@ -98,6 +101,67 @@ describe("hpl-recap session 生命周期", () => {
         fire(test, "session_start", { reason: "reload" });
         await wait(100);
         assert.equal(test.getCompleteCount(), 1);
+        fire(test, "session_shutdown", { reason: "quit" });
+    });
+    it("非推理 haiku：小预算快路径，不传任何推理开关", async () => {
+        const test = makeExtension();
+        fire(test, "session_start", { reason: "startup" });
+        fire(test, "message_end", { type: "message_end" });
+        await wait(100);
+        assert.equal(test.getCompleteCount(), 1);
+        const opts = test.completeOptions[0];
+        assert.equal(opts?.maxTokens, 256);
+        assert.equal("reasoningEffort" in (opts ?? {}), false);
+        assert.equal("reasoning" in (opts ?? {}), false, "已废的 reasoning:off 键不得再传");
+        fire(test, "session_shutdown", { reason: "quit" });
+    });
+    it("haiku 档是推理模型（如 glm-4.7）：同样 {maxTokens:256} 且不传任何推理开关", async () => {
+        const reasoningModel = { provider: "zai", id: "glm-4.7", name: "GLM", reasoning: true };
+        const resolvedPath = join(home, "model-tiers-resolved.json");
+        writeFileSync(resolvedPath, JSON.stringify({ opus: [], sonnet: [], haiku: [reasoningModel] }));
+        try {
+            const test = makeExtension(reasoningModel);
+            fire(test, "session_start", { reason: "startup" });
+            fire(test, "message_end", { type: "message_end" });
+            await wait(100);
+            assert.equal(test.getCompleteCount(), 1);
+            const opts = test.completeOptions[0];
+            assert.equal(opts?.maxTokens, 256, JSON.stringify(opts));
+            assert.equal("reasoningEffort" in (opts ?? {}), false, JSON.stringify(opts));
+            assert.equal("reasoning" in (opts ?? {}), false, JSON.stringify(opts));
+            fire(test, "session_shutdown", { reason: "quit" });
+        }
+        finally {
+            // 还原给其它用例的默认档位，断言失败也要还原
+            writeFileSync(resolvedPath, JSON.stringify({
+                opus: [],
+                sonnet: [],
+                haiku: [{ provider: "fast", id: "flash", name: "Flash", reasoning: false }],
+            }));
+        }
+    });
+    it("第一次 complete 空正文：以 4096 预算重试一次并展示重试结果", async () => {
+        const test = makeExtension(undefined, ["", "重试后拿到的正文。"]);
+        fire(test, "session_start", { reason: "startup" });
+        fire(test, "message_end", { type: "message_end" });
+        await wait(100);
+        assert.equal(test.getCompleteCount(), 2);
+        assert.equal(test.completeOptions[0]?.maxTokens, 256);
+        assert.equal(test.completeOptions[1]?.maxTokens, 4096);
+        const lines = test.widgets.at(-1)?.content ?? [];
+        assert.ok(lines.some((line) => line.includes("重试后拿到的正文。")), JSON.stringify(lines));
+        assert.equal(lines.some((line) => line.includes("模型未返回有效内容")), false);
+        fire(test, "session_shutdown", { reason: "quit" });
+    });
+    it("两次都空：只重试一次，走「模型未返回有效内容」failure widget", async () => {
+        const test = makeExtension(undefined, ["", ""]);
+        fire(test, "session_start", { reason: "startup" });
+        fire(test, "message_end", { type: "message_end" });
+        await wait(100);
+        assert.equal(test.getCompleteCount(), 2, "只重试一次，不做循环");
+        assert.equal(test.completeOptions[1]?.maxTokens, 4096);
+        const lines = test.widgets.at(-1)?.content ?? [];
+        assert.ok(lines.some((line) => line.includes("模型未返回有效内容")), JSON.stringify(lines));
         fire(test, "session_shutdown", { reason: "quit" });
     });
 });

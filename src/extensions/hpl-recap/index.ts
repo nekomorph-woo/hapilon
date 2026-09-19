@@ -49,6 +49,14 @@ function failureLines(ctx: ExtensionContext, reason: string): string[] {
   ];
 }
 
+/**
+ * recap 一律不传推理开关。`reasoningEffort` 是 openai-completions 家族专属键，且在
+ * glm-4.7 这类 supportsReasoningEffort:false 的模型上，该键的「有无」本身就是思考开关
+ * ——传 minimal 等于开思考，每次白烧数百 reasoning token；`reasoning` 键只在
+ * streamSimple 被读，complete() 路径根本不认。空正文与参数无关：旧参数
+ * （thinking:disabled + 256）下同样出现过，成因疑为服务端偶发、未定位，故防线是
+ * 正文为空时以 4096 预算重试一次（覆盖「思考关不掉又吃光小预算」的假想场景）。
+ */
 function runRecapEffect(
   ctx: ExtensionContext,
   config: RecapConfig,
@@ -67,18 +75,17 @@ function runRecapEffect(
     const messages = buildRecapMessages(entries, config.maxContextChars);
     if (messages.length === 0) return;
 
-    const response = yield* Effect.tryPromise({
-      try: () => ctx.modelRegistry.complete(choice.model!, {
-        systemPrompt: RECAP_SYSTEM_PROMPT,
-        messages,
-      }, {
-        signal: controller.signal,
-        reasoning: "off",
-        maxTokens: 256,
-      }),
-      catch: (error) => error,
-    });
-    const text = responseText(response);
+    const completeOnce = (maxTokens: number) =>
+      Effect.tryPromise({
+        try: () => ctx.modelRegistry.complete(choice.model!, {
+          systemPrompt: RECAP_SYSTEM_PROMPT,
+          messages,
+        }, { signal: controller.signal, maxTokens }),
+        catch: (error) => error,
+      });
+
+    let text = responseText(yield* completeOnce(256));
+    if (!text) text = responseText(yield* completeOnce(4096));
     if (!text) {
       ctx.ui.setWidget(WIDGET_KEY, failureLines(ctx, "模型未返回有效内容"));
       return;

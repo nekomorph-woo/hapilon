@@ -32,17 +32,6 @@ export function matchesModelPattern(pattern: string, model: RecapModelShape): bo
   return new RegExp(`${source}$`, "i").test(candidate);
 }
 
-function firstResolved<T extends RecapModelShape>(
-  refs: readonly RecapModelShape[],
-  available: readonly T[],
-): T | undefined {
-  for (const ref of refs) {
-    const model = available.find((candidate) => candidate.provider === ref.provider && candidate.id === ref.id);
-    if (model) return model;
-  }
-  return undefined;
-}
-
 function resolvedMidCandidates<T extends RecapModelShape>(
   refs: readonly RecapModelShape[],
   available: readonly T[],
@@ -59,7 +48,10 @@ export function selectRecapModel<T extends RecapModelShape>(
   currentModel: T | undefined,
   resolvedTiers: ResolvedTierModels,
 ): RecapModelChoice<T> {
-  const haiku = firstResolved(resolvedTiers.haiku, available);
+  // 与 sonnet 分支同款筛选：优先非推理候选（recap 是 200 字摘要，不值得付推理时延）。
+  // 档位全是推理模型时接受首个候选——空正文由调用侧升级重试兜底。
+  const haikuMatches = resolvedMidCandidates(resolvedTiers.haiku, available);
+  const haiku = haikuMatches.find((candidate) => candidate.reasoning === false)?.model ?? haikuMatches[0]?.model;
   if (haiku) return { model: haiku, degraded: false };
 
   const sonnetMatches = resolvedMidCandidates(resolvedTiers.sonnet, available);

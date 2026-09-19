@@ -10,6 +10,7 @@ import { readResolvedTiersEffect, type ResolvedTierModels } from "../../extensio
 const haiku: RecapModelShape = { provider: "fast", id: "flash", name: "Flash", reasoning: false };
 const reasoningMid: RecapModelShape = { provider: "work", id: "think", reasoning: true };
 const plainMid: RecapModelShape = { provider: "work", id: "plain", reasoning: false };
+const reasoningHaiku: RecapModelShape = { provider: "zai", id: "glm-4.7", name: "GLM", reasoning: true };
 const current: RecapModelShape = { provider: "current", id: "active", reasoning: true };
 const all = [haiku, reasoningMid, plainMid];
 const emptyTiers: ResolvedTierModels = { opus: [], sonnet: [], haiku: [] };
@@ -32,6 +33,26 @@ describe("hpl-recap 模型选择", () => {
   it("优先 resolved haiku 档匹配模型", () => {
     const result = selectRecapModel(all, current, { opus: [], sonnet: [reasoningMid], haiku: [haiku] });
     assert.equal(result.model, haiku);
+    assert.equal(result.degraded, false);
+  });
+
+  it("haiku 档混合时优先非推理候选（对抗 glm 类推理档占位）", () => {
+    const result = selectRecapModel([reasoningHaiku, haiku], current, {
+      opus: [],
+      sonnet: [],
+      haiku: [reasoningHaiku, haiku],
+    });
+    assert.equal(result.model, haiku);
+    assert.equal(result.degraded, false);
+  });
+
+  it("haiku 档全是推理模型时接受首个推理候选，不算降级", () => {
+    const result = selectRecapModel([reasoningHaiku], current, {
+      opus: [],
+      sonnet: [],
+      haiku: [reasoningHaiku],
+    });
+    assert.equal(result.model, reasoningHaiku);
     assert.equal(result.degraded, false);
   });
 
