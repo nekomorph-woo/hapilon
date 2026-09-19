@@ -188,6 +188,14 @@ describe("buildRoleCommitBoundarySection", () => {
         assert.ok(result.includes("never run `git commit`"), "明写禁止 commit");
         assert.ok(result.includes("refuse that step"), "错的任务书要拒绝该步");
     });
+    it("提交权归 team owner 或人类，与 owner 段的受限提交权一致", () => {
+        const text = ROLE_COMMIT_BOUNDARY_TEXT;
+        assert.ok(text.includes("Only the team owner or the human commits"), "点名提交权归属");
+        assert.ok(text.includes("the approved plan or the user asked for a commit"), "owner 提交以计划/用户许可为前提");
+        assert.ok(text.includes("never push"), "永不允许 push");
+        // 回归：旧文案「orchestrator or the human commits」与 owner 段的无提交权冲突
+        assert.equal(text.includes("orchestrator or the human commits"), false, "不再写自相矛盾的旧文案");
+    });
     it("正常路径: 常量正文无 < > & ，无转义需求", () => {
         assert.equal(buildRoleCommitBoundarySection(), buildRoleCommitBoundarySection());
         assert.doesNotMatch(ROLE_COMMIT_BOUNDARY_TEXT, /[<>&]/, "常量正文不含 XML 特殊字符");
@@ -662,6 +670,110 @@ describe("assembleSystemPrompt", () => {
         assert.ok(meta.sections.roleCommitBoundary > 0, "roleCommitBoundary 长度 > 0");
         assert.equal(meta.cwd, defaultOpts.cwd, "cwd 匹配");
         clearSpMeta();
+    });
+});
+// ── 写入目标授权边界与提交权的会话作用域 ────────────────────────────────
+/**
+ * 授权单位是「一个写入目标直到验收通过」，不是每次 pane turn；提交权只归 owner
+ * （且仅当计划含 commit）或人类。owner 段（roles.ts）是唯一事实源，以下断言走真实
+ * assembleSystemPrompt 接线，证明 owner 拿到受限提交权，普通会话与 worker/reviewer
+ * 角色都拿不到 owner 的派发闸门与提交权。
+ */
+describe("写入目标授权边界与提交权（真实 assemble）", () => {
+    const opts = {
+        toolSnippets: { read: "Read file contents" },
+        selectedTools: ["read"],
+        cwd: "/test/project",
+        hapilonMd: [],
+        hapilonRules: [],
+    };
+    const GATE_TITLE = "Write-target authorization boundary";
+    const OWNER_CAN_STAGE = "reviewed ranges explicitly by path";
+    let prevHerdr;
+    let prevRole;
+    before(() => {
+        prevHerdr = process.env.HERDR_ENV;
+        prevRole = process.env.HAPI_ORCH_ROLE;
+    });
+    after(() => {
+        if (prevHerdr === undefined)
+            delete process.env.HERDR_ENV;
+        else
+            process.env.HERDR_ENV = prevHerdr;
+        if (prevRole === undefined)
+            delete process.env.HAPI_ORCH_ROLE;
+        else
+            process.env.HAPI_ORCH_ROLE = prevRole;
+    });
+    /** 按会话形态真实组装：herdr 面板 + 角色 env，与运行时接线同路径。 */
+    function assembleAs(session) {
+        if (session === "plain") {
+            delete process.env.HERDR_ENV;
+            delete process.env.HAPI_ORCH_ROLE;
+        }
+        else {
+            process.env.HERDR_ENV = "1";
+            if (session === "owner")
+                delete process.env.HAPI_ORCH_ROLE;
+            else
+                process.env.HAPI_ORCH_ROLE = session;
+        }
+        return assembleSystemPrompt(opts);
+    }
+    it("普通会话: 不注入授权边界，也不注入 owner 的提交权", () => {
+        const result = assembleAs("plain");
+        assert.ok(!result.includes(GATE_TITLE), "无写入目标授权边界");
+        assert.ok(!result.includes("开始吗?"), "无显式放行询问");
+        assert.ok(!result.includes(OWNER_CAN_STAGE), "无 owner staging 权限");
+        assert.ok(!result.includes("待提交"), "无 owner 提交流程");
+    });
+    it("team owner: 授权以写入目标为单位，新目标与扩范围要问、只读与已批准链不问", () => {
+        const result = assembleAs("owner");
+        assert.ok(result.includes(GATE_TITLE), "含写入目标授权边界标题");
+        assert.ok(result.includes("A new write target"), "新写入目标先出 2-3 行计划");
+        assert.ok(result.includes('Re-ask "开始吗?" for a new write target'), "新目标与扩范围要重新问");
+        assert.ok(result.includes("a widened scope"), "范围扩张要重新问");
+        assert.ok(result.includes("new subsystem"), "新增子系统要重新问");
+        assert.ok(result.includes("re-design after a reviewer reject"), "reject 后重新设计要重新问");
+        assert.ok(result.includes("No fresh ask inside a target already approved"), "已批准目标内不重复问");
+        assert.ok(result.includes("read-only review, research"), "只读 review 与研究不需批准");
+        assert.ok(result.includes("an in-scope fix round after"), "原范围修复链不需批准");
+        assert.ok(result.includes("fix-then-approve and its re-review"), "原范围复审不需批准");
+        assert.ok(result.includes("re-running the same verification"), "同验证重跑不需批准");
+        assert.ok(result.includes("tests, builds and reports"), "测试/build/报告不需批准");
+        // 复审路由与原范围修复链同属已批准目标
+        assert.ok(result.includes("approved target, no new ask"), "fix-then-approve 不再算新任务");
+        assert.ok(result.includes("re-ask the user before any dispatch"), "reject 才回用户重新授权");
+    });
+    it("team owner: 计划含 commit 时可 staging + snap 本地提交，但不得直接编辑或 push", () => {
+        const result = assembleAs("owner");
+        assert.ok(result.includes("Commit boundary — you stage and commit, you never write:"));
+        assert.ok(result.includes(OWNER_CAN_STAGE), "可按已审范围显式 staging");
+        assert.ok(result.includes("local commit through the snap skill"), "本地提交走 snap");
+        assert.ok(result.includes("the approved plan or the user asked for a commit"), "仅计划含 commit 时才提交");
+        assert.ok(result.includes("report it as 待提交"), "计划无 commit 只汇报待提交");
+        assert.ok(result.includes("Never push"), "永不 push");
+        assert.ok(result.includes("no edit/write tools"), "owner 仍不得直接编辑项目文件");
+        assert.ok(result.includes("no shell redirection/heredocs/scripts into project files"), "不得用脚本写项目文件");
+        // 回归：初版绝对禁令「no git commits」正是与全局文案冲突的根因
+        assert.equal(result.includes("no git commits"), false, "绝对禁提交已退役");
+    });
+    it("team role(worker): 无提交权，读不到 owner 的授权边界与提交权", () => {
+        const result = assembleAs("worker");
+        assert.ok(result.includes('team mode="worker"'), "注入 worker 角色段");
+        assert.ok(result.includes("Never run git commit"), "worker 自身写明无提交权");
+        assert.ok(result.includes("Only the team owner or the human commits"), "全局提交边界一致");
+        assert.ok(!result.includes(GATE_TITLE), "不继承 owner 授权边界");
+        assert.ok(!result.includes("开始吗?"), "无 owner 放行询问");
+        assert.ok(!result.includes(OWNER_CAN_STAGE), "无 owner staging 权限");
+    });
+    it("team role(reviewer): 只读复审无提交权，同样不继承 owner 授权边界", () => {
+        const result = assembleAs("reviewer");
+        assert.ok(result.includes('team mode="reviewer"'), "注入 reviewer 角色段");
+        assert.ok(result.includes("READ-ONLY review"), "reviewer 只读");
+        assert.ok(result.includes("Never run git commit"), "reviewer 无提交权");
+        assert.ok(!result.includes(GATE_TITLE), "不继承 owner 授权边界");
+        assert.ok(!result.includes(OWNER_CAN_STAGE), "无 owner staging 权限");
     });
 });
 // ── assemble.ts: collectHapilonContext（真实文件系统接线） ────────────

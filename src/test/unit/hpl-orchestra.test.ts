@@ -563,6 +563,21 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
     assert.equal(filled.includes("unknown: do not send"), false);
   });
 
+  it("owner 授权以写入目标为单位，fix-then-approve 不再是新任务", () => {
+    const filled = fillOrchestratorSection([{ key: "worker", paneId: "w1:p8" }]);
+    assert.ok(filled.includes("Write-target authorization boundary — one approval per target, until it passes:"));
+    assert.ok(filled.includes('Re-ask "开始吗?" for a new write target'), "新写入目标仍要显式放行");
+    assert.ok(filled.includes("a widened scope"), "范围扩张仍要显式放行");
+    assert.ok(filled.includes("No fresh ask inside a target already approved"), "已批准链不问");
+    assert.ok(filled.includes("read-only review, research"), "只读 review 不问");
+    assert.ok(filled.includes("fix-then-approve and its re-review"), "原范围 fix 链不问");
+    assert.ok(filled.includes("approved target, no new ask"), "fix-then-approve 不再算新任务");
+    assert.ok(filled.includes("re-ask the user before any dispatch"), "reject 才回用户重新授权");
+    // 回归：绝对禁提交与全局「orchestrator commits」文案的冲突根因
+    assert.equal(filled.includes("Dispatch gate — no exceptions"), false, "旧派发闸门已退役");
+    assert.equal(filled.includes("no git commits"), false, "owner 绝对禁提交已退役");
+  });
+
   it("编排段带任务书落盘约定，每任务一目录且路径按 hapilonHome 运行时插值", () => {
     const filled = fillOrchestratorSection([{ key: "worker", paneId: "w1:p8" }]);
     assert.ok(

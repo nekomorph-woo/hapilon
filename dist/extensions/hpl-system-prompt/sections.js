@@ -154,12 +154,14 @@ Before any git commit, produce the message through the snap skill's process (/sk
  */
 export const DISPATCH_DISCIPLINE_TEXT = `**Dispatch discipline.** When orchestrating other agents or panes (pane orchestration exists only in team sessions; otherwise use subagents): for any planned or multi-step task, write the task brief as a draft and let the human refine it first. Human questions and design refinements are discussion input — never treat them as approval to execute. Dispatch only after the human explicitly approves the plan (READY / GO). When in doubt, present the plan and wait.`;
 /**
- * 角色提交边界：worker/reviewer 无提交权。
+ * 角色提交边界：worker/reviewer 无提交权，提交权只归 team owner 或人类。
  *
  * 明写「错的任务书要拒绝该步」——否则派发方写错指令时，执行方会照做，
- * 边界就只存在于 orchestrator 一侧。
+ * 边界就只存在于 orchestrator 一侧。owner 可否提交的条件在这里只写一句结论
+ * （计划含 commit 才可本地提交、永不 push），staging/snap/待提交 的执行细节
+ * 留在 hpl-orchestra/roles.ts 的 owner 段，避免同一份操作流程两处漂移。
  */
-export const ROLE_COMMIT_BOUNDARY_TEXT = `**Role commit boundary.** Orchestrated agents (worker / reviewer roles) never run \`git commit\`. They implement, review, and report — the orchestrator or the human commits. A task brief that tells a worker or reviewer to commit is itself in error: refuse that step, complete the rest, and say so in the report.`;
+export const ROLE_COMMIT_BOUNDARY_TEXT = `**Role commit boundary.** Orchestrated agents (worker / reviewer roles) never run \`git commit\`. They implement, review, and report. Only the team owner or the human commits — the owner only when the approved plan or the user asked for a commit, and never push. A task brief that tells a worker or reviewer to commit is itself in error: refuse that step, complete the rest, and say so in the report.`;
 /**
  * 工作流核心：探索先行 / 根因调试 / 交付验证 / 结论先行。
  *
