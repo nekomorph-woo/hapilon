@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { classifyWithLabel } from "../../extensions/hpl-safety-gate/classifier.js";
 import { checkSandboxWrite } from "../../extensions/hpl-safety-gate/sandbox-allow.js";
-import { GATE_AUTO_DEFAULTS, judgeCommand, readGateAutoConfig, } from "../../extensions/hpl-safety-gate/auto-judge.js";
+import { GATE_AUTO_DEFAULTS, judgeCommand, readGateAutoConfig, setGateAutoEnabled, } from "../../extensions/hpl-safety-gate/auto-judge.js";
 import gateExtension from "../../extensions/hpl-safety-gate/index.js";
 const REPLAY_FILE = "/tmp/safety-replay.jsonl";
 const SANDBOX_OPTS = { cwd: "/Volumes/Under_M2/morphiiouo/hapilon", home: "" };
@@ -26,26 +26,33 @@ const sandbox = (cmd) => checkSandboxWrite(cmd, { ...SANDBOX_OPTS, home: testHom
 /** 构造扩展实例与工具调用上下文；complete 可注入 mock */
 function setupExtension(options = {}) {
     const handlers = {};
+    const commands = {};
     const pi = {
         on: (event, handler) => {
             handlers[event] = handler;
         },
         registerFlag: (_name, _options) => { },
+        registerCommand: (name, options) => {
+            commands[name] = options.handler;
+        },
         getFlag: (name) => (name === "gate-auto" ? (options.flag ?? false) : undefined),
     };
     gateExtension(pi);
     // cwd 用无项目信任的临时目录：真实仓库的 .hapilon/config.local.json 有 git push* 信任，
     // 会抢在 Auto 之前短路 confirm 分支
+    const notices = [];
     const ctx = {
         hasUI: false,
         cwd: testHome,
+        ui: { notify: (message, type) => { notices.push({ message, type }); } },
         modelRegistry: {
             getAvailable: () => options.available ?? [FAKE_MODEL],
             complete: options.complete ?? (() => Promise.reject(new Error("测试不应调模型"))),
         },
     };
     const call = (command) => handlers["tool_call"]({ type: "tool_call", toolCallId: "t1", toolName: "bash", input: { command } }, ctx);
-    return { handlers, call };
+    const runCommand = (name, args) => commands[name](args, ctx);
+    return { handlers, commands, notices, call, runCommand };
 }
 const completeWith = (text) => () => Promise.resolve({ content: [{ type: "text", text }] });
 /** 审计文件读取（env HAPILON_HOME → <home>/agent/gate-auto.jsonl） */
@@ -374,6 +381,129 @@ describe("hpl-safety-gate auto", () => {
             finally {
                 rmSync(join(testHome, "agent", "settings.json"), { force: true });
             }
+        });
+    });
+    describe("/gate-auto-mode 命令", () => {
+        const settingsPath = () => join(testHome, "agent", "settings.json");
+        const readSettingsRaw = () => readFileSync(settingsPath(), "utf8");
+        const writeSettingsRaw = (value) => writeFileSync(settingsPath(), value, "utf8");
+        before(() => rmSync(settingsPath(), { force: true }));
+        after(() => rmSync(settingsPath(), { force: true }));
+        it("on：merge 写入只改 gateAuto.enabled，settings 其他键与 gateAuto 其他字段保留", async () => {
+            writeSettingsRaw(JSON.stringify({
+                quietStartup: true,
+                theme: "dark",
+                gateAuto: { enabled: false, timeoutMs: 1234, model: "tier:sonnet" },
+            }));
+            const { runCommand, notices } = setupExtension({ flag: false });
+            await runCommand("gate-auto-mode", "on");
+            const raw = readSettingsRaw();
+            assert.ok(raw.endsWith("\n"), "写入应补结尾换行");
+            assert.match(raw, /\n  "quietStartup"/, "写入应为 2 空格缩进");
+            assert.deepEqual(JSON.parse(raw), {
+                quietStartup: true,
+                theme: "dark",
+                gateAuto: { enabled: true, timeoutMs: 1234, model: "tier:sonnet" },
+            });
+            assert.match(notices.at(-1).message, /已开启/);
+            assert.equal(notices.at(-1).type, "info");
+        });
+        it("off：写回 false 且保留其余配置", async () => {
+            const { runCommand } = setupExtension({ flag: false });
+            await runCommand("gate-auto-mode", "off");
+            assert.deepEqual(JSON.parse(readSettingsRaw()), {
+                quietStartup: true,
+                theme: "dark",
+                gateAuto: { enabled: false, timeoutMs: 1234, model: "tier:sonnet" },
+            });
+        });
+        it("无 settings.json 时 on：新建文件只含 gateAuto.enabled", async () => {
+            rmSync(settingsPath(), { force: true });
+            const { runCommand } = setupExtension({ flag: false });
+            await runCommand("gate-auto-mode", "on");
+            assert.deepEqual(JSON.parse(readSettingsRaw()), { gateAuto: { enabled: true } });
+        });
+        it("on 后本会话立即生效：后续 confirm 命令不再回落硬阻止（且缓存已清）", async () => {
+            rmSync(settingsPath(), { force: true });
+            rmSync(auditPath(), { force: true });
+            let calls = 0;
+            const { call, runCommand } = setupExtension({
+                flag: false,
+                complete: () => {
+                    calls++;
+                    return Promise.resolve({ content: [{ type: "text", text: '{"verdict":"block","reason":"越界"}' }] });
+                },
+            });
+            // 开之前：Auto 未生效，confirm 级在无 UI 下硬阻止且不调模型
+            assert.ok((await call("git push origin main"))?.block);
+            assert.equal(calls, 0);
+            await runCommand("gate-auto-mode", "on");
+            assert.deepEqual(JSON.parse(readSettingsRaw()), { gateAuto: { enabled: true } });
+            // 开之后：进入模型层（说明内存开关生效）
+            const result = await call("git push origin main");
+            assert.ok(result?.block);
+            assert.equal(calls, 1);
+            assert.equal(readAudit().at(-1).outcome, "fallback-block");
+            // verdictCache 已清：off 后再 on，同命令仍重新调模型（而不是命中缓存）
+            await runCommand("gate-auto-mode", "off");
+            assert.ok((await call("git push origin main"))?.block);
+            assert.equal(calls, 1, "off 后 Auto 不生效，不调模型");
+            await runCommand("gate-auto-mode", "on");
+            await call("git push origin main");
+            assert.equal(calls, 2, "on 清空缓存后应重新调模型");
+        });
+        it("状态行：分别列出 settings 值、本会话实际生效值、模型/超时、缓存条数", async () => {
+            writeSettingsRaw(JSON.stringify({ gateAuto: { enabled: false, timeoutMs: 5000, model: "tier:haiku" } }));
+            const { call, runCommand, notices } = setupExtension({
+                flag: true, // flag 覆盖：settings 关闭但本会话生效
+                complete: completeWith('{"verdict":"allow","reason":"常规"}'),
+            });
+            await call("git push origin main");
+            await runCommand("gate-auto-mode", "");
+            const message = notices.at(-1).message;
+            assert.match(message, /settings\.json gateAuto\.enabled：关闭/);
+            assert.match(message, /本会话实际生效：开启（--gate-auto flag 强制开启）/);
+            assert.match(message, /判定模型：tier:haiku，超时 5000ms/);
+            assert.match(message, /会话判定缓存：1 条/);
+        });
+        it("非法参数：只回一行 usage，不写文件", async () => {
+            writeSettingsRaw(JSON.stringify({ gateAuto: { enabled: false } }));
+            const before = readSettingsRaw();
+            const { runCommand, notices } = setupExtension({ flag: false });
+            for (const bad of ["yes", "ON", "on extra"]) {
+                await runCommand("gate-auto-mode", bad);
+                assert.match(notices.at(-1).message, /^用法：\/gate-auto-mode \[on\|off\]/);
+                assert.equal(notices.at(-1).type, "error");
+            }
+            assert.equal(readSettingsRaw(), before);
+        });
+        it("settings.json 损坏：跳过写入、原文件不动，但本会话仍生效", async () => {
+            const broken = '{ "gateAuto": { enabled: tr';
+            writeSettingsRaw(broken);
+            const { call, runCommand, notices } = setupExtension({
+                flag: false,
+                complete: completeWith('{"verdict":"allow","reason":"常规"}'),
+            });
+            await runCommand("gate-auto-mode", "on");
+            assert.equal(readSettingsRaw(), broken, "解析失败绝不能清空用户配置");
+            assert.match(notices.at(-1).message, /仅本会话生效/);
+            assert.match(notices.at(-1).message, /settings\.json 写入失败/);
+            assert.equal(notices.at(-1).type, "warning");
+            // 内存已改：Auto 本会话生效
+            assert.equal(await call("git push origin main"), undefined);
+        });
+        it("顶层非对象：跳过写入、原文件不动", () => {
+            const arrayish = JSON.stringify([1, 2, 3]);
+            writeSettingsRaw(arrayish);
+            assert.equal(setGateAutoEnabled(true), false);
+            assert.equal(readSettingsRaw(), arrayish);
+        });
+        it("off 时 flag 仍强制开启：回执提示需重启会话", async () => {
+            rmSync(settingsPath(), { force: true });
+            const { runCommand, notices } = setupExtension({ flag: true });
+            await runCommand("gate-auto-mode", "off");
+            assert.match(notices.at(-1).message, /--gate-auto/);
+            assert.deepEqual(JSON.parse(readSettingsRaw()), { gateAuto: { enabled: false } });
         });
     });
 });

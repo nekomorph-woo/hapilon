@@ -11,8 +11,8 @@
  * - 判定结果 {verdict, reason} 走 Schema 校验，模型输出属不可信边界。
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { Data, Effect, Schema } from "effect";
 import { agentDir } from "../../config/hapilon-home.js";
 import { matchesModelPattern } from "../hpl-model-tiers/index.js";
@@ -85,6 +85,63 @@ export const readGateAutoConfigEffect: Effect.Effect<GateAutoConfig, never> = Ef
 
 export function readGateAutoConfig(): GateAutoConfig {
   return Effect.runSync(readGateAutoConfigEffect);
+}
+
+interface SettingsObject {
+  [key: string]: unknown;
+}
+
+const isSettingsObject = (value: unknown): value is SettingsObject =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** 读整个 settings.json；解析失败/非对象 → undefined，调用方据此放弃写入（绝不清空用户配置）。 */
+function readSettings(path: string): SettingsObject | undefined {
+  if (!existsSync(path)) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    console.warn(`[hpl-safety-gate] 无法读取 settings.json，跳过写入：${error instanceof Error ? error.message : String(error)}`);
+    return undefined;
+  }
+  if (!isSettingsObject(parsed)) {
+    console.warn("[hpl-safety-gate] settings.json 不是对象，跳过写入。");
+    return undefined;
+  }
+  return parsed;
+}
+
+function writeSettings(path: string, settings: SettingsObject): void {
+  const parent = dirname(path);
+  if (!existsSync(parent)) mkdirSync(parent, { recursive: true, mode: 0o700 });
+  writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+}
+
+/**
+ * 只改 settings.json 的 `gateAuto.enabled`，gateAuto 其余字段（model/timeoutMs）与
+ * settings 其他键一律保留。返回是否落盘成功：失败时调用方仍可只本会话生效。
+ */
+export const setGateAutoEnabledEffect = (enabled: boolean): Effect.Effect<boolean, never> => Effect.try({
+  try: () => {
+    const path = gateAutoSettingsPath();
+    const settings = readSettings(path);
+    if (!settings) return false;
+    const gateAuto = isSettingsObject(settings.gateAuto) ? settings.gateAuto : {};
+    gateAuto.enabled = enabled;
+    settings.gateAuto = gateAuto;
+    writeSettings(path, settings);
+    return true;
+  },
+  catch: (error) => error,
+}).pipe(
+  Effect.catchAll((error) => Effect.sync(() => {
+    console.warn(`[hpl-safety-gate] gateAuto 设置写入失败：${String(error)}`);
+    return false;
+  })),
+);
+
+export function setGateAutoEnabled(enabled: boolean): boolean {
+  return Effect.runSync(setGateAutoEnabledEffect(enabled));
 }
 
 // ─── typed errors ────────────────────────────────────────────────────

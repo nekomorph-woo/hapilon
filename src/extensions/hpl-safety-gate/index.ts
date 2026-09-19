@@ -22,6 +22,7 @@ import { checkSandboxWrite, type SandboxTarget } from "./sandbox-allow.js";
 import {
   judgeCommand,
   readGateAutoConfig,
+  setGateAutoEnabled,
   type AutoVerdict,
   type GateAutoConfig,
   type GateAutoError,
@@ -121,6 +122,50 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", () => {
     gateAutoConfig = readGateAutoConfig();
     verdictCache = new Map();
+  });
+
+  // ─── /gate-auto-mode：Auto 判定开关（无对话框三态） ─────────────────
+
+  const GATE_AUTO_MODE_USAGE = "用法：/gate-auto-mode [on|off]（不带参数查看状态）";
+
+  pi.registerCommand("gate-auto-mode", {
+    description: "查看/切换安全门 Auto 判定（写入 settings.json 的 gateAuto.enabled）",
+    handler: async (args, ctx) => {
+      const arg = args.trim();
+      if (gateAutoConfig === undefined) gateAutoConfig = readGateAutoConfig();
+
+      if (arg !== "" && arg !== "on" && arg !== "off") {
+        ctx.ui.notify(GATE_AUTO_MODE_USAGE, "error");
+        return;
+      }
+
+      if (arg === "") {
+        const settings = readGateAutoConfig();
+        const flag = pi.getFlag("gate-auto") === true;
+        ctx.ui.notify([
+          "安全门 Auto 判定",
+          `settings.json gateAuto.enabled：${settings.enabled ? "开启" : "关闭"}`,
+          `本会话实际生效：${gateAutoConfig.enabled || flag ? "开启" : "关闭"}${flag ? "（--gate-auto flag 强制开启）" : ""}`,
+          `判定模型：${gateAutoConfig.model}，超时 ${gateAutoConfig.timeoutMs}ms`,
+          `会话判定缓存：${verdictCache.size} 条`,
+        ].join("\n"), "info");
+        return;
+      }
+
+      // 先改内存：写盘失败也要本会话立即生效
+      const enabled = arg === "on";
+      gateAutoConfig.enabled = enabled;
+      verdictCache.clear();
+      const persisted = setGateAutoEnabled(enabled);
+      const flagOverride = !enabled && pi.getFlag("gate-auto") === true;
+      ctx.ui.notify([
+        `安全门 Auto 判定已${enabled ? "开启" : "关闭"}（本会话立即生效）。`,
+        persisted
+          ? `已写入 settings.json 的 gateAuto.enabled=${enabled}；其它已开 pane 要 /new 或重开会话才吃到新值。`
+          : "⚠️ settings.json 写入失败（原文件未动），仅本会话生效，持久化失败。",
+        ...(flagOverride ? ["注意：本会话以 --gate-auto 启动，flag 仍强制开启 Auto，需重启会话才能关闭。"] : []),
+      ].join("\n"), persisted ? "info" : "warning");
+    },
   });
 
   /** Auto 判定 + 审计；返回 true 表示已放行/已决，调用方直接返回；false 回落现状 */

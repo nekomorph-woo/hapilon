@@ -534,6 +534,7 @@ describe("hpl-safety-gate", () => {
         },
         // Auto 模式关闭态：无 flag、无 gateAuto 配置
         registerFlag: (_name: string, _options: unknown) => {},
+        registerCommand: (_name: string, _options: unknown) => {},
         getFlag: (_name: string) => false,
       };
       safetyGateExtension(pi as never);
@@ -588,6 +589,7 @@ describe("hpl-safety-gate", () => {
           if (name === "tool_call") handler = cb as typeof handler;
         },
         registerFlag: (_name: string, _options: unknown) => {},
+        registerCommand: (_name: string, _options: unknown) => {},
         getFlag: (_name: string) => false,
       };
       safetyGateExtension(pi as never);
