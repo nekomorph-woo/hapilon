@@ -4,13 +4,7 @@ import { Data, Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
 import { getAllRoleDefs, type TeamRoleDef } from "./role-registry.js";
 import { fillOrchestratorSection } from "./roles.js";
-import { herdrEnvAvailable, paneAgentAlive, paneGet } from "./herdr.js";
-
-/** crew 生成时的死 pane 过滤；herdr 不可用（测试/无 herdr 环境）时跳过过滤 */
-function paneAlive(paneId: string): boolean {
-  if (!herdrEnvAvailable()) return true;
-  return Effect.runSync(paneAgentAlive(paneId));
-}
+import { herdrEnvAvailable, panePresence, type PanePresence } from "./herdr.js";
 
 export type TeamRole = string;
 
@@ -329,15 +323,48 @@ export const buildTeamSectionsEffect = (): Effect.Effect<TeamSections, never> =>
       ...defs.map((roleDef) => roleDef.key),
       ...state.roles.map((entry) => entry.key).filter((key) => !defs.some((roleDef) => roleDef.key === key)),
     ];
+    // 每实例只探活一次：crew 过滤与剪枝判定共用结果。
+    // 代价：每个实例每轮一次同步 pane get（~10s 超时上限，正常 <50ms）；
+    // 实例数通常 ≤4，可接受。非 herdr 环境早已在函数入口返回。
+    const presenceCache = new Map<string, PanePresence>();
+    const presenceOf = (paneId: string): PanePresence => {
+      let presence = presenceCache.get(paneId);
+      if (!presence) {
+        presence = Effect.runSync(panePresence(paneId));
+        presenceCache.set(paneId, presence);
+      }
+      return presence;
+    };
+    // missing（herdr 明确报 pane 已关）→ 从花名册剪掉并持久化：orchestrator 不会再
+    // 往死 pane 派发，也免去每轮探活的重复报错。瞬时失败（herdr 不可用）与
+    // 「pane 在但 agent 死」保守保留原状。
+    const pruned: Array<{ key: string; paneId: string }> = [];
+    for (const entry of state.roles) {
+      entry.instances = entry.instances.filter((instance) => {
+        if (presenceOf(instance.paneId).status === "missing") {
+          pruned.push({ key: entry.key, paneId: instance.paneId });
+          return false;
+        }
+        return true;
+      });
+    }
+    if (pruned.length > 0) {
+      // 非注册表 key 的条目空了必须整条删：空实例过不了 isRoleEntry 校验，
+      // 整个状态会被读成「未启用」（registry 角色保留空条目，继续显示 not open 行）
+      state.roles = state.roles.filter((entry) => entry.instances.length > 0 || isTeamRole(entry.key, defs));
+      Effect.runSync(writeTeamStateEffect(state));
+      // 剪枝已持久化，下一轮不再看到该实例 → 本通知天然只发一次
+      console.warn(`[hpl-orchestra] ${
+        pruned.map(({ key, paneId }) => `${key} 的成员 pane ${paneId} 已关闭，自动移出 team`).join("；")
+      }`);
+    }
     const crew = keys.flatMap((key) => {
       const instances = stateRoles.get(key)?.instances ?? [];
       if (instances.length === 0) return [{ key, paneId: "not open" }];
       // 探活过滤：死 pane 不能进 crew——orchestrator 会按提示词往这些
-      // pane 派发，只会拿到 herdr 报错（review-r3 N7）。代价：每个实例
-      // 每轮一次同步 pane get（~10s 超时上限，正常 <50ms）；实例数通常
-      // ≤4，可接受。非 herdr 环境跳过（paneAlive 内有 guard）。
+      // pane 派发，只会拿到 herdr 报错（review-r3 N7）。
       return instances
-        .filter((instance) => paneAlive(instance.paneId))
+        .filter((instance) => presenceOf(instance.paneId).status === "alive")
         .map((instance) => ({ key, paneId: instance.paneId }));
     }).concat(
       // 全部实例已死的角色保留一行 not open，而不是从 crew 消失
@@ -345,7 +372,7 @@ export const buildTeamSectionsEffect = (): Effect.Effect<TeamSections, never> =>
         .filter((key) => {
           const instances = stateRoles.get(key)?.instances ?? [];
           return instances.length > 0
-            && instances.every((instance) => !paneAlive(instance.paneId));
+            && instances.every((instance) => presenceOf(instance.paneId).status !== "alive");
         })
         .map((key) => ({ key, paneId: "not open" })),
     );

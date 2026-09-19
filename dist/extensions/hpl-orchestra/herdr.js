@@ -33,7 +33,16 @@ function parseJson(text) {
         }
     }
 }
-function runJsonEffect(args, spawn = defaultSpawn) {
+function isHerdrNotFound(error) {
+    // herdr CLI 对不存在的 pane/agent 报 exit 1，stderr 是 {"error":{"code":"pane_not_found"}} 形 JSON
+    const parsed = parseJson(error instanceof Error ? error.message : String(error));
+    const code = parsed?.error?.code;
+    return code === "pane_not_found" || code === "agent_not_found";
+}
+function warnHerdrFailure(args, error) {
+    console.warn(`[hpl-orchestra] herdr ${args.join(" ")} 失败：${error instanceof Error ? error.message : String(error)}`);
+}
+function runJsonRaw(args, spawn) {
     return Effect.try({
         try: () => {
             const bin = process.env.HERDR_BIN_PATH ?? "herdr";
@@ -49,12 +58,9 @@ function runJsonEffect(args, spawn = defaultSpawn) {
             return parsed;
         },
         catch: (error) => error,
-    }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-        console.warn(`[hpl-orchestra] herdr ${args.join(" ")} 失败：${error instanceof Error ? error.message : String(error)}`);
-        return undefined;
-    })));
+    });
 }
-function runTextEffect(args, spawn = defaultSpawn, timeoutMs) {
+function runTextRaw(args, spawn, timeoutMs) {
     return Effect.try({
         try: () => {
             const bin = process.env.HERDR_BIN_PATH ?? "herdr";
@@ -67,10 +73,22 @@ function runTextEffect(args, spawn = defaultSpawn, timeoutMs) {
             return outputText(result.stdout);
         },
         catch: (error) => error,
-    }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-        console.warn(`[hpl-orchestra] herdr ${args.join(" ")} 失败：${error instanceof Error ? error.message : String(error)}`);
+    });
+}
+function runJsonEffect(args, spawn = defaultSpawn) {
+    return Effect.catchAll(runJsonRaw(args, spawn), (error) => Effect.sync(() => {
+        // pane/agent 消失是常态（orchestrator 直接 pane close / 用户动手），不是故障，不刷屏
+        if (!isHerdrNotFound(error))
+            warnHerdrFailure(args, error);
         return undefined;
-    })));
+    }));
+}
+function runTextEffect(args, spawn = defaultSpawn, timeoutMs) {
+    return Effect.catchAll(runTextRaw(args, spawn, timeoutMs), (error) => Effect.sync(() => {
+        if (!isHerdrNotFound(error))
+            warnHerdrFailure(args, error);
+        return undefined;
+    }));
 }
 function runCommandEffect(args, spawn = defaultSpawn, timeoutMs) {
     return Effect.map(runTextEffect(args, spawn, timeoutMs), (text) => text !== undefined);
@@ -96,18 +114,30 @@ function findRecord(value, predicate) {
     }
     return undefined;
 }
-export function paneGet(paneId, spawn = defaultSpawn) {
-    return Effect.map(runJsonEffect(["pane", "get", paneId], spawn), (raw) => {
-        const pane = findRecord(raw, (record) => typeof record.pane_id === "string")
-            ?? findRecord(raw, (record) => typeof record.id === "string" && ("status" in record || "state" in record));
-        if (!pane)
-            return undefined;
-        const id = typeof pane.pane_id === "string" ? pane.pane_id : String(pane.id);
-        const status = typeof pane.status === "string" ? pane.status : undefined;
-        const agent = typeof pane.agent === "string" ? pane.agent : undefined;
-        const label = typeof pane.label === "string" && pane.label.length > 0 ? pane.label : undefined;
-        return { paneId: id, status, ...(agent ? { agent } : {}), ...(label ? { label } : {}) };
+function parsePaneRecord(raw) {
+    const pane = findRecord(raw, (record) => typeof record.pane_id === "string")
+        ?? findRecord(raw, (record) => typeof record.id === "string" && ("status" in record || "state" in record));
+    if (!pane)
+        return undefined;
+    const id = typeof pane.pane_id === "string" ? pane.pane_id : String(pane.id);
+    const status = typeof pane.status === "string" ? pane.status : undefined;
+    const agent = typeof pane.agent === "string" ? pane.agent : undefined;
+    const label = typeof pane.label === "string" && pane.label.length > 0 ? pane.label : undefined;
+    return { paneId: id, status, ...(agent ? { agent } : {}), ...(label ? { label } : {}) };
+}
+function paneLookup(paneId, spawn) {
+    return Effect.matchEffect(runJsonRaw(["pane", "get", paneId], spawn), {
+        onSuccess: (raw) => Effect.succeed(parsePaneRecord(raw)),
+        onFailure: (error) => isHerdrNotFound(error)
+            ? Effect.succeed("missing")
+            : Effect.sync(() => {
+                warnHerdrFailure(["pane", "get", paneId], error);
+                return undefined;
+            }),
     });
+}
+export function paneGet(paneId, spawn = defaultSpawn) {
+    return Effect.map(paneLookup(paneId, spawn), (lookup) => (lookup === "missing" ? undefined : lookup));
 }
 /** 给 pane 打/换 herdr 标签（显示在 pane 边框上，用于分辨角色） */
 export function paneRename(paneId, label, spawn = defaultSpawn) {
@@ -137,19 +167,26 @@ export function paneForegroundBusy(paneId, spawn = defaultSpawn) {
         return pgid !== undefined && shellPid !== undefined && pgid !== shellPid;
     });
 }
+export function panePresence(paneId, spawn = defaultSpawn) {
+    return Effect.gen(function* () {
+        const lookup = yield* paneLookup(paneId, spawn);
+        if (lookup === "missing")
+            return { status: "missing" };
+        if (!lookup)
+            return { status: "unknown" };
+        if (lookup.agent !== undefined)
+            return { status: "alive", pane: lookup };
+        return (yield* paneForegroundBusy(paneId, spawn))
+            ? { status: "alive", pane: lookup }
+            : { status: "unknown" };
+    });
+}
 /**
  * 角色 pane 的存活判定：pane 在，且里面还有 agent。
  * 只看 pane 存不存在会把「pi 崩了、只剩 shell」误判为健康——主 agent 会照旧往空 shell 派发。
  */
 export function paneAgentAlive(paneId, spawn = defaultSpawn) {
-    return Effect.gen(function* () {
-        const pane = yield* paneGet(paneId, spawn);
-        if (!pane)
-            return false;
-        if (pane.agent !== undefined)
-            return true;
-        return yield* paneForegroundBusy(paneId, spawn);
-    });
+    return Effect.map(panePresence(paneId, spawn), (presence) => presence.status === "alive");
 }
 /** herdr api schema 的 AgentInfo 字段是 agent_status（无 status/state）；
  *  同时按 pane_id 匹配，防止 findRecord 命中嵌套的其它记录。 */

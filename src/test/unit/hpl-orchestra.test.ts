@@ -2,7 +2,7 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Effect } from "effect";
 import hplOrchestra from "../../extensions/hpl-orchestra/index.js";
 import { handleTeamCommand, buildTeamMenuOptions, resetProbeCache, updateTeamStatus, TEAM_NAME_HEADS, TEAM_NAME_TAILS } from "../../extensions/hpl-orchestra/menu.js";
@@ -22,6 +22,7 @@ import {
 import { resetTeamSections, setTeamSections } from "../../extensions/hpl-orchestra/bridge.js";
 import { buildTeamRoleSection, fillOrchestratorSection, ORCHESTRATOR_SECTION } from "../../extensions/hpl-orchestra/roles.js";
 import type { SpawnFn } from "../../extensions/hpl-orchestra/herdr.js";
+import { paneAgentAlive, paneGet, panePresence } from "../../extensions/hpl-orchestra/herdr.js";
 import hplSystemPrompt from "../../extensions/hpl-system-prompt/index.js";
 
 const originalEnv = {
@@ -115,8 +116,10 @@ function makeSpawn(options: {
   failReady?: boolean;
   /** pi 崩了、只剩 shell 的 pane：pane get 成功但无 agent，前台也不忙 */
   corpsePanes?: string[];
-  /** pane 已关闭 */
+  /** pane 已关闭（herdr 真实报错形态：exit 1 + stderr JSON，code=pane_not_found） */
   gonePanes?: string[];
+  /** herdr 整体不可用（瞬时错误，区别于 pane_not_found） */
+  herdrDown?: boolean;
   /** pane 的 herdr 标签（`herdr pane rename` 设的），键为 pane id */
   paneLabels?: Record<string, string>;
   /** `pane layout` 返回的各 pane 宽度（split 布局决策用）；缺省给 100 */
@@ -131,7 +134,14 @@ function makeSpawn(options: {
     calls.push({ bin, args });
     if (args[0] === "pane" && args[1] === "get") {
       const id = args[2];
-      if (options.failReady || gone.has(id)) return { status: 1, stderr: "pane gone" };
+      if (gone.has(id)) {
+        return {
+          status: 1,
+          stderr: JSON.stringify({ error: { code: "pane_not_found", message: `pane ${id} not found` } }),
+        };
+      }
+      if (options.herdrDown) return { status: 1, stderr: "herdr api unreachable" };
+      if (options.failReady) return { status: 1, stderr: "pane gone" };
       const label = options.paneLabels?.[id];
       const base = corpse.has(id) ? { pane_id: id } : { pane_id: id, agent: "pi" };
       return { status: 0, stdout: JSON.stringify({ result: { pane: { ...base, ...(label ? { label } : {}) } } }) };
@@ -299,6 +309,151 @@ describe("hpl-orchestra state", { concurrency: false }, () => {
     process.env.HAPI_ORCH_ROLE = "orchestrator";
     assert.equal(currentRole(), undefined);
     delete process.env.HAPI_ORCH_ROLE;
+  });
+});
+
+describe("hpl-orchestra 僵尸 pane 剪枝（pane_not_found）", { concurrency: false }, () => {
+  /** 直接注入 SpawnFn 的三态单元用例 */
+  const goneSpawn: SpawnFn = (_bin, args) => ({
+    status: 1,
+    stderr: JSON.stringify({ error: { code: "pane_not_found", message: `pane ${args[2]} not found` } }),
+  });
+  const downSpawn: SpawnFn = () => ({ status: 1, stderr: "herdr api unreachable" });
+
+  function captureWarn<T>(fn: () => T): { result: T; warnings: string[] } {
+    const warnings: string[] = [];
+    const original = console.warn;
+    console.warn = (message: string) => warnings.push(String(message));
+    try {
+      return { result: fn(), warnings };
+    } finally {
+      console.warn = original;
+    }
+  }
+
+  /** 假 herdr 二进制：GONE 里的 pane 回真实 pane_not_found JSON；down=true 模拟 herdr 整体不可用 */
+  function installFakeHerdr(gonePanes: string[], down = false): string {
+    const binDir = mkdtempSync(join(tmpdir(), "hapilon-prune-herdr-"));
+    writeFileSync(join(binDir, "herdr"), `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const gone = ${JSON.stringify(gonePanes)};
+const down = ${down ? "true" : "false"};
+const out = (value) => process.stdout.write(JSON.stringify(value));
+const [group, action, id] = args;
+if (group === "pane" && action === "get") {
+  if (down) { process.stderr.write("herdr api unreachable"); process.exit(1); }
+  if (gone.includes(id)) {
+    process.stderr.write(JSON.stringify({ error: { code: "pane_not_found", message: "pane " + id + " not found" } }));
+    process.exit(1);
+  }
+  out({ result: { pane: { pane_id: id, agent: "pi" } } });
+} else if (group === "pane" && action === "process-info") {
+  out({ result: { process_info: { shell_pid: 100, foreground_processes: [{ argv0: "pi", pid: 200 }] } } });
+} else {
+  out({ result: {} });
+}
+`, { mode: 0o755 });
+    return join(binDir, "herdr");
+  }
+
+  it("paneGet missing 静默返回 undefined 不 warn；瞬时错误仍告警", () => {
+    const gone = captureWarn(() => Effect.runSync(paneGet("w1:p8", goneSpawn)));
+    assert.equal(gone.result, undefined);
+    assert.equal(gone.warnings.length, 0, "pane 消失是常态，不得当故障刷屏");
+
+    const down = captureWarn(() => Effect.runSync(paneGet("w1:p8", downSpawn)));
+    assert.equal(down.result, undefined);
+    assert.equal(down.warnings.length, 1, "瞬时故障必须仍然可见");
+  });
+
+  it("panePresence 三态：missing 可与瞬时错误区分，两者都不算 alive", () => {
+    assert.deepEqual(Effect.runSync(panePresence("w1:p8", goneSpawn)), { status: "missing" });
+    assert.deepEqual(Effect.runSync(panePresence("w1:p8", downSpawn)), { status: "unknown" });
+    assert.equal(Effect.runSync(paneAgentAlive("w1:p8", goneSpawn)), false);
+    assert.equal(Effect.runSync(paneAgentAlive("w1:p8", downSpawn)), false);
+  });
+
+  it("探活发现 pane 已关：剪枝并持久化，通知只发一次，全死角色保留 not open 行", () => {
+    saveState({
+      ...stateFor(),
+      roles: [
+        { key: "worker", instances: [{ paneId: "w1:p8", model: "anthropic/sonnet" }] },
+        { key: "reviewer", instances: [{ paneId: "w1:p9", model: "anthropic/opus" }] },
+      ],
+    });
+    const bin = installFakeHerdr(["w1:p8"]);
+    process.env.HERDR_BIN_PATH = bin;
+    try {
+      const first = captureWarn(() => buildTeamSections());
+      assert.equal(first.warnings.length, 1, JSON.stringify(first.warnings));
+      assert.ok(
+        first.warnings[0]!.includes("worker 的成员 pane w1:p8 已关闭，自动移出 team"),
+        first.warnings[0],
+      );
+
+      const state = readTeamState(statePath()) as TeamState;
+      assert.equal(state.enabled, true);
+      assert.deepEqual(findRoleEntry(state, "worker")?.instances, [], "剪掉的实例不得再在盘上");
+      assert.deepEqual(findRoleEntry(state, "reviewer")?.instances, [{ paneId: "w1:p9", model: "anthropic/opus" }]);
+
+      const section = first.result.orchestrator ?? "";
+      assert.ok(section.includes("worker not open"), section.slice(0, 300));
+      assert.ok(section.includes("reviewer w1:p9"), section.slice(0, 300));
+
+      const second = captureWarn(() => buildTeamSections());
+      assert.equal(second.warnings.length, 0, "剪枝已持久化，通知必须只发一次");
+      assert.ok((second.result.orchestrator ?? "").includes("worker not open"));
+    } finally {
+      delete process.env.HERDR_BIN_PATH;
+      rmSync(dirname(bin), { recursive: true, force: true });
+    }
+  });
+
+  it("herdr 瞬时失败不剪枝（保守）：花名册原状保留，crew 回退 not open", () => {
+    saveState();
+    const bin = installFakeHerdr([], true);
+    process.env.HERDR_BIN_PATH = bin;
+    try {
+      const { result, warnings } = captureWarn(() => buildTeamSections());
+      assert.equal(
+        warnings.some((message) => message.includes("移出 team")),
+        false,
+        JSON.stringify(warnings),
+      );
+      assert.deepEqual(
+        (readTeamState(statePath()) as TeamState).roles,
+        stateFor().roles,
+        "瞬时失败不得动花名册",
+      );
+      assert.ok((result.orchestrator ?? "").includes("worker not open"));
+    } finally {
+      delete process.env.HERDR_BIN_PATH;
+      rmSync(dirname(bin), { recursive: true, force: true });
+    }
+  });
+
+  it("非注册表 key 全实例剪枝后整条删除，状态仍然可用", () => {
+    saveState({
+      ...stateFor(),
+      roles: [
+        { key: "worker", instances: [{ paneId: "w1:p8", model: "anthropic/sonnet" }] },
+        { key: "custom-x", instances: [{ paneId: "w1:p9", model: null }] },
+      ],
+    });
+    const bin = installFakeHerdr(["w1:p9"]);
+    process.env.HERDR_BIN_PATH = bin;
+    try {
+      const { result, warnings } = captureWarn(() => buildTeamSections());
+      assert.ok(warnings.some((message) => message.includes("custom-x 的成员 pane w1:p9 已关闭")), JSON.stringify(warnings));
+      const state = readTeamState(statePath()) as TeamState;
+      assert.equal(state.enabled, true, "整条删除后状态必须仍过校验");
+      assert.deepEqual(state.roles, [{ key: "worker", instances: [{ paneId: "w1:p8", model: "anthropic/sonnet" }] }]);
+      assert.ok((result.orchestrator ?? "").includes("worker w1:p8"));
+      assert.ok((result.orchestrator ?? "").includes("custom-x not open"));
+    } finally {
+      delete process.env.HERDR_BIN_PATH;
+      rmSync(dirname(bin), { recursive: true, force: true });
+    }
   });
 });
 
