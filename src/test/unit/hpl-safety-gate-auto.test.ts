@@ -416,7 +416,7 @@ describe("hpl-safety-gate auto", () => {
         flag: true,
         complete: () => new Promise(() => {}),
       });
-      // settings 未写 gateAuto → 默认 timeoutMs=3000；此用例显式走短超时配置
+      // settings 未写 gateAuto → 默认 timeoutMs=10000；此用例显式走短超时配置
       writeFileSync(
         join(testHome, "agent", "settings.json"),
         JSON.stringify({ gateAuto: { enabled: true, timeoutMs: 30 } }),

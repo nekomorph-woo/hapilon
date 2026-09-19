@@ -18,7 +18,7 @@ import { matchesModelPattern } from "../hpl-model-tiers/index.js";
 import { readResolvedTiersEffect } from "../hpl-model-tiers/resolved.js";
 export const GATE_AUTO_DEFAULTS = {
     enabled: false,
-    timeoutMs: 3000,
+    timeoutMs: 10000,
     model: "tier:haiku",
 };
 /** <HAPILON_HOME>/agent/settings.json 的 gateAuto 键，默认关闭 */

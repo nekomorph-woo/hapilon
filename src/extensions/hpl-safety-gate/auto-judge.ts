@@ -28,7 +28,7 @@ export interface GateAutoConfig {
 
 export const GATE_AUTO_DEFAULTS: GateAutoConfig = {
   enabled: false,
-  timeoutMs: 3000,
+  timeoutMs: 10000,
   model: "tier:haiku",
 };
 
