@@ -325,7 +325,9 @@ function planRoleSplit(state, spawn) {
 async function ensurePane(ctx, role, model, spawn, options = {}, defs = getAllRoleDefs()) {
     const state = await readPersistedState(ctx, defs);
     const recorded = state ? findRoleEntry(state, role.key)?.instances ?? [] : [];
-    if (role.singleton && state) {
+    // 复用/重灌只有两个入口：单例角色，或调用方显式要求（开始编排要保证恰有一个
+    // worker，而不是每点一次堆一个新面板）；/team:open 非单例角色永远追加。
+    if ((role.singleton || options.reuseExisting) && state) {
         for (const instance of recorded) {
             // 复用判定用直连探活：TTL 缓存会把「刚关闭的面板」误判为存活
             // 最多 10s，导致复用提示错误且新档位无法应用（review-r3 N3）
@@ -426,7 +428,7 @@ async function startOrchestration(ctx, spawn) {
     const defs = getAllRoleDefs();
     const previous = await readPersistedState(ctx, defs);
     const worker = getRoleDef("worker", defs);
-    const result = await ensurePane(ctx, worker, modelForTier(worker, worker.defaultTier, ownerProvider(ctx)), spawn, {}, defs);
+    const result = await ensurePane(ctx, worker, modelForTier(worker, worker.defaultTier, ownerProvider(ctx)), spawn, { reuseExisting: true }, defs);
     if (!result) {
         notify(ctx, "Worker 面板创建失败，请检查 herdr。", "error");
         return;
@@ -436,11 +438,15 @@ async function startOrchestration(ctx, spawn) {
         ...base,
         enabled: true,
         owner: ownerFor(ctx) ?? { paneId: ownerPane },
-        roles: await appendRoleInstance(base.roles, worker, {
-            paneId: result.paneId,
-            model: result.model,
-            ...(result.nickname ? { nickname: result.nickname } : {}),
-        }, spawn),
+        // 复用的实例已在花名册里：非单例 worker 若再 append 会登记出重复 paneId；
+        // 但状态仍要写——暂停 → 开始靠这一笔翻回 enabled:true。
+        roles: result.reused
+            ? base.roles
+            : await appendRoleInstance(base.roles, worker, {
+                paneId: result.paneId,
+                model: result.model,
+                ...(result.nickname ? { nickname: result.nickname } : {}),
+            }, spawn),
     };
     const saved = await writeOwnerState(next, spawn);
     notify(ctx, saved ? `编排已开始，Worker 面板：${result.paneId}` : "编排状态保存失败。", saved ? "info" : "error");

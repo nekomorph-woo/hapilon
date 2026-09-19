@@ -398,6 +398,52 @@ if (group === "pane" && action === "get") {
             rmSync(dirname(bin), { recursive: true, force: true });
         }
     });
+    it("双 worker 实例一死一活：剪死的留活的，不退 not open", () => {
+        saveState({
+            ...stateFor(),
+            roles: [{ key: "worker", instances: [
+                        { paneId: "w1:p8", model: "anthropic/sonnet" },
+                        { paneId: "w1:p10", model: "anthropic/sonnet" },
+                    ] }],
+        });
+        const bin = installFakeHerdr(["w1:p8"]);
+        process.env.HERDR_BIN_PATH = bin;
+        try {
+            const { result, warnings } = captureWarn(() => buildTeamSections());
+            assert.ok(warnings.some((message) => message.includes("worker 的成员 pane w1:p8 已关闭")), JSON.stringify(warnings));
+            assert.deepEqual(findRoleEntry(readTeamState(statePath()), "worker")?.instances, [{ paneId: "w1:p10", model: "anthropic/sonnet" }], "只剪死实例，活实例必须留在盘上");
+            const section = result.orchestrator ?? "";
+            assert.ok(section.includes("worker w1:p10"), section.slice(0, 300));
+            assert.equal(section.includes("worker not open"), false, "还有活实例就不得显示 not open");
+        }
+        finally {
+            delete process.env.HERDR_BIN_PATH;
+            rmSync(dirname(bin), { recursive: true, force: true });
+        }
+    });
+    it("双 worker 实例逐行进 crew，而不是折叠成一行", () => {
+        saveState({
+            ...stateFor(),
+            roles: [{ key: "worker", instances: [
+                        { paneId: "w1:p8", model: "anthropic/sonnet" },
+                        { paneId: "w1:p10", model: "anthropic/sonnet" },
+                    ] }],
+        });
+        const bin = installFakeHerdr([]);
+        process.env.HERDR_BIN_PATH = bin;
+        try {
+            const { result } = captureWarn(() => buildTeamSections());
+            const crew = (result.orchestrator ?? "").split("\n")
+                .filter((line) => line.startsWith("- worker w1:p"));
+            assert.equal(crew.length, 2, crew.join("\n"));
+            assert.ok(crew[0].startsWith("- worker w1:p8: "), crew[0]);
+            assert.ok(crew[1].startsWith("- worker w1:p10: "), crew[1]);
+        }
+        finally {
+            delete process.env.HERDR_BIN_PATH;
+            rmSync(dirname(bin), { recursive: true, force: true });
+        }
+    });
 });
 describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
     it("fillOrchestratorSection 替换真实 pane id，并保留未打开 reviewer 指引", () => {
@@ -650,17 +696,20 @@ describe("hpl-orchestra team 恢复与解散", { concurrency: false }, () => {
         mkdirSync(join(home, "teams"), { recursive: true });
         writeFileSync(otherPath(name), JSON.stringify(state, null, 2), "utf8");
     }
-    it("僵死 pane（pi 已崩、只剩 shell）原地重灌角色命令，不新建面板", async () => {
-        saveState();
+    it("僵死 pane（pi 已崩、只剩 shell）原地重灌角色命令，不新建面板（单例角色 reviewer；worker 已多例化走追加）", async () => {
+        saveState({
+            ...stateFor(),
+            roles: [{ key: "reviewer", instances: [{ paneId: "w1:p8", model: "anthropic/sonnet" }] }],
+        });
         const { spawn, calls } = makeSpawn({ corpsePanes: ["w1:p8"] });
         const ctx = makeContext();
-        await handleTeamCommand(makePi().pi, "打开角色 worker", ctx.ctx, spawn);
+        await handleTeamCommand(makePi().pi, "打开角色 reviewer", ctx.ctx, spawn);
         assert.equal(calls.some((call) => call.args[0] === "pane" && call.args[1] === "split"), false, "不应新建面板");
         const run = calls.find((call) => call.args[0] === "pane" && call.args[1] === "run");
         assert.equal(run?.args[2], "w1:p8");
         assert.ok(ctx.notices.some(({ message }) => message.includes("重灌")), JSON.stringify(ctx.notices));
         const state = readTeamState(statePath());
-        assert.deepEqual(findRoleEntry(state, "worker")?.instances, [
+        assert.deepEqual(findRoleEntry(state, "reviewer")?.instances, [
             { paneId: "w1:p8", model: "anthropic/sonnet", nickname: "阿岚" },
         ]);
     });
@@ -819,26 +868,29 @@ describe("hpl-orchestra team 恢复与解散", { concurrency: false }, () => {
         assert.equal(names.length, 2, JSON.stringify(names));
         assert.equal(new Set(names).size, 2, JSON.stringify(names));
     });
-    it("复用已开面板：用户改过的 pane 名不覆盖，空名才补标签", async () => {
-        saveState();
-        const named = makeSpawn({ paneLabels: { "w1:p8": "my-worker" } });
-        await handleTeamCommand(makePi().pi, "打开角色 worker", makeContext().ctx, named.spawn);
-        assert.equal(named.calls.some((call) => call.args[1] === "rename"), false, "不得覆盖手动改过的名字");
-        const unnamed = makeSpawn();
-        await handleTeamCommand(makePi().pi, "打开角色 worker", makeContext().ctx, unnamed.spawn);
-        assert.deepEqual(unnamed.calls.find((call) => call.args[1] === "rename")?.args, ["pane", "rename", "w1:p8", "阿岚 · worker · p8"]);
-        // 老状态没拟人名：复用时就补上并落盘，标签才稳定
-        const state = readTeamState(statePath());
-        assert.equal(findRoleEntry(state, "worker")?.instances[0].nickname, "阿岚");
-    });
-    it("僵死 pane 重灌时沿用拟人名补回标签", async () => {
+    it("复用已开面板：用户改过的 pane 名不覆盖，空名才补标签（单例角色 reviewer）", async () => {
         saveState({
             ...stateFor(),
-            roles: [{ key: "worker", instances: [{ paneId: "w1:p8", model: "anthropic/sonnet", nickname: "小满" }] }],
+            roles: [{ key: "reviewer", instances: [{ paneId: "w1:p8", model: "anthropic/opus" }] }],
+        });
+        const named = makeSpawn({ paneLabels: { "w1:p8": "my-review" } });
+        await handleTeamCommand(makePi().pi, "打开角色 reviewer", makeContext().ctx, named.spawn);
+        assert.equal(named.calls.some((call) => call.args[1] === "rename"), false, "不得覆盖手动改过的名字");
+        const unnamed = makeSpawn();
+        await handleTeamCommand(makePi().pi, "打开角色 reviewer", makeContext().ctx, unnamed.spawn);
+        assert.deepEqual(unnamed.calls.find((call) => call.args[1] === "rename")?.args, ["pane", "rename", "w1:p8", "阿岚 · reviewer · p8"]);
+        // 老状态没拟人名：复用时就补上并落盘，标签才稳定
+        const state = readTeamState(statePath());
+        assert.equal(findRoleEntry(state, "reviewer")?.instances[0].nickname, "阿岚");
+    });
+    it("僵死 pane 重灌时沿用拟人名补回标签（单例角色 reviewer）", async () => {
+        saveState({
+            ...stateFor(),
+            roles: [{ key: "reviewer", instances: [{ paneId: "w1:p8", model: "anthropic/opus", nickname: "小满" }] }],
         });
         const { spawn, calls } = makeSpawn({ corpsePanes: ["w1:p8"] });
-        await handleTeamCommand(makePi().pi, "打开角色 worker", makeContext().ctx, spawn);
-        assert.deepEqual(calls.find((call) => call.args[1] === "rename")?.args, ["pane", "rename", "w1:p8", "小满 · worker · p8"]);
+        await handleTeamCommand(makePi().pi, "打开角色 reviewer", makeContext().ctx, spawn);
+        assert.deepEqual(calls.find((call) => call.args[1] === "rename")?.args, ["pane", "rename", "w1:p8", "小满 · reviewer · p8"]);
     });
     it("split 布局：首块角色面板从 owner 右侧开，之后叠在右列下面", async () => {
         saveState({ ...stateFor(), roles: [] });
@@ -899,6 +951,58 @@ describe("hpl-orchestra team 恢复与解散", { concurrency: false }, () => {
         assert.ok(ctx.notices.some(({ message, type }) => type === "warning" && message.includes("团队状态文件不可用")), JSON.stringify(ctx.notices));
         rmSync(statePath(), { force: true });
         assert.equal(teamStateError(), undefined);
+    });
+});
+describe("hpl-orchestra worker 多例", { concurrency: false }, () => {
+    it("/team:open worker 追加第二实例而不是复用", async () => {
+        saveState();
+        const { spawn, calls } = makeSpawn({ paneId: "w1:p10", agentStatuses: ["idle"] });
+        const ctx = makeContext();
+        await handleTeamCommand(makePi().pi, "打开角色 worker", ctx.ctx, spawn);
+        assert.ok(calls.some((call) => call.args[0] === "pane" && call.args[1] === "split"), "非单例必须新开面板");
+        const state = readTeamState(statePath());
+        assert.deepEqual(findRoleEntry(state, "worker")?.instances.map((instance) => instance.paneId), ["w1:p8", "w1:p10"], "两个实例必须共存");
+        assert.ok(ctx.notices.some(({ message }) => message.includes("已打开：w1:p10")), JSON.stringify(ctx.notices));
+    });
+    it("多实例花名册昵称各不相同（first-unused）", async () => {
+        saveState({
+            ...stateFor(),
+            owner: { paneId: "w1:p7", nickname: "阿岚" },
+            roles: [{ key: "worker", instances: [
+                        { paneId: "w1:p8", model: "anthropic/sonnet", nickname: "阿澈" },
+                        { paneId: "w1:p10", model: "anthropic/sonnet", nickname: "小满" },
+                    ] }],
+        });
+        const { spawn } = makeSpawn({ paneId: "w1:p11", agentStatuses: ["idle"] });
+        await handleTeamCommand(makePi().pi, "打开角色 worker", makeContext().ctx, spawn);
+        const instances = findRoleEntry(readTeamState(statePath()), "worker").instances;
+        assert.equal(instances.length, 3);
+        assert.equal(instances[2].nickname, "小柚", JSON.stringify(instances));
+        assert.equal(new Set(instances.map((instance) => instance.nickname)).size, 3, "不得重名");
+    });
+    it("开始编排多 worker：复用首个活实例，花名册不追加重复项", async () => {
+        saveState({
+            ...stateFor(),
+            roles: [{ key: "worker", instances: [
+                        { paneId: "w1:p8", model: "anthropic/sonnet" },
+                        { paneId: "w1:p10", model: "anthropic/sonnet" },
+                    ] }],
+        });
+        const { spawn, calls } = makeSpawn({ agentStatuses: ["idle"] });
+        await handleTeamCommand(makePi().pi, "开始编排", makeContext(["开始编排"]).ctx, spawn);
+        assert.equal(calls.some((call) => call.args[1] === "split"), false, "已有活 worker 必须复用");
+        const state = readTeamState(statePath());
+        assert.deepEqual(findRoleEntry(state, "worker")?.instances.map((instance) => instance.paneId), ["w1:p8", "w1:p10"], "复用不得在花名册登记重复 paneId");
+    });
+    it("暂停后开始编排：复用活 worker 并翻回 enabled，不追加实例", async () => {
+        saveState();
+        await handleTeamCommand(makePi().pi, "暂停编排", makeContext().ctx, makeSpawn().spawn);
+        const { spawn, calls } = makeSpawn({ agentStatuses: ["idle"] });
+        await handleTeamCommand(makePi().pi, "开始编排", makeContext(["开始编排"]).ctx, spawn);
+        assert.equal(calls.some((call) => call.args[1] === "split"), false, "已有活 worker 必须复用");
+        const state = readTeamState(statePath());
+        assert.equal(state.enabled, true, "暂停 → 开始必须翻回 enabled");
+        assert.deepEqual(state.roles, [{ key: "worker", instances: [{ paneId: "w1:p8", model: "anthropic/sonnet" }] }]);
     });
 });
 describe("hpl-orchestra /team:open reviewer 自愈直达", { concurrency: false }, () => {

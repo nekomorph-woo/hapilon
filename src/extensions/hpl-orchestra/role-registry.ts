@@ -79,7 +79,8 @@ export const BUILTIN_ROLE_DEFS: readonly TeamRoleDef[] = [
     label: "Worker",
     promptTemplate: WORKER_PROMPT,
     defaultTier: "sonnet",
-    singleton: true,
+    // 可多开：/team:open worker 追加实例而非复用；开始编排仍保证恰好一个
+    singleton: false,
     builtin: true,
   },
   {
