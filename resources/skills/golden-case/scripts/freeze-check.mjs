@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // freeze-check —— case expect vs frozen 快照 diff，红牌报告（铁律 4：冻结后只有用户能改期望）。
-// 用法：node freeze-check.mjs --cases a.yaml,b.yaml --frozen frozen.md
+// 用法：node freeze-check.mjs --cases <yaml|目录>[,<yaml|目录>...] --frozen frozen.md
 // 红牌三类：case 缺失（含「为转绿偷改后删 case」）、期望键被删、期望值被改。命中即 exit 1。
 import { readFileSync } from 'node:fs';
 import { parseYaml, numEq } from './yaml-lite.mjs';
+import { loadCases } from './cases-source.mjs';
 
 function arg(name) {
   const i = process.argv.indexOf(`--${name}`);
@@ -18,15 +19,11 @@ function loadYaml(path, what) {
   return parseYaml(readFileSync(path, 'utf8'));
 }
 
-const casesPaths = arg('cases')?.split(',').map((s) => s.trim()).filter(Boolean) ?? [];
 const frozenPath = arg('frozen');
 const frozen = loadYaml(frozenPath, 'frozen').frozen ?? {};
 
-// 多个 case 文件合并；重复 id 视为后者覆盖（拆文件管理的场景）
-const cases = new Map();
-for (const p of casesPaths) {
-  for (const c of loadYaml(p, 'cases').cases ?? []) cases.set(c.id, c);
-}
+// 多个 case 来源合并；重复 id 后者覆盖（拆文件管理的场景）
+const cases = new Map(loadCases(arg('cases')).map((c) => [c.id, c]));
 
 const cards = [];
 for (const [id, snaps] of Object.entries(frozen)) {

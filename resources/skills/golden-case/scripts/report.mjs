@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // report —— 测试输出 → 按 CASE 聚合报告（首个失败观察点优先）。
-// 用法：node report.mjs --cases cases.yaml <junit-or-pytest-output.txt>...
+// 用法：node report.mjs --cases <yaml|目录> <junit-or-pytest-output.txt>...
 // 解析 v1：JUnit 控制台（Gradle 风格「Class > displayName STATE」+ 缩进失败详情）
 // 与 pytest 文本（verbose 行 + 短摘要行）。测试名里含锚 CASE-XXX:point 即认。
 import { readFileSync } from 'node:fs';
-import { parseYaml } from './yaml-lite.mjs';
+import { loadCases } from './cases-source.mjs';
 
 function arg(name) {
   const i = process.argv.indexOf(`--${name}`);
@@ -16,7 +16,7 @@ if (!casesPath) {
   console.error('report: 缺少 --cases');
   process.exit(2);
 }
-const caseList = parseYaml(readFileSync(casesPath, 'utf8')).cases ?? [];
+const caseList = loadCases(casesPath);
 const order = new Map(caseList.map((c, i) => [c.id, i]));
 
 // Gradle 风格：ClassName > displayName PASSED|FAILED|SKIPPED|ABORTED

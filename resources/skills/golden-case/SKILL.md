@@ -19,21 +19,25 @@ implementation agrees with itself.
 
 ## Layout
 
-Two locations, and the split is load-bearing (user-decided, follow it verbatim):
+One location: everything this skill owns lives under
+`<project>/.hapilon/go-case/` (user-decided, follow it verbatim):
 
-| Path | Contents | Owner / lifetime |
+| Path | Contents | Owner |
 |---|---|---|
-| `cases/cases.yaml`, `cases/frozen.md` | The case source and the golden snapshot. Versioned with the project. | **User** owns it. Never regenerate or reformat it. |
-| `<project>/.hapilon/go-case/` | Every artifact this skill produces: the review views (`*.html`), `runs.json`, `manifest.json`. Gitignored, disposable. | **AI**. Safe to delete and rebuild at any time. |
-| `<project>/.hapilon/go-case/runs-history.jsonl` | Every verification run appends one line here. Append-only, disposable. | **AI**. Never rewrite a past line; delete the file to start over. |
+| `<project>/.hapilon/go-case/cases.yaml` | The case source. When it spans several domains, split it into `<project>/.hapilon/go-case/cases/`, one `*.yaml` per domain; `--cases` takes the file or that directory. | **用户定义** |
+| `<project>/.hapilon/go-case/frozen.md` | The golden snapshot, written on confirmation in stage 3. | **用户定义** |
+| `<project>/.hapilon/go-case/manifest.json` | The map from a case to the adapter that implements it. | **用户定义** |
+| `<project>/.hapilon/go-case/` (`*.html`, `views/`) | The generated review views — regenerated from the case source, never hand-edited. | **用户定义** |
+| `<project>/.hapilon/go-case/runs.json` | The latest run's observed values (anchor → actual). | **用户定义** |
+| `<project>/.hapilon/go-case/runs-history/` | One `YYYY-MM.jsonl` per month, current month created on demand; append-only, never rewritten — one line per run. | **用户定义** |
 
-`<project>/.hapilon/go-case/manifest.json` is the map between the two — the
-skill's own bookkeeping (no script reads or writes it):
+`<project>/.hapilon/go-case/manifest.json` is the map between a case and its
+adapter — the skill's own bookkeeping (no script reads or writes it):
 
 ```json
 {
-  "cases": "cases/cases.yaml",
-  "frozen": "cases/frozen.md",
+  "cases": ".hapilon/go-case/cases.yaml",
+  "frozen": ".hapilon/go-case/frozen.md",
   "adapters": [
     { "case_id": "CASE-001A", "test_file": "src/test/java/shop/ShopGoldenCaseTest.java",
       "framework": "junit5", "command": "mvn test -Dtest=ShopGoldenCaseTest" },
@@ -50,10 +54,10 @@ skill's own bookkeeping (no script reads or writes it):
 
 **Iron rule: the tests that actually run live in the project's regular test
 directory** — JUnit under `src/test/java/…`, pytest under `tests/…` — and are
-versioned with the project. Never put an adapter in `.hapilon/`: `.hapilon/`
-holds views, run data, and the location mapping above, nothing executable.
-Recording `test_file` + `command` in `manifest.json` is how the mapping
-survives the file being somewhere normal and reviewable.
+versioned with the project. Never put an adapter in `.hapilon/`:
+`.hapilon/go-case/` holds the cases, views, run data and the location mapping —
+nothing executable. Recording `test_file` + `command` in `manifest.json` is how
+the mapping survives the file being somewhere normal and reviewable.
 
 ## The six iron laws
 
@@ -85,13 +89,19 @@ golden value.
 
 ### 1. Draft — from a requirement or a bug
 
-Write the cases into `cases/cases.yaml` in the schema of
+Write the cases into `.hapilon/go-case/cases.yaml` in the schema of
 `references/format.md`: one case per scenario, `given`/`when`/`then` in plain
 language plus the structured `observe` + `expect`, and — for every case — a
 `description`, a `business` category, a `type`, a `priority`, a
 `verification_level`, structured `verification_points` (whose `name` / `target`
 carry the plain-language labels) and a `units` map, so a non-author can read the
 view without ever meeting a machine name.
+
+Reuse before inventing: read the `business` values and `tags` already in the case
+set first and reuse them — a synonym for a category that exists (「付款」 beside
+「支付」) splits the filter tree and is never allowed. A new `business` / `tag`
+is only for a genuinely new capability area, and when you show the draft you say
+so out loud — "created the category / tag X" is the user's call, not yours.
 
 Run the four-eye self-check on every draft before showing it:
 
@@ -115,13 +125,13 @@ which values you are guessing at. The user answers with corrections, not you.
 Generate both faces into `.hapilon/go-case/`:
 
 ```
-node <skill>/scripts/explorer.mjs --cases cases/cases.yaml \
+node <skill>/scripts/explorer.mjs --cases .hapilon/go-case/cases.yaml \
      --title "<project>" --out .hapilon/go-case/case-explorer.html
 
-node <skill>/scripts/gen-view.mjs --cases cases/cases.yaml --style manager \
+node <skill>/scripts/gen-view.mjs --cases .hapilon/go-case/cases.yaml --style manager \
      --out .hapilon/go-case/views/manager.html
-# add  --frozen cases/frozen.md  and  --runs .hapilon/go-case/runs.json
-# to both once a frozen snapshot and a run exist
+# add  --frozen .hapilon/go-case/frozen.md ,  --runs .hapilon/go-case/runs.json ,  and
+# --history .hapilon/go-case/runs-history  to the explorer once they exist
 ```
 
 The explorer is the working review surface (Card/List, filters, Drawer, notes,
@@ -142,7 +152,7 @@ frozen case goes through stage 3's rules, not straight into the file.
 ### 3. Freeze — the user confirms, the snapshot is written
 
 Only on the user's explicit confirmation, write the frozen values into
-`cases/frozen.md` (format in `references/format.md`). From then on, the
+`.hapilon/go-case/frozen.md` (format in `references/format.md`). From then on, the
 implementation, refactors, logging and tests may change freely, but an Expected
 value only changes through a **new case version plus a fresh human
 confirmation** — record it in `changes` (`{v, when, what, scope}`), bump
@@ -151,7 +161,7 @@ confirmation** — record it in `changes` (`{v, when, what, scope}`), bump
 Gate every later edit:
 
 ```
-node <skill>/scripts/freeze-check.mjs --cases cases/cases.yaml --frozen cases/frozen.md
+node <skill>/scripts/freeze-check.mjs --cases .hapilon/go-case/cases.yaml --frozen .hapilon/go-case/frozen.md
 ```
 
 It red-cards a changed value, a deleted expectation key, and a frozen case that
@@ -189,8 +199,8 @@ and the run result.
 ### 5. Report / audit
 
 ```
-node <skill>/scripts/report.mjs --cases cases/cases.yaml <test-output.txt> ...
-node <skill>/scripts/audit.mjs  --cases cases/cases.yaml --tests src/test/java,tests
+node <skill>/scripts/report.mjs --cases .hapilon/go-case/cases.yaml <test-output.txt> ...
+node <skill>/scripts/audit.mjs  --cases .hapilon/go-case/cases.yaml --tests src/test/java,tests
 ```
 
 `report.mjs` parses the console output of a Gradle/JUnit or pytest run, groups
@@ -204,11 +214,13 @@ golden value written into it — law 2 drift).
 Report what the audit found even when the answer is uncomfortable: an unowned
 case is an unimplemented specification, not a rounding error.
 
-The run ledger: after the suite has run and `runs.json` is written, append one
-line to `.hapilon/go-case/runs-history.jsonl` —
-`{when, cases: {CASE-id: verdict}, first_fail: {CASE-id: VP-id}}`. It is not a
-view input (`explorer.mjs` still reads `runs.json`); it is the history of what
-ran, and when.
+The run ledger: append this run to
+`.hapilon/go-case/runs-history/YYYY-MM.jsonl` (current month, created on demand)
+**before** overwriting `runs.json` — the invariant is that the last line agrees
+with the `runs.json` you just wrote. One line per run:
+`{when, cases: {CASE-id: verdict}, first_fail: {CASE-id: VP-id}}`. It is
+append-only, never rewritten; `explorer.mjs --history <dir>` renders it as the
+Drawer's HISTORY tab, but the verdicts still come from `runs.json`.
 
 ## Scripts
 
@@ -219,6 +231,7 @@ hapilon repo, the skills directory when installed).
 | Script | Purpose |
 |---|---|
 | `scripts/yaml-lite.mjs` | Library, not a CLI. The case-file YAML subset parser plus `numEq` / `isUndecidable` / `isDecimal`, shared by the others. |
+| `scripts/cases-source.mjs` | Library, not a CLI. Resolves `--cases` (single file, a directory of `*.yaml` merged in filename order, or a comma-separated list); parsing still belongs to `yaml-lite.mjs`. |
 | `scripts/gen-view.mjs` | Static review views, one file per style. |
 | `scripts/explorer.mjs` | The interactive explorer: one self-contained HTML, data and client code inlined. |
 | `scripts/freeze-check.mjs` | Expected-vs-frozen diff. |
@@ -226,22 +239,30 @@ hapilon repo, the skills directory when installed).
 | `scripts/report.mjs` | Test output → per-case report. |
 
 ```
-gen-view.mjs     --cases <yaml> [--frozen <md>] [--title <h1>] [--out <html>]
+gen-view.mjs     --cases <yaml|dir> [--frozen <md>] [--title <h1>] [--out <html>]
                  [--style workbench|ledger|dossier|narrative|index|manager]
                  [--runs <json>] [--variants <dir>]
                  # --layout is a legacy alias of --style; default style manager;
                  # --out is required unless --variants is given, and --variants
                  # writes manager/index/dossier in one pass
 
-explorer.mjs     --cases <yaml> --out <html> [--frozen <md>] [--runs <json>]
-                 [--title <name>]          # --cases and --out are required
+explorer.mjs     --cases <yaml|dir> --out <html> [--frozen <md>] [--runs <json>]
+                 [--history <dir|file>] [--title <name>] [--subtitle <text>]
+                 [--business <name>]
+                 # --cases and --out are required; --history takes the
+                 # runs-history/ directory, or a legacy single .jsonl file;
+                 # --business renders only that business's cases (name the
+                 # --out file after it); --subtitle defaults to 本地只读审阅面
 
-freeze-check.mjs --cases <yaml>[,<yaml>...] --frozen <md>
+freeze-check.mjs --cases <yaml|dir>[,<yaml|dir>...] --frozen <md>
 
-audit.mjs        --cases <yaml> --tests <dir|file>[,<dir|file>...]
+audit.mjs        --cases <yaml|dir> --tests <dir|file>[,<dir|file>...]
 
-report.mjs       --cases <yaml> <test-output.txt> [...]
+report.mjs       --cases <yaml|dir> <test-output.txt> [...]
 ```
+
+`--cases` on every script accepts one `.yaml`, a directory (all `*.yaml`
+merged in filename order, later ids winning), or a comma-separated list.
 
 Exit codes: `explorer.mjs` and `gen-view.mjs` exit 2 on a missing required
 argument; `freeze-check.mjs` exits 1 on any red card (2 on missing arguments);
@@ -270,6 +291,7 @@ before writing or editing a case; do not invent keys.
   user, not written as facts.
 - **Renumbering cases.** `CASE-003` keeps that id forever; anchors, test names
   and reports are keyed on it.
-- **Versioning artifacts.** Views, `runs.json`, `manifest.json` are disposable
-  and gitignored; `cases/cases.yaml` and `cases/frozen.md` are the only files
-  here that belong in the repo.
+- **Committing the skill's directory.** Everything this skill owns sits under
+  `.hapilon/go-case/` (`.hapilon/` is local, not part of the repo tree): cases,
+  snapshot, manifest, views and run data alike. The only versioned part is the
+  executable adapters, and those live in the project's real test directory.

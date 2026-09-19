@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // audit —— 覆盖审计：测试代码里的 CASE 锚 ↔ case 集对账。
-// 用法：node audit.mjs --cases cases.yaml --tests <dir|file>...
+// 用法：node audit.mjs --cases <yaml|目录> --tests <dir|file>...
 // 三类异常：
 //   UNOWNED  无主 case：case 集里有，但没有任何测试代码引用
 //   ORPHAN   无源 test：测试代码引用了 case 集里不存在的 CASE-XXX
 //   LITERAL  期望字面量嫌疑：断言行写死了金标值（铁律 2：断言值必须从 case 文件加载）
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseYaml } from './yaml-lite.mjs';
+import { loadCases } from './cases-source.mjs';
 
 function arg(name) {
   const i = process.argv.indexOf(`--${name}`);
@@ -19,9 +19,7 @@ if (!casesPath) {
   console.error('audit: 缺少 --cases');
   process.exit(2);
 }
-const caseIds = new Map(
-  (parseYaml(readFileSync(casesPath, 'utf8')).cases ?? []).map((c) => [c.id, c]),
-);
+const caseIds = new Map(loadCases(casesPath).map((c) => [c.id, c]));
 
 // 收集待扫文本（.java/.py/.kt/.ts/.js/.mjs）
 const TEXT_EXT = /\.(java|py|kt|ts|js|mjs)$/;

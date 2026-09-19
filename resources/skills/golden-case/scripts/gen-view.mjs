@@ -11,7 +11,7 @@
 //                          + 版本徽标 + 末次改动摘要 + 最近判定，点行展开案卷与变更时间线；
 //                          排序 = changes 末条 when 倒序（case 改动，运行结果不触碰排序）
 // 用法：
-//   node gen-view.mjs --cases cases.yaml [--frozen frozen.md] [--title <h1>]
+//   node gen-view.mjs --cases <cases.yaml|目录> [--frozen frozen.md] [--title <h1>]
 //        [--out <file>] [--style workbench|ledger|dossier|narrative|index|manager]
 //        [--runs runs.json]    # 最近一次运行的实际值（锚点→实际），ledger/dossier/workbench/manager 消费
 //        [--variants <dir>]    # 一次产出三个当前变体到目录（manager/index/dossier）
@@ -20,6 +20,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { parseYaml, numEq, isUndecidable, isDecimal } from './yaml-lite.mjs';
+import { loadCases } from './cases-source.mjs';
 
 // ── CLI ──
 function arg(name, fallback) {
@@ -643,7 +644,7 @@ const style = arg('style') ?? arg('layout', 'manager');
 const runsPath = arg('runs');
 const variantsDir = arg('variants');
 
-const cases = loadYaml(casesPath, 'cases').cases;
+const cases = loadCases(casesPath);
 if (!Array.isArray(cases) || cases.length === 0) fail('cases 文件中没有 case');
 const frozenMap = frozenPath ? (loadYaml(frozenPath, 'frozen').frozen ?? {}) : null;
 const model = buildModel(cases, frozenMap);

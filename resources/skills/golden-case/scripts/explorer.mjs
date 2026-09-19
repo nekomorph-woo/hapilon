@@ -8,17 +8,23 @@
 //   yaml-lite.mjs      —— YAML 子集解析（parseYaml / numEq / isUndecidable），与其它脚本同源
 //   frozen 快照        —— 有快照的 case 视作 FROZEN（v1 数据唯一可推断的生命周期事实）
 //   runs.json          —— 最近一次运行的实际值，按锚点 CASE-003:checkpoint_c_total 取值判定
-//   铁律 2/5 的判定内核与 gen-view 同构（judge 语义），见 judge-run 段落
+//   runs-history/      —— 运行历史台账（按月分文件 YYYY-MM.jsonl），供 Drawer 的 HISTORY Tab；
+//   不参与判定，判定仍只看 runs.json
+//   铁律 2/5 的判定内核见 judge-run 段落；与 gen-view 的 numEq 判定不同源——explorer 要兑现
+//   VP 的 operator（`>=` 等），而 gen-view 不读 verification_points、只有 v1 的观察点相等语义
 //
 // 用法：
-//   node explorer.mjs --cases cases.yaml [--frozen frozen.md] [--runs runs.json]
-//        [--title <品牌名>] --out case-explorer.html
+//   node explorer.mjs --cases <cases.yaml|目录> [--frozen frozen.md] [--runs runs.json]
+//        [--history runs-history/] [--title <品牌名>] [--subtitle <副标题>]
+//        [--business <业务>] --out case-explorer.html
+//        # --business 只渲染该业务的 case；建议 --out 文件名带上业务域名（调用方定）
 //
 // 存储边界：生出的 HTML 只读 Case 源；UI 偏好进 localStorage，便签进 IndexedDB。
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseYaml, numEq, isUndecidable, isDecimal } from './yaml-lite.mjs';
+import { loadCases } from './cases-source.mjs';
 
 // ── CLI ──
 function arg(name, fallback) {
@@ -37,16 +43,48 @@ function loadYaml(path, what) {
 const casesPath = arg('cases');
 const frozenPath = arg('frozen');
 const runsPath = arg('runs');
+const historyPath = arg('history');
 const title = arg('title', 'Case 库');
+const subtitle = arg('subtitle', '本地只读审阅面');
+const business = arg('business');
 const outPath = arg('out');
 if (!casesPath) fail('缺少 --cases');
 if (!outPath) fail('缺少 --out');
 
-const cases = loadYaml(casesPath, 'cases').cases;
+const cases = loadCases(casesPath);
 if (!Array.isArray(cases) || cases.length === 0) fail('cases 文件中没有 case');
 const frozenMap = frozenPath ? (loadYaml(frozenPath, 'frozen').frozen ?? {}) : null;
 const runs = runsPath ? JSON.parse(readFileSync(runsPath, 'utf8')) : null;
 if (runs && (typeof runs !== 'object' || Array.isArray(runs))) fail('--runs 文件须是 JSON 对象');
+
+// ── 运行历史台账：按月分文件 YYYY-MM.jsonl（append-only），文件内最旧在前 ──
+// 取新在前的顺序：文件名倒序（月新到旧）＋文件内逐行倒序；每案封顶 HISTORY_CAP 条。
+// --history 兼容旧的单文件路径（历史未目录化时写的形态）。
+const HISTORY_CAP = 20;
+function loadHistory(path) {
+  if (!path) return null;
+  if (!existsSync(path)) fail(`--history 路径不存在：${path}`);
+  const files = statSync(path).isDirectory()
+    ? readdirSync(path).filter((f) => f.endsWith('.jsonl')).sort().reverse().map((f) => join(path, f))
+    : [path];
+  const byCase = new Map();
+  for (const file of files) {
+    const rows = readFileSync(file, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean);
+    for (let i = rows.length - 1; i >= 0; i--) {
+      let row;
+      try { row = JSON.parse(rows[i]); }
+      catch (e) { fail(`历史文件 ${file} 第 ${i + 1} 行不是 JSON：${rows[i].slice(0, 60)}`); }
+      const firstFail = row.first_fail ?? {};
+      for (const [cid, verdict] of Object.entries(row.cases ?? {})) {
+        const list = byCase.get(cid) ?? [];
+        if (list.length >= HISTORY_CAP) continue;
+        list.push({ when: s(row.when), verdict: s(verdict), first_fail: s(firstFail[cid]) });
+        byCase.set(cid, list);
+      }
+    }
+  }
+  return byCase;
+}
 
 // ── 枚举（v2 的受控词表；v1 缺字段时留空或按事实推断，不编造）──
 const LC = ['DRAFT', 'REVIEW', 'CONFIRMED', 'FROZEN'];
@@ -58,6 +96,8 @@ const MODES = ['MOCK', 'FAKE', 'LOCAL', 'REAL'];
 const picked = (list, v) => (typeof v === 'string' && list.includes(v) ? v : '');
 
 const s = (v, fallback = '') => (v === null || v === undefined ? fallback : String(v));
+
+const history = loadHistory(historyPath);
 
 // given 白话（与 gen-view 同一规则，v1 数据的降级展示）
 function givenProse(given, units) {
@@ -120,6 +160,34 @@ function buildVPs(c, narrative, units) {
   }));
 }
 
+// ── VP 判定：按 operator 分发；空 operator = `==`，未知值 fail-closed ──
+// 规格（format.md）承诺了 `!=` / `>=` / `<=` / `>` / `<`，只做相等比较会让这些 VP 被按
+// `==` 误判（判卷器与规格不一致 = 判卷器失信），故这里真分发；认不出的符号不许静默当 `==`。
+const CMP = { '>=': (a, b) => a >= b, '<=': (a, b) => a <= b, '>': (a, b) => a > b, '<': (a, b) => a < b };
+
+// 数值解析：只有真数值（number 或纯数值字符串）才通过；''/null/布尔/文字一律 null
+function asNumber(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v);
+  return null;
+}
+
+function judgeVp(operator, expected, actual) {
+  const op = operator === undefined || operator === null || operator === '' ? '==' : String(operator);
+  if (op === '==') return numEq(expected, actual) ? { status: 'PASS', message: '' } : { status: 'FAIL', message: '' };
+  if (op === '!=') return numEq(expected, actual) ? { status: 'FAIL', message: '' } : { status: 'PASS', message: '' };
+  const cmp = CMP[op];
+  if (!cmp) {
+    return { status: 'FAIL', message: `未知 operator「${op}」——按 FAIL 处理（fail-closed，不静默当 ==）` };
+  }
+  const a = asNumber(actual);
+  const b = asNumber(expected);
+  if (a === null || b === null) {
+    return { status: 'FAIL', message: `${op} 需要数值比较，期望「${s(expected)}」与实际「${s(actual)}」非数值，无法比较` };
+  }
+  return cmp(a, b) ? { status: 'PASS', message: '' } : { status: 'FAIL', message: '' };
+}
+
 // ── 运行结果：case 内嵌 latest_run 优先，否则由 runs.json 现算一次（铁律 2/5 的判定内核）──
 function buildRun(c, vps, id) {
   const explicit = c.latest_run;
@@ -149,8 +217,9 @@ function buildRun(c, vps, id) {
     if (actual === undefined) {
       return { vp_id: v.id, source: v.source, expected: v.expected, actual: null, status: 'NOT_RUN', message: '' };
     }
+    const verdict = judgeVp(v.operator, v.expected, actual);
     return {
-      vp_id: v.id, source: v.source, expected: v.expected, actual, status: numEq(v.expected, actual) ? 'PASS' : 'FAIL', message: '',
+      vp_id: v.id, source: v.source, expected: v.expected, actual, status: verdict.status, message: verdict.message,
     };
   });
   const ran = results.filter((r) => r.status === 'PASS' || r.status === 'FAIL').length;
@@ -163,7 +232,7 @@ function buildRun(c, vps, id) {
     failure_stage: fail.length ? 'ASSERTION' : '',
     logs: '',
     results,
-    source_note: `来源：${runsPath ?? 'runs.json'}（按锚点取值，expected vs actual 由 numEq 判定）`,
+    source_note: `来源：${runsPath ?? 'runs.json'}（按锚点取值，expected vs actual 按各 VP 的 operator 判定）`,
   };
 }
 
@@ -196,6 +265,7 @@ function buildModel(list) {
     const updated = (changes.length ? changes[changes.length - 1].when : null) ?? s(c.created);
     const description = s(c.description, narrative.scene ?? '');
     const then = Array.isArray(c.then) ? c.then.map((t) => s(t)) : [];
+    const historyRows = history ? (history.get(id) ?? []) : [];
     const tests = (Array.isArray(c.tests) ? c.tests : []).map((t) => ({
       id: s(t.id), type: s(t.type), framework: s(t.framework), file: s(t.file),
       status: s(t.status, 'PENDING'), last_run: s(t.last_run), failure_reason: s(t.failure_reason),
@@ -251,6 +321,7 @@ function buildModel(list) {
       })),
       tests,
       run: runObj,
+      history: historyRows,
       frozen,
     };
     model.search = [model.id, model.name, model.description, tags.join(' '), model.type, model.lifecycle,
@@ -259,12 +330,14 @@ function buildModel(list) {
   });
 }
 
-const model = buildModel(cases);
+const model = buildModel(cases).filter((m) => !business || m.business === business);
+if (business && model.length === 0) fail(`--business「${business}」下没有 case`);
 const suspicious = model.filter((m) => m.health === 'BROKEN' || (m.run && m.run.fail.length)).length;
 const data = {
   title,
+  subtitle,
   generated_at: new Date().toISOString().slice(0, 16).replace('T', ' '),
-  source: { cases: casesPath, frozen: frozenPath ?? null, runs: runsPath ?? null },
+  source: { cases: casesPath, frozen: frozenPath ?? null, runs: runsPath ?? null, history: historyPath ?? null },
   counts: { total: model.length, frozen: model.filter((m) => m.frozen).length, suspicious },
   cases: model,
 };
@@ -276,7 +349,7 @@ const json = JSON.stringify(data).replace(/</g, '\\u003c').replace(/\u2028/g, '\
 
 const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Case Explorer · ${title.replace(/[<&]/g, (m) => (m === '<' ? '&lt;' : '&amp;'))}</title>
+<title>Case Explorer · ${subtitle.replace(/[<&]/g, (m) => (m === '<' ? '&lt;' : '&amp;'))}</title>
 </head><body>
 <script>const DATA = ${json};</script>
 <script>${client}</script>
@@ -285,5 +358,5 @@ const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 
 mkdirSync(dirname(outPath), { recursive: true });
 writeFileSync(outPath, html);
-console.log(`OK → ${outPath}（${model.length} case · 已封金 ${data.counts.frozen} · 可疑 ${suspicious} · ` +
+console.log(`OK → ${outPath}（${model.length} case${business ? ` · 业务 ${business}` : ''} · 已封金 ${data.counts.frozen} · 可疑 ${suspicious} · ` +
   `VP ${model.reduce((a, m) => a + m.vps.length, 0)} · ${(html.length / 1024).toFixed(0)} KB）`);

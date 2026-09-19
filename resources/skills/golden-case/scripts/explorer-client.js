@@ -52,6 +52,7 @@ position:sticky;top:0;z-index:6}
 h1{margin:0;font:600 1.05rem/1.3 ui-serif,Georgia,"Songti SC",serif}
 .sub{margin:.2rem 0 0;color:var(--soft);font-size:.72rem}
 .tools{margin-left:auto;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
+.mhead .lselall{margin:.4rem 0 0}
 .search{display:flex;align-items:center;gap:.35rem;border:1px solid var(--rule);background:var(--surface);
 border-radius:6px;padding:.22rem .5rem;min-width:16rem}
 .search input{border:none;background:none;outline:none;width:100%;font-size:.76rem}
@@ -94,8 +95,13 @@ padding:.7rem .8rem .6rem;cursor:pointer;box-shadow:var(--shadow)}
 .card:hover{border-color:var(--accent)}
 .card.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .card.bad{border-color:var(--bad)}
+.card.sel{background:var(--accent-soft);border-color:var(--accent)}
 .chead{display:flex;align-items:center;gap:.45rem}
-.chead input[type=checkbox]{accent-color:var(--accent);margin:0;flex:none}
+.pick{flex:none;width:2.25rem;min-height:1.75rem;margin:-.25rem 0;border-radius:5px;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;vertical-align:middle}
+.pick:hover{background:var(--rule2)}
+.chead .pick{align-self:stretch;margin:-.3rem 0 -.2rem -.35rem}
+.pick input[type=checkbox]{accent-color:var(--accent);margin:0;pointer-events:none}
 .cid{font-size:.7rem;font-weight:600;color:var(--soft);font-variant-numeric:tabular-nums;white-space:nowrap}
 .cname{font-size:.86rem;font-weight:600;margin:.35rem 0 0;line-height:1.35}
 .cdesc{color:var(--soft);font-size:.73rem;margin:.25rem 0 0;display:-webkit-box;-webkit-line-clamp:2;
@@ -122,6 +128,8 @@ table.tbl td{padding:.4rem .45rem;border-bottom:1px solid var(--rule2);vertical-
 table.tbl tr.rowc{cursor:pointer}
 table.tbl tr.rowc:hover td{background:var(--surface)}
 table.tbl tr.rowc.on td{background:var(--accent-soft)}
+table.tbl tr.rowc.sel td{background:var(--accent-soft)}
+table.tbl tr.rowc.sel td.pid{color:var(--accent)}
 table.tbl td.pid{font-variant-numeric:tabular-nums;color:var(--soft);font-weight:600;white-space:nowrap}
 table.tbl td.pname .n{font-weight:600}
 table.tbl td.pname .d{color:var(--soft);font-size:.7rem;display:block;overflow:hidden;text-overflow:ellipsis;
@@ -413,14 +421,15 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     root.innerHTML =
       '<div class="app">' +
         '<aside class="side">' +
-          '<div class="brand"><b>' + esc(DATA.title) + '</b><span>Case Explorer · 本地只读审阅面</span></div>' +
+          '<div class="brand"><b>' + esc(DATA.title) + '</b><span>Case Explorer · ' + esc(DATA.subtitle || '本地只读审阅面') + '</span></div>' +
           '<nav class="tree" id="tree"></nav>' +
           '<div class="sidehint" id="storageNote">便签仅存本机浏览器（IndexedDB），不会修改 Case 文件 · 生成于 ' +
             esc(DATA.generated_at) + '</div>' +
         '</aside>' +
         '<main class="main">' +
           '<div class="mhead"><div class="row">' +
-            '<div><h1>Case Explorer</h1><p class="sub" id="count"></p></div>' +
+            '<div><h1>Case Explorer</h1><p class="sub" id="count"></p>' +
+              '<button class="btn lselall hidden" id="lselall" data-act="selAll"></button></div>' +
             '<div class="tools">' +
               '<span class="search"><input id="q" placeholder="搜索 Case（名称、描述、标签…）" autocomplete="off">' +
               '<kbd>/</kbd></span>' +
@@ -606,10 +615,11 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
   }
   function cardHtml(c) {
     const n = noteCount(c.id);
-    return '<article class="card' + (c.id === S.open ? ' on' : '') + (c.health === 'BROKEN' ? ' bad' : '') +
+    return '<article class="card' + (c.id === S.open ? ' on' : '') + (S.sel.has(c.id) ? ' sel' : '') +
+      (c.health === 'BROKEN' ? ' bad' : '') +
       '" data-card="' + c.id + '">' +
-      '<div class="chead"><input type="checkbox" data-sel="' + c.id + '"' + (S.sel.has(c.id) ? ' checked' : '') +
-        ' title="选择"><span class="cid">' + c.id + '</span>' + lcChip(c) + hlChip(c) +
+      '<div class="chead"><span class="pick" data-sel="' + c.id + '" title="选择"><input type="checkbox"' +
+        (S.sel.has(c.id) ? ' checked' : '') + '></span><span class="cid">' + c.id + '</span>' + lcChip(c) + hlChip(c) +
         '<button class="cmore" data-menu="' + c.id + '" title="更多操作">⋯</button></div>' +
       '<h3 class="cname">' + esc(c.name) + '</h3>' +
       '<p class="cdesc">' + esc(c.description) + '</p>' +
@@ -623,9 +633,11 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     const rows = visible().map((c) => {
       const ch = c.changes.length ? c.changes[c.changes.length - 1] : null;
       const n = noteCount(c.id);
-      return '<tr class="rowc' + (c.id === S.open ? ' on' : '') + (c.health === 'BROKEN' ? ' bad' : '') +
+      return '<tr class="rowc' + (c.id === S.open ? ' on' : '') + (S.sel.has(c.id) ? ' sel' : '') +
+        (c.health === 'BROKEN' ? ' bad' : '') +
         '" data-card="' + c.id + '">' +
-        '<td><input type="checkbox" data-sel="' + c.id + '"' + (S.sel.has(c.id) ? ' checked' : '') + '></td>' +
+        '<td><span class="pick" data-sel="' + c.id + '" title="选择"><input type="checkbox"' +
+          (S.sel.has(c.id) ? ' checked' : '') + '></span></td>' +
         '<td class="pid">' + c.id + '</td>' +
         '<td class="pname"><span class="n">' + esc(c.name) + (n ? ' <span class="cnote">📝 ' + n + '</span>' : '') +
           '</span><span class="d">' + esc(c.description) + '</span></td>' +
@@ -648,6 +660,9 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     $('#count').textContent = '共 ' + list.length + ' 条用例' +
       (list.length !== CASES.length ? '（全量 ' + CASES.length + '）' : '') +
       ' · 排序：' + $('#sort').selectedOptions[0].textContent;
+    const all = $('#lselall');
+    all.textContent = '全选当前结果（' + list.length + '）';
+    all.classList.toggle('hidden', !list.length);
     $('#list').innerHTML = list.length
       ? (S.view === 'card' ? '<div class="cards">' + list.map(cardHtml).join('') + '</div>' : tableHtml())
       : '<div class="empty">没有匹配的 Case —— 放宽筛选或清空搜索。</div>';
@@ -659,7 +674,7 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     el.classList.toggle('hidden', S.sel.size === 0);
     if (!S.sel.size) return;
     const m = visible().length;
-    el.innerHTML = '<span class="n">已选择 <b>' + S.sel.size + '</b> 个用例</span>' +
+    el.innerHTML = '<span class="n">已选 <b>' + S.sel.size + '</b> / 匹配 <b>' + m + '</b></span>' +
       '<button class="clear" data-act="clearSel">清空选择</button>' +
       '<button class="btn" data-act="selAll">选择当前筛选结果（' + m + '）</button>' +
       '<span class="ops"><button class="btn" data-act="composeModifySel">让 Agent 修改</button>' +
@@ -669,6 +684,7 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
   // ── Drawer ──
   const tabsOf = (c) => [['SPEC', '业务规范', 5], ['VERIFY', '验证要点', c.vps.length],
     ['EXECUTION', '执行相关', c.dependencies.length + c.tests.length + (c.run ? 1 : 0) + 3],
+    ['HISTORY', '运行历史', c.history.length],
     ['VERSION', '版本历史', c.changes.length]];
   const firstFail = (c) => c.vps.find((v) => v.status === 'FAIL' || v.status === 'ERROR') || null;
 
@@ -771,6 +787,20 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     }
     return h + '</div>';
   }
+  // 台账判定 chip：历史行里的判定字符串直接渲染（未知值按中性色）
+  const histChip = (v) => v === 'PASS' ? '<span class="vd ok">✓ PASS</span>'
+    : (v === 'FAIL' || v === 'ERROR') ? '<span class="vd no">✗ ' + esc(v) + '</span>'
+      : '<span class="vd na">' + esc(v || 'NOT_RUN') + '</span>';
+  function historyTab(c) {
+    const rows = c.history;
+    return '<div class="blk"><h3>运行历史</h3>' + (rows.length
+      ? '<p class="muted">最近 ' + rows.length + ' 次（新在前，每案封顶 20 条）· 来源 ' +
+        'runs-history/YYYY-MM.jsonl，只读台账，不是本次判定依据</p>' +
+        '<table class="tbl"><thead><tr><th>时间</th><th>判定</th><th>首失败</th></tr></thead><tbody>' +
+        rows.map((h) => '<tr><td class="nowrap">' + esc(h.when) + '</td><td>' + histChip(h.verdict) +
+          '</td><td class="mono">' + esc(h.first_fail || '—') + '</td></tr>').join('') + '</tbody></table>'
+      : '<p class="muted">—</p>') + '</div>';
+  }
   function versionTab(c) {
     const tl = c.changes.slice().reverse().map((ch, i) => '<li class="' + (i === 0 ? 'cur' : '') + '">' +
       '<span class="v">v' + esc(ch.v) + '</span><span class="w">' + esc(ch.when) + '</span>' +
@@ -823,7 +853,7 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
       '<div class="tabs">' + tabsOf(c).map(([k, label, n]) => '<button class="' + (S.tab === k ? 'on' : '') +
         '" data-tab="' + k + '">' + label + '<span>' + n + '</span></button>').join('') + '</div>' +
       '<div class="dbody">' + (S.tab === 'SPEC' ? specTab(c) : S.tab === 'VERIFY' ? verifyTab(c)
-        : S.tab === 'EXECUTION' ? execTab(c) : versionTab(c)) + '</div>';
+        : S.tab === 'EXECUTION' ? execTab(c) : S.tab === 'HISTORY' ? historyTab(c) : versionTab(c)) + '</div>';
   }
 
   // ── 便签：IndexedDB（不可用则退化为内存并提示） ──

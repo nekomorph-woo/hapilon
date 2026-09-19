@@ -173,11 +173,36 @@ Three layers, one truth:
    form, `verification_status` the last verdict (`PASS` / `FAIL` / `PENDING`).
 2. `verification_points[]` — the structured 四问 per expectation:
    `id` (`VP-\d{3}`) / `name` (看什么) / `target` (去哪看) / `source` (锚点机器名) /
-   `operator` (`==`, `>=`, …) / `expected` / `severity` / `example_query`.
+   `operator` (`==` `!=` `>=` `<=` `>` `<`; see *Operators*) / `expected` /
+   `severity` / `example_query`.
 3. `expect{}` — **the authoritative expectation surface**. `freeze-check.mjs`,
    `audit.mjs`, `report.mjs` and `gen-view.mjs` all read it and nothing else, so
    a VP that disagrees with `expect` is a documentation bug, not a second
    opinion. `observe[]` lists the expectation keys in reading order.
+   `expected` splits by `operator`: with `==` (or the field left empty) it must
+   equal the `expect` golden value (the freeze surface); with `>=` `<=` `>` `<` it
+   is a threshold that may differ — there the `operator` decides, and `expect`
+   stays the golden snapshot.
+
+#### Operators
+
+`operator` is the judging rule for its VP, and every supported symbol really
+runs — a promised comparator that silently behaves like `==` makes the judge
+lie about the case.
+
+| `operator` | verdict |
+|---|---|
+| `==` (also the default when the field is absent or empty) | passes when the two sides are numerically equivalent, else string equality — the text-preserved decimal `74.8` compares equal to the JSON number `74.8` |
+| `!=` | the negation of `==` |
+| `>=` `<=` `>` `<` | numeric comparison; **both sides must be numbers** |
+| anything else | **fail-closed**: judged `FAIL` with a message naming the unknown symbol. An unrecognized operator is never silently treated as `==` |
+
+For the ordered comparisons, a side that is not a finite number (empty, a word
+like `success`, a boolean) makes the VP `FAIL` with a message saying it cannot
+be compared — an unjudgeable VP never passes by accident.
+
+A VP whose `expected` is undecidable (iron law 5) is not judged at all: it stays
+`NOT_RUN` until the draft is fixed.
 
 `latest_run.results[]` is where a VP's `actual` / `status` / `message` live at
 render time; the case file itself does not carry them on the VP.
@@ -232,7 +257,7 @@ A v1 case (only `observe` + `expect`) is loaded without rewriting it:
 | `verification_points[]` | one `VP-00n` per `expect` key: `name` ← `narrative.where[key]`, `source` = the key, `operator` = `==` | no, equivalent mapping |
 | `lifecycle` | `FROZEN` when a frozen snapshot exists, else `DRAFT` | no — the only lifecycle fact a v1 file implies |
 | `health` | `BROKEN` when an Expect is undecidable, else `ACTIVE` | no |
-| `latest_run` | computed from the runs file when one is passed (per-anchor `expected` vs `actual`, `numEq`) | no — labelled with its source |
+| `latest_run` | computed from the runs file when one is passed (per-anchor `expected` vs `actual`, judged by the VP's `operator`) | no — labelled with its source |
 | `business` | `narrative.group` → `未分类` | no |
 | `description` | `narrative.scene` | no |
 | `type` / `priority` / `verification_level` / `tags` / `invariants` / `dependencies` / `tests` | left empty (UI shows `—` or omits the block) | **no** |
@@ -297,8 +322,12 @@ by `gen-view` variants that render results) when a case has no inlined
 
 An anchor missing from the file leaves its VP `NOT_RUN`; the case verdict is
 `FAIL` if any VP fails, `PASS` if at least one ran and none failed, `NOT_RUN`
-otherwise. Values are compared with `numEq`, so the text-preserved decimal
-`74.8` compares numerically against a JSON number.
+otherwise. An anchor missing from the file leaves its VP `NOT_RUN`; the case
+verdict is `FAIL` if any VP fails, `PASS` if at least one ran and none failed,
+`NOT_RUN` otherwise. Each value is judged by its VP's `operator` (see
+*Operators*): `==` / `!=` use numeric equivalence, so the text-preserved decimal
+`74.8` compares numerically against a JSON number, while the ordered comparisons
+require numbers on both sides and otherwise fail closed.
 
 ## Tooling
 
@@ -314,8 +343,8 @@ otherwise. Values are compared with `numEq`, so the text-preserved decimal
 `explorer.mjs`:
 
 ```
-node explorer.mjs --cases cases.yaml [--frozen frozen.md] [--runs runs.json]
-     [--title <品牌名>] --out case-explorer.html
+node explorer.mjs --cases <cases.yaml|目录> [--frozen frozen.md] [--runs runs.json]
+     [--title <品牌名>] [--subtitle <副标题>] [--business <业务>] --out case-explorer.html
 ```
 
 The HTML is single-file and self-contained (data and client code inlined, no
@@ -344,7 +373,7 @@ import org.junit.jupiter.api.Test;
  */
 public class ShopGoldenCaseTest {
 
-    static final CaseSet CASES = CaseSet.load("cases/cases.yaml");
+    static final CaseSet CASES = CaseSet.load(".hapilon/go-case/cases.yaml");
 
     @Test
     @DisplayName("CASE-001:api_return")
@@ -383,7 +412,7 @@ import pytest
 
 from case_loader import CaseSet
 
-CASES = CaseSet.load("cases/cases.yaml")
+CASES = CaseSet.load(".hapilon/go-case/cases.yaml")
 POINTS = [(c.id, p) for c in CASES for p in c.observe]
 
 
