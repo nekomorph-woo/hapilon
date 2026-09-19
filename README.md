@@ -94,11 +94,28 @@ bash 工具调用先过安全门（`hpl-safety-gate`）分类为 block / confirm
 
 ## 发版打包流程（开发机）
 
-一条命令发版：
+三步：生成草稿 → 编辑定稿 → 带 notes 发版。
+
+```bash
+# 1. 生成草稿：按 conventional commit 分组，产出 .hapilon/release/v<版本>.md，
+#    并打印可复用的摘要候选
+node scripts/release-notes.mjs v0.6.0 0.6.1
+
+# 2. 编辑定稿：标题与叙事改成用户视角，同 scope 的碎修合并成一段，删掉纯内部改动
+#    （草稿头部的编辑提示注释，定稿后一并删除）
+
+# 3. 发版：--notes 传定稿全文
+./scripts/release.sh --notes .hapilon/release/v0.6.1.md minor "一句话摘要"
+```
+
+`.hapilon/release/` 是本地草稿目录，不入库（`.hapilon/*` 已在 `.gitignore`）。生成器只读 `git log <prev-tag>..HEAD`，无网络依赖、无交互；非 conventional 的提交归到「其他」，不猜 type。
+
+不带 `--notes` 时退回 `gh release create --generate-notes` 的自动提交清单——它只有 commit 罗列、没有用户视角的分节叙事，仅适合临时预览。
+
+其余用法：
 
 ```bash
 ./scripts/release.sh <patch|minor> "<一句话内容>"
-./scripts/release.sh --notes <文件> patch "..."   # 自定义 Release 说明全文（首发/重大版本）
 ./scripts/release.sh --dry-run patch "..."   # 只打印将执行的命令
 ```
 
@@ -114,7 +131,7 @@ bash 工具调用先过安全门（`hpl-safety-gate`）分类为 block / confirm
 npm run build && npm test                      # 1. 构建并全量测试（必须绿）
 npm pack --pack-destination /tmp               # 2. 打 tarball → /tmp/hapilon-<版本>.tgz
 git tag -a v<X.Y.Z> -m "v<X.Y.Z>" && git push origin v<X.Y.Z>   # 3. tag + push
-gh release create v<X.Y.Z> /tmp/hapilon-<版本>.tgz --generate-notes --title "v<X.Y.Z>"   # 4. Release 附 tarball
+gh release create v<X.Y.Z> /tmp/hapilon-<版本>.tgz --notes-file .hapilon/release/v<X.Y.Z>.md --title "v<X.Y.Z>"   # 4. Release 附 tarball 与定稿 notes
 ```
 
 包内容 = `files: ["dist"]` 白名单 + package.json。不含源码、测试与 node_modules；依赖在目标机安装时由 npm 从 registry 拉取。
