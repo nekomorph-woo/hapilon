@@ -25,6 +25,7 @@ Two locations, and the split is load-bearing (user-decided, follow it verbatim):
 |---|---|---|
 | `cases/cases.yaml`, `cases/frozen.md` | The case source and the golden snapshot. Versioned with the project. | **User** owns it. Never regenerate or reformat it. |
 | `<project>/.hapilon/go-case/` | Every artifact this skill produces: the review views (`*.html`), `runs.json`, `manifest.json`. Gitignored, disposable. | **AI**. Safe to delete and rebuild at any time. |
+| `<project>/.hapilon/go-case/runs-history.jsonl` | Every verification run appends one line here. Append-only, disposable. | **AI**. Never rewrite a past line; delete the file to start over. |
 
 `<project>/.hapilon/go-case/manifest.json` is the map between the two — the
 skill's own bookkeeping (no script reads or writes it):
@@ -202,6 +203,12 @@ golden value written into it — law 2 drift).
 
 Report what the audit found even when the answer is uncomfortable: an unowned
 case is an unimplemented specification, not a rounding error.
+
+The run ledger: after the suite has run and `runs.json` is written, append one
+line to `.hapilon/go-case/runs-history.jsonl` —
+`{when, cases: {CASE-id: verdict}, first_fail: {CASE-id: VP-id}}`. It is not a
+view input (`explorer.mjs` still reads `runs.json`); it is the history of what
+ran, and when.
 
 ## Scripts
 
