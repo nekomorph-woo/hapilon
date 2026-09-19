@@ -1,4 +1,13 @@
 import { Effect } from "effect";
+/** HTTP 状态错误是确定性失败，与传输层失败（连接/超时/解析）区分开，不触发直连重试 */
+class HttpError extends Error {
+    status;
+    constructor(status) {
+        super(`HTTP ${status}`);
+        this.status = status;
+        this.name = "HttpError";
+    }
+}
 const hasHeader = (headers, name) => Object.keys(headers).some((key) => key.toLowerCase() === name.toLowerCase());
 export function buildAuthHeaders(auth) {
     const headers = { Accept: "application/json" };
@@ -60,20 +69,39 @@ async function macosSystemHttpsProxy() {
     }
     return cachedMacosProxy;
 }
-export async function fetchJson(endpoint, auth, headers = {}) {
-    const init = {
-        method: "GET",
-        headers: { ...buildAuthHeaders(auth), ...headers },
-        signal: AbortSignal.timeout(10_000),
-    };
-    const dispatcher = await proxyDispatcher(endpoint);
-    if (dispatcher) {
-        init.dispatcher = dispatcher;
+/**
+ * dispatcher 必须配同一份 undici 的 fetch：npm undici 的 ProxyAgent 塞进
+ * Node 内置 fetch（自带另一份 undici）会因 dispatcher 协议版本不匹配直接抛
+ * "invalid onRequestStart method"，与代理健康与否无关。
+ */
+async function requestJson(endpoint, headers, signal, dispatcher) {
+    if (dispatcher === undefined) {
+        const response = await fetch(endpoint, { method: "GET", headers, signal });
+        if (!response.ok)
+            throw new HttpError(response.status);
+        return await response.json();
     }
-    const response = await fetch(endpoint, init);
+    const undici = await import("undici");
+    const response = await undici.fetch(endpoint, { method: "GET", headers, signal, dispatcher });
     if (!response.ok)
-        throw new Error(`HTTP ${response.status}`);
+        throw new HttpError(response.status);
     return await response.json();
+}
+export async function fetchJson(endpoint, auth, headers = {}) {
+    const requestHeaders = { ...buildAuthHeaders(auth), ...headers };
+    const dispatcher = await proxyDispatcher(endpoint);
+    try {
+        return await requestJson(endpoint, requestHeaders, AbortSignal.timeout(10_000), dispatcher);
+    }
+    catch (error) {
+        if (dispatcher === undefined)
+            throw error;
+        // 系统代理常开但进程不可用（或代理黑洞）时直连兑底；直连仍失败才向调用方抛错。
+        // HTTP 4xx/5xx 是服务端确定性回答，重试直连注定同样失败，直接透传
+        if (error instanceof HttpError)
+            throw error;
+        return await requestJson(endpoint, requestHeaders, AbortSignal.timeout(10_000), undefined);
+    }
 }
 export function fetchJsonEffect(endpoint, auth, headers = {}) {
     return Effect.tryPromise({

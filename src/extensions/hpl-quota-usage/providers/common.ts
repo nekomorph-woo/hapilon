@@ -1,6 +1,14 @@
 import { Effect } from "effect";
 import type { QuotaAuth } from "../types.js";
 
+/** HTTP 状态错误是确定性失败，与传输层失败（连接/超时/解析）区分开，不触发直连重试 */
+class HttpError extends Error {
+  constructor(readonly status: number) {
+    super(`HTTP ${status}`);
+    this.name = "HttpError";
+  }
+}
+
 const hasHeader = (headers: Record<string, string>, name: string): boolean =>
   Object.keys(headers).some((key) => key.toLowerCase() === name.toLowerCase());
 
@@ -65,23 +73,40 @@ async function macosSystemHttpsProxy(): Promise<string | undefined> {
   return cachedMacosProxy;
 }
 
+/**
+ * dispatcher 必须配同一份 undici 的 fetch：npm undici 的 ProxyAgent 塞进
+ * Node 内置 fetch（自带另一份 undici）会因 dispatcher 协议版本不匹配直接抛
+ * "invalid onRequestStart method"，与代理健康与否无关。
+ */
+async function requestJson(endpoint: string, headers: Record<string, string>, signal: AbortSignal, dispatcher: unknown): Promise<unknown> {
+  if (dispatcher === undefined) {
+    const response = await fetch(endpoint, { method: "GET", headers, signal });
+    if (!response.ok) throw new HttpError(response.status);
+    return await response.json() as unknown;
+  }
+  const undici = await import("undici");
+  type UndiciInit = NonNullable<Parameters<typeof undici.fetch>[1]>;
+  const response = await undici.fetch(endpoint, { method: "GET", headers, signal, dispatcher } as UndiciInit);
+  if (!response.ok) throw new HttpError(response.status);
+  return await response.json() as unknown;
+}
+
 export async function fetchJson(
   endpoint: string,
   auth: QuotaAuth,
   headers: Record<string, string> = {},
 ): Promise<unknown> {
-  const init: RequestInit = {
-    method: "GET",
-    headers: { ...buildAuthHeaders(auth), ...headers },
-    signal: AbortSignal.timeout(10_000),
-  };
+  const requestHeaders = { ...buildAuthHeaders(auth), ...headers };
   const dispatcher = await proxyDispatcher(endpoint);
-  if (dispatcher) {
-    (init as RequestInit & { dispatcher?: unknown }).dispatcher = dispatcher;
+  try {
+    return await requestJson(endpoint, requestHeaders, AbortSignal.timeout(10_000), dispatcher);
+  } catch (error) {
+    if (dispatcher === undefined) throw error;
+    // 系统代理常开但进程不可用（或代理黑洞）时直连兑底；直连仍失败才向调用方抛错。
+    // HTTP 4xx/5xx 是服务端确定性回答，重试直连注定同样失败，直接透传
+    if (error instanceof HttpError) throw error;
+    return await requestJson(endpoint, requestHeaders, AbortSignal.timeout(10_000), undefined);
   }
-  const response = await fetch(endpoint, init);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return await response.json() as unknown;
 }
 
 export function fetchJsonEffect(

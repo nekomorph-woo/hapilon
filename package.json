@@ -41,7 +41,8 @@
     "effect": "^3.22.1",
     "pi-mcp-adapter": "^2.31.0",
     "pi-web-access": "^0.27.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "undici": "^8.10.0"
   },
   "devDependencies": {
     "@types/node": "24.12.4"

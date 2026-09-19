@@ -14,9 +14,29 @@ import {
   CODEX_USAGE_ENDPOINT,
   parseQuotaLines as parseCodexQuota,
 } from "../../extensions/hpl-quota-usage/providers/codex.js";
+import { fetchJson } from "../../extensions/hpl-quota-usage/providers/common.js";
 
 function values(rows: Array<{ label: string; value: string }>): string {
   return rows.map((row) => `${row.label}: ${row.value}`).join("\n");
+}
+
+// 四个 proxy env 变体整体快照/恢复：只恢复一个会把它删掉的变量泄漏给同文件后续用例
+const PROXY_ENV_KEYS = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"] as const;
+
+function snapshotProxyEnv(): Record<string, string | undefined> {
+  return Object.fromEntries(PROXY_ENV_KEYS.map((key) => [key, process.env[key]]));
+}
+
+function clearProxyEnv(): void {
+  for (const key of PROXY_ENV_KEYS) delete process.env[key];
+}
+
+function restoreProxyEnv(saved: Record<string, string | undefined>): void {
+  for (const key of PROXY_ENV_KEYS) {
+    const value = saved[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
 }
 
 describe("hpl-quota-usage provider 解析", () => {
@@ -131,5 +151,82 @@ describe("hpl-quota-usage provider 请求", () => {
     assert.ok(requestInit?.signal, "请求带 AbortSignal.timeout 信号");
     assert.equal(GLM_QUOTA_ENDPOINT, "https://open.bigmodel.cn/api/monitor/usage/quota/limit");
     assert.equal(CODEX_USAGE_ENDPOINT, "https://chatgpt.com/backend-api/wham/usage");
+  });
+
+  it("chatgpt.com 代理路径走同源 undici.fetch（不落回 global fetch），失败后直连兜底", async () => {
+    const savedProxyEnv = snapshotProxyEnv();
+    clearProxyEnv();
+    // 端口 1 不可达：真实 npm undici ProxyAgent + undici.fetch 立即 ECONNREFUSED，走不到真实网络
+    process.env["HTTPS_PROXY"] = "http://127.0.0.1:1";
+
+    const originalFetch = globalThis.fetch;
+    let dispatcherCalls = 0;
+    let directCalls = 0;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init && "dispatcher" in init && init.dispatcher !== undefined) {
+        // Node 内置 fetch 收到 npm undici 的 ProxyAgent 时的真实行为（原 bug 形态，发请求前即抛）
+        dispatcherCalls += 1;
+        throw new TypeError("fetch failed", { cause: new Error("invalid onRequestStart method") });
+      }
+      directCalls += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ rate_limit: { primary_window: { used_percent: 2 } } }),
+      } as Response;
+    }) as typeof fetch;
+
+    try {
+      const payload = (await fetchJson(CODEX_USAGE_ENDPOINT, { apiKey: "test-key" })) as {
+        rate_limit?: { primary_window?: { used_percent?: number } };
+      };
+      assert.ok(directCalls >= 1, "代理失败后应回落到直连 fetch");
+      // 根因锁：dispatcher 路径必须走同源 undici.fetch；落回 global fetch 即原 bug 复归
+      assert.equal(dispatcherCalls, 0, "dispatcher 路径不得落回 global fetch");
+      assert.equal(payload.rate_limit?.primary_window?.used_percent, 2);
+    } finally {
+      globalThis.fetch = originalFetch;
+      restoreProxyEnv(savedProxyEnv);
+    }
+  });
+
+  it("HTTP 状态错误以 HttpError 分类透传（4xx/5xx 不触发直连重试的判定依据）", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+      ok: false,
+      status: 404,
+      json: async () => ({}),
+    })) as typeof fetch;
+    try {
+      await assert.rejects(
+        fetchJson("https://api.deepseek.com/user/balance", { apiKey: "test-key" }),
+        (error: unknown) => {
+          assert.equal((error as Error).name, "HttpError");
+          assert.equal((error as Error).message, "HTTP 404");
+          return true;
+        },
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("无代理时 fetchJson 直接走全局 fetch，不触碰 undici dispatcher", async () => {
+    const savedProxyEnv = snapshotProxyEnv();
+    clearProxyEnv();
+    const originalFetch = globalThis.fetch;
+    let sawDispatcher = false;
+    globalThis.fetch = (async (_input, init) => {
+      if (init && "dispatcher" in init) sawDispatcher = true;
+      return { ok: true, status: 200, json: async () => ({ ok: 1 }) } as Response;
+    }) as typeof fetch;
+    try {
+      const payload = await fetchJson("https://api.deepseek.com/user/balance", { apiKey: "test-key" }) as { ok: number };
+      assert.equal(payload.ok, 1);
+      assert.equal(sawDispatcher, false, "非 chatgpt.com 端点不应注入 dispatcher");
+    } finally {
+      globalThis.fetch = originalFetch;
+      restoreProxyEnv(savedProxyEnv);
+    }
   });
 });
