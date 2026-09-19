@@ -21,7 +21,6 @@ import {
   buildRunModeText,
   BUILTIN_GUIDELINES,
   COMMIT_DISCIPLINE_TEXT,
-  DISPATCH_DISCIPLINE_TEXT,
   ROLE_COMMIT_BOUNDARY_TEXT,
   WORKFLOW_TEXT,
 } from "../../extensions/hpl-system-prompt/sections.js";
@@ -29,7 +28,6 @@ import {
   buildRoleSection,
   buildCodeStyleSection,
   buildCommitDisciplineSection,
-  buildDispatchDisciplineSection,
   buildRoleCommitBoundarySection,
   buildWorkflowSection,
   buildToolsSection,
@@ -221,21 +219,6 @@ describe("buildCommitDisciplineSection", () => {
     // 零参数纯常量函数；正文不得含 XML 特殊字符（含则必须改走 xmlEscape）
     assert.equal(buildCommitDisciplineSection(), buildCommitDisciplineSection());
     assert.doesNotMatch(COMMIT_DISCIPLINE_TEXT, /[<>&]/, "常量正文不含 XML 特殊字符");
-  });
-});
-
-describe("buildDispatchDisciplineSection", () => {
-  it("正常路径: 包裹 <dispatch_discipline> 标签且写明人类放行才派发", () => {
-    const result = buildDispatchDisciplineSection();
-    assert.ok(result.startsWith("<dispatch_discipline>\n"), "以 dispatch_discipline 开标签开头");
-    assert.ok(result.endsWith("\n</dispatch_discipline>"), "以闭标签结尾");
-    assert.ok(result.includes("never treat them as approval to execute"), "人类提问不算放行");
-    assert.ok(result.includes("READY / GO"), "以显式放行为派发条件");
-  });
-
-  it("正常路径: 常量正文无 < > & ，无转义需求", () => {
-    assert.equal(buildDispatchDisciplineSection(), buildDispatchDisciplineSection());
-    assert.doesNotMatch(DISPATCH_DISCIPLINE_TEXT, /[<>&]/, "常量正文不含 XML 特殊字符");
   });
 });
 
@@ -694,8 +677,8 @@ describe("assembleSystemPrompt", () => {
     assert.ok(result.includes("<code_style>"), "含 code_style");
     assert.ok(result.includes("<commit_discipline>"), "含 commit_discipline");
     assert.ok(result.includes("/skill:snap"), "commit_discipline 正文端到端进入 final prompt");
-    assert.ok(result.includes("<dispatch_discipline>"), "含 dispatch_discipline");
-    assert.ok(result.includes("READY / GO"), "dispatch_discipline 正文端到端进入 final prompt");
+    assert.ok(!result.includes("<dispatch_discipline>"), "非 team 会话无 dispatch_discipline");
+    assert.ok(!result.includes("READY / GO"), "非 team 会话无派发放行闸门");
     assert.ok(result.includes("<role_commit_boundary>"), "含 role_commit_boundary");
     assert.ok(result.includes("never run `git commit`"), "role_commit_boundary 正文端到端进入 final prompt");
     assert.ok(result.includes("<pi_documentation>"), "含 pi_doc");
@@ -727,7 +710,7 @@ describe("assembleSystemPrompt", () => {
       skills: [{ name: "s1", description: "skill one", filePath: "/s1/SKILL.md" }],
       appendSystemPrompt: "appended text",
     });
-    // 全部 16 个 section 标签
+    // 全部 15 个 section 标签
     const tags = [
       "<role>",
       "<available_tools>",
@@ -735,7 +718,6 @@ describe("assembleSystemPrompt", () => {
       "<guidelines>",
       "<code_style>",
       "<commit_discipline>",
-      "<dispatch_discipline>",
       "<role_commit_boundary>",
       "<workflow>",
       "<pi_documentation>",
@@ -762,14 +744,9 @@ describe("assembleSystemPrompt", () => {
       "commit_discipline 位于 code_style 与 pi_documentation 之间",
     );
     assert.ok(
-      result.indexOf("<dispatch_discipline>") > result.indexOf("<commit_discipline>") &&
-        result.indexOf("<dispatch_discipline>") < result.indexOf("<role_commit_boundary>"),
-      "dispatch_discipline 紧随 commit_discipline",
-    );
-    assert.ok(
-      result.indexOf("<role_commit_boundary>") > result.indexOf("<dispatch_discipline>") &&
+      result.indexOf("<role_commit_boundary>") > result.indexOf("<commit_discipline>") &&
         result.indexOf("<role_commit_boundary>") < result.indexOf("<pi_documentation>"),
-      "role_commit_boundary 位于 dispatch_discipline 与 pi_documentation 之间",
+      "role_commit_boundary 紧随 commit_discipline",
     );
     assert.ok(
       result.indexOf("<workflow>") > result.indexOf("<role_commit_boundary>") &&
@@ -845,7 +822,6 @@ describe("assembleSystemPrompt", () => {
     assert.ok(meta!.sections.tools > 0, "tools 长度 > 0");
     assert.ok(meta!.sections.environment > 0, "environment 长度 > 0");
     assert.ok(meta!.sections.commitDiscipline > 0, "commitDiscipline 长度 > 0");
-    assert.ok(meta!.sections.dispatchDiscipline > 0, "dispatchDiscipline 长度 > 0");
     assert.ok(meta!.sections.roleCommitBoundary > 0, "roleCommitBoundary 长度 > 0");
     assert.equal(meta!.cwd, defaultOpts.cwd, "cwd 匹配");
     clearSpMeta();

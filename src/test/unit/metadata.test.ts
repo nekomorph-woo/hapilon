@@ -26,7 +26,6 @@ describe("metadata", () => {
       guidelines: 400,
       codeStyle: 250,
       commitDiscipline: 0,
-      dispatchDiscipline: 0,
       roleCommitBoundary: 0,
       workflow: 0,
       hapilonInstructions: 0,

@@ -28,7 +28,6 @@ import {
   BUILTIN_GUIDELINES,
   CODE_STYLE_TEXT,
   COMMIT_DISCIPLINE_TEXT,
-  DISPATCH_DISCIPLINE_TEXT,
   ROLE_COMMIT_BOUNDARY_TEXT,
   WORKFLOW_TEXT,
 } from "./sections.js";
@@ -146,11 +145,6 @@ export function buildCodeStyleSection(): string {
 export function buildCommitDisciplineSection(): string {
   // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
   return `<commit_discipline>\n${COMMIT_DISCIPLINE_TEXT}\n</commit_discipline>`;
-}
-
-export function buildDispatchDisciplineSection(): string {
-  // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
-  return `<dispatch_discipline>\n${DISPATCH_DISCIPLINE_TEXT}\n</dispatch_discipline>`;
 }
 
 export function buildRoleCommitBoundarySection(): string {
@@ -320,7 +314,6 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
       : (team?.orchestrator ?? ORCHESTRATOR_TAGGED);
   const codeStyleSection = buildCodeStyleSection();
   const commitDisciplineSection = buildCommitDisciplineSection();
-  const dispatchDisciplineSection = buildDispatchDisciplineSection();
   const roleCommitBoundarySection = buildRoleCommitBoundarySection();
   const workflowSection = buildWorkflowSection();
   const piDocSection = buildPiDocSection();
@@ -344,7 +337,6 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
       team: teamSection.length,
       codeStyle: codeStyleSection.length,
       commitDiscipline: commitDisciplineSection.length,
-      dispatchDiscipline: dispatchDisciplineSection.length,
       roleCommitBoundary: roleCommitBoundarySection.length,
       workflow: workflowSection.length,
       hapilonInstructions: hapilonInstructions.length,
@@ -367,7 +359,6 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     teamSection,
     codeStyleSection,
     commitDisciplineSection,
-    dispatchDisciplineSection,
     roleCommitBoundarySection,
     workflowSection,
     piDocSection,

@@ -70,7 +70,6 @@ export function collectContextSnapshot(input: CollectorInput): ContextSnapshot {
     "guidelines",
     "codeStyle",
     "commitDiscipline",
-    "dispatchDiscipline",
     "roleCommitBoundary",
     "workflow",
     "customToolsNote",

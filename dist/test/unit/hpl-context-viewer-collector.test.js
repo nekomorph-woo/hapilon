@@ -34,7 +34,6 @@ describe("collectContextSnapshot", () => {
                 guidelines: 400,
                 codeStyle: 250,
                 commitDiscipline: 0,
-                dispatchDiscipline: 0,
                 roleCommitBoundary: 0,
                 workflow: 0,
                 hapilonInstructions: 0,
@@ -175,7 +174,6 @@ describe("token 统计不重复计算", () => {
                 guidelines: 100,
                 codeStyle: 250,
                 commitDiscipline: 40,
-                dispatchDiscipline: 500,
                 roleCommitBoundary: 300,
                 workflow: 0,
                 hapilonInstructions: 800,
@@ -194,10 +192,10 @@ describe("token 统计不重复计算", () => {
         const snapshot = collectContextSnapshot(baseInput);
         const spCat = snapshot.categories.find((c) => c.label === "System prompt");
         assert.ok(spCat, "存在 System prompt category");
-        // roleAndIdentity 100 + piDocumentation 100 + guidelines 100 + codeStyle 250 + commitDiscipline 40 + dispatchDiscipline 500 + roleCommitBoundary 300 + environment 100 = 1490 chars → 373 tokens
-        assert.equal(spCat.tokens, 373);
+        // roleAndIdentity 100 + piDocumentation 100 + guidelines 100 + codeStyle 250 + commitDiscipline 40 + roleCommitBoundary 300 + environment 100 = 990 chars → 248 tokens
+        assert.equal(spCat.tokens, 248);
     });
-    it("spTokens 计入新增的 dispatchDiscipline/roleCommitBoundary", () => {
+    it("spTokens 计入 roleCommitBoundary", () => {
         setLastMeta({
             assembledAt: Date.now(),
             cwd: "/test",
@@ -208,7 +206,6 @@ describe("token 统计不重复计算", () => {
                 guidelines: 0,
                 codeStyle: 0,
                 commitDiscipline: 0,
-                dispatchDiscipline: 400,
                 roleCommitBoundary: 200,
                 workflow: 0,
                 hapilonInstructions: 0,
@@ -223,7 +220,7 @@ describe("token 统计不重复计算", () => {
         });
         const snapshot = collectContextSnapshot(baseInput);
         const spCat = snapshot.categories.find((c) => c.label === "System prompt");
-        assert.equal(spCat.tokens, 150, "(400+200)/4");
+        assert.equal(spCat.tokens, 50, "200/4");
     });
     it("Rules 分类独立展示 hapilonRules", () => {
         setLastMeta(fullMeta());

@@ -31,7 +31,6 @@ export function collectContextSnapshot(input) {
         "guidelines",
         "codeStyle",
         "commitDiscipline",
-        "dispatchDiscipline",
         "roleCommitBoundary",
         "workflow",
         "customToolsNote",
