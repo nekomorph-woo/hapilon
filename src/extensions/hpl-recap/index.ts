@@ -8,7 +8,13 @@ import { createRecapTimer, type RecapTimer } from "./timer.js";
 
 const WIDGET_KEY = "hpl-recap";
 const RECAP_SYSTEM_PROMPT =
-  "你是一个后台 recap 助手。请用简洁中文总结最近对话：刚才做了什么、当前状态、下一步建议。只输出正文，不要标题，不超过 200 字。";
+  "你是一个后台 recap 助手。请用简洁中文总结最近对话：刚才做了什么、当前状态、下一步建议。只输出正文，不要标题，不超过 200 字，3-6 行。";
+
+// 空正文时逐级放大预算重试：小预算先走（便宜快），服务端偶发空响应靠放大兜底。
+const RECAP_TOKEN_BUDGETS = [256, 1024, 4096, 4096];
+const RECAP_MAX_CHARS = 600;
+const RECAP_MAX_LINES = 10;
+const RECAP_TRUNCATED_MARK = "…（已截断）";
 
 function errorText(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
@@ -26,6 +32,18 @@ function responseText(response: unknown): string {
   }).filter(Boolean).join("\n").trim();
 }
 
+// 提示词的字数约束只是软约束，模型偶发超长会撑爆 widget，故在渲染前硬截断。
+function truncateRecap(text: string): string {
+  const lines = text.split(/\r?\n/);
+  let body = lines.slice(0, RECAP_MAX_LINES).join("\n");
+  let truncated = lines.length > RECAP_MAX_LINES;
+  if (body.length > RECAP_MAX_CHARS) {
+    body = body.slice(0, RECAP_MAX_CHARS);
+    truncated = true;
+  }
+  return truncated ? `${body}${RECAP_TRUNCATED_MARK}` : body;
+}
+
 function recapLines(
   ctx: ExtensionContext,
   text: string,
@@ -38,7 +56,7 @@ function recapLines(
     ctx.ui.theme.fg("muted", `※ recap · ${timestamp} · ${recapModelLabel(model)}`),
   ];
   if (degradedReason) lines.push(ctx.ui.theme.fg("muted", degradedReason));
-  lines.push(...text.slice(0, 200).split(/\r?\n/).map((line) => ctx.ui.theme.fg("muted", line)));
+  lines.push(...text.split(/\r?\n/).map((line) => ctx.ui.theme.fg("muted", line)));
   return lines;
 }
 
@@ -55,7 +73,8 @@ function failureLines(ctx: ExtensionContext, reason: string): string[] {
  * ——传 minimal 等于开思考，每次白烧数百 reasoning token；`reasoning` 键只在
  * streamSimple 被读，complete() 路径根本不认。空正文与参数无关：旧参数
  * （thinking:disabled + 256）下同样出现过，成因疑为服务端偶发、未定位，故防线是
- * 正文为空时以 4096 预算重试一次（覆盖「思考关不掉又吃光小预算」的假想场景）。
+ * 正文为空时按 256 → 1024 → 4096 → 4096 逐级放大预算重试（覆盖「思考关不掉又吃光
+ * 小预算」的假想场景），4 次全空才落 failure widget。
  */
 function runRecapEffect(
   ctx: ExtensionContext,
@@ -84,13 +103,17 @@ function runRecapEffect(
         catch: (error) => error,
       });
 
-    let text = responseText(yield* completeOnce(256));
-    if (!text) text = responseText(yield* completeOnce(4096));
+    let text = "";
+    for (const maxTokens of RECAP_TOKEN_BUDGETS) {
+      text = responseText(yield* completeOnce(maxTokens));
+      if (text) break;
+    }
     if (!text) {
+      console.warn(`[hpl-recap] 空正文 ×${RECAP_TOKEN_BUDGETS.length}（预算 ${RECAP_TOKEN_BUDGETS.join("/")}）`);
       ctx.ui.setWidget(WIDGET_KEY, failureLines(ctx, "模型未返回有效内容"));
       return;
     }
-    ctx.ui.setWidget(WIDGET_KEY, recapLines(ctx, text, choice.model, choice.reason));
+    ctx.ui.setWidget(WIDGET_KEY, recapLines(ctx, truncateRecap(text), choice.model, choice.reason));
   }).pipe(
     Effect.catchAllCause((cause) => Effect.sync(() => {
       if (controller.signal.aborted) return;

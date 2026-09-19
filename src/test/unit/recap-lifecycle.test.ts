@@ -68,6 +68,32 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// 固定 sleep 会与 60ms idle 阈值竞态（timer 早触发一次即多等一轮），故轮询到 widget 落盘。
+async function waitForWidget(test: TestContext): Promise<string[]> {
+  for (let i = 0; i < 200; i++) {
+    const content = test.widgets.at(-1)?.content;
+    if (content) return content;
+    await wait(5);
+  }
+  throw new Error("recap widget 未在 1s 内出现");
+}
+
+function untheme(line: string): string {
+  return line.replace(/^<muted>/, "").replace(/<\/muted>$/, "");
+}
+
+// 去掉头部时间戳/模型标签行，只留正文行。
+function widgetBody(test: TestContext): string[] {
+  return (test.widgets.at(-1)?.content ?? []).slice(1).map(untheme);
+}
+
+function spyWarn(): { calls: string[]; restore: () => void } {
+  const original = console.warn;
+  const calls: string[] = [];
+  console.warn = (...args: unknown[]) => { calls.push(args.map(String).join(" ")); };
+  return { calls, restore: () => { console.warn = original; } };
+}
+
 describe("hpl-recap session 生命周期", () => {
   let home: string;
   const originalHome = process.env.HAPILON_HOME;
@@ -102,7 +128,7 @@ describe("hpl-recap session 生命周期", () => {
 
     test.ctx.setPending(false);
     fire(test, "message_end", { type: "message_end" });
-    await wait(100);
+    await waitForWidget(test);
     assert.equal(test.getCompleteCount(), 1);
     assert.ok(test.widgets.some((item) => item.key === "hpl-recap" && Array.isArray(item.content)));
 
@@ -124,7 +150,7 @@ describe("hpl-recap session 生命周期", () => {
     fire(test, "session_start", { reason: "startup" });
     fire(test, "session_shutdown", { reason: "reload" });
     fire(test, "session_start", { reason: "reload" });
-    await wait(100);
+    await waitForWidget(test);
     assert.equal(test.getCompleteCount(), 1);
     fire(test, "session_shutdown", { reason: "quit" });
   });
@@ -133,7 +159,7 @@ describe("hpl-recap session 生命周期", () => {
     const test = makeExtension();
     fire(test, "session_start", { reason: "startup" });
     fire(test, "message_end", { type: "message_end" });
-    await wait(100);
+    await waitForWidget(test);
     assert.equal(test.getCompleteCount(), 1);
     const opts = test.completeOptions[0];
     assert.equal(opts?.maxTokens, 256);
@@ -150,7 +176,7 @@ describe("hpl-recap session 生命周期", () => {
       const test = makeExtension(reasoningModel);
       fire(test, "session_start", { reason: "startup" });
       fire(test, "message_end", { type: "message_end" });
-      await wait(100);
+      await waitForWidget(test);
       assert.equal(test.getCompleteCount(), 1);
       const opts = test.completeOptions[0];
       assert.equal(opts?.maxTokens, 256, JSON.stringify(opts));
@@ -167,29 +193,67 @@ describe("hpl-recap session 生命周期", () => {
     }
   });
 
-  it("第一次 complete 空正文：以 4096 预算重试一次并展示重试结果", async () => {
-    const test = makeExtension(undefined, ["", "重试后拿到的正文。"]);
+  it("连续 3 次空正文：预算逐级放大到第 4 次，展示第 4 次正文且不 warn", async () => {
+    const test = makeExtension(undefined, ["", "", "", "最后一次拿到的正文。"]);
+    const warns = spyWarn();
+    try {
+      fire(test, "session_start", { reason: "startup" });
+      fire(test, "message_end", { type: "message_end" });
+      const lines = await waitForWidget(test);
+      assert.equal(test.getCompleteCount(), 4);
+      assert.deepEqual(test.completeOptions.map((opts) => opts?.maxTokens), [256, 1024, 4096, 4096]);
+      assert.ok(lines.some((line) => line.includes("最后一次拿到的正文。")), JSON.stringify(lines));
+      assert.equal(lines.some((line) => line.includes("模型未返回有效内容")), false);
+      assert.deepEqual(warns.calls, [], "中间某次为空不得 warn");
+    } finally {
+      warns.restore();
+      fire(test, "session_shutdown", { reason: "quit" });
+    }
+  });
+
+  it("4 次全空：failure widget + 恰好一条汇总 warn（含预算序列）", async () => {
+    const test = makeExtension(undefined, ["", "", "", ""]);
+    const warns = spyWarn();
+    try {
+      fire(test, "session_start", { reason: "startup" });
+      fire(test, "message_end", { type: "message_end" });
+      const lines = await waitForWidget(test);
+      assert.equal(test.getCompleteCount(), 4);
+      assert.deepEqual(test.completeOptions.map((opts) => opts?.maxTokens), [256, 1024, 4096, 4096]);
+      assert.ok(lines.some((line) => line.includes("模型未返回有效内容")), JSON.stringify(lines));
+      assert.equal(warns.calls.length, 1, JSON.stringify(warns.calls));
+      assert.ok(warns.calls[0].includes("256/1024/4096/4096"), warns.calls[0]);
+    } finally {
+      warns.restore();
+      fire(test, "session_shutdown", { reason: "quit" });
+    }
+  });
+
+  it("超长多行正文：按 10 行硬截断并追加标记", async () => {
+    const source = Array.from({ length: 12 }, (_, i) => `第${i + 1}行短内容`).join("\n");
+    const test = makeExtension(undefined, [source]);
     fire(test, "session_start", { reason: "startup" });
     fire(test, "message_end", { type: "message_end" });
-    await wait(100);
-    assert.equal(test.getCompleteCount(), 2);
-    assert.equal(test.completeOptions[0]?.maxTokens, 256);
-    assert.equal(test.completeOptions[1]?.maxTokens, 4096);
-    const lines = test.widgets.at(-1)?.content ?? [];
-    assert.ok(lines.some((line) => line.includes("重试后拿到的正文。")), JSON.stringify(lines));
-    assert.equal(lines.some((line) => line.includes("模型未返回有效内容")), false);
+    await waitForWidget(test);
+    const bodyLines = widgetBody(test);
+    assert.equal(bodyLines.length, 10, JSON.stringify(bodyLines));
+    assert.equal(
+      bodyLines.join("\n").replace("…（已截断）", ""),
+      Array.from({ length: 10 }, (_, i) => `第${i + 1}行短内容`).join("\n"),
+    );
     fire(test, "session_shutdown", { reason: "quit" });
   });
 
-  it("两次都空：只重试一次，走「模型未返回有效内容」failure widget", async () => {
-    const test = makeExtension(undefined, ["", ""]);
+  it("单行超长正文：按 600 字符硬截断并追加标记", async () => {
+    const test = makeExtension(undefined, ["长".repeat(800)]);
     fire(test, "session_start", { reason: "startup" });
     fire(test, "message_end", { type: "message_end" });
-    await wait(100);
-    assert.equal(test.getCompleteCount(), 2, "只重试一次，不做循环");
-    assert.equal(test.completeOptions[1]?.maxTokens, 4096);
-    const lines = test.widgets.at(-1)?.content ?? [];
-    assert.ok(lines.some((line) => line.includes("模型未返回有效内容")), JSON.stringify(lines));
+    await waitForWidget(test);
+    const bodyLines = widgetBody(test);
+    assert.equal(bodyLines.length, 1);
+    const body = bodyLines[0].replace("…（已截断）", "");
+    assert.equal(bodyLines[0].includes("…（已截断）"), true);
+    assert.equal(body.length, 600, `字符数 ${body.length}`);
     fire(test, "session_shutdown", { reason: "quit" });
   });
 });
