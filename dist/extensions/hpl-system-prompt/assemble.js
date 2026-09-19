@@ -165,10 +165,11 @@ export function buildExternalDirsSection() {
     const body = xmlEscape(buildContextInjection(dirs).trim());
     return `<external_directories>\n${body}\n</external_directories>`;
 }
-export function buildEnvironmentSection(cwd, agentDirPath) {
+export function buildEnvironmentSection(cwd, agentDirPath, runModeText) {
     const normalized = cwd.replace(/\\/g, "/");
+    const runMode = runModeText ? `\n${runModeText}` : "";
     const mcp = agentDirPath ? `\n${buildMcpSectionText(agentDirPath)}` : "";
-    return `<environment>\nCurrent working directory: ${normalized}${mcp}\n</environment>`;
+    return `<environment>\nCurrent working directory: ${normalized}${runMode}${mcp}\n</environment>`;
 }
 // ── Assembly ───────────────────────────────────────────────────────────
 const HAPILON_RELATIVE = "HAPILON.md";
@@ -190,7 +191,7 @@ function collectHapilonContext(cwd, userHome, globalBase = hapilonHome()) {
  * 两个 builder，保证语义一致。
  */
 export function assembleSystemPrompt(opts) {
-    const { toolSnippets, selectedTools, promptGuidelines, appendSystemPrompt, cwd, contextFiles, skills, hapilonMd, hapilonRules, agentDirPath, team, } = opts;
+    const { toolSnippets, selectedTools, promptGuidelines, appendSystemPrompt, cwd, contextFiles, skills, hapilonMd, hapilonRules, agentDirPath, runModeText, team, } = opts;
     // 统一归一化：undefined = Pi 默认工具集（两个 builder 语义一致）
     const tools = selectedTools ?? DEFAULT_TOOLS;
     const roleSection = buildRoleSection();
@@ -222,7 +223,7 @@ export function assembleSystemPrompt(opts) {
     const externalDirsSection = buildExternalDirsSection();
     const skillsSection = buildSkillsSection(skills, tools);
     const appendSection = buildAppendSection(appendSystemPrompt);
-    const envSection = buildEnvironmentSection(cwd, agentDirPath);
+    const envSection = buildEnvironmentSection(cwd, agentDirPath, runModeText);
     // 记录元数据：各部分长度供 hpl-context-viewer /context 命令做 token 估算
     setLastMeta({
         assembledAt: Date.now(),

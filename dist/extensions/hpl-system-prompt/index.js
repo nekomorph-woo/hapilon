@@ -11,6 +11,7 @@
  */
 import { homedir } from "node:os";
 import { assembleSystemPrompt, collectHapilonContext } from "./assemble.js";
+import { buildRunModeText } from "./sections.js";
 import { agentDir } from "../../config/hapilon-home.js";
 import { getTeamSections } from "../hpl-orchestra/bridge.js";
 export default function hplSystemPrompt(pi) {
@@ -39,6 +40,7 @@ export default function hplSystemPrompt(pi) {
                 hapilonMd: hapilonCtx.hapilonMd,
                 hapilonRules: hapilonCtx.hapilonRules,
                 agentDirPath: agentDir(),
+                runModeText: buildRunModeText(),
                 team: getTeamSections(),
             });
             return { systemPrompt };

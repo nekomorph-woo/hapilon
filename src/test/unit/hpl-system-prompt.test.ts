@@ -9,7 +9,7 @@
 import { describe, it, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 
 import { xmlEscape } from "../../shared/format.js";
@@ -18,6 +18,7 @@ import {
   ROLE_TEXT,
   CUSTOM_TOOLS_NOTE,
   buildPiDocText,
+  buildRunModeText,
   BUILTIN_GUIDELINES,
   COMMIT_DISCIPLINE_TEXT,
   DISPATCH_DISCIPLINE_TEXT,
@@ -448,6 +449,73 @@ describe("buildEnvironmentSection", () => {
       `MCP 段 ${mcpPart.length} chars 超 600（约 150 token）上界`,
     );
   });
+
+  it("传入 runModeText 时紧跟 cwd 行，且排在 MCP 段之前", () => {
+    const runMode = 'Run mode: installed release\nStart hapilon with: node "$HAPILON_CLI_PATH" <args>';
+    const result = buildEnvironmentSection("/p", "/home/user/.hapilon/agent", runMode);
+    assert.ok(result.includes("Current working directory: /p\nRun mode: installed release"));
+    assert.ok(result.indexOf("Run mode:") < result.indexOf("MCP servers"));
+  });
+
+  it("缺省 runModeText 时不含模式行（向后兼容）", () => {
+    assert.equal(buildEnvironmentSection("/p").includes("Run mode:"), false);
+    assert.equal(buildEnvironmentSection("/p", "/home/user/.hapilon/agent").includes("Run mode:"), false);
+  });
+});
+
+describe("buildRunModeText", () => {
+  const originalCliPath = process.env.HAPILON_CLI_PATH;
+  const originalHome = process.env.HAPILON_HOME;
+  const root = mkdtempSync(join(tmpdir(), "hpl-run-mode-"));
+  const devRoot = join(root, "checkout");
+  const releaseRoot = join(root, "installed");
+
+  before(() => {
+    mkdirSync(join(devRoot, "src"), { recursive: true });
+    mkdirSync(join(releaseRoot, "dist"), { recursive: true });
+  });
+
+  after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  afterEach(() => {
+    if (originalCliPath === undefined) delete process.env.HAPILON_CLI_PATH;
+    else process.env.HAPILON_CLI_PATH = originalCliPath;
+    if (originalHome === undefined) delete process.env.HAPILON_HOME;
+    else process.env.HAPILON_HOME = originalHome;
+  });
+
+  it("HAPILON_CLI_PATH 缺失时不猜，返回空串", () => {
+    delete process.env.HAPILON_CLI_PATH;
+    assert.equal(buildRunModeText(), "");
+  });
+
+  it("源码检出：dev 模式 + 通用启动命令，不提 alias", () => {
+    process.env.HAPILON_CLI_PATH = join(devRoot, "dist", "cli.js");
+    process.env.HAPILON_HOME = join(homedir(), ".hapilon-dev");
+    const text = buildRunModeText();
+    assert.ok(text.includes("Run mode: dev source checkout"), text);
+    assert.ok(text.includes("data dir ~/.hapilon-dev"), text);
+    assert.ok(text.includes('Start hapilon with: node "$HAPILON_CLI_PATH" <args>'), text);
+    assert.equal(text.includes("equivalent to"), false, "dev 不写等效 alias");
+    assert.equal(text.split("\n").length, 2, "两行");
+  });
+
+  it("安装包：release 模式 + 标明等价 hapi", () => {
+    process.env.HAPILON_CLI_PATH = join(releaseRoot, "dist", "cli.js");
+    process.env.HAPILON_HOME = join(homedir(), ".hapilon");
+    const text = buildRunModeText();
+    assert.ok(text.includes("Run mode: installed release"), text);
+    assert.ok(text.includes("data dir ~/.hapilon"), text);
+    assert.ok(text.includes("(equivalent to `hapi`)"), text);
+  });
+
+  it("自定义数据目录原样显示，不做 ~ 缩写（不在 home 下时）", () => {
+    process.env.HAPILON_CLI_PATH = join(releaseRoot, "dist", "cli.js");
+    process.env.HAPILON_HOME = "/tmp/hapilon-elsewhere";
+    assert.ok(buildRunModeText().includes("data dir /tmp/hapilon-elsewhere"));
+  });
 });
 
 describe("buildContextSection", () => {
@@ -627,6 +695,19 @@ describe("assembleSystemPrompt", () => {
     assert.ok(result.includes("<environment>"), "含 environment");
     assert.ok(result.includes("Current working directory: /test/project"));
     assert.ok(result.endsWith("</system_prompt>\n"));
+  });
+
+  it("runModeText 经 options 进入 environment section；缺省不注入", () => {
+    assert.equal(assembleSystemPrompt(defaultOpts).includes("Run mode:"), false);
+    const result = assembleSystemPrompt({
+      ...defaultOpts,
+      runModeText: "Run mode: installed release",
+    });
+    assert.ok(result.includes("</system_prompt>"));
+    assert.ok(
+      result.includes("Current working directory: /test/project\nRun mode: installed release"),
+      "模式行紧跟 cwd 行",
+    );
   });
 
   it("正常路径: 全量 section（含 contextFiles/skills/append）与顺序断言", () => {

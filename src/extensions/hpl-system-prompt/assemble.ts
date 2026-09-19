@@ -61,6 +61,8 @@ export interface AssembleOptions {
   hapilonRules: RuleEntry[];
   /** agentDir 绝对路径——提供时 environment section 附加 MCP 环境段 */
   agentDirPath?: string;
+  /** 运行模式与启动命令——由调用点探测后传入（builder 保持无 I/O） */
+  runModeText?: string;
   /** Team personality; the two fields are mutually exclusive at assembly time. */
   team?: { orchestrator?: string; role?: string };
 }
@@ -240,10 +242,15 @@ export function buildExternalDirsSection(): string {
   return `<external_directories>\n${body}\n</external_directories>`;
 }
 
-export function buildEnvironmentSection(cwd: string, agentDirPath?: string): string {
+export function buildEnvironmentSection(
+  cwd: string,
+  agentDirPath?: string,
+  runModeText?: string,
+): string {
   const normalized = cwd.replace(/\\/g, "/");
+  const runMode = runModeText ? `\n${runModeText}` : "";
   const mcp = agentDirPath ? `\n${buildMcpSectionText(agentDirPath)}` : "";
-  return `<environment>\nCurrent working directory: ${normalized}${mcp}\n</environment>`;
+  return `<environment>\nCurrent working directory: ${normalized}${runMode}${mcp}\n</environment>`;
 }
 
 // ── Assembly ───────────────────────────────────────────────────────────
@@ -287,6 +294,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     hapilonMd,
     hapilonRules,
     agentDirPath,
+    runModeText,
     team,
   } = opts;
 
@@ -322,7 +330,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   const externalDirsSection = buildExternalDirsSection();
   const skillsSection = buildSkillsSection(skills, tools);
   const appendSection = buildAppendSection(appendSystemPrompt);
-  const envSection = buildEnvironmentSection(cwd, agentDirPath);
+  const envSection = buildEnvironmentSection(cwd, agentDirPath, runModeText);
 
   // 记录元数据：各部分长度供 hpl-context-viewer /context 命令做 token 估算
   setLastMeta({

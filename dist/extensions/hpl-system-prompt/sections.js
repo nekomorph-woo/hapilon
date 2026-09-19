@@ -6,7 +6,9 @@
  * 与本目录，确认正文无漂移再改版本标记。
  */
 import { getDocsPath, getExamplesPath, getReadmePath } from "@earendil-works/pi-coding-agent";
+import { homedir } from "node:os";
 import { hapilonHome } from "../../config/hapilon-home.js";
+import { isSourceCheckout } from "../../cli/identity.js";
 /** Role 声明 — Pi 原文 + hapilon/hapi 品牌标识 */
 export const ROLE_TEXT = `You are an expert coding assistant named Hapilon (also called "hapi"), ` +
     `operating inside pi, a coding agent harness. You help users by reading ` +
@@ -79,6 +81,29 @@ export function buildMcpSectionText(agentDirPath) {
         `(create it if missing); never guess other locations like ~/.pi or .mcp.json\n` +
         `- Changes take effect after restarting the session; the mcp proxy tool ` +
         `discovers servers on demand`);
+}
+/** home 下的路径在 prompt 里统一按 ~ 缩写——绝对路径会随用户名变长，且对模型无信息增量。 */
+function shortHome(home) {
+    const userHome = homedir();
+    return home === userHome ? "~" : home.startsWith(`${userHome}/`) ? `~${home.slice(userHome.length)}` : home;
+}
+/**
+ * 运行模式与环境对应命令（拼进 <environment>）。
+ *
+ * HAPILON_CLI_PATH 缺失（裸 pi 加载本扩展）时返回空串——不猜。
+ * 命令恒写 `node "$HAPILON_CLI_PATH"`：它指的就是「此刻正在跑的这个构建」，
+ * 两种模式、交互与非交互 shell 都成立；PATH 上的 `hapi`/`devhapi` 都靠不住
+ * （`hapi` 未安装，`devhapi` 只是 zsh alias，bash -c 里不展开）。
+ */
+export function buildRunModeText() {
+    const cliPath = process.env.HAPILON_CLI_PATH;
+    if (!cliPath)
+        return "";
+    const release = !isSourceCheckout(cliPath);
+    const mode = release ? "installed release" : "dev source checkout";
+    const alias = release ? " (equivalent to `hapi`)" : "";
+    return (`Run mode: ${mode} — data dir ${shortHome(hapilonHome())}\n` +
+        `Start hapilon with: node "$HAPILON_CLI_PATH" <args>${alias}`);
 }
 /**
  * 代码风格约束：注释白名单 + fail fast。
