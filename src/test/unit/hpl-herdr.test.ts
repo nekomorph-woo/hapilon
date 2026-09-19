@@ -11,15 +11,32 @@ import {
 } from "../../extensions/hpl-herdr/report.js";
 
 /** 记录 spawn 调用的假 SpawnFn */
-function makeSpawn(result: { error?: Error } = {}) {
+function makeSpawn(result: { error?: Error; status?: number; stderr?: string } = {}) {
   const calls: Array<{ file: string; args: string[] }> = [];
   return {
     calls,
     spawn: (file: string, args: string[]) => {
       calls.push({ file, args });
-      return { status: result.error ? 1 : 0, error: result.error };
+      const status = result.status ?? (result.error ? 1 : 0);
+      return { status, error: result.error, stderr: result.stderr };
     },
   };
+}
+
+/** 可控时钟：显式推进毫秒，避免测试依赖真实时间 */
+const CLOCK_START = 1_700_000_000_000;
+function makeClock(start = CLOCK_START) {
+  let current = start;
+  return {
+    now: () => current,
+    advance: (ms: number) => {
+      current += ms;
+    },
+  };
+}
+
+function seqs(calls: Array<{ args: string[] }>): number[] {
+  return calls.map((c) => Number(c.args[c.args.indexOf("--seq") + 1]));
 }
 
 const ENV = { herdrEnv: "1", binPath: "/opt/herdr/bin/herdr", paneId: "w1:p7" };
@@ -84,7 +101,8 @@ describe("createHerdrReporter()", () => {
 
   it("报告走 HERDR_BIN_PATH，seq 严格递增，release 收尾", () => {
     const { spawn, calls } = makeSpawn();
-    const reporter = createHerdrReporter({ spawn, env: ENV });
+    const clock = makeClock();
+    const reporter = createHerdrReporter({ spawn, env: ENV, now: clock.now });
     reporter.report("idle", { sessionPath: "/s.jsonl" });
     reporter.report("working");
     reporter.report("blocked", { message: "confirm" });
@@ -93,12 +111,31 @@ describe("createHerdrReporter()", () => {
 
     assert.equal(calls.length, 5);
     assert.ok(calls.every((c) => c.file === ENV.binPath));
-    const seqs = calls.slice(0, 4).map((c) => Number(c.args[c.args.indexOf("--seq") + 1]));
-    assert.deepEqual(seqs, [1, 2, 3, 4], "seq 必须严格递增");
+    const reported = seqs(calls.slice(0, 4));
+    assert.deepEqual(reported, [CLOCK_START, CLOCK_START + 1, CLOCK_START + 2, CLOCK_START + 3], "同毫秒内仍须严格递增");
     assert.equal(calls[0]!.args[calls[0]!.args.indexOf("--state") + 1], "idle");
     assert.equal(calls[3]!.args[calls[3]!.args.indexOf("--state") + 1], "idle");
     assert.ok(calls[0]!.args.includes("--agent-session-path"));
     assert.equal(calls[4]!.args[1], "release-agent");
+  });
+
+  // 回归：herdr 按 (pane, source) 记住已接受的最大 seq，旧实例哑掉后新实例必须立刻大于它，
+  // 否则 /new、收编、进程重启后的上报会被静默丢弃（wait-pane 假超时的根因）。
+  it("跨实例追加重建后 seq 仍大于上一实例（/new、收编后不断链）", () => {
+    const clock = makeClock();
+    const first = makeSpawn();
+    const firstReporter = createHerdrReporter({ spawn: first.spawn, env: ENV, now: clock.now });
+    firstReporter.report("working");
+    clock.advance(50);
+    firstReporter.report("idle");
+    const beforeRestart = seqs(first.calls).at(-1)!;
+
+    clock.advance(1_000);
+    const second = makeSpawn();
+    const secondReporter = createHerdrReporter({ spawn: second.spawn, env: ENV, now: clock.now });
+    secondReporter.report("idle", { sessionPath: "/new-session.jsonl" });
+
+    assert.ok(seqs(second.calls)[0]! > beforeRestart, "新实例首个 seq 必须大于旧实例最后一个");
   });
 
   it("上报失败告警一次而非静默吞掉", () => {
@@ -108,5 +145,14 @@ describe("createHerdrReporter()", () => {
     reporter.report("working");
     assert.equal(errors.length, 1);
     assert.ok(errors[0]!.includes("herdr 不在 PATH"));
+  });
+
+  it("herdr 以非 0 退出拒绝上报时要告警（含 stderr 摘要）", () => {
+    const { spawn } = makeSpawn({ status: 1, stderr: '{"error":{"code":"pane_not_found"}}\n' });
+    const errors: string[] = [];
+    const reporter = createHerdrReporter({ spawn, env: ENV, onError: (m) => errors.push(m) });
+    reporter.report("working");
+    assert.equal(errors.length, 1);
+    assert.ok(errors[0]!.includes("pane_not_found"));
   });
 });
