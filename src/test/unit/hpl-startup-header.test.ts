@@ -20,20 +20,25 @@ import {
 } from "../../extensions/hpl-startup-header/content.js";
 
 describe("hapilonLogo()", () => {
-  it("返回 4 行 ASCII art", () => {
-    const logo = hapilonLogo();
-    assert.strictEqual(logo.length, 4);
+  it("返回 8 行盲文点阵 logo", () => {
+    assert.strictEqual(hapilonLogo().length, 8);
   });
 
-  it("每行非空", () => {
-    for (const line of hapilonLogo()) {
+  it("每行非空且等宽（换图不改变首屏布局）", () => {
+    const logo = hapilonLogo();
+    for (const line of logo) {
       assert.ok(line.length > 0, "每行不应为空字符串");
     }
+    assert.strictEqual(new Set(logo.map((l) => l.length)).size, 1, "logo 各行应等宽");
+  });
+
+  it("同一进程内多次调用返回同一只（resize 不重摇）", () => {
+    assert.deepStrictEqual(hapilonLogo(), hapilonLogo());
   });
 });
 
 describe("logo 主题渲染", () => {
-  it("实心块 logo 行使用 accent 主题槽位", () => {
+  it("盲文点阵 logo 行使用 accent 主题槽位", () => {
     assert.equal(isLogoLine(hapilonLogo()[1]!), true);
     assert.equal(isLogoLine("  Welcome back!"), false);
 
@@ -53,7 +58,10 @@ describe("logo 主题渲染", () => {
     );
 
     const rendered = component.render(80);
-    assert.ok(rendered.some((line) => line.startsWith("<accent>") && /█/.test(line)));
+    assert.ok(
+      rendered.some((line) => line.startsWith("<accent>") && /[\u2800-\u28FF]/.test(line)),
+      "logo 行应以 accent 渲染",
+    );
     assert.ok(colors.includes("accent"));
   });
 
