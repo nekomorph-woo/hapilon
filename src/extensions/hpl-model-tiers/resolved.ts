@@ -8,12 +8,35 @@ export const MODEL_TIERS = ["opus", "sonnet", "haiku"] as const;
 export type ModelTier = (typeof MODEL_TIERS)[number];
 export type TierModels = Record<ModelTier, string[]>;
 
+/** 与 pi 内核 ThinkingLevel 对齐的档位名全集。 */
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export type ThinkingLevelName = (typeof THINKING_LEVELS)[number];
+
+export const isThinkingLevel = (value: unknown): value is ThinkingLevelName =>
+  typeof value === "string" && (THINKING_LEVELS as readonly string[]).includes(value);
+
+/**
+ * 剥离模式串尾部的 :thinking 后缀（与 pi parseModelPattern 同语义：仅当后缀是
+ * 合法档位名时剥离；非法后缀视为模式本身的一部分）。返回裸模式与档位。
+ */
+export function splitThinkingSuffix(pattern: string): { pattern: string; thinking?: ThinkingLevelName } {
+  const colon = pattern.lastIndexOf(":");
+  if (colon <= 0 || colon === pattern.length - 1) return { pattern };
+  const suffix = pattern.slice(colon + 1);
+  if (isThinkingLevel(suffix)) {
+    return { pattern: pattern.slice(0, colon), thinking: suffix };
+  }
+  return { pattern };
+}
+
 /** 解析后的档位模型条目：recap / safety-gate / orchestra / tier-router 共用的最小形状。 */
 export interface ResolvedTierModel {
   provider: string;
   id: string;
   name?: string;
   reasoning?: boolean;
+  /** 该档位条目显式指定的 thinking level（来自模式串的 :level 后缀）。 */
+  thinking?: ThinkingLevelName;
 }
 
 export type ResolvedTierModels = Record<ModelTier, ResolvedTierModel[]>;
@@ -31,6 +54,7 @@ function parseModelList(value: unknown): ResolvedTierModel[] {
       id: raw.id,
       ...(typeof raw.name === "string" ? { name: raw.name } : {}),
       ...(typeof raw.reasoning === "boolean" ? { reasoning: raw.reasoning } : {}),
+      ...(isThinkingLevel(raw.thinking) ? { thinking: raw.thinking } : {}),
     }];
   });
 }

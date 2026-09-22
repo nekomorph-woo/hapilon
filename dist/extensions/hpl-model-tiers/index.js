@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
 import { readModelTiersEffect, saveModelTiersEffect } from "./config.js";
-import { MODEL_TIERS } from "./resolved.js";
+import { MODEL_TIERS, splitThinkingSuffix, THINKING_LEVELS } from "./resolved.js";
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 function globRegex(pattern) {
     let source = "^";
@@ -22,10 +22,11 @@ function globRegex(pattern) {
     }
     return new RegExp(`${source}$`, "i");
 }
-/** 与 pi 一致处：/ 前缀全名 vs 裸 id、* ** ? 段语义；已知差异：非 glob pattern 是精确匹配（pi 是子串匹配），不支持 [abc] 字符类与 :thinking 后缀。 */
+/** 与 pi 一致处：/ 前缀全名 vs 裸 id、* ** ? 段语义；已知差异：非 glob pattern 是精确匹配（pi 是子串匹配），不支持 [abc] 字符类。:thinking 后缀先剥离再匹配（与 pi parseModelPattern 对齐）。 */
 export function matchesModelPattern(pattern, model) {
-    const candidate = pattern.includes("/") ? `${model.provider}/${model.id}` : model.id;
-    return globRegex(pattern).test(candidate);
+    const bare = splitThinkingSuffix(pattern).pattern;
+    const candidate = bare.includes("/") ? `${model.provider}/${model.id}` : model.id;
+    return globRegex(bare).test(candidate);
 }
 function unique(values) {
     return [...new Set(values)];
@@ -35,17 +36,18 @@ function resolveAvailable(tiers, available) {
     for (const tier of MODEL_TIERS) {
         const seen = new Set();
         const warned = new Set();
-        for (const pattern of tiers[tier]) {
-            const matches = available.filter((model) => matchesModelPattern(pattern, model));
-            if (matches.length === 0 && !warned.has(pattern)) {
-                console.warn(`[hpl-model-tiers] ${tier} pattern 无可用模型匹配，暂保留：${pattern}`);
-                warned.add(pattern);
+        for (const entry of tiers[tier]) {
+            const { thinking } = splitThinkingSuffix(entry);
+            const matches = available.filter((model) => matchesModelPattern(entry, model));
+            if (matches.length === 0 && !warned.has(entry)) {
+                console.warn(`[hpl-model-tiers] ${tier} pattern 无可用模型匹配，暂保留：${entry}`);
+                warned.add(entry);
             }
             for (const model of matches) {
                 const key = `${model.provider}/${model.id}`;
                 if (!seen.has(key)) {
                     seen.add(key);
-                    result[tier].push(model);
+                    result[tier].push({ ...model, ...(thinking ? { thinking } : {}) });
                 }
             }
         }
@@ -90,9 +92,9 @@ function writeSettings(path, settings) {
 const writeResolvedTiersEffect = (home, matched) => Effect.try({
     try: () => {
         const resolved = {
-            opus: matched.opus.map(({ provider, id, name, reasoning }) => ({ provider, id, name, reasoning })),
-            sonnet: matched.sonnet.map(({ provider, id, name, reasoning }) => ({ provider, id, name, reasoning })),
-            haiku: matched.haiku.map(({ provider, id, name, reasoning }) => ({ provider, id, name, reasoning })),
+            opus: matched.opus.map(({ provider, id, name, reasoning, thinking }) => ({ provider, id, name, reasoning, thinking })),
+            sonnet: matched.sonnet.map(({ provider, id, name, reasoning, thinking }) => ({ provider, id, name, reasoning, thinking })),
+            haiku: matched.haiku.map(({ provider, id, name, reasoning, thinking }) => ({ provider, id, name, reasoning, thinking })),
         };
         mkdirSync(home, { recursive: true, mode: 0o700 });
         writeFileSync(join(home, "model-tiers-resolved.json"), JSON.stringify(resolved, null, 2) + "\n", "utf8");
@@ -171,7 +173,7 @@ export default function hplModelTiers(pi) {
         console.log(`[hpl-model-tiers] opus=${result.tiers.opus.length} sonnet=${result.tiers.sonnet.length} haiku=${result.tiers.haiku.length}${reloadHint}`);
     });
 }
-const TIER_OPERATIONS = ["添加模型", "移除模型", "调整顺序", "清空档位"];
+const TIER_OPERATIONS = ["添加模型", "移除模型", "设置 thinking", "调整顺序", "清空档位"];
 /** 档位显示名（内部 key 一律小写）。 */
 const TIER_DISPLAY = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
 function modelOption(model) {
@@ -192,7 +194,7 @@ async function showTiersOverview(ctx, tiers) {
             : "（空）";
         sections.push(`${TIER_DISPLAY[tier]}: ${list}`);
     }
-    sections.push("消费方：recap 总结用 haiku（缺则 sonnet 非推理 → sonnet → 当前模型）；", "default 兜底取 opus[0]；三档并集进 /model 选择器。");
+    sections.push("条目可带 :thinking 后缀（off…max），该档干活即用该思考深度；清除用 /tiers 的「设置 thinking」。", "消费方：recap 总结用 haiku（缺则 sonnet 非推理 → sonnet → 当前模型）；", "default 兜底取 opus[0]；三档并集进 /model 选择器。");
     ctx.ui.notify(sections.join("\n"), "info");
 }
 async function saveEditedTiers(ctx, tiers, tier) {
@@ -205,7 +207,7 @@ async function saveEditedTiers(ctx, tiers, tier) {
     }
 }
 async function addModels(ctx, tiers, tier) {
-    const chosen = new Set(tiers[tier]);
+    const chosen = new Set(tiers[tier].map((value) => splitThinkingSuffix(value).pattern));
     const available = ctx.modelRegistry.getAvailable()
         .map((model) => modelOption(model))
         .filter((option) => !chosen.has(option));
@@ -231,6 +233,30 @@ async function addModels(ctx, tiers, tier) {
     }
     if (changed)
         await saveEditedTiers(ctx, tiers, tier);
+}
+/**
+ * 为档位条目设置/清除 :thinking 后缀：选模型 → 选档位（含清除）。
+ * 后缀是纯文本追加/替换，保存后 /reload 生效；同一模型在不同档位
+ * 各自持后缀，互不影响。
+ */
+async function setModelThinking(ctx, tiers, tier) {
+    const configured = [...tiers[tier]];
+    if (configured.length === 0) {
+        ctx.ui.notify("该档位当前为空，先添加模型。", "warning");
+        return;
+    }
+    const selected = await ctx.ui.select(`选择 ${TIER_DISPLAY[tier]} 中要设置 thinking 的模型`, [...configured, "取消"]);
+    if (!selected || selected === "取消")
+        return;
+    const index = configured.indexOf(selected);
+    if (index < 0)
+        return;
+    const base = splitThinkingSuffix(selected).pattern;
+    const level = await ctx.ui.select(`选择 ${base} 的 thinking level`, [...THINKING_LEVELS, "清除（跟随全局默认）"]);
+    if (!level)
+        return;
+    tiers[tier][index] = level.startsWith("清除") ? base : `${base}:${level}`;
+    await saveEditedTiers(ctx, tiers, tier);
 }
 /**
  * 选模型上移排序：每次 select 一个模型即与前一位交换，实时展示当前顺序；
@@ -277,6 +303,10 @@ async function handleTiersCommand(ctx) {
     }
     if (operation === "调整顺序") {
         await reorderModels(ctx, tiers, selectedTier);
+        return;
+    }
+    if (operation === "设置 thinking") {
+        await setModelThinking(ctx, tiers, selectedTier);
         return;
     }
     const configured = [...tiers[selectedTier]];

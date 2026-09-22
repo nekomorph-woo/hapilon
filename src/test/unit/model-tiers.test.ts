@@ -10,6 +10,75 @@ import {
   resolveTierModels,
   type AvailableModel,
 } from "../../extensions/hpl-model-tiers/index.js";
+import { splitThinkingSuffix } from "../../extensions/hpl-model-tiers/resolved.js";
+
+describe("splitThinkingSuffix", () => {
+  it("合法档位名后缀被剥离并返回", () => {
+    assert.deepEqual(splitThinkingSuffix("zai/glm-5.3:high"), { pattern: "zai/glm-5.3", thinking: "high" });
+    assert.deepEqual(splitThinkingSuffix("glm-*:off"), { pattern: "glm-*", thinking: "off" });
+    assert.deepEqual(splitThinkingSuffix("p/i:max"), { pattern: "p/i", thinking: "max" });
+  });
+
+  it("非法后缀视为模式本身的一部分（与 pi 同语义）", () => {
+    assert.deepEqual(splitThinkingSuffix("zai/glm-5.3:hight"), { pattern: "zai/glm-5.3:hight" });
+    // OpenRouter 风格 id 含冒号，但后缀不是档位名 → 不剥离
+    assert.deepEqual(splitThinkingSuffix("openai/gpt-4:exacto"), { pattern: "openai/gpt-4:exacto" });
+  });
+
+  it("无冒号、首冒号、尾冒号均不剥离", () => {
+    assert.deepEqual(splitThinkingSuffix("zai/glm-5.3"), { pattern: "zai/glm-5.3" });
+    assert.deepEqual(splitThinkingSuffix(":high"), { pattern: ":high" });
+    assert.deepEqual(splitThinkingSuffix("p/i:"), { pattern: "p/i:" });
+  });
+});
+
+describe(":thinking 后缀贯穿档位解析", () => {
+  it("带后缀模式匹配时剥离后缀并附到解析结果上", () => {
+    const model: AvailableModel = { provider: "zai", id: "glm-5.3" };
+    assert.equal(matchesModelPattern("zai/glm-5.3:high", model), true);
+    assert.equal(matchesModelPattern("zai/glm-5.3", model), true);
+  });
+
+  it("同一模型在不同档位各自持不同 thinking level（核心诉求）", () => {
+    const available: AvailableModel[] = [{ provider: "zai", id: "glm-5.3" }];
+    const result = resolveTierModels({
+      opus: ["zai/glm-5.3:high"],
+      sonnet: ["zai/glm-5.3:low"],
+      haiku: [],
+    }, available);
+    assert.deepEqual(result.matched.opus[0], { provider: "zai", id: "glm-5.3", thinking: "high" });
+    assert.deepEqual(result.matched.sonnet[0], { provider: "zai", id: "glm-5.3", thinking: "low" });
+  });
+
+  it("同档同模型重复出现时保留首个（含其 level）", () => {
+    const available: AvailableModel[] = [{ provider: "zai", id: "glm-5.3" }];
+    const result = resolveTierModels({
+      opus: ["zai/glm-5.3:high", "zai/glm-5.3:low"],
+      sonnet: [],
+      haiku: [],
+    }, available);
+    assert.equal(result.matched.opus.length, 1);
+    assert.equal(result.matched.opus[0]!.thinking, "high");
+  });
+
+  it("无后缀条目行为不变，不携带 thinking 字段", () => {
+    const result = resolveTierModels({
+      opus: ["zai/glm-5.3"],
+      sonnet: [],
+      haiku: [],
+    }, [{ provider: "zai", id: "glm-5.3" }]);
+    assert.deepEqual(result.matched.opus[0], { provider: "zai", id: "glm-5.3" });
+  });
+
+  it("enabledModels 透传原始模式串（后缀随 enabledModels → scopedModels 生效）", () => {
+    const result = resolveTierModels({
+      opus: ["zai/glm-5.3:high"],
+      sonnet: [],
+      haiku: [],
+    }, [{ provider: "zai", id: "glm-5.3" }]);
+    assert.deepEqual(result.enabledModels, ["zai/glm-5.3:high"]);
+  });
+});
 
 const available: AvailableModel[] = [
   { provider: "anthropic", id: "claude-opus-4" },

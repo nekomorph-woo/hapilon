@@ -71,3 +71,39 @@ describe("resolveRoleModel", () => {
         assert.match(concrete.warnings[0], /回落 pi 默认模型/);
     });
 });
+describe("resolveRoleModel :thinking 后缀", () => {
+    const model = (provider, id, thinking) => thinking ? { provider, id, thinking } : { provider, id };
+    it("tier 指代解析出的 spawn 串带上条目 thinking（spawn 命令即 --model p/i:level）", () => {
+        const table = {
+            opus: [model("zai", "glm-5.3", "high")],
+            sonnet: [model("zai", "glm-5.3", "low"), model("deepseek", "deepseek-flash")],
+            haiku: [],
+        };
+        assert.equal(resolveRoleModel("tier:opus", table), "zai/glm-5.3:high");
+        assert.equal(resolveRoleModel("tier:sonnet[0]", table), "zai/glm-5.3:low");
+        assert.equal(resolveRoleModel("tier:sonnet[1]", table), "deepseek/deepseek-flash");
+    });
+    it("具体 id 指代：档位表中的 thinking 生效，覆盖 spec 自带后缀", () => {
+        const table = {
+            opus: [model("zai", "glm-5.3", "high")],
+            sonnet: [],
+            haiku: [],
+        };
+        assert.equal(resolveRoleModel("zai/glm-5.3", table), "zai/glm-5.3:high");
+        assert.equal(resolveRoleModel("zai/glm-5.3:low", table), "zai/glm-5.3:high");
+    });
+    it("具体 id 不在任何档位时仍回落告警（含后缀同理）", () => {
+        const { value, warnings } = captureWarnings(() => resolveRoleModel("zai/other:high", tiers()));
+        assert.equal(value, "zai/glm-5.3-flash");
+        assert.match(warnings[0], /不在任何档位/);
+    });
+    it("回落路径同样携带首选模型的 thinking", () => {
+        const table = {
+            opus: [model("zai", "glm-5.3", "max")],
+            sonnet: [],
+            haiku: [],
+        };
+        const { value } = captureWarnings(() => resolveRoleModel("tier:sonnet", table));
+        assert.equal(value, "zai/glm-5.3:max");
+    });
+});

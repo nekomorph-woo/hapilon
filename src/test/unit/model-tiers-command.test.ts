@@ -138,4 +138,94 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
     });
     assert.deepEqual(JSON.parse(readFileSync(join(home, "model-tiers.json"), "utf8")).sonnet, ["glm-a", "glm-b", "glm-c"]);
   });
+
+  it("「设置 thinking」给条目追加后缀、可覆盖、可清除", async () => {
+    const commands = new Map<string, { handler: Function }>();
+    hplModelTiers({
+      registerCommand: (name: string, definition: { handler: Function }) => commands.set(name, definition),
+      on: () => {},
+    } as never);
+
+    // 追加：选模型 → 选 level
+    writeFileSync(join(home, "model-tiers.json"), JSON.stringify({ sonnet: ["glm-a", "glm-b"] }));
+    const setSelections = ["Sonnet", "设置 thinking", "glm-a", "high"];
+    await commands.get("tiers")!.handler("", {
+      cwd: home,
+      ui: {
+        select: async (_title: string, options: string[]) => {
+          const next = setSelections.shift();
+          assert.ok(next !== undefined && options.includes(next), `${next} 应在候选项中: ${JSON.stringify(options)}`);
+          return next;
+        },
+        notify: () => {},
+      },
+      modelRegistry: { getAvailable: () => [] },
+    });
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(home, "model-tiers.json"), "utf8")).sonnet,
+      ["glm-a:high", "glm-b"],
+    );
+
+    // 覆盖：已带后缀的条目显示原样，重选改 level
+    const overrideSelections = ["Sonnet", "设置 thinking", "glm-a:high", "max"];
+    await commands.get("tiers")!.handler("", {
+      cwd: home,
+      ui: {
+        select: async (_title: string, options: string[]) => {
+          const next = overrideSelections.shift();
+          assert.ok(next !== undefined && options.includes(next));
+          return next;
+        },
+        notify: () => {},
+      },
+      modelRegistry: { getAvailable: () => [] },
+    });
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(home, "model-tiers.json"), "utf8")).sonnet,
+      ["glm-a:max", "glm-b"],
+    );
+
+    // 清除：选「清除（跟随全局默认）」移除后缀
+    const clearSelections = ["Sonnet", "设置 thinking", "glm-a:max", "清除（跟随全局默认）"];
+    await commands.get("tiers")!.handler("", {
+      cwd: home,
+      ui: {
+        select: async (_title: string, options: string[]) => {
+          const next = clearSelections.shift();
+          assert.ok(next !== undefined && options.includes(next));
+          return next;
+        },
+        notify: () => {},
+      },
+      modelRegistry: { getAvailable: () => [] },
+    });
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(home, "model-tiers.json"), "utf8")).sonnet,
+      ["glm-a", "glm-b"],
+    );
+  });
+
+  it("「设置 thinking」空档位提示不保存", async () => {
+    const commands = new Map<string, { handler: Function }>();
+    hplModelTiers({
+      registerCommand: (name: string, definition: { handler: Function }) => commands.set(name, definition),
+      on: () => {},
+    } as never);
+    writeFileSync(join(home, "model-tiers.json"), JSON.stringify({ sonnet: [] }));
+    const notices: string[] = []
+    const selections = ["Sonnet", "设置 thinking"];
+    await commands.get("tiers")!.handler("", {
+      cwd: home,
+      ui: {
+        select: async (_title: string, options: string[]) => {
+          const next = selections.shift();
+          assert.ok(next !== undefined && options.includes(next));
+          return next;
+        },
+        notify: (message: string) => notices.push(message),
+      },
+      modelRegistry: { getAvailable: () => [] },
+    });
+    assert.ok(notices.some((n) => n.includes("为空")));
+  });
 });

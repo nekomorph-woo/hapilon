@@ -3,6 +3,23 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
 export const MODEL_TIERS = ["opus", "sonnet", "haiku"];
+/** 与 pi 内核 ThinkingLevel 对齐的档位名全集。 */
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+export const isThinkingLevel = (value) => typeof value === "string" && THINKING_LEVELS.includes(value);
+/**
+ * 剥离模式串尾部的 :thinking 后缀（与 pi parseModelPattern 同语义：仅当后缀是
+ * 合法档位名时剥离；非法后缀视为模式本身的一部分）。返回裸模式与档位。
+ */
+export function splitThinkingSuffix(pattern) {
+    const colon = pattern.lastIndexOf(":");
+    if (colon <= 0 || colon === pattern.length - 1)
+        return { pattern };
+    const suffix = pattern.slice(colon + 1);
+    if (isThinkingLevel(suffix)) {
+        return { pattern: pattern.slice(0, colon), thinking: suffix };
+    }
+    return { pattern };
+}
 const EMPTY_RESOLVED = { opus: [], sonnet: [], haiku: [] };
 function parseModelList(value) {
     if (!Array.isArray(value))
@@ -18,6 +35,7 @@ function parseModelList(value) {
                 id: raw.id,
                 ...(typeof raw.name === "string" ? { name: raw.name } : {}),
                 ...(typeof raw.reasoning === "boolean" ? { reasoning: raw.reasoning } : {}),
+                ...(isThinkingLevel(raw.thinking) ? { thinking: raw.thinking } : {}),
             }];
     });
 }

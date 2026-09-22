@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { isAbsolute, resolve } from "node:path";
 import { Data, Effect } from "effect";
-import { readResolvedTiersEffect } from "../hpl-model-tiers/resolved.js";
+import { readResolvedTiersEffect, splitThinkingSuffix } from "../hpl-model-tiers/resolved.js";
 export class HerdrError extends Data.TaggedError("HerdrError") {
 }
 export const defaultSpawn = spawnSync;
@@ -320,9 +320,13 @@ const TIER_ORDER = ["opus", "sonnet", "haiku"];
 function readResolvedTierModelsSafely() {
     return Effect.runSync(readResolvedTiersEffect);
 }
+/** 拼出 spawn 用的模型串：条目带 thinking 时追加 :level（pi 原生解析）。 */
+function modelSpec(model) {
+    return model.thinking ? `${model.provider}/${model.id}:${model.thinking}` : `${model.provider}/${model.id}`;
+}
 export function resolveTierModelByTier(tier) {
     const first = readResolvedTierModelsSafely()[tier][0];
-    return first ? modelKey(first) : undefined;
+    return first ? modelSpec(first) : undefined;
 }
 function modelKey(model) {
     return `${model.provider}/${model.id}`;
@@ -332,7 +336,7 @@ function fallbackModel(tiers) {
     for (const tier of TIER_ORDER) {
         const first = tiers[tier][0];
         if (first)
-            return modelKey(first);
+            return modelSpec(first);
     }
     return undefined;
 }
@@ -357,14 +361,19 @@ export function resolveRoleModel(spec, tiers = readResolvedTierModelsSafely()) {
         const index = reference[2] === undefined ? 0 : Number(reference[2]);
         const model = tiers[tier][index];
         if (model)
-            return modelKey(model);
+            return modelSpec(model);
         return warnAndFallback(tiers, `模型指代 ${wanted} 解析失败（${tier} 档共 ${tiers[tier].length} 个模型）`);
     }
     if (wanted.startsWith("tier:")) {
         return warnAndFallback(tiers, `模型指代 ${wanted} 格式非法（应为 tier:<opus|sonnet|haiku>[<index>]）`);
     }
-    if (TIER_ORDER.some((tier) => tiers[tier].some((model) => modelKey(model) === wanted)))
-        return wanted;
+    // 具体 id 可自带 :thinking 后缀；比对剥后缀后的裸 id，档位表中的 thinking 生效。
+    const bare = splitThinkingSuffix(wanted).pattern;
+    for (const tier of TIER_ORDER) {
+        const model = tiers[tier].find((m) => modelKey(m) === bare);
+        if (model)
+            return modelSpec(model);
+    }
     return warnAndFallback(tiers, `模型 ${wanted} 不在任何档位（可能已过期或拼写错误）`);
 }
 /** 为讨论成员优先挑选与主面板不同 provider 的 opus 模型。 */
@@ -374,5 +383,5 @@ export function resolveDiscussantModel(ownerProvider) {
         return undefined;
     const heterogeneous = models.filter((model) => model.provider !== ownerProvider);
     const selected = heterogeneous[0] ?? models[1] ?? models[0];
-    return `${selected.provider}/${selected.id}`;
+    return modelSpec(selected);
 }
