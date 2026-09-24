@@ -1,0 +1,132 @@
+/**
+ * adaptive-facts.ts — 角色 pane 自己的事实上报
+ *
+ * 角色 pane 的任务列表由 pi-tasks 维护，owner 与选模侧都只能读它。任务是否
+ * 完成在 pi-tasks 里是个事实（status+updatedAt），所以由该 pane 每轮开头自查
+ * 新完成的任务并写进 tier-adaptive 事实日志；写入按 (paneId, taskId) 去重，
+ * 重复上报不会把样本灌水。用户在该 pane 上主动换模型/thinking level 同理：只有
+ * 角色 pane 自己看得到这些事件，所以也在这里上报。
+ */
+import { Effect } from "effect";
+import { appendAdaptiveEvent } from "../hpl-model-tiers/adaptive-events.js";
+import { readTaskStoreEffect } from "./team-tasks.js";
+import { teamTasksPathFor } from "./state.js";
+export const recordOwnCompletedTasksEffect = (ctx, now = new Date()) => {
+    const role = process.env.HAPI_ORCH_ROLE;
+    const paneId = process.env.HERDR_PANE_ID;
+    const provider = ctx.model?.provider;
+    const id = ctx.model?.id;
+    if (!role || !paneId || !provider || !id)
+        return Effect.void;
+    const model = `${provider}/${id}`;
+    const ts = now.toISOString();
+    // 任务列表不存在/形状不符都不是本流程的错误：事实日志拿不到就不记，绝不猜
+    return readTaskStoreEffect(teamTasksPathFor(paneId)).pipe(Effect.map((store) => (store?.tasks ?? []).filter((task) => task.status === "completed")), Effect.tap((tasks) => Effect.sync(() => {
+        for (const task of tasks) {
+            appendAdaptiveEvent({
+                kind: "task_completed",
+                ts,
+                role,
+                paneId,
+                taskId: task.id,
+                model,
+            }, `task:${paneId}:${task.id}`);
+        }
+    })), Effect.catchAll(() => Effect.void), Effect.asVoid);
+};
+export function recordOwnCompletedTasks(ctx, now) {
+    Effect.runSync(recordOwnCompletedTasksEffect(ctx, now));
+}
+const modelKeyOf = (model) => model?.provider && model.id ? `${model.provider}/${model.id}` : undefined;
+/**
+ * 角色 pane 的用户主动切模上报。只认 set/cycle（restore 是会话恢复，不是用户选择），
+ * 无角色身份的 pane（owner、非 Team 会话）不记；同一模型不发事件。
+ * 只记目标模型：旧模型不因“被切走”记负分。
+ */
+export function recordModelSwitch(event, context = {}) {
+    const role = context.role ?? process.env.HAPI_ORCH_ROLE;
+    const paneId = context.paneId ?? process.env.HERDR_PANE_ID;
+    if (!role || !paneId)
+        return false;
+    if (event.source !== "set" && event.source !== "cycle")
+        return false;
+    const model = modelKeyOf(event.model);
+    if (!model)
+        return false;
+    const previousModel = modelKeyOf(event.previousModel);
+    if (previousModel === model)
+        return false;
+    appendAdaptiveEvent({
+        kind: "model_switch",
+        v: 1,
+        ts: (context.now ?? new Date()).toISOString(),
+        paneId,
+        role,
+        previousModel: previousModel ?? "",
+        model,
+        source: event.source,
+        ...(context.thinking ? { thinking: context.thinking } : {}),
+    });
+    return true;
+}
+/**
+ * 缓冲时长：pi 的模型切换会先 setThinkingLevel（同步）再 emit model_select，两个处理器
+ * 在同一轮同步跑完，下一拍才落盘的计时器一定能等到。不用长窗猜——只抑制同轮。
+ */
+const THINKING_SETTLE_MS = 0;
+let pendingThinking = [];
+let pendingTimer;
+function scheduleThinkingFlush() {
+    if (pendingTimer)
+        clearTimeout(pendingTimer);
+    pendingTimer = setTimeout(flushPendingThinkingSwitch, THINKING_SETTLE_MS);
+}
+/** 把缓冲的 thinking 事件按序落盘；没有就什么也不做。 */
+export function flushPendingThinkingSwitch() {
+    pendingTimer = undefined;
+    const queued = pendingThinking;
+    pendingThinking = [];
+    for (const event of queued)
+        appendAdaptiveEvent(event);
+}
+/**
+ * 模型切换同轮调用：pi 事件没有来源，无法当场区分「用户切 thinking」与「模型切换
+ * 顺带改了 thinking」，所以 thinking 事件先缓冲一拍。模型切换的附带变化总是紧接着
+ * model_select 的最后一条，只丢弃队列末位；更早的真实切换保留并重新排期。
+ */
+export function discardPendingThinkingSwitch() {
+    if (pendingThinking.length > 0)
+        pendingThinking.pop();
+    if (pendingTimer)
+        clearTimeout(pendingTimer);
+    pendingTimer = undefined;
+    if (pendingThinking.length > 0)
+        scheduleThinkingFlush();
+}
+/**
+ * 角色 pane 的用户主动切 thinking level 上报。无角色身份/paneId/当前模型的 pane
+ * （owner、非 Team 会话）不记；同 level pi 本就不发事件，写侧仍兼底。
+ */
+export function recordThinkingSwitch(event, context = {}) {
+    const role = context.role ?? process.env.HAPI_ORCH_ROLE;
+    const paneId = context.paneId ?? process.env.HERDR_PANE_ID;
+    if (!role || !paneId)
+        return false;
+    const model = modelKeyOf(context.model);
+    if (!model)
+        return false;
+    if (event.previousLevel === event.level)
+        return false;
+    pendingThinking.push({
+        kind: "thinking_switch",
+        v: 1,
+        ts: (context.now ?? new Date()).toISOString(),
+        paneId,
+        role,
+        model,
+        previousLevel: event.previousLevel ?? "",
+        level: event.level,
+    });
+    scheduleThinkingFlush();
+    return true;
+}

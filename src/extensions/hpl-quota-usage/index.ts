@@ -11,8 +11,9 @@ import {
 } from "./providers/glm.js";
 import { fetchQuotaEffect as fetchCodexQuota, parseQuotaLines as parseCodexQuota, parseSnapshot as parseCodexSnapshot } from "./providers/codex.js";
 import { field, type QuotaAuth, type QuotaField, type QuotaResult } from "./types.js";
-import type { QuotaSnapshot } from "./snapshot.js";
+import { quotaNamespace, type QuotaSnapshot } from "./snapshot.js";
 import { writeQuotaSnapshot } from "./cache.js";
+import { appendAdaptiveEvent } from "../hpl-model-tiers/adaptive-events.js";
 
 const SUPPORTED_PROVIDERS = new Set(["deepseek", "zai", "zai-coding-cn", "openai-codex"]);
 
@@ -20,13 +21,8 @@ export function isSupportedProvider(provider: string): boolean {
   return SUPPORTED_PROVIDERS.has(provider);
 }
 
-/** provider id → snapshot 命名空间（glm 系两入口共享同一份） */
-function snapshotKey(provider: string): string {
-  return provider === "zai" || provider === "zai-coding-cn" ? "glm" : provider;
-}
-
 function fetchAndParseSnapshot(provider: string, auth: QuotaAuth, now: number): Promise<QuotaSnapshot> {
-  const key = snapshotKey(provider);
+  const key = quotaNamespace(provider);
   const run = (effect: Effect.Effect<unknown, Error>): Promise<QuotaSnapshot> =>
     Effect.runPromise(effect).then((payload) => {
       switch (key) {
@@ -120,14 +116,41 @@ let refreshInFlight = false;
 export function refreshCache(provider: string, auth: QuotaAuth, now = Date.now()): void {
   if (refreshInFlight) return;
   refreshInFlight = true;
+  const key = quotaNamespace(provider);
   fetchAndParseSnapshot(provider, auth, now)
     .then(
-      (snapshot) => writeQuotaSnapshot({ ...snapshot, provider: snapshotKey(provider) }),
-      () => {},
+      (snapshot) => {
+        writeQuotaSnapshot({ ...snapshot, provider: key });
+        recordLimitFacts(key, snapshot, now);
+      },
+      (error: unknown) => {
+        // 查询失败是事实：记一次过（同一 provider 每小时一条，避免 10min 轮询刷屏）
+        appendAdaptiveEvent({
+          kind: "provider_failure",
+          ts: new Date(now).toISOString(),
+          provider: key,
+          detail: error instanceof Error ? error.message : String(error),
+        }, `failure:${key}:${new Date(now).toISOString().slice(0, 13)}`);
+      },
     )
     .finally(() => {
       refreshInFlight = false;
     });
+}
+
+/** 窗口打满（≥90%）记一次事实，按窗口周期去重：配额紧张是历史，不只是当下快照。 */
+function recordLimitFacts(provider: string, snapshot: QuotaSnapshot, now: number): void {
+  for (const window of snapshot.windows) {
+    if (window.percent < 90) continue;
+    appendAdaptiveEvent({
+      kind: "provider_limit",
+      ts: new Date(now).toISOString(),
+      provider,
+      window: window.window,
+      percent: window.percent,
+      ...(window.resetAt !== undefined ? { resetAt: window.resetAt } : {}),
+    }, `limit:${provider}:${window.window}:${window.resetAt ?? ""}`);
+  }
 }
 
 /** session_start 时调用；60s 周期轮询当前 provider。 */

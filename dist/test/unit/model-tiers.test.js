@@ -36,8 +36,8 @@ describe(":thinking 后缀贯穿档位解析", () => {
             sonnet: ["zai/glm-5.3:low"],
             haiku: [],
         }, available);
-        assert.deepEqual(result.matched.opus[0], { provider: "zai", id: "glm-5.3", thinking: "high" });
-        assert.deepEqual(result.matched.sonnet[0], { provider: "zai", id: "glm-5.3", thinking: "low" });
+        assert.deepEqual(result.matched.opus[0], { provider: "zai", id: "glm-5.3", thinking: "high", group: 0 });
+        assert.deepEqual(result.matched.sonnet[0], { provider: "zai", id: "glm-5.3", thinking: "low", group: 0 });
     });
     it("同档同模型重复出现时保留首个（含其 level）", () => {
         const available = [{ provider: "zai", id: "glm-5.3" }];
@@ -55,7 +55,7 @@ describe(":thinking 后缀贯穿档位解析", () => {
             sonnet: [],
             haiku: [],
         }, [{ provider: "zai", id: "glm-5.3" }]);
-        assert.deepEqual(result.matched.opus[0], { provider: "zai", id: "glm-5.3" });
+        assert.deepEqual(result.matched.opus[0], { provider: "zai", id: "glm-5.3", group: 0 });
     });
     it("enabledModels 透传原始模式串（后缀随 enabledModels → scopedModels 生效）", () => {
         const result = resolveTierModels({
@@ -114,8 +114,8 @@ describe("hpl-model-tiers 模型解析与 Pi settings 合并", () => {
         finally {
             console.warn = originalWarn;
         }
-        assert.deepEqual(result.matched.opus, [available[0]]);
-        assert.deepEqual(result.matched.sonnet, [available[2]]);
+        assert.deepEqual(result.matched.opus, [{ ...available[0], group: 0 }]);
+        assert.deepEqual(result.matched.sonnet, [{ ...available[2], group: 0 }]);
         assert.deepEqual(result.enabledModels, ["custom/*", "anthropic/claude-opus-*", "future-model-*", "glm-*"]);
         assert.equal(warnings.length, 1);
         assert.match(warnings[0], /future-model-\*/);
@@ -141,8 +141,9 @@ describe("hpl-model-tiers 模型解析与 Pi settings 合并", () => {
         assert.equal(settings.defaultProvider, "anthropic");
         assert.equal(settings.defaultModel, "claude-opus-4");
         const resolved = JSON.parse(readFileSync(join(home, "model-tiers-resolved.json"), "utf8"));
-        assert.deepEqual(resolved.opus, [{ provider: "anthropic", id: "claude-opus-4" }]);
-        assert.deepEqual(resolved.sonnet, [{ provider: "zhipu", id: "glm-4" }]);
+        // group = 命中的档位条目序号：同一 glob 条目展开出的模型共享它，选模侧据此在同位间按负载排序
+        assert.deepEqual(resolved.opus, [{ provider: "anthropic", id: "claude-opus-4", group: 0 }]);
+        assert.deepEqual(resolved.sonnet, [{ provider: "zhipu", id: "glm-4", group: 0 }]);
     });
     it("同一输入二轮幂等：第二轮不写 settings", async () => {
         writeFileSync(join(home, "model-tiers.json"), JSON.stringify({

@@ -37,9 +37,21 @@ export interface ResolvedTierModel {
   reasoning?: boolean;
   /** 该档位条目显式指定的 thinking level（来自模式串的 :level 后缀）。 */
   thinking?: ThinkingLevelName;
+  /**
+   * 产生该模型的档位条目序号：一个 glob/模式条目展开出的多个模型共享同一序号。
+   * 配置顺序的判据是条目序号，不是展开后的位置——同一条目内的兄弟模型才算“同位”。
+   */
+  group?: number;
 }
 
 export type ResolvedTierModels = Record<ModelTier, ResolvedTierModel[]>;
+
+/** `tier:<name>[<index>]` 模型指代；index 缺省为 0。非法格式返回 undefined。 */
+export function parseTierReference(spec: string): { tier: ModelTier; index: number } | undefined {
+  const matched = /^tier:(opus|sonnet|haiku)(?:\[(\d+)\])?$/.exec(spec.trim());
+  if (!matched) return undefined;
+  return { tier: matched[1] as ModelTier, index: matched[2] === undefined ? 0 : Number(matched[2]) };
+}
 
 const EMPTY_RESOLVED: ResolvedTierModels = { opus: [], sonnet: [], haiku: [] };
 
@@ -55,6 +67,9 @@ function parseModelList(value: unknown): ResolvedTierModel[] {
       ...(typeof raw.name === "string" ? { name: raw.name } : {}),
       ...(typeof raw.reasoning === "boolean" ? { reasoning: raw.reasoning } : {}),
       ...(isThinkingLevel(raw.thinking) ? { thinking: raw.thinking } : {}),
+      ...(typeof raw.group === "number" && Number.isInteger(raw.group) && raw.group >= 0
+        ? { group: raw.group }
+        : {}),
     }];
   });
 }

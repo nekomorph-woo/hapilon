@@ -4,6 +4,9 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
 import { readModelTiersEffect, saveModelTiersEffect } from "./config.js";
+import { readTierAdaptiveConfig, setTierAdaptiveEnabled, setTierAdaptiveSessionOverride, tierAdaptiveEnabled, planTierSelection } from "./adaptive.js";
+import { readAdaptiveProfile, EVIDENCE_WINDOW_DAYS } from "./adaptive-events.js";
+import { MIN_TRUSTED_SAMPLES, modelSpec } from "./selector.js";
 import { MODEL_TIERS, type ModelTier, type ResolvedTierModels, type TierModels, splitThinkingSuffix, THINKING_LEVELS, type ThinkingLevelName } from "./resolved.js";
 
 export interface AvailableModel {
@@ -12,6 +15,8 @@ export interface AvailableModel {
   name?: string;
   reasoning?: boolean;
   thinking?: ThinkingLevelName;
+  /** 命中的档位条目序号（同一模式条目展开出的多个模型共享） */
+  group?: number;
 }
 
 interface SettingsObject {
@@ -58,7 +63,7 @@ function resolveAvailable(tiers: TierModels, available: AvailableModel[]): Recor
   for (const tier of MODEL_TIERS) {
     const seen = new Set<string>();
     const warned = new Set<string>();
-    for (const entry of tiers[tier]) {
+    for (const [group, entry] of tiers[tier].entries()) {
       const { thinking } = splitThinkingSuffix(entry);
       const matches = available.filter((model) => matchesModelPattern(entry, model));
       if (matches.length === 0 && !warned.has(entry)) {
@@ -69,7 +74,7 @@ function resolveAvailable(tiers: TierModels, available: AvailableModel[]): Recor
         const key = `${model.provider}/${model.id}`;
         if (!seen.has(key)) {
           seen.add(key);
-          result[tier].push({ ...model, ...(thinking ? { thinking } : {}) });
+          result[tier].push({ ...model, ...(thinking ? { thinking } : {}), group });
         }
       }
     }
@@ -119,9 +124,9 @@ const writeResolvedTiersEffect = (
 ): Effect.Effect<void, never> => Effect.try({
   try: () => {
     const resolved: ResolvedTierModels = {
-      opus: matched.opus.map(({ provider, id, name, reasoning, thinking }) => ({ provider, id, name, reasoning, thinking })),
-      sonnet: matched.sonnet.map(({ provider, id, name, reasoning, thinking }) => ({ provider, id, name, reasoning, thinking })),
-      haiku: matched.haiku.map(({ provider, id, name, reasoning, thinking }) => ({ provider, id, name, reasoning, thinking })),
+      opus: matched.opus.map(({ provider, id, name, reasoning, thinking, group }) => ({ provider, id, name, reasoning, thinking, group })),
+      sonnet: matched.sonnet.map(({ provider, id, name, reasoning, thinking, group }) => ({ provider, id, name, reasoning, thinking, group })),
+      haiku: matched.haiku.map(({ provider, id, name, reasoning, thinking, group }) => ({ provider, id, name, reasoning, thinking, group })),
     };
     mkdirSync(home, { recursive: true, mode: 0o700 });
     writeFileSync(join(home, "model-tiers-resolved.json"), JSON.stringify(resolved, null, 2) + "\n", "utf8");
@@ -206,7 +211,15 @@ export default function hplModelTiers(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("tier-adaptive-mode", {
+    description: "查看/切换 tier 自适应选模（写入 settings.json 的 tierAdaptive.enabled）",
+    handler: async (args, ctx) => {
+      handleTierAdaptiveMode(args, ctx);
+    },
+  });
+
   pi.on("session_start", (_event, ctx) => {
+    setTierAdaptiveSessionOverride(undefined);
     const result = Effect.runSync(Effect.try({
       try: () => ctx.modelRegistry.getAvailable(),
       catch: (error) => error,
@@ -226,6 +239,55 @@ export default function hplModelTiers(pi: ExtensionAPI): void {
 
 const TIER_OPERATIONS = ["添加模型", "移除模型", "设置 thinking", "调整顺序", "清空档位"] as const;
 
+/** 自适应选模本轮只服务 Worker pane，状态页也就只看 Worker 的档位（sonnet）。 */
+const ADAPTIVE_TIER: ModelTier = "sonnet";
+const TIER_ADAPTIVE_MODE_USAGE = "用法：/tier-adaptive-mode [on|off]（不带参数查看状态）";
+
+/**
+ * 对齐 /gate-auto-mode：先改本会话生效值，再尝试持久化，写盘失败明确提示。
+ * 与 gate-auto 的差别：生效值每次选模都重读 settings，所以写盘成功后其它 pane 下次选模即吃到新值。
+ */
+function handleTierAdaptiveMode(args: string, ctx: ExtensionCommandContext): void {
+  const arg = args.trim();
+  if (arg !== "" && arg !== "on" && arg !== "off") {
+    ctx.ui.notify(TIER_ADAPTIVE_MODE_USAGE, "error");
+    return;
+  }
+
+  if (arg !== "") {
+    const enabled = arg === "on";
+    setTierAdaptiveSessionOverride(enabled);
+    const persisted = setTierAdaptiveEnabled(enabled);
+    ctx.ui.notify([
+      `tier 自适应选模已${enabled ? "开启" : "关闭"}（本会话立即生效）。`,
+      persisted
+        ? `已写入 settings.json 的 tierAdaptive.enabled=${enabled}；其它已开 pane 下次选模即生效。`
+        : "⚠️ settings.json 写入失败（原文件未动），仅本会话生效，持久化失败。",
+    ].join("\n"), persisted ? "info" : "warning");
+    return;
+  }
+
+  const settings = readTierAdaptiveConfig();
+  const plan = planTierSelection({ tier: ADAPTIVE_TIER });
+  const profile = readAdaptiveProfile();
+  const configOrder = yieldTiers(ctx.cwd)[ADAPTIVE_TIER];
+  ctx.ui.notify([
+    "Tier 自适应选模（服务对象：Worker pane）",
+    `settings.json tierAdaptive.enabled：${settings.enabled ? "开启" : "关闭"}`,
+    `本会话实际生效：${tierAdaptiveEnabled() ? "开启" : "关闭"}`,
+    `可信样本：${profile.trustedSamples} 条（单个模型满 ${MIN_TRUSTED_SAMPLES} 条才参与路由，超 ${EVIDENCE_WINDOW_DAYS} 天的旧样本不再计入）`,
+    `thinking 偏好样本：${profile.thinkingSamples} 条（按 role+model+level 独立累计，满 ${MIN_TRUSTED_SAMPLES} 条且 adaptive 开启才补齐 thinking）`,
+    `配置顺序（${TIER_DISPLAY[ADAPTIVE_TIER]}）：${configOrder.join(" > ") || "（空）"}`,
+    `建议顺序：${plan.order.map((candidate) => candidate.spec).join(" > ") || "（无候选）"}`,
+    ...plan.order.map((candidate) => {
+      const assigned = profile.assignments[candidate.key] ?? 0;
+      return `  - ${candidate.spec}：${candidate.labels.join(" · ")}${assigned > 0 ? `（自动分配 ${assigned} 次，不计入偏好）` : ""}`;
+    }),
+    `本轮决策：${plan.reason}`,
+    ...plan.warnings.map((warning) => `⚠️ ${warning}`),
+  ].join("\n"), "info");
+}
+
 /** 档位显示名（内部 key 一律小写）。 */
 const TIER_DISPLAY: Record<ModelTier, string> = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
 
@@ -234,7 +296,10 @@ function modelOption(model: AvailableModel): string {
 }
 
 /** 三档现状 + 候选逻辑速览，进入操作菜单前先展示。 */
-async function showTiersOverview(ctx: ExtensionCommandContext, tiers: TierModels): Promise<void> {
+async function showTiersOverview(
+  ctx: ExtensionCommandContext,
+  tiers: TierModels,
+): Promise<void> {
   const current = ctx.model;
   const currentKey = current ? `${current.provider}/${current.id}` : undefined;
   const sections: string[] = ["Tiers 候选现状"];
@@ -247,13 +312,27 @@ async function showTiersOverview(ctx: ExtensionCommandContext, tiers: TierModels
         }).join("")
       : "（空）";
     sections.push(`${TIER_DISPLAY[tier]}: ${list}`);
+    const suggestion = suggestionLine(tier);
+    if (suggestion) sections.push(suggestion);
   }
   sections.push(
+    `Tier 自适应选模：${tierAdaptiveEnabled() ? "开启" : "关闭"}（/tier-adaptive-mode 查看详情）`,
     "条目可带 :thinking 后缀（off…max），该档干活即用该思考深度；清除用 /tiers 的「设置 thinking」。",
     "消费方：recap 总结用 haiku（缺则 sonnet 非推理 → sonnet → 当前模型）；",
     "default 兜底取 opus[0]；三档并集进 /model 选择器。",
   );
   ctx.ui.notify(sections.join("\n"), "info");
+}
+
+/** 建议顺序只在偏离配置顺序时展示一行——否则概览只是重复用户自己写的数组。 */
+function suggestionLine(tier: ModelTier): string | undefined {
+  const plan = planTierSelection({ tier });
+  if (plan.order.length === 0) return undefined;
+  const suggested = plan.order.map((candidate) => candidate.spec).join(" > ");
+  const configured = plan.candidates.map(modelSpec).join(" > ");
+  if (suggested === configured) return undefined;
+  const chosen = plan.order[0]!;
+  return `   建议顺序：${suggested}\n     （按${plan.source === "quota" ? "配额" : plan.source === "profile" ? "可信画像" : "负载"}调整；首选 ${chosen.labels.join("·")}）`;
 }
 
 async function saveEditedTiers(ctx: ExtensionCommandContext, tiers: TierModels, tier: ModelTier): Promise<void> {

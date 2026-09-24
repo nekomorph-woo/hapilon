@@ -27,6 +27,23 @@ export function snapshotHot(snapshot: QuotaSnapshot): boolean {
   return snapshot.windows.some((w) => w.percent >= 90);
 }
 
+/**
+ * provider id → 快照命名空间：glm 系两个入口（zai 国际 / zai-coding-cn）共享一份用量，
+ * 其余 provider 即自身。footer 与选模侧都必须用同一映射，否则查不到同一份快照。
+ */
+export function quotaNamespace(provider: string): string {
+  return provider === "zai" || provider === "zai-coding-cn" ? "glm" : provider;
+}
+
+/**
+ * 快照文件 v2：按 provider 分键，各 provider 独立 timestamp/TTL。
+ * v1（顶层就是单个 QuotaSnapshot）由读取侧兼容，写侧只写 v2。
+ */
+export interface QuotaSnapshotFile {
+  version: 2;
+  providers: Record<string, QuotaSnapshot>;
+}
+
 /** footer 紧凑双窗口段："18%/5h~2h 76%/mo~9d" / "¥327" */
 export function formatFooterSegment(snapshot: QuotaSnapshot, now: number): string {
   if (snapshot.balanceCny !== undefined) {

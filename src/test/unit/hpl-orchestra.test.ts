@@ -27,6 +27,7 @@ import hplSystemPrompt from "../../extensions/hpl-system-prompt/index.js";
 
 const originalEnv = {
   home: process.env.HAPILON_HOME,
+  quotaCache: process.env["HAPILON_QUOTA_CACHE"],
   herdr: process.env.HERDR_ENV,
   pane: process.env.HERDR_PANE_ID,
   role: process.env.HAPI_ORCH_ROLE,
@@ -97,15 +98,17 @@ function makePi() {
   const events = new Map<string, Function>();
   const sent: string[] = [];
   const sentCustom: Array<{ content: string; deliverAs?: string }> = [];
+  const flags = new Map<string, unknown>();
   const pi = {
     registerCommand: (name: string, definition: { handler: Function }) => commands.set(name, definition),
     on: (event: string, handler: Function) => events.set(event, handler),
+    registerFlag: (name: string, definition: unknown) => flags.set(name, definition),
     sendUserMessage: (message: string) => sent.push(message),
     sendMessage: async (message: { content: string }, options?: { deliverAs?: string }) => {
       sentCustom.push({ content: message.content, ...(options?.deliverAs ? { deliverAs: options.deliverAs } : {}) });
     },
   } as never;
-  return { pi, commands, events, sent, sentCustom };
+  return { pi, commands, events, sent, sentCustom, flags };
 }
 
 /**
@@ -211,6 +214,8 @@ beforeEach(() => {
 before(() => {
   home = mkdtempSync(join(tmpdir(), "hapilon-orchestra-test-"));
   process.env.HAPILON_HOME = home;
+  // Worker 新建会读配额快照；不隔离就会读到本机 tmpdir 缓存，测试随环境变
+  process.env["HAPILON_QUOTA_CACHE"] = join(home, "quota-cache.json");
   process.env.HERDR_ENV = "1";
   process.env.HERDR_PANE_ID = "w1:p7";
   process.env.HAPILON_CLI_PATH = "/fake/dist/cli.js";
@@ -220,6 +225,8 @@ before(() => {
 after(() => {
   if (originalEnv.home === undefined) delete process.env.HAPILON_HOME;
   else process.env.HAPILON_HOME = originalEnv.home;
+  if (originalEnv.quotaCache === undefined) delete process.env["HAPILON_QUOTA_CACHE"];
+  else process.env["HAPILON_QUOTA_CACHE"] = originalEnv.quotaCache;
   if (originalEnv.herdr === undefined) delete process.env.HERDR_ENV;
   else process.env.HERDR_ENV = originalEnv.herdr;
   if (originalEnv.pane === undefined) delete process.env.HERDR_PANE_ID;

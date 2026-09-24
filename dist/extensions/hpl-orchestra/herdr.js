@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { isAbsolute, resolve } from "node:path";
 import { Data, Effect } from "effect";
-import { readResolvedTiersEffect, splitThinkingSuffix } from "../hpl-model-tiers/resolved.js";
+import { readResolvedTiersEffect, parseTierReference, splitThinkingSuffix } from "../hpl-model-tiers/resolved.js";
 export class HerdrError extends Data.TaggedError("HerdrError") {
 }
 export const defaultSpawn = spawnSync;
@@ -345,7 +345,6 @@ function warnAndFallback(tiers, reason) {
     console.warn(`[hpl-orchestra] ${reason}，回落 ${fallback ?? "pi 默认模型"}`);
     return fallback;
 }
-const TIER_REFERENCE = /^tier:(opus|sonnet|haiku)(?:\[(\d+)\])?$/;
 /**
  * roles.<role>.model 在 spawn 时现解析：tier:<name>[<index>] 查当前档位表；
  * 具体 provider/id 命中任一档位即原样使用；过期 id、拼写错误、非法/越界指代
@@ -355,14 +354,12 @@ export function resolveRoleModel(spec, tiers = readResolvedTierModelsSafely()) {
     const wanted = spec?.trim();
     if (!wanted)
         return undefined;
-    const reference = TIER_REFERENCE.exec(wanted);
+    const reference = parseTierReference(wanted);
     if (reference) {
-        const tier = reference[1];
-        const index = reference[2] === undefined ? 0 : Number(reference[2]);
-        const model = tiers[tier][index];
+        const model = tiers[reference.tier][reference.index];
         if (model)
             return modelSpec(model);
-        return warnAndFallback(tiers, `模型指代 ${wanted} 解析失败（${tier} 档共 ${tiers[tier].length} 个模型）`);
+        return warnAndFallback(tiers, `模型指代 ${wanted} 解析失败（${reference.tier} 档共 ${tiers[reference.tier].length} 个模型）`);
     }
     if (wanted.startsWith("tier:")) {
         return warnAndFallback(tiers, `模型指代 ${wanted} 格式非法（应为 tier:<opus|sonnet|haiku>[<index>]）`);

@@ -20,6 +20,13 @@ export function splitThinkingSuffix(pattern) {
     }
     return { pattern };
 }
+/** `tier:<name>[<index>]` 模型指代；index 缺省为 0。非法格式返回 undefined。 */
+export function parseTierReference(spec) {
+    const matched = /^tier:(opus|sonnet|haiku)(?:\[(\d+)\])?$/.exec(spec.trim());
+    if (!matched)
+        return undefined;
+    return { tier: matched[1], index: matched[2] === undefined ? 0 : Number(matched[2]) };
+}
 const EMPTY_RESOLVED = { opus: [], sonnet: [], haiku: [] };
 function parseModelList(value) {
     if (!Array.isArray(value))
@@ -36,6 +43,9 @@ function parseModelList(value) {
                 ...(typeof raw.name === "string" ? { name: raw.name } : {}),
                 ...(typeof raw.reasoning === "boolean" ? { reasoning: raw.reasoning } : {}),
                 ...(isThinkingLevel(raw.thinking) ? { thinking: raw.thinking } : {}),
+                ...(typeof raw.group === "number" && Number.isInteger(raw.group) && raw.group >= 0
+                    ? { group: raw.group }
+                    : {}),
             }];
     });
 }

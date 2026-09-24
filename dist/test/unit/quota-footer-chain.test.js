@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { parseSnapshot as parseGlmSnapshot } from "../../extensions/hpl-quota-usage/providers/glm.js";
 import { parseSnapshot as parseCodexSnapshot } from "../../extensions/hpl-quota-usage/providers/codex.js";
 import { parseSnapshot as parseDeepSeekSnapshot } from "../../extensions/hpl-quota-usage/providers/deepseek.js";
-import { readQuotaSnapshot, writeQuotaSnapshot } from "../../extensions/hpl-quota-usage/cache.js";
+import { readQuotaSnapshotFor, writeQuotaSnapshot } from "../../extensions/hpl-quota-usage/cache.js";
 import { buildQuotaSegment } from "../../extensions/hpl-footer/format.js";
 import { snapshotHot } from "../../extensions/hpl-quota-usage/snapshot.js";
 describe("quota 链路：snapshot → cache → footer", () => {
@@ -42,7 +42,7 @@ describe("quota 链路：snapshot → cache → footer", () => {
         const snapshot = parseGlmSnapshot(payload, now);
         assert.deepEqual(snapshot.windows.map((w) => w.window), ["5h", "wk"]);
         writeQuotaSnapshot(snapshot);
-        const loaded = readQuotaSnapshot(now);
+        const loaded = readQuotaSnapshotFor("glm", now);
         assert.equal(loaded.provider, "glm");
         const segment = buildQuotaSegment(loaded.windows.map((w) => ({ percent: w.percent, window: w.window, resetAt: w.resetAt })), loaded.balanceCny, now);
         assert.match(segment, /^18%\/5h~2h12m 76%\/wk~9d$/);
@@ -89,10 +89,10 @@ describe("quota 链路：snapshot → cache → footer", () => {
             timestamp: Date.now() - 16 * 60 * 1000,
         };
         writeQuotaSnapshot(stale);
-        assert.equal(readQuotaSnapshot(), undefined);
+        assert.equal(readQuotaSnapshotFor("glm"), undefined);
     });
     it("缓存文件损坏读取返回 undefined 不抛异常", () => {
         writeFileSync(process.env["HAPILON_QUOTA_CACHE"], "{broken json", "utf8");
-        assert.equal(readQuotaSnapshot(), undefined);
+        assert.equal(readQuotaSnapshotFor("glm"), undefined);
     });
 });

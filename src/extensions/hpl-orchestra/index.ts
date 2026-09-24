@@ -9,6 +9,7 @@ import {
   updateTeamStatus,
 } from "./menu.js";
 import { herdrEnvAvailable } from "./herdr.js";
+import { discardPendingThinkingSwitch, recordModelSwitch, recordOwnCompletedTasks, recordThinkingSwitch } from "./adaptive-facts.js";
 import { buildTeamSectionsEffect } from "./state.js";
 import { setTeamSections } from "./bridge.js";
 import { parseRoleDefSentinel } from "./role-wizard.js";
@@ -41,13 +42,16 @@ export default function hplOrchestra(pi: ExtensionAPI): void {
         ctx.ui.notify("/team:open 仅能在 herdr 面板环境中使用。", "error");
         return;
       }
-      const key = args.trim();
+      const parts = args.trim().split(/\s+/).filter(Boolean);
+      const key = parts[0];
       if (!key) {
-        ctx.ui.notify("用法：/team:open <角色 key>（如 worker / reviewer）", "error");
+        ctx.ui.notify("用法：/team:open <角色 key> [模型]（模型如 tier:sonnet[1] 或 provider/id:high）", "error");
         return;
       }
-      // 不弹档位：主 agent 自己开面板时没人应答弹窗，一律用角色默认档
-      await handleTeamCommand(pi, `打开角色 ${key}`, ctx);
+      // 不弹档位：主 agent 自己开面板时没人应答弹窗，一律用角色默认档；
+      // 带模型参数时是用户点名，作为最高优先覆盖交给选模。
+      const explicitModel = parts.slice(1).join(" ");
+      await handleTeamCommand(pi, `打开角色 ${key}${explicitModel ? ` ${explicitModel}` : ""}`, ctx);
     },
   });
 
@@ -94,11 +98,25 @@ export default function hplOrchestra(pi: ExtensionAPI): void {
     // 每轮现读 env + 状态文件写入 bridge，供 hpl-system-prompt 组装消费；
     // 无模块缓存（jiti 每扩展独立实例，跨扩展必须走本进程内显式传递）。
     setTeamSections(Effect.runSync(buildTeamSectionsEffect()));
+    // 角色 pane 自己上报已完成任务（事实来源是该 pane 的任务列表；owner 不代报）
+    recordOwnCompletedTasks(ctx as { model?: { provider?: string; id?: string } });
     if (!herdrEnvAvailable()) {
       (ctx as unknown as StatusOnlyContext).ui.setStatus("team", undefined);
       return;
     }
     await updateTeamStatus(ctx as unknown as BeforeAgentStartContext & ExtensionCommandContext);
+  });
+
+  pi.on("model_select", (event, ctx) => {
+    // 模型切换会先 setThinkingLevel 再发本事件；同轮缓冲的 thinking 事件是切换的
+    // 附带变化，不是用户偏好，先丢弃再记切模。restore/owner 由 recordModelSwitch 过滤。
+    discardPendingThinkingSwitch();
+    recordModelSwitch(event, { thinking: ctx.thinkingLevel });
+  });
+
+  pi.on("thinking_level_select", (event, ctx) => {
+    // 先缓冲，同轮如果来 model_select 就丢弃；直接切 thinking 才落盘（自适应 thinking 偏好）
+    recordThinkingSwitch(event, { model: ctx.model });
   });
 
   pi.on("message_end", async (event) => {

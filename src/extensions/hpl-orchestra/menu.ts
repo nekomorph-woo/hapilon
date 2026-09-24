@@ -42,12 +42,16 @@ import {
   teamTasksPathFor,
   teamsDir,
   writeTeamStateEffect,
+  allInstances,
   type RoleEntry,
   type RoleInstance,
   type TeamOwner,
   type TeamState,
 } from "./state.js";
 import { sampleAgentStateEffect } from "./agent-state.js";
+import { fillLearnedThinking, planTierSelection, resolveExplicitModel } from "../hpl-model-tiers/adaptive.js";
+import { appendAdaptiveEvent } from "../hpl-model-tiers/adaptive-events.js";
+import { readResolvedTiersEffect, splitThinkingSuffix } from "../hpl-model-tiers/resolved.js";
 
 const TRANSIENT_ROLE_OPTION = "临时角色（本次会话）";
 
@@ -304,6 +308,18 @@ function removeRolePromptFile(paneId: string): void {
 }
 
 /**
+ * 重灌时的模型串：基座仍过 resolveRoleModel（旧状态里可能存的是 tier: 指代，
+ * 且模型下线后要能回落），但 instance.model 自带的 :thinking 后缀原样保留——
+ * 它可能来自学习补齐或显式点名，与档位条目未必一致，被重解析覆盖就会回落 pi 默认。
+ */
+function reviveModelSpec(stored: string | null | undefined): string | undefined {
+  const resolved = resolveRoleModel(stored ?? undefined);
+  const thinking = stored ? splitThinkingSuffix(stored).thinking : undefined;
+  if (!resolved || !thinking) return resolved;
+  return `${splitThinkingSuffix(resolved).pattern}:${thinking}`;
+}
+
+/**
  * 把角色启动命令重灌进仍然存在的 pane（pi 崩了、只剩 shell 的场景）。
  * role/prompt 都随命令行自带（创建时落的 prompt 文件按 pane id 找回），
  * 不依赖 pane 里的残留 env。pane id 不变 → 状态不用改。
@@ -312,7 +328,7 @@ async function revivePane(instance: RoleInstance, roleKey: string, spawn: SpawnF
   const promptFile = rolePromptPathFor(instance.paneId);
   const command = buildPaneRunCommand(
     roleKey,
-    resolveRoleModel(instance.model ?? undefined),
+    reviveModelSpec(instance.model),
     existsSync(promptFile) ? promptFile : undefined,
     teamTasksPathFor(instance.paneId),
   );
@@ -329,6 +345,62 @@ function modelForTier(role: TeamRoleDef, tier: ModelTier, provider: string | und
   return role.key === "discussant" && tier === "opus"
     ? resolveDiscussantModel(provider)
     : resolveTierModelByTier(tier);
+}
+
+/** 当前团队里每个模型已承载的 live pane 数（key 剥掉 :thinking 后缀，与候选同形）。 */
+function liveModelLoad(state: TeamState | undefined, spawn: SpawnFn): Record<string, number> {
+  const load: Record<string, number> = {};
+  for (const instance of state ? allInstances(state) : []) {
+    if (!instance.model || !probePaneLive(instance.paneId, spawn)) continue;
+    const key = splitThinkingSuffix(instance.model).pattern;
+    load[key] = (load[key] ?? 0) + 1;
+  }
+  return load;
+}
+
+interface PaneModelPlan {
+  spec: string | undefined;
+  reason: string;
+  explicit: boolean;
+  warnings: string[];
+}
+
+/**
+ * 新建 pane 的选模：Worker 走配额/画像/负载选择器；其它角色点名即权威
+ * （非法/越界指代告警后回落该角色原有默认档位解析），未点名维持默认档位语义。
+ * 模型选定后，adaptive 开启且没有显式 thinking 后缀时用学习到的 role+model 偏好补齐。
+ * 只在真正新建时调用——复用/崩溃重灌/队列唤醒都沿用已存 concrete model。
+ */
+function planPaneModel(
+  role: TeamRoleDef,
+  defaultSpec: string | undefined,
+  options: { explicitModel?: string; selectedTier?: ModelTier },
+  state: TeamState | undefined,
+  spawn: SpawnFn,
+): PaneModelPlan {
+  const fallback = (): string | undefined => resolveRoleModel(defaultSpec);
+  if (role.key === "worker") {
+    const plan = planTierSelection({
+      tier: options.selectedTier ?? role.defaultTier,
+      role: "worker",
+      ...(options.explicitModel ? { explicitSpec: options.explicitModel } : {}),
+      load: liveModelLoad(state, spawn),
+    });
+    return {
+      // planTierSelection 内部已经 applyLearnedThinking；只有它没选出 spec（档位表空）
+      // 走 fallback 时才需要在这里补一次，否则就是重复读画像。
+      spec: plan.spec ?? fillLearnedThinking(fallback(), role.key),
+      reason: plan.reason,
+      explicit: plan.source === "explicit",
+      warnings: plan.warnings,
+    };
+  }
+  if (!options.explicitModel) return { spec: fillLearnedThinking(fallback(), role.key), reason: "", explicit: false, warnings: [] };
+  const { model: named, warning } = resolveExplicitModel(options.explicitModel, Effect.runSync(readResolvedTiersEffect));
+  if (named) {
+    return { spec: fillLearnedThinking(named.spec, role.key), reason: `显式点名 ${named.spec}`, explicit: true, warnings: [] };
+  }
+  return { spec: fallback(), reason: "", explicit: false, warnings: warning ? [warning] : [] };
 }
 
 function tierName(tier: ModelTier): string {
@@ -421,7 +493,14 @@ async function ensurePane(
   role: TeamRoleDef,
   model: string | undefined,
   spawn: SpawnFn,
-  options: { transient?: boolean; prompt?: string; reuseExisting?: boolean } = {},
+  options: {
+    transient?: boolean;
+    prompt?: string;
+    reuseExisting?: boolean;
+    selectedTier?: ModelTier;
+    /** 显式点名模型（/team:open worker <model>），仅新建时最高优先 */
+    explicitModel?: string;
+  } = {},
   defs: readonly TeamRoleDef[] = getAllRoleDefs(),
 ): Promise<PaneResult | undefined> {
   const state = await readPersistedState(ctx, defs);
@@ -451,9 +530,20 @@ async function ensurePane(
   const paneId = Effect.runSync(paneSplit(ctx.cwd, spawn, paneSplitEnvArgs(), planRoleSplit(state, spawn)));
   if (!paneId) return undefined;
   const promptFile = options.prompt ? writeRolePromptFile(paneId, options.prompt) : undefined;
-  // 创建路径存的可能是具体 id（tier 改了不传播）或 tier:name[i] 指代；
+  // 创建路径存的可能是具体 id（tier 改了不传播）或 tier:name[i] 指代，
   // 统一在 spawn 时解析，档位表变更后下次开面板即生效。
-  const resolvedModel = resolveRoleModel(model);
+  // Worker 走配额/画像/负载选模；其它角色点名即权威、未点名维持默认档位解析。
+  const selection = planPaneModel(
+    role,
+    model,
+    {
+      ...(options.selectedTier ? { selectedTier: options.selectedTier } : {}),
+      ...(options.explicitModel ? { explicitModel: options.explicitModel } : {}),
+    },
+    state,
+    spawn,
+  );
+  const resolvedModel = selection.spec;
   const command = buildPaneRunCommand(role.key, resolvedModel, promptFile, teamTasksPathFor(paneId));
   if (!Effect.runSync(paneRun(paneId, command, spawn))) {
     Effect.runSync(runPaneClose(paneId, spawn));
@@ -467,6 +557,26 @@ async function ensurePane(
     notify(ctx, `${role.label} 面板启动后未就绪，已回收面板。`, "error");
     return undefined;
   }
+  if (resolvedModel) {
+    const ts = new Date().toISOString();
+    // Worker 的选模事实：分配永远记，点名另记一条——只有后者（与任务结果/verdict）能成为偏好证据。
+    // 非 Worker 不走选择器，只在点名时记一条显式选择（供审计与角色偏好）。
+    if (role.key === "worker") {
+      appendAdaptiveEvent({
+        kind: "pane_assignment",
+        ts,
+        role: role.key,
+        paneId,
+        model: resolvedModel,
+        source: selection.explicit ? "explicit" : "auto",
+        reason: selection.reason,
+      });
+    }
+    if (selection.explicit) {
+      appendAdaptiveEvent({ kind: "explicit_selection", ts, role: role.key, model: resolvedModel, source: "arg" });
+    }
+  }
+  for (const warning of selection.warnings) notify(ctx, warning, "warning");
   const nickname = nextNickname(state ? allNicknames(state) : []);
   applyPaneLabel(paneId, role.key, nickname, spawn);
   return { paneId, model: resolvedModel ?? null, reused: false, nickname };
@@ -487,7 +597,12 @@ async function openRolePanel(
   role: TeamRoleDef,
   model: string | undefined,
   spawn: SpawnFn,
-  options: { transient?: boolean; prompt?: string; selectedTier?: ModelTier } = {},
+  options: {
+    transient?: boolean;
+    prompt?: string;
+    selectedTier?: ModelTier;
+    explicitModel?: string;
+  } = {},
 ): Promise<void> {
   const ownerPaneId = process.env.HERDR_PANE_ID;
   if (!ownerPaneId) {
@@ -509,7 +624,10 @@ async function openRolePanel(
     const tierNote = options.selectedTier
       ? `（本次选择的 ${tierName(options.selectedTier)} 未应用；如需换档请先关闭该面板）`
       : "";
-    notify(ctx, `${role.label} 已在 ${created.paneId} 运行${tierNote}。`);
+    const modelNote = options.explicitModel
+      ? `（点名的 ${options.explicitModel} 未应用：面板已在运行，选模只在新建时发生）`
+      : "";
+    notify(ctx, `${role.label} 已在 ${created.paneId} 运行${tierNote}${modelNote}。`);
     return;
   }
 
@@ -539,7 +657,14 @@ async function startOrchestration(ctx: ExtensionCommandContext, spawn: SpawnFn):
   const defs = getAllRoleDefs();
   const previous = await readPersistedState(ctx, defs);
   const worker = getRoleDef("worker", defs)!;
-  const result = await ensurePane(ctx, worker, modelForTier(worker, worker.defaultTier, ownerProvider(ctx)), spawn, { reuseExisting: true }, defs);
+  const result = await ensurePane(
+    ctx,
+    worker,
+    modelForTier(worker, worker.defaultTier, ownerProvider(ctx)),
+    spawn,
+    { reuseExisting: true, selectedTier: worker.defaultTier },
+    defs,
+  );
   if (!result) {
     notify(ctx, "Worker 面板创建失败，请检查 herdr。", "error");
     return;
@@ -600,7 +725,9 @@ async function openPanel(pi: ExtensionAPI, ctx: ExtensionCommandContext, spawn: 
     beginTransientWizard(pi, ctx, spawn, tierChoice.model, tierChoice.tier);
     return;
   }
-  await openRolePanel(ctx, role!, tierChoice.model, spawn, { selectedTier: tierChoice.tier });
+  await openRolePanel(ctx, role!, tierChoice.model, spawn, {
+    selectedTier: tierChoice.tier,
+  });
 }
 
 async function viewDivision(ctx: ExtensionCommandContext, spawn: SpawnFn): Promise<void> {
@@ -1059,14 +1186,22 @@ async function disband(ctx: ExtensionCommandContext, spawn: SpawnFn): Promise<vo
 }
 
 /** /team:open <key>：用角色默认档直接开/救活——这是主 agent 自愈路径，不能卡在档位对话框上等人。 */
-async function openRoleByKey(ctx: ExtensionCommandContext, spawn: SpawnFn, key: string): Promise<void> {
+async function openRoleByKey(
+  ctx: ExtensionCommandContext,
+  spawn: SpawnFn,
+  key: string,
+  explicitModel?: string,
+): Promise<void> {
   const defs = getAllRoleDefs();
   const role = getRoleDef(key, defs);
   if (!role) {
     notify(ctx, `没有 key 为 ${key} 的角色。`, "error");
     return;
   }
-  await openRolePanel(ctx, role, modelForTier(role, role.defaultTier, ownerProvider(ctx)), spawn);
+  await openRolePanel(ctx, role, modelForTier(role, role.defaultTier, ownerProvider(ctx)), spawn, {
+    selectedTier: role.defaultTier,
+    ...(explicitModel ? { explicitModel } : {}),
+  });
 }
 
 /** 单个实例的菜单标签：临时角色不写注册表，按 "临时" 展示 */
@@ -1161,9 +1296,9 @@ export async function handleTeamCommand(
   }
 
   // /team:open <key> / /team:kick <key|paneId> 走这两条：角色 pane 之外才允许动 team
-  const openKey = /^打开角色\s+(\S+)$/.exec(args.trim());
+  const openKey = /^打开角色\s+(\S+)(?:\s+(\S+))?$/.exec(args.trim());
   if (openKey) {
-    await openRoleByKey(ctx, spawn, openKey[1]);
+    await openRoleByKey(ctx, spawn, openKey[1], openKey[2]);
     return;
   }
   const kickTarget = /^踢出角色\s+(\S+)$/.exec(args.trim());

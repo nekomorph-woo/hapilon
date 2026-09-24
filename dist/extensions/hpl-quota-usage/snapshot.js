@@ -7,6 +7,13 @@
 export function snapshotHot(snapshot) {
     return snapshot.windows.some((w) => w.percent >= 90);
 }
+/**
+ * provider id → 快照命名空间：glm 系两个入口（zai 国际 / zai-coding-cn）共享一份用量，
+ * 其余 provider 即自身。footer 与选模侧都必须用同一映射，否则查不到同一份快照。
+ */
+export function quotaNamespace(provider) {
+    return provider === "zai" || provider === "zai-coding-cn" ? "glm" : provider;
+}
 /** footer 紧凑双窗口段："18%/5h~2h 76%/mo~9d" / "¥327" */
 export function formatFooterSegment(snapshot, now) {
     if (snapshot.balanceCny !== undefined) {

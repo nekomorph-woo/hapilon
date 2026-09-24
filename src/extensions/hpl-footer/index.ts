@@ -21,7 +21,8 @@ import {
   shortenHome,
   truncatePlain,
 } from "./format.js";
-import { readQuotaSnapshot } from "../hpl-quota-usage/cache.js";
+import { readQuotaSnapshotFor } from "../hpl-quota-usage/cache.js";
+import { quotaNamespace } from "../hpl-quota-usage/snapshot.js";
 import type { QuotaWindowSnapshot } from "../hpl-quota-usage/snapshot.js";
 
 export default function hplFooter(pi: ExtensionAPI): void {
@@ -53,13 +54,12 @@ export default function hplFooter(pi: ExtensionAPI): void {
           // provider 须与当前模型匹配（glm 系归并同一命名空间）——
           // 模型切换后旧 provider 的缓存不再展示；不支持的 provider 无段。
           const now = Date.now();
-          const snapshot = readQuotaSnapshot(now);
-          const QUOTA_NS = new Set(["zai", "zai-coding-cn"]);
-          const currentQuotaKey = QUOTA_NS.has(ctx.model?.provider ?? "") ? "glm" : ctx.model?.provider;
+          const currentQuotaKey = ctx.model?.provider ? quotaNamespace(ctx.model.provider) : undefined;
           let quotaSegment = "";
           let quotaHot = false;
           let left = baseLeft;
-          if (snapshot && snapshot.provider === currentQuotaKey) {
+          const snapshot = currentQuotaKey ? readQuotaSnapshotFor(currentQuotaKey, now) : undefined;
+          if (snapshot) {
             const quotaWindows = snapshot.windows as QuotaWindowSnapshot[];
             quotaSegment = buildQuotaSegment(
               quotaWindows.map((w) => ({ percent: w.percent, window: w.window, resetAt: w.resetAt })),
