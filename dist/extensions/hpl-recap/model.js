@@ -28,7 +28,7 @@ function resolvedMidCandidates(refs, available) {
 }
 /** resolved 文件中的 haiku → sonnet 非推理 → sonnet 任意 → 当前模型；从不修改当前 session model。 */
 export function selectRecapModel(available, currentModel, resolvedTiers) {
-    // 与 sonnet 分支同款筛选：优先非推理候选（recap 是 200 字摘要，不值得付推理时延）。
+    // 与 sonnet 分支同款筛选：优先非推理候选（recap 是 80 字双句摘要，不值得付推理时延）。
     // 档位全是推理模型时接受首个候选——空正文由调用侧升级重试兜底。
     const haikuMatches = resolvedMidCandidates(resolvedTiers.haiku, available);
     const haiku = haikuMatches.find((candidate) => candidate.reasoning === false)?.model ?? haikuMatches[0]?.model;

@@ -48,7 +48,7 @@ export function selectRecapModel<T extends RecapModelShape>(
   currentModel: T | undefined,
   resolvedTiers: ResolvedTierModels,
 ): RecapModelChoice<T> {
-  // 与 sonnet 分支同款筛选：优先非推理候选（recap 是 200 字摘要，不值得付推理时延）。
+  // 与 sonnet 分支同款筛选：优先非推理候选（recap 是 80 字双句摘要，不值得付推理时延）。
   // 档位全是推理模型时接受首个候选——空正文由调用侧升级重试兜底。
   const haikuMatches = resolvedMidCandidates(resolvedTiers.haiku, available);
   const haiku = haikuMatches.find((candidate) => candidate.reasoning === false)?.model ?? haikuMatches[0]?.model;

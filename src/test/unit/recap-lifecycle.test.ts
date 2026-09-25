@@ -229,23 +229,23 @@ describe("hpl-recap session 生命周期", () => {
     }
   });
 
-  it("超长多行正文：按 10 行硬截断并追加标记", async () => {
+  it("超长多行正文：按 3 行硬截断并追加标记", async () => {
     const source = Array.from({ length: 12 }, (_, i) => `第${i + 1}行短内容`).join("\n");
     const test = makeExtension(undefined, [source]);
     fire(test, "session_start", { reason: "startup" });
     fire(test, "message_end", { type: "message_end" });
     await waitForWidget(test);
     const bodyLines = widgetBody(test);
-    assert.equal(bodyLines.length, 10, JSON.stringify(bodyLines));
+    assert.equal(bodyLines.length, 3, JSON.stringify(bodyLines));
     assert.equal(
       bodyLines.join("\n").replace("…（已截断）", ""),
-      Array.from({ length: 10 }, (_, i) => `第${i + 1}行短内容`).join("\n"),
+      Array.from({ length: 3 }, (_, i) => `第${i + 1}行短内容`).join("\n"),
     );
     fire(test, "session_shutdown", { reason: "quit" });
   });
 
-  it("单行超长正文：按 600 字符硬截断并追加标记", async () => {
-    const test = makeExtension(undefined, ["长".repeat(800)]);
+  it("单行超长正文：按 160 字符硬截断并追加标记", async () => {
+    const test = makeExtension(undefined, ["长".repeat(400)]);
     fire(test, "session_start", { reason: "startup" });
     fire(test, "message_end", { type: "message_end" });
     await waitForWidget(test);
@@ -253,7 +253,21 @@ describe("hpl-recap session 生命周期", () => {
     assert.equal(bodyLines.length, 1);
     const body = bodyLines[0].replace("…（已截断）", "");
     assert.equal(bodyLines[0].includes("…（已截断）"), true);
-    assert.equal(body.length, 600, `字符数 ${body.length}`);
+    assert.equal(body.length, 160, `字符数 ${body.length}`);
+    fire(test, "session_shutdown", { reason: "quit" });
+  });
+
+  it("恰在边界内（3 行 / 160 字符）：不截断、不加标记", async () => {
+    const exact = ["长".repeat(80), "长".repeat(79)].join("\n");
+    assert.equal(exact.length, 160);
+    const test = makeExtension(undefined, [exact]);
+    fire(test, "session_start", { reason: "startup" });
+    fire(test, "message_end", { type: "message_end" });
+    await waitForWidget(test);
+    const bodyLines = widgetBody(test);
+    assert.equal(bodyLines.length, 2, JSON.stringify(bodyLines));
+    assert.equal(bodyLines.join("\n"), exact);
+    assert.equal(bodyLines.some((line) => line.includes("…（已截断）")), false);
     fire(test, "session_shutdown", { reason: "quit" });
   });
 });
