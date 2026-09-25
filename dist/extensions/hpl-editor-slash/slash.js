@@ -48,8 +48,7 @@ export function wrapAutocomplete(current) {
             const query = fragment.toLowerCase();
             const items = (current.commands ?? [])
                 .map(toItem)
-                .filter((item) => item.value.toLowerCase().startsWith(query))
-                .slice(0, 20);
+                .filter((item) => item.value.toLowerCase().startsWith(query));
             return items.length > 0 ? { items, prefix: `/${fragment}` } : null;
         },
         applyCompletion(lines, cursorLine, cursorCol, item, prefix) {

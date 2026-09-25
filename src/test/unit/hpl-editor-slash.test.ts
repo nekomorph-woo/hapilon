@@ -96,6 +96,15 @@ describe("wrapAutocomplete()", () => {
 		assert.equal(result?.prefix, "/");
 	});
 
+	it("空片段不截断超过内置命令数量的扩展命令", async () => {
+		const commands = Array.from({ length: 24 }, (_, index) => ({ name: `builtin-${index}` }));
+		commands.push({ name: "team" });
+		const { current } = makeCurrent(commands);
+		const wrapped = wrapAutocomplete(current);
+		const result = await wrapped.getSuggestions(["需求, /"], 0, 6, { signal: ABORT });
+		assert.equal(result?.items.at(-1)?.value, "team");
+	});
+
 	it("行首 slash 仍委托内置(原行为不变)", async () => {
 		const { current, calls } = makeCurrent([{ name: "team" }]);
 		const wrapped = wrapAutocomplete(current);

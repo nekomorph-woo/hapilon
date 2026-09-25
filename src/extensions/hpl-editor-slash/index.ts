@@ -38,7 +38,6 @@ class HapiSlashEditor extends CustomEditor {
 
 export default function hplEditorSlash(pi: ExtensionAPI): void {
 	const shared: { names: Set<string> } = { names: new Set<string>() };
-	let autocompleteWrapped = false;
 
 	const setup = (ctx: ExtensionContext): void => {
 		// 补全/编辑器组件只在 TUI 生效
@@ -48,14 +47,11 @@ export default function hplEditorSlash(pi: ExtensionAPI): void {
 		const g = globalThis as unknown as Record<string, unknown>;
 		g.__hapiMidTextSlash = isMidTextSlashBefore;
 		g.__hapiMidTextSlashOpen = isMidTextSlashBefore;
-		if (!autocompleteWrapped) {
-			autocompleteWrapped = true;
-			ctx.ui.addAutocompleteProvider((current) => {
-				const provider = wrapAutocomplete(current as AutocompleteProviderLike);
-				shared.names = extractNames((current as AutocompleteProviderLike).commands);
-				return provider;
-			});
-		}
+		ctx.ui.addAutocompleteProvider((current) => {
+			const provider = wrapAutocomplete(current as AutocompleteProviderLike);
+			shared.names = extractNames((current as AutocompleteProviderLike).commands);
+			return provider;
+		});
 		// /reload 后 pi 可能恢复默认编辑器,这里幂等重挂
 		ctx.ui.setEditorComponent((tui, theme, keybindings) => {
 			const editor = new HapiSlashEditor(tui, theme, keybindings, { embedWorkingStatus: true });
