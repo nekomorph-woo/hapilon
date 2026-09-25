@@ -866,6 +866,7 @@ async function pause(ctx: ExtensionCommandContext, spawn: SpawnFn): Promise<void
     return;
   }
   const saved = await writeOwnerState({ ...state, enabled: false, owner: ownerFor(ctx) ?? state.owner }, spawn);
+  if (saved) ctx.ui.setStatus("team", undefined);
   notify(ctx, saved ? "编排已暂停，面板保留。" : "编排状态保存失败。", saved ? "info" : "error");
 }
 
@@ -877,6 +878,7 @@ async function finish(ctx: ExtensionCommandContext): Promise<void> {
     return;
   }
   const deleted = await Effect.runPromise(deleteTeamStateEffect(resolveSessionStatePath()));
+  if (deleted) ctx.ui.setStatus("team", undefined);
   notify(ctx, deleted ? "编排已结束，面板保留，可手动关闭。" : "没有进行中的编排（状态文件不存在）。", deleted ? "info" : "warning");
 }
 
@@ -1182,6 +1184,7 @@ async function disband(ctx: ExtensionCommandContext, spawn: SpawnFn): Promise<vo
   for (const paneId of livePaneIds) {
     if (Effect.runSync(runPaneClose(paneId, spawn))) closed++;
   }
+  if (deleted) ctx.ui.setStatus("team", undefined);
   notify(ctx, `团队已解散：关闭 ${closed}/${livePaneIds.length} 个角色面板${deleted ? "" : "（状态文件本就不存在）"}。`);
 }
 

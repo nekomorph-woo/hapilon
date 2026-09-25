@@ -747,8 +747,12 @@ if (group === "agent" && action === "get") {
         const paused = readTeamState(statePath());
         assert.equal(paused.enabled, false);
         assert.deepEqual(paused.roles, stateFor().roles);
+        assert.deepEqual(ctx.statuses.at(-1), { key: "team", text: undefined }, "暂停后即时清除 footer 状态");
+        const before = ctx.statuses.length;
         await handleTeamCommand(makePi().pi, "结束编排", ctx.ctx, makeSpawn().spawn);
         assert.equal(existsSync(statePath()), false);
+        assert.ok(ctx.statuses.length > before, "finish 应实际执行清除");
+        assert.deepEqual(ctx.statuses.at(-1), { key: "team", text: undefined }, "结束后即时清除 footer 状态");
         const ctx2 = makeContext();
         await handleTeamCommand(makePi().pi, "结束编排", ctx2.ctx, makeSpawn().spawn);
         assert.ok(ctx2.notices.some(({ message }) => message.includes("没有可结束") || message.includes("没有进行中")));
@@ -881,6 +885,7 @@ describe("hpl-orchestra team 恢复与解散", { concurrency: false }, () => {
         assert.equal(existsSync(statePath()), false, "解散后状态文件应消失");
         assert.ok(ctx.confirmations[0]?.includes("关闭 2 个角色面板"), JSON.stringify(ctx.confirmations));
         assert.ok(ctx.notices.some(({ message }) => message.includes("团队已解散")));
+        assert.deepEqual(ctx.statuses.at(-1), { key: "team", text: undefined }, "解散后即时清除 footer 状态");
     });
     it("解散：有面板在 working 时整体放弃，不关任何面板也不删状态", async () => {
         saveState();
