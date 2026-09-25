@@ -10,11 +10,12 @@ import {
   formatTokens,
   formatWindow,
   buildLine1,
+  buildModelRight,
   buildStatusLine,
   aggregateUsage,
   buildStatsLeft,
   visibleWidth,
-  layoutLine,
+  layoutLineRight,
   shortenHome,
   truncatePlain,
 } from "../../extensions/hpl-footer/format.js";
@@ -139,37 +140,56 @@ describe("buildStatsLeft — 第 2 行左侧", () => {
   });
 });
 
-describe("visibleWidth / layoutLine — ANSI 宽度与布局", () => {
+describe("buildModelRight — 第 2 行右侧", () => {
+  it("reasoning 模型：模型名 • level（无 thinking 前缀）", () => {
+    assert.equal(buildModelRight({ id: "glm-5.3", reasoning: true }, "high"), "glm-5.3 • high");
+  });
+
+  it("非 reasoning 模型：仅模型名", () => {
+    assert.equal(buildModelRight({ id: "deepseek-flash", reasoning: false }, "high"), "deepseek-flash");
+    assert.equal(buildModelRight({ id: "deepseek-flash" }, "high"), "deepseek-flash");
+  });
+
+  it("无模型：no-model 占位", () => {
+    assert.equal(buildModelRight(undefined, "high"), "no-model");
+  });
+});
+
+describe("visibleWidth / layoutLineRight — ANSI 宽度与右侧优先布局", () => {
   it("正常路径: visibleWidth 剥离真彩 ANSI 码", () => {
     assert.equal(visibleWidth("[HOT]"), 5);
     assert.equal(visibleWidth("\x1b[48;2;255;200;0m\x1b[38;2;30;30;30m[HOT!]\x1b[0m"), 6);
   });
 
-  it("正常路径: 左右两端对齐，宽度正好填满", () => {
-    const line = layoutLine("left", "right", 20);
+  it("正常路径: 宽裕时左右两端对齐，宽度正好填满", () => {
+    const line = layoutLineRight("left", "right", 20);
     assert.equal(line, "left" + " ".repeat(11) + "right");
     assert.equal(visibleWidth(line), 20);
   });
 
-  it("正常路径: 左侧含 ANSI 码不影响布局宽度", () => {
+  it("正常路径: 左段含 ANSI 码不影响布局宽度（计宽剥离真彩码）", () => {
     const left = "\x1b[48;2;255;200;0mA\x1b[0m"; // 可见宽度 1
-    const line = layoutLine(left, "R", 10);
+    const line = layoutLineRight(left, "R", 10);
     assert.equal(visibleWidth(line), 10);
   });
 
-  it("边界条件: 宽度不足时截断右侧，保留左侧", () => {
-    const line = layoutLine("0123456789", "MODELNAME", 15);
-    assert.ok(line.startsWith("0123456789"));
-    assert.ok(visibleWidth(line) <= 15);
+  it("边界条件: 宽度不足时先截左侧、右侧完整保留", () => {
+    const line = layoutLineRight("0123456789", "MODEL", 10);
+    assert.ok(line.endsWith("MODEL"), `右侧应完整: ${line}`);
+    assert.ok(line.startsWith("012"));
+    assert.equal(visibleWidth(line), 10);
   });
 
-  it("异常路径: 宽度极小时截断 left 保证不超宽（防 TUI 崩溃）", () => {
-    // width=4：left(3)+padding(2) 超宽 → left 截断到 width-minPadding=2
-    assert.equal(layoutLine("abc", "right", 4), "ab");
-    // 回归：left 永远不会超出 width（pi TUI 超宽渲染会直接崩溃）
-    for (const width of [2, 5, 10, 34]) {
-      const out = layoutLine("x".repeat(50), "y".repeat(20), width);
-      assert.ok(out.length <= width, `width=${width} out=${out.length}`);
+  it("异常路径: 极窄时右侧被截到剩余宽度，行绝不超宽（防 TUI 崩溃）", () => {
+    const line = layoutLineRight("0123456789", "MODELNAME", 5);
+    assert.equal(line, "MODEL");
+    assert.ok(visibleWidth(line) <= 5);
+  });
+
+  it("回归: 任意 width 下可见宽度 ≤ width", () => {
+    for (let width = 0; width <= 40; width++) {
+      const out = layoutLineRight("x".repeat(50), "y".repeat(20), width);
+      assert.ok(visibleWidth(out) <= width, `width=${width} out=${visibleWidth(out)}`);
     }
   });
 });
@@ -279,22 +299,22 @@ describe("truncatePlain — 按可见宽度截断", () => {
   });
 });
 
-describe("layoutLine — CJK 宽度下的对齐与截断", () => {
+describe("layoutLineRight — CJK 宽度下的对齐与截断", () => {
   it("正常路径: 中文左右两端对齐，宽度恰好填满", () => {
-    const line = layoutLine("左", "右", 6);
+    const line = layoutLineRight("左", "右", 6);
     assert.equal(line, "左" + "  " + "右");
     assert.equal(visibleWidth(line), 6);
   });
 
   it("正常路径: 中英混合对齐", () => {
-    const line = layoutLine("a", "右", 5);
+    const line = layoutLineRight("a", "右", 5);
     assert.equal(line, "a" + "  " + "右");
     assert.equal(visibleWidth(line), 5);
   });
 
-  it("边界条件: 宽度不足按列截断右侧中文", () => {
-    const line = layoutLine("0123456789", "一二三", 14);
-    assert.equal(line, "0123456789" + "  " + "一");
-    assert.ok(visibleWidth(line) <= 14);
+  it("边界条件: 宽度不足时截左侧中文，右侧中文完整保留", () => {
+    const line = layoutLineRight("0123456789", "一二三", 14);
+    assert.equal(line, "012345" + "  " + "一二三");
+    assert.equal(visibleWidth(line), 14);
   });
 });

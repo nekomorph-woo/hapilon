@@ -78,6 +78,18 @@ export function buildLine1(cwd: string, branch: string | null): string {
   return branch ? `${cwd} | ${branch}` : cwd;
 }
 
+/**
+ * 第 2 行右侧：模型名 • 档位。仅 reasoning 模型带档位，且只留 level
+ * （去掉 "thinking " 前缀，与内置 footer 的展示分道）。
+ */
+export function buildModelRight(
+  model: { id?: string; reasoning?: boolean } | undefined,
+  thinkingLevel: string,
+): string {
+  const name = model?.id ?? "no-model";
+  return model?.reasoning ? `${name} • ${thinkingLevel}` : name;
+}
+
 /** 单行状态清洗：换行/制表压成单空格 */
 function sanitizeStatus(text: string): string {
   return text.replace(/[\r\n\t]+/g, " ").replace(/ +/g, " ").trim();
@@ -164,28 +176,19 @@ function truncateByWidth(text: string, width: number): string {
 }
 
 /**
- * 左右两端对齐布局：宽度足够时中间补空格右对齐；
- * 不足时按可见宽度截断右侧（右侧为纯文本）；left 本身超宽时截断 left——
- * 不截断会让 pi TUI 以 "Rendered line exceeds terminal width" 直接崩溃
- * （team 模式的窄分割面板实测触发）。
+ * 右侧优先的两端布局：右侧（模型/quota 等短段）优先完整保留，空间不足时截左段。
+ * 宽裕时与左对齐一致（右对齐补空格）；右段自身超过行宽（极窄）时截右段——
+ * 任意 width 下可见宽度 ≤ width（超宽会让 pi TUI 直接中止进程，team 窄分割面板实测触发）。
+ * 只用可见宽度计数，ANSI 码不影响判定。
  */
-export function layoutLine(left: string, right: string, width: number): string {
+export function layoutLineRight(left: string, right: string, width: number): string {
   const minPadding = 2;
-  let leftWidth = visibleWidth(left);
   const rightWidth = visibleWidth(right);
-
-  if (leftWidth + minPadding + rightWidth <= width) {
-    return left + " ".repeat(width - leftWidth - rightWidth) + right;
+  let leftPart = left;
+  if (visibleWidth(leftPart) + minPadding + rightWidth > width) {
+    leftPart = truncateByWidth(leftPart, Math.max(0, width - rightWidth - minPadding));
   }
-
-  if (leftWidth + minPadding > width) {
-    left = truncateByWidth(left, Math.max(0, width - minPadding));
-    leftWidth = visibleWidth(left);
-  }
-
-  const availableForRight = width - leftWidth - minPadding;
-  if (availableForRight > 0) {
-    return left + " ".repeat(minPadding) + truncateByWidth(right, availableForRight);
-  }
-  return left;
+  const leftWidth = visibleWidth(leftPart);
+  if (leftWidth + rightWidth > width) return truncateByWidth(right, width);
+  return leftPart + " ".repeat(width - leftWidth - rightWidth) + right;
 }

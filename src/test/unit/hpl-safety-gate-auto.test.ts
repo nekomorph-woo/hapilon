@@ -218,6 +218,108 @@ describe("hpl-safety-gate auto", () => {
     it("仲裁② 正控 /tmp/\\$HOME 解转义为字面 $ 段 → 沙箱内放行", () => {
       assert.equal(sandbox("rm -rf /tmp/\\$HOME").allowed, true);
     });
+
+    // --- cd 静态跟踪（相对目标按命令内的 cd 解析）---
+
+    it("cd 到沙箱内后相对 rm 目标 → 放行", () => {
+      assert.equal(sandbox("cd /tmp/w2p6 && rm -rf vout").allowed, true);
+    });
+
+    it("cd 沙箱内但 ../.. 越界 → 不放行", () => {
+      const check = sandbox("cd /tmp/w2p6 && rm -rf ../../etc");
+      assert.equal(check.allowed, false);
+      assert.ok(check.targets.some((t) => t.resolved === "/etc"));
+    });
+
+    it("cd 到沙箱外的 home → 相对目标不放行（不放宽）", () => {
+      assert.equal(sandbox("cd ~/evil && rm -rf x").allowed, false);
+    });
+
+    it("cd 目标含未知变量 → 相对目标不放行（fail-closed）", () => {
+      const check = sandbox('cd "$UNKNOWN_CD_TARGET" && rm -rf x');
+      assert.equal(check.allowed, false);
+      assert.ok(check.targets.some((t) => !t.sandboxed));
+    });
+
+    it("cd 无破坏性命令词（仅重定向）→ 语义型仍不放行", () => {
+      assert.equal(sandbox("cd /tmp && cat f > g").allowed, false);
+    });
+
+    it("cd 带前导赋值（CDPATH=…）仍识别 cd 命令词 → 放行", () => {
+      assert.equal(sandbox("CDPATH=/nonexistent cd /tmp/x && rm -rf sub").allowed, true);
+    });
+
+    it("绝对路径目标不受 cd 影响 → 仍放行", () => {
+      assert.equal(sandbox("cd /etc && rm -rf /tmp/abs").allowed, true);
+    });
+
+    it("cd - （OLDPWD 不可知）→ 相对目标不放行", () => {
+      assert.equal(sandbox("cd - && rm -rf x").allowed, false);
+    });
+
+    // --- cd 跨分隔符传播（只有 && 下 cd 失败才阻断后续段；;/||/换行 下 cd 可能失败，| /& 下 cd 在子 shell）---
+
+    it("cd 后接 ; → 后续相对目标不放行（cd 可能失败）", () => {
+      assert.equal(sandbox("cd /tmp/w2p6; rm -rf vout").allowed, false);
+    });
+
+    it("cd 后接换行 → 后续相对目标不放行", () => {
+      assert.equal(sandbox("cd /tmp/w2p6\nrm -rf vout").allowed, false);
+    });
+
+    it("cd 后接 || → 后续相对目标不放行（cd 失败才执行）", () => {
+      assert.equal(sandbox("cd /tmp/w2p6 || rm -rf vout").allowed, false);
+    });
+
+    it("cd 后接 & → 后续相对目标不放行（cd 在后台子 shell，确定不传播）", () => {
+      assert.equal(sandbox("cd /tmp/w2p6 & rm -rf vout").allowed, false);
+    });
+
+    it("cd 后接 | → 后续相对目标不放行（cd 在管道子 shell，确定不传播）", () => {
+      assert.equal(sandbox("cd /tmp/w2p6 | rm -rf vout").allowed, false);
+    });
+
+    it("cd /tmp && cd /etc & rm out：& 递归整个 and_or，两段 cd 都不生效 → 不放行", () => {
+      // 浅层回退只会回到 /tmp（沙箱内）→ 误放行；必须回退到 and_or 起点
+      assert.equal(sandbox("cd /tmp && cd /etc & rm -rf out").allowed, false);
+    });
+
+    it("管道内的 cd 不生效（cd /tmp 已被前段 && 链条建立）→ 尾段仍按 /tmp 解析", () => {
+      assert.equal(sandbox("cd /tmp && cat | cd /etc && rm -rf out").allowed, true);
+    });
+
+    it("子 shell 内的 cd 不跨出 → 括号后的相对目标不放行", () => {
+      assert.equal(sandbox("( cd /tmp/w2p6 ) && rm -rf vout").allowed, false);
+    });
+
+    it("cd 经 && 进入子 shell 内仍生效 → 沙箱内相对目标放行", () => {
+      assert.equal(sandbox("cd /tmp/w2p6 && ( rm -rf vout )").allowed, true);
+    });
+
+    // --- 去重 key 必须含生效 cwd / 变量状态（每次出现都解析）---
+
+    it("跨段同名目标按各自 cwd 解析 → 第二个 out 解析为 /etc/out，不放行", () => {
+      const check = sandbox("cd /tmp && rm -rf out && cd /etc && rm -rf out");
+      assert.equal(check.allowed, false);
+      assert.ok(check.targets.some((t) => t.resolved === "/tmp/out" && t.sandboxed));
+      assert.ok(check.targets.some((t) => t.resolved === "/etc/out" && !t.sandboxed));
+    });
+
+    it("同名目标重复出现在同一 cwd → 去重后仍放行", () => {
+      const check = sandbox("cd /tmp/w2p6 && rm -rf out out");
+      assert.equal(check.allowed, true);
+      assert.equal(check.targets.length, 1);
+    });
+
+    it("变量重赋值后同名目标按新值解析（基线同判）→ 不放行", () => {
+      const check = sandbox("V=/tmp/w2p6 && rm -rf $V && V=/etc && rm -rf $V");
+      assert.equal(check.allowed, false);
+      assert.ok(check.targets.some((t) => t.resolved === "/etc" && !t.sandboxed));
+    });
+
+    it("变量重赋值但两次值均在沙箱内 → 放行", () => {
+      assert.equal(sandbox("V=/tmp/a && rm -rf $V && V=/tmp/b && rm -rf $V").allowed, true);
+    });
   });
 
   describe("readGateAutoConfig()", () => {
@@ -424,7 +526,7 @@ describe("hpl-safety-gate auto", () => {
         flag: true,
         complete: () => new Promise(() => {}),
       });
-      // settings 未写 gateAuto → 默认 timeoutMs=10000；此用例显式走短超时配置
+      // settings 未写 gateAuto → 默认 timeoutMs=30000；此用例显式走短超时配置
       writeFileSync(
         join(testHome, "agent", "settings.json"),
         JSON.stringify({ gateAuto: { enabled: true, timeoutMs: 30 } }),

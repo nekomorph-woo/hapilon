@@ -190,12 +190,15 @@ export function teamStateError(path, defs = getAllRoleDefs()) {
         return error instanceof Error ? error.message : String(error);
     }
 }
-/** Role panes have their own Pi session id; locate their owner's state by pane id. */
-export const findTeamStateForPaneEffect = (paneId, defs = getAllRoleDefs()) => Effect.try({
+/**
+ * Role panes have their own Pi session id; locate their owner's state by pane id.
+ * 带回状态文件路径，调方需要原路写回时用（角色 pane 不知道 owner 的 paneId，只能扫 teams 目录）。
+ */
+export const findTeamStateEntryForPaneEffect = (paneId, defs = getAllRoleDefs()) => Effect.try({
     try: () => {
         for (const entry of listTeamStates(defs)) {
             if (allInstances(entry.state).some((instance) => instance.paneId === paneId))
-                return entry.state;
+                return entry;
         }
         return undefined;
     },
@@ -206,6 +209,24 @@ export const findTeamStateForPaneEffect = (paneId, defs = getAllRoleDefs()) => E
     console.warn(`[hpl-orchestra] 按 pane 查找状态失败：${error.message}`);
     return undefined;
 })));
+/** Role panes have their own Pi session id; locate their owner's state by pane id. */
+export const findTeamStateForPaneEffect = (paneId, defs = getAllRoleDefs()) => findTeamStateEntryForPaneEffect(paneId, defs).pipe(Effect.map((entry) => entry?.state));
+/**
+ * 角色 pane 自己切模后的写回：owner `/team:clear`（实际发 `/new`）重建 session 时，pi 按
+ * pane 启动时的 `--model` 恢复——不写回就回到旧模型。找不到状态（pane 已不在任何团队）
+ * 静默跳过。约定：instance.model 存完整 spec（`provider/id` 可带 `:level` 后缀），
+ * 与 reviveModelSpec 的 splitThinkingSuffix 消费语义一致，重灌时用户选的档位不丢。
+ */
+export const updatePaneModelEffect = (paneId, model) => Effect.gen(function* () {
+    const entry = yield* findTeamStateEntryForPaneEffect(paneId);
+    if (!entry)
+        return;
+    const instance = allInstances(entry.state).find((candidate) => candidate.paneId === paneId);
+    if (!instance || instance.model === model)
+        return;
+    instance.model = model;
+    yield* writeTeamStateEffect(entry.state, entry.path);
+});
 export function findTeamStateForPane(paneId, defs = getAllRoleDefs()) {
     return Effect.runSync(findTeamStateForPaneEffect(paneId, defs));
 }

@@ -10,7 +10,7 @@
 import { Effect } from "effect";
 import { appendAdaptiveEvent, type ThinkingSwitchEvent } from "../hpl-model-tiers/adaptive-events.js";
 import { readTaskStoreEffect } from "./team-tasks.js";
-import { teamTasksPathFor } from "./state.js";
+import { teamTasksPathFor, updatePaneModelEffect } from "./state.js";
 
 export interface PaneModelContext {
   model?: { provider?: string; id?: string };
@@ -62,6 +62,8 @@ export interface ModelSwitchContext {
   role?: string;
   paneId?: string;
   thinking?: string;
+  /** 新模型是否支持思考：决定写回 instance.model 时是否带 `:level` 后缀 */
+  reasoning?: boolean;
   now?: Date;
 }
 
@@ -93,6 +95,22 @@ export function recordModelSwitch(event: ModelSelectLike, context: ModelSwitchCo
     source: event.source,
     ...(context.thinking ? { thinking: context.thinking } : {}),
   });
+  return true;
+}
+
+/**
+ * 角色 pane 切模后把选中模型写回 owner 的状态文件（instance.model）。
+ * 与 recordModelSwitch 分开：后者是偏好事实，这里只保证 revive/clear 不回到旧模型；
+ * 也用于程序化恢复（此时上层已抑制事实上报）。找不到状态只静默跳过。
+ */
+export function writeBackPaneModel(event: ModelSelectLike, context: ModelSwitchContext = {}): boolean {
+  const paneId = context.paneId ?? process.env.HERDR_PANE_ID;
+  if (!paneId) return false;
+  if (event.source !== "set" && event.source !== "cycle") return false;
+  const base = modelKeyOf(event.model);
+  if (!base) return false;
+  const spec = context.reasoning && context.thinking ? `${base}:${context.thinking}` : base;
+  Effect.runSync(updatePaneModelEffect(paneId, spec));
   return true;
 }
 

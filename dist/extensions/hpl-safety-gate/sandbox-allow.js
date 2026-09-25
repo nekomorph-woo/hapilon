@@ -1,8 +1,9 @@
 /**
  * sandbox-allow.ts — Auto 模式第 0 层：沙箱写目标判定（纯函数）
  *
- * 追踪同一命令内的变量赋值（`VAR=$(mktemp …)`、`VAR=/tmp/…`、`VAR=~/.hapilon-dev/plan-task/…`），
- * 解析破坏性命令（rm / sed -i / chmod / chown）与重定向的写目标；
+ * 追踪同一命令内的变量赋值（`VAR=$(mktemp …)`、`VAR=/tmp/…`、`VAR=~/.hapilon-dev/plan-task/…`）
+ * 与 `cd <字面路径>`（后续段的相对目标按新 cwd 解析；cd 目标不可静态解析、或 cd 与后续段之间不是 `&&` 时
+ * 把 cwd 置为未知，相对目标一律判越界），解析破坏性命令（rm / sed -i / chmod / chown）与重定向的写目标；
  * 命令含破坏性命令词且全部写目标落在沙箱路径集
  * （/tmp、/private/var/folders、$HAPILON_HOME、/dev/null）时放行。
  *
@@ -13,11 +14,13 @@
 import { isAbsolute, join } from "node:path";
 import { homedir } from "node:os";
 import { normalizeForInspection } from "./classifier.js";
-import { PREFIX_WORDS, SUB_PLACEHOLDER, extractSubstitutions, splitSimpleCommands, } from "./parse.js";
+import { PREFIX_WORDS, SUB_PLACEHOLDER, extractSubstitutions, splitSimpleCommandsWithSeparators, } from "./parse.js";
 /** 单引号包裹标记：内容按字面量处理，不做变量展开（shell 语义） */
 const LITERAL_MARK = "\u0001";
 /** mktemp 产物占位：具体路径运行时才产生，静态不可知但确定在临时目录 */
 const MKTEMP_MARK = "\u0002";
+/** cwd 哨兵：某段的 cd 目标无法静态解析，其后段的相对路径不可再按原 cwd 解析（fail-closed） */
+const UNKNOWN_CWD = "\u0003";
 /** 去引号：双引号只删引号符（替换体已抽出、变量仍会展开）；单引号内容标记为字面量 */
 function dequote(view) {
     let out = "";
@@ -218,12 +221,44 @@ function resolveTargetToken(token, vars, opts) {
             note: escaped ? "mktemp 产物路径非占位开头或含 .. 段" : undefined,
         };
     }
+    // cd 不可解析后的相对目标是「相对未知目录」：静态不可判，直接判越界
+    if (opts.cwd === UNKNOWN_CWD && !isAbsolute(expanded.text)) {
+        return { raw: token.text, resolved: expanded.text, sandboxed: false, note: "cwd 含不可静态解析的 cd" };
+    }
     const normalized = normalizePath(expanded.text, opts);
     return {
         raw: token.text,
         resolved: normalized,
         sandboxed: isSandboxedPath(normalized, opts),
     };
+}
+/**
+ * `cd <目标>` 的静态解析结果：可展开为字面路径，或不可判（cd -、命令替换、未知变量）。
+ * 无参数视作回 home（shell 语义）。
+ */
+function resolveCdTarget(tokens, wordIdx, vars, opts) {
+    let dashDash = false;
+    for (let i = wordIdx + 1; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (!dashDash && t.text === "-")
+            return undefined; // cd - 用 OLDPWD，静态不可知
+        if (!dashDash && t.text === "--") {
+            dashDash = true;
+            continue;
+        }
+        if (!dashDash && !t.literal && t.text.startsWith("-") && t.text.length > 1)
+            continue; // -P/-L/-e
+        if (t.text.includes(SUB_PLACEHOLDER))
+            return undefined;
+        // 上一个 cd 已不可解析：相对 cd 目标同属不可判
+        if (opts.cwd === UNKNOWN_CWD && !isAbsolute(t.text))
+            return undefined;
+        const expanded = expandRefs(t, vars, opts);
+        if (expanded.unknown || expanded.hasMktemp || expanded.text === "")
+            return undefined;
+        return normalizePath(expanded.text, opts);
+    }
+    return homedir();
 }
 /** 是否破坏性命令词（sed 仅在 -i 就地改写时算） */
 function destructiveWord(word, rest) {
@@ -298,24 +333,50 @@ function segmentTargets(tokens) {
     return targets;
 }
 /**
+ * cd 结果的向后传播：只有 `&&` 语义下「cd 失败则后续段不执行」成立，可把结果当成已知 cwd。
+ * - `;` / `||` / 换行：后续段可能以旧 cwd 执行，静态不可知 → 哨兵（相对目标判越界）
+ * - `|` / `&` / 括号：cd 在子 shell 执行，确定不传播 → 回退本段之前的 cwd；
+ *   `&` 把整个 and_or 放进子 shell，故回退到 and_or 起点（`cd /tmp && cd /etc & rm x` 里两个 cd 都不生效）
+ * - `&&`：按解析结果传播（目标不可判则哨兵）
+ */
+function cwdAfterCd(cdResult, sep, prevSep, cwdBefore, andOrStartCwd) {
+    if (sep === "&")
+        return andOrStartCwd;
+    if (sep === "|" || prevSep === "|" || sep === "subshell" || prevSep === "subshell")
+        return cwdBefore;
+    if (sep === "&&")
+        return cdResult ?? UNKNOWN_CWD;
+    return UNKNOWN_CWD;
+}
+/**
  * 沙箱写判定：命令含破坏性命令词、存在写目标，且全部目标落在沙箱路径集。
  * 纯重定向（无 rm/sed -i/chmod/chown）不放行——语义型危险（git push 等）交给模型层。
  */
 export function checkSandboxWrite(command, opts) {
     const { view, bodies } = extractSubstitutions(normalizeForInspection(command));
-    const segments = splitSimpleCommands(dequote(view));
+    const segments = splitSimpleCommandsWithSeparators(dequote(view));
     const vars = new Map();
     let bodyIndex = 0;
     let hasDestructive = false;
-    const rawTargets = [];
-    for (const segment of segments) {
-        const tokens = tokenize(segment);
+    // 命令内 cwd：初始为调用方仓库 cwd，随每段 `cd <字面路径>` 更新（静态跟踪）。
+    // ceiling：静态分析无法确知 cd 是否真的成功（目标目录可能不存在），`&&` 链下不影响判定
+    // （cd 失败则后续段不执行），`;`/`||`/换行链下由 cwdAfterCd 置哨兵闭合。
+    let cwd = opts.cwd;
+    // 当前 and_or（`;`/`&`/换行分隔）起点时的 cwd，供 `&` 整体回退
+    let andOrStartCwd = opts.cwd;
+    let prevSep;
+    const seen = new Set();
+    const targets = [];
+    for (const { text, sep } of segments) {
+        const tokens = tokenize(text);
         // xargs 的实际操作数运行时经 stdin 注入、静态不可见——任何段含 xargs 一律不放行。
         // 按 basename 匹配且不豁免引号 token：/usr/bin/xargs、'xargs' 等拼写形态同样拦截（误伤方向为 fail-closed）
         if (tokens.some((t) => t.text.split("/").pop() === "xargs")) {
             return { allowed: false, targets: [] };
         }
         let i = 0;
+        // 本段生效的 cwd（cd 只影响其后段）；cd 不可解析后置哨兵，使相对目标判越界
+        const segOpts = { ...opts, cwd };
         // 前导赋值：VAR=…（值可为替换占位 / 字面路径 / 引用已有变量）
         for (; i < tokens.length; i++) {
             const t = tokens[i];
@@ -326,7 +387,7 @@ export function checkSandboxWrite(command, opts) {
             if (placeholderCount > 0) {
                 bodyIndex += placeholderCount;
                 vars.set(t.text.slice(0, t.text.indexOf("=")), placeholderCount === 1 && value === SUB_PLACEHOLDER
-                    ? analyzeMktemp(bodies[bodyIndex - 1] ?? "", opts)
+                    ? analyzeMktemp(bodies[bodyIndex - 1] ?? "", segOpts)
                     : { kind: "unknown" });
                 continue;
             }
@@ -336,7 +397,7 @@ export function checkSandboxWrite(command, opts) {
                 continue;
             }
             // 赋值值里的 ~ shell 会展开（~ 紧跟 = 后）；expandRefs 的 tilde 分支已覆盖
-            const expanded = expandRefs({ text: value, literal: t.literal }, vars, opts);
+            const expanded = expandRefs({ text: value, literal: t.literal }, vars, segOpts);
             if (expanded.unknown) {
                 vars.set(name, { kind: "unknown" });
             }
@@ -356,19 +417,26 @@ export function checkSandboxWrite(command, opts) {
         const word = wordIdx >= 0 ? tokens[wordIdx].text : "";
         if (destructiveWord(word, tokens.slice(wordIdx + 1)))
             hasDestructive = true;
-        rawTargets.push(...segmentTargets(tokens));
+        // 目标按本段生效的 cwd 解析后去重：解析纯函数代价可忽略，按「解析结果」而非原始 token 去重，
+        // 否则同一 token 在不同 cwd/变量状态下解析出的不同路径会被误当作重复而漏检。
+        for (const token of segmentTargets(tokens)) {
+            const target = resolveTargetToken(token, vars, segOpts);
+            const key = `${target.resolved}\u0000${target.sandboxed ? "S" : "X"}`;
+            if (seen.has(key))
+                continue;
+            seen.add(key);
+            targets.push(target);
+        }
+        if (word === "cd" && wordIdx >= 0) {
+            const next = resolveCdTarget(tokens, wordIdx, vars, segOpts);
+            cwd = cwdAfterCd(next, sep, prevSep, cwd, andOrStartCwd);
+        }
+        if (sep === ";" || sep === "&")
+            andOrStartCwd = cwd;
+        prevSep = sep;
     }
-    if (!hasDestructive || rawTargets.length === 0) {
+    if (!hasDestructive || targets.length === 0) {
         return { allowed: false, targets: [] };
-    }
-    const seen = new Set();
-    const targets = [];
-    for (const token of rawTargets) {
-        const key = `${token.literal ? "L" : "V"}:${token.text}`;
-        if (seen.has(key))
-            continue;
-        seen.add(key);
-        targets.push(resolveTargetToken(token, vars, opts));
     }
     return {
         allowed: targets.every((t) => t.sandboxed),

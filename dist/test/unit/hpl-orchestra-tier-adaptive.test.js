@@ -4,13 +4,13 @@
  */
 import { after, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { handleTeamCommand, resetProbeCache } from "../../extensions/hpl-orchestra/menu.js";
 import hplOrchestra from "../../extensions/hpl-orchestra/index.js";
-import { discardPendingThinkingSwitch, recordModelSwitch, recordOwnCompletedTasks, recordThinkingSwitch, } from "../../extensions/hpl-orchestra/adaptive-facts.js";
+import { discardPendingThinkingSwitch, recordModelSwitch, recordOwnCompletedTasks, recordThinkingSwitch, writeBackPaneModel, } from "../../extensions/hpl-orchestra/adaptive-facts.js";
 import { findRoleEntry, readTeamState, resolveSessionStatePath, teamTasksPathFor, writeTeamStateEffect, } from "../../extensions/hpl-orchestra/state.js";
 import { appendAdaptiveEvent, readAdaptiveEvents } from "../../extensions/hpl-model-tiers/adaptive-events.js";
 import { writeQuotaSnapshot } from "../../extensions/hpl-quota-usage/cache.js";
@@ -552,6 +552,86 @@ describe("角色 pane 主动切 thinking level 上报", () => {
             model({ type: "model_select", source: "cycle", model: { provider: "deepseek", id: "deepseek-flash" }, previousModel: { provider: "zai", id: "glm-5.3" } }, { thinkingLevel: "low" });
             await flush();
             assert.deepEqual(readAdaptiveEvents().map((event) => event.kind), ["thinking_switch", "model_switch"], "只有用户切的 thinking 与本轮切模落盘");
+        }
+        finally {
+            delete process.env.HAPI_ORCH_ROLE;
+        }
+    });
+});
+describe("角色 pane 切模写回 instance.model（/new 不刷掉用户选择）", () => {
+    const setEvent = (provider, id, previousProvider = "anthropic", previousId = "claude-opus") => ({
+        source: "set",
+        model: { provider, id },
+        previousModel: { provider: previousProvider, id: previousId },
+    });
+    it("状态文件存在 → 写回完整 spec（reasoning 带档位后缀）", () => {
+        saveState(stateFor([{ key: "worker", instances: [{ paneId: "w1:p7", model: "anthropic/claude-opus" }] }]));
+        assert.equal(writeBackPaneModel(setEvent("deepseek", "deepseek-flash"), { paneId: "w1:p7", thinking: "high", reasoning: true }), true);
+        const state = readTeamState(resolveSessionStatePath());
+        assert.equal(findRoleEntry(state, "worker").instances[0].model, "deepseek/deepseek-flash:high");
+    });
+    it("非 reasoning 模型 → 裸 provider/id（不带 :level）", () => {
+        saveState(stateFor([{ key: "worker", instances: [{ paneId: "w1:p7", model: "anthropic/claude-opus" }] }]));
+        writeBackPaneModel(setEvent("deepseek", "deepseek-flash"), { paneId: "w1:p7", thinking: "high", reasoning: false });
+        const state = readTeamState(resolveSessionStatePath());
+        assert.equal(findRoleEntry(state, "worker").instances[0].model, "deepseek/deepseek-flash");
+    });
+    it("pane 不在任何团队 → 不炸、不落盘（只记事件由 recordModelSwitch 负责）", () => {
+        assert.equal(writeBackPaneModel(setEvent("deepseek", "deepseek-flash"), { paneId: "nobody:p1", reasoning: true, thinking: "high" }), true);
+        assert.equal(existsSync(resolveSessionStatePath()), false);
+    });
+    it("restore 源不写回（恢复不是用户选择）", () => {
+        saveState(stateFor([{ key: "worker", instances: [{ paneId: "w1:p7", model: "anthropic/claude-opus" }] }]));
+        assert.equal(writeBackPaneModel({ ...setEvent("deepseek", "deepseek-flash"), source: "restore" }, { paneId: "w1:p7" }), false);
+        const state = readTeamState(resolveSessionStatePath());
+        assert.equal(findRoleEntry(state, "worker").instances[0].model, "anthropic/claude-opus");
+    });
+    it("写回裸 provider/id → revive 按档位解析（不带 :level；带后缀格式由写回用例与 tier-model 用例覆盖）", async () => {
+        writeResolvedTiers();
+        // 裸 provider/id：无 thinking 覆盖，按档位条目解析
+        saveState(stateFor([{ key: "worker", instances: [{ paneId: "w1:p8", model: "deepseek/deepseek-flash" }] }]));
+        const bare = makeSpawn({ corpsePanes: ["w1:p8"] });
+        await handleTeamCommand(makePi().pi, "开始编排", makeContext().ctx, bare.spawn);
+        assert.ok(paneRunCommands(bare.calls)[0].includes("--model deepseek/deepseek-flash"));
+        assert.equal(paneRunCommands(bare.calls)[0].includes(":high"), false);
+    });
+    it("/new：before_switch 保存 → session_start 恢复模型与 thinking；程序化恢复不入偏好事件", async () => {
+        writeResolvedTiers();
+        saveState(stateFor([{ key: "worker", instances: [{ paneId: "w1:p7", model: "anthropic/claude-opus" }] }]));
+        process.env.HAPI_ORCH_ROLE = "worker";
+        try {
+            const calls = [];
+            const events = new Map();
+            const pi = {
+                registerCommand: () => { },
+                on: (event, handler) => events.set(event, handler),
+                registerFlag: () => { },
+                getFlag: () => undefined,
+                getThinkingLevel: () => "medium",
+                setModel: async (model) => {
+                    calls.push(`setModel:${model.provider}/${model.id}`);
+                    // 真实 pi 行为：setModel 无论 persist 都会发 model_select（agent-session.js）
+                    events.get("model_select")({ type: "model_select", source: "set", model, previousModel: { provider: "anthropic", id: "claude-opus" } }, { thinkingLevel: "medium", model: { ...model, reasoning: true } });
+                    return true;
+                },
+                setThinkingLevel: (level) => {
+                    calls.push(`setThinking:${level}`);
+                    events.get("thinking_level_select")({ type: "thinking_level_select", level, previousLevel: "medium" }, { model: { provider: "deepseek", id: "deepseek-flash" } });
+                },
+            };
+            hplOrchestra(pi);
+            // 用户切模：写回 owner 状态
+            events.get("model_select")({ type: "model_select", source: "set", model: { provider: "deepseek", id: "deepseek-flash" }, previousModel: { provider: "anthropic", id: "claude-opus" } }, { thinkingLevel: "high", model: { provider: "deepseek", id: "deepseek-flash", reasoning: true } });
+            const state = readTeamState(resolveSessionStatePath());
+            assert.equal(findRoleEntry(state, "worker").instances[0].model, "deepseek/deepseek-flash:high");
+            // owner /team:clear → 角色 pane 收到 /new
+            events.get("session_before_switch")({ type: "session_before_switch", reason: "new" }, { model: { provider: "deepseek", id: "deepseek-flash" }, thinkingLevel: "high" });
+            await events.get("session_start")({ type: "session_start", reason: "new" }, {
+                modelRegistry: { find: (provider, id) => ({ provider, id }) },
+                model: { provider: "anthropic", id: "claude-opus" },
+            });
+            assert.deepEqual(calls, ["setModel:deepseek/deepseek-flash", "setThinking:high"]);
+            assert.deepEqual(readAdaptiveEvents().map((event) => event.kind), ["model_switch"], "程序化恢复发的事件不得进 tier-adaptive 事实日志");
         }
         finally {
             delete process.env.HAPI_ORCH_ROLE;

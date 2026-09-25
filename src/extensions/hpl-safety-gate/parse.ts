@@ -5,6 +5,7 @@
  *   - stripQuotedText    : 引号内容置空（搜索词/文件名/提交信息不参与规则匹配）
  *   - extractSubstitutions: 抽出 $(...)/`...`/<(...)/>(...) 的执行体并置占位符
  *   - splitSimpleCommands : 按 ; && || | 换行 与括号切分为简单命令
+ *     （splitSimpleCommandsWithSeparators 另带段间分隔符类型）
  *   - commandWord        : 简单命令的命令词（跳过 sudo/env/VAR= 等前缀）
  *   - matchInCommandPosition: 规则命中是否落在命令词区（而非某个参数里）
  *
@@ -114,13 +115,40 @@ export function extractSubstitutions(command: string): { view: string; bodies: s
   return { view: out, bodies };
 }
 
+/** 段间分隔符类型：`&&` 链、`;`/`||`/换行、子 shell（`|` `&` 与括号）三类语义不同 */
+export type SegmentSeparator = "&&" | "||" | ";" | "|" | "&" | "subshell";
+
+export interface SimpleCommandSegment {
+  text: string;
+  /** 紧跟本段之后的分隔符（末段无） */
+  sep?: SegmentSeparator;
+}
+
+function separatorKind(raw: string): SegmentSeparator {
+  if (raw === "&&" || raw === "||" || raw === "|" || raw === "&") return raw;
+  // 换行同 `;`（同层顺序执行）；括号是子 shell 边界，cd 不跨出
+  return raw === "(" || raw === ")" ? "subshell" : ";";
+}
+
+/** 与 splitSimpleCommands 切分相同，但保留每段之后的分隔符类型（cd 等状态能否向后传播取决于它） */
+export function splitSimpleCommandsWithSeparators(view: string): SimpleCommandSegment[] {
+  const segments: SimpleCommandSegment[] = [];
+  let start = 0;
+  for (const m of view.matchAll(/&&|\|\||[;|()\n\r]|&/g)) {
+    const at = m.index!;
+    const text = view.slice(start, at).trim();
+    // 连续分隔符（`|&`、`) ;` 等）产生的空段按无命令处理，其分隔符不额外携带语义
+    if (text.length > 0) segments.push({ text, sep: separatorKind(m[0]) });
+    start = at + m[0].length;
+  }
+  const tail = view.slice(start).trim();
+  if (tail.length > 0) segments.push({ text: tail });
+  return segments;
+}
+
 /** 按 ; && || | 换行 与括号切分为简单命令（引号已在视图阶段置空） */
 export function splitSimpleCommands(view: string): string[] {
-  return view
-    .replace(/&&|\|\||[;|()\n\r]|&/g, "\u0000")
-    .split("\u0000")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+  return splitSimpleCommandsWithSeparators(view).map((s) => s.text);
 }
 
 /** 剥离 `VAR=value` 赋值与修饰前缀，返回命令词与其起始下标 */

@@ -28,7 +28,8 @@ export interface GateAutoConfig {
 
 export const GATE_AUTO_DEFAULTS: GateAutoConfig = {
   enabled: false,
-  timeoutMs: 10000,
+  // 10s 在慢模型/长上下文下频繁触发判定超时回落（实测 cd 类命令被 fallback-confirm），放宽到 30s
+  timeoutMs: 30000,
   model: "tier:haiku",
 };
 

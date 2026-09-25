@@ -10,7 +10,7 @@
 import { Effect } from "effect";
 import { appendAdaptiveEvent } from "../hpl-model-tiers/adaptive-events.js";
 import { readTaskStoreEffect } from "./team-tasks.js";
-import { teamTasksPathFor } from "./state.js";
+import { teamTasksPathFor, updatePaneModelEffect } from "./state.js";
 export const recordOwnCompletedTasksEffect = (ctx, now = new Date()) => {
     const role = process.env.HAPI_ORCH_ROLE;
     const paneId = process.env.HERDR_PANE_ID;
@@ -67,6 +67,24 @@ export function recordModelSwitch(event, context = {}) {
         source: event.source,
         ...(context.thinking ? { thinking: context.thinking } : {}),
     });
+    return true;
+}
+/**
+ * 角色 pane 切模后把选中模型写回 owner 的状态文件（instance.model）。
+ * 与 recordModelSwitch 分开：后者是偏好事实，这里只保证 revive/clear 不回到旧模型；
+ * 也用于程序化恢复（此时上层已抑制事实上报）。找不到状态只静默跳过。
+ */
+export function writeBackPaneModel(event, context = {}) {
+    const paneId = context.paneId ?? process.env.HERDR_PANE_ID;
+    if (!paneId)
+        return false;
+    if (event.source !== "set" && event.source !== "cycle")
+        return false;
+    const base = modelKeyOf(event.model);
+    if (!base)
+        return false;
+    const spec = context.reasoning && context.thinking ? `${base}:${context.thinking}` : base;
+    Effect.runSync(updatePaneModelEffect(paneId, spec));
     return true;
 }
 /**
