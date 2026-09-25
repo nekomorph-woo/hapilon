@@ -64,10 +64,10 @@ describe("加载顺序稳定性（hpl 先于 ponytail）", () => {
     assert.ok(appendExt, "追加型扩展加载成功");
 
     const runner = new ExtensionRunner([hplExt, appendExt], runtime, CWD, stub, stub);
-    const result = await runner.emitBeforeAgentStart("hello", undefined, "PI-BASE-PROMPT", promptOpts);
+    const result = await runner.emitBeforeAgentStart("hello", undefined, promptOpts);
 
-    assert.ok(result?.systemPrompt, "返回了修改后的 prompt");
-    const prompt = result!.systemPrompt!;
+    const prompt = result.systemPromptOptions.forceSystemPrompt;
+    assert.ok(prompt, "返回了修改后的 prompt");
     // hpl 全量替换已生效（XML 结构存在，Pi 基础 prompt 被换掉）
     assert.ok(prompt.includes("<system_prompt>"), "hpl XML 结构存在");
     assert.ok(!prompt.includes("PI-BASE-PROMPT"), "hpl 全量替换抹掉了 Pi 基础 prompt");
@@ -107,10 +107,10 @@ describe("加载顺序稳定性（hpl 先于 ponytail）", () => {
     assert.equal(extensions.length, 2, "加载两个扩展");
 
     const runner = new ExtensionRunner(extensions, createExtensionRuntime(), CWD, stub, stub);
-    const result = await runner.emitBeforeAgentStart("hi", undefined, "PI-BASE", promptOpts);
+    const result = await runner.emitBeforeAgentStart("hi", undefined, promptOpts);
 
-    assert.ok(result?.systemPrompt, "返回修改后 prompt");
-    const prompt = result!.systemPrompt!;
+    const prompt = result.systemPromptOptions.forceSystemPrompt;
+    assert.ok(prompt, "返回修改后 prompt");
     assert.ok(prompt.includes("<system_prompt>"), "hpl XML 存在");
     assert.ok(
       prompt.toLowerCase().includes("ponytail"),

@@ -1,6 +1,6 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensurePiPatch, PATCH_RULES } from "../../patch/ensure-pi-patch.js";
@@ -11,24 +11,37 @@ import { ensurePiPatch, PATCH_RULES } from "../../patch/ensure-pi-patch.js";
  */
 describe("ensurePiPatch()", () => {
     const PI = "@earendil-works/pi-coding-agent";
-    const TUI = "@earendil-works/pi-tui";
+    const CHUNK_DIR = "dist/bundle/chunks";
+    const CHUNK_NAME = "chunk-old.js";
     let base;
     let piDir;
+    function fixturePath(rule, chunk = CHUNK_NAME) {
+        const pkg = rule.package ?? PI;
+        return rule.signature
+            ? join(base, "node_modules", pkg, CHUNK_DIR, chunk)
+            : join(base, "node_modules", pkg, rule.file);
+    }
+    function writeChunkFixture(path) {
+        const chunkRules = PATCH_RULES.filter((rule) => rule.signature);
+        writeFileSync(path, chunkRules.map((rule) => Array(rule.occurrences).fill(rule.find).join("\n")).join("\n") + "\n");
+    }
     before(() => {
         base = mkdtempSync(join(tmpdir(), "hapi-patch-"));
         piDir = join(base, "node_modules", PI);
-        // 每个目标文件:按规则锚点出现次数拼出假内容
-        for (const target of new Set(PATCH_RULES.map((r) => `${r.package ?? PI}::${r.file}`))) {
+        // 每个非 chunk 目标文件:按规则锚点出现次数拼出假内容
+        for (const target of new Set(PATCH_RULES.filter((r) => !r.signature).map((r) => `${r.package ?? PI}::${r.file}`))) {
             const [pkg, file] = [target.split("::")[0], target.split("::")[1]];
-            const dir = join(base, "node_modules", pkg, file, "..");
-            mkdirSync(dir, { recursive: true });
-            let content = "";
-            for (const rule of PATCH_RULES.filter((r) => (r.package ?? PI) === pkg && r.file === file)) {
-                content += Array(rule.occurrences).fill(rule.find).join("\n") + "\n";
-            }
-            writeFileSync(join(base, "node_modules", pkg, file), content);
-            void dir;
+            const path = join(base, "node_modules", pkg, file);
+            mkdirSync(join(path, ".."), { recursive: true });
+            const content = PATCH_RULES
+                .filter((r) => !r.signature && (r.package ?? PI) === pkg && r.file === file)
+                .map((r) => Array(r.occurrences).fill(r.find).join("\n"))
+                .join("\n") + "\n";
+            writeFileSync(path, content);
         }
+        const chunkPath = join(base, "node_modules", PI, CHUNK_DIR, CHUNK_NAME);
+        mkdirSync(join(chunkPath, ".."), { recursive: true });
+        writeChunkFixture(chunkPath);
         // pi 包根需要 package.json 供 findPiDir 探测；hapilon 依赖树里的包同理
         writeFileSync(join(piDir, "package.json"), "{}");
         const hapilonPkgDir = join(base, "node_modules", "@nklisch/pi-background-tasks");
@@ -40,7 +53,7 @@ describe("ensurePiPatch()", () => {
         assert.equal(result.kind, "patched", JSON.stringify(result, null, 2));
         for (const rule of PATCH_RULES) {
             const pkg = rule.package ?? PI;
-            const text = readFileSync(join(base, "node_modules", pkg, rule.file), "utf8");
+            const text = readFileSync(fixturePath(rule), "utf8");
             const replaced = text.split(rule.replace).length - 1;
             // 规则间替换产物可能互有包含(如 catch 分支转换含 map(codeBlockLine)),
             // 只断言“至少已应用”;双插防护由混合态用例专责
@@ -48,22 +61,33 @@ describe("ensurePiPatch()", () => {
         }
     });
     it("再跑幂等:already-patched 且内容不变", () => {
-        const before = PATCH_RULES.map((rule) => {
-            const pkg = rule.package ?? PI;
-            return readFileSync(join(base, "node_modules", pkg, rule.file), "utf8");
-        });
+        const before = PATCH_RULES.map((rule) => readFileSync(fixturePath(rule), "utf8"));
         const result = ensurePiPatch({ piDir, hapilonRoot: base });
         assert.equal(result.kind, "already-patched");
         PATCH_RULES.forEach((rule, index) => {
-            const pkg = rule.package ?? PI;
-            const text = readFileSync(join(base, "node_modules", pkg, rule.file), "utf8");
+            const text = readFileSync(fixturePath(rule), "utf8");
             assert.equal(text, before[index], `${rule.file} 内容不应变化`);
         });
     });
+    it("chunk 签名寻址支持旧/新文件名，并在多命中时 stale", () => {
+        const rule = PATCH_RULES.find((candidate) => candidate.signature);
+        const oldPath = fixturePath(rule);
+        const newPath = fixturePath(rule, "chunk-new.js");
+        renameSync(oldPath, newPath);
+        writeChunkFixture(newPath);
+        assert.equal(ensurePiPatch({ piDir, hapilonRoot: base }).kind, "patched");
+        renameSync(newPath, oldPath);
+        assert.equal(ensurePiPatch({ piDir, hapilonRoot: base }).kind, "already-patched");
+        const duplicatePath = fixturePath(rule, "chunk-duplicate.js");
+        writeFileSync(duplicatePath, rule.signature);
+        const stale = ensurePiPatch({ piDir, hapilonRoot: base });
+        assert.equal(stale.kind, "stale", JSON.stringify(stale));
+        assert.match(JSON.stringify(stale), /命中 2 个文件/);
+        rmSync(duplicatePath);
+    });
     it("混合态重入不双插(旧批次已补+新批次未补,theme.js 事故回归)", () => {
         // 取同一文件上分两批落的规则:旧批次(marker=mdCodeBlockBg)+新批次(slash 触发门)
-        const file = "dist/bundle/chunks/chunk-JVUZSMYM.js";
-        const rules = PATCH_RULES.filter((r) => r.file === file);
+        const rules = PATCH_RULES.filter((r) => r.signature);
         const oldRules = rules.filter((r) => r.marker === undefined);
         const newRules = rules.filter((r) => r.marker !== undefined && r.marker !== "mdCodeBlockBg");
         assert.ok(oldRules.length > 0 && newRules.length > 0, "该文件应有新旧两批规则");
@@ -72,7 +96,7 @@ describe("ensurePiPatch()", () => {
             .map((r) => Array(r.occurrences).fill(r.replace).join("\n"))
             .join("\n");
         content += "\n" + newRules.map((r) => Array(r.occurrences).fill(r.find).join("\n")).join("\n");
-        const path = join(base, "node_modules", PI, file);
+        const path = fixturePath(rules[0]);
         writeFileSync(path, content);
         const result = ensurePiPatch({ piDir, hapilonRoot: base });
         assert.ok(result.kind === "patched" || result.kind === "already-patched", JSON.stringify(result));
@@ -92,10 +116,12 @@ describe("ensurePiPatch()", () => {
     it("Windows shell 修复落在后台任务插件（hapilon 依赖树，不在 pi 包里）", () => {
         const text = readFileSync(join(base, "node_modules", "@nklisch/pi-background-tasks", "extensions/background-tasks.ts"), "utf8");
         assert.ok(text.includes('import { getShellConfig } from "@earendil-works/pi-coding-agent";'), "应注入 pi 的平台 shell 解析");
+        assert.ok(text.includes('commandTransport === "stdin"'), "应识别 pi 的 stdin shell transport");
+        assert.ok(text.includes("stdin shell transport is unsupported by pi-background-tasks"), "stdin 环境必须显式失败");
         assert.equal(text.split("shell: hapiShell(),").length - 1, 1, "background 的 spawn 应改走 hapiShell()");
         assert.equal(text.split("pi.exec!(hapiShell(),").length - 1, 1, "monitor 的 pi.exec 应改走 hapiShell()");
-        // 两处 spawn 站点的写死 shell 不得残留（helper 内部的 POSIX 分支是另一回事）
-        assert.equal(text.includes('shell: "/bin/sh"'), false);
+        // spawn 站点的写死 shell 不得残留（helper 内部的 POSIX 分支是另一回事）
+        assert.equal(text.includes('      shell: "/bin/sh",'), false);
         assert.equal(text.includes('pi.exec!("/bin/sh"'), false);
     });
 });

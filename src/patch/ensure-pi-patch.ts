@@ -1,4 +1,4 @@
-import { accessSync, constants, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,6 +29,8 @@ const MID_TEXT_SLASH_OPEN_MARKER = "__hapiMidTextSlashOpen";
 const HAPI_SHELL_MARKER = "hapiShell";
 /** 后台任务插件包名（hapilon 自身的依赖，不在 pi 包树里） */
 const BACKGROUND_TASKS_PACKAGE = "@nklisch/pi-background-tasks";
+/** Bundle chunk directory; the host file is located by signature, not its hash name. */
+const PI_BUNDLE_CHUNKS = "dist/bundle/chunks";
 
 /** 补丁目标的包从哪棵依赖树解析：pi 包树（默认）或 hapilon 自身依赖 */
 type PatchBase = "pi" | "hapilon";
@@ -40,6 +42,8 @@ interface PatchRule {
   replace: string;
   /** 期望出现次数;实际不符 = 锚点失配(视为 pi 升级) */
   occurrences: number;
+  /** Bundle chunks use a stable content signature instead of a hashed filename. */
+  signature?: string;
   /** 目标包;缺省 pi 主包 */
   package?: string;
   /** 本规则的已补丁标记;缺省 PATCH_MARKER */
@@ -109,49 +113,57 @@ export const PATCH_RULES: readonly PatchRule[] = [
     occurrences: 1,
   },
   {
-    file: "dist/bundle/chunks/chunk-JVUZSMYM.js",
+    file: PI_BUNDLE_CHUNKS,
+    signature: "mdCodeBlockBorder",
     find: "scrollbarTrack:colors.scrollbarTrack??colors.muted,",
     replace: "mdCodeBlockBg:colors.mdCodeBlockBg??\"\",scrollbarTrack:colors.scrollbarTrack??colors.muted,",
     occurrences: 1,
   },
   {
-    file: "dist/bundle/chunks/chunk-JVUZSMYM.js",
+    file: PI_BUNDLE_CHUNKS,
+    signature: "mdCodeBlockBorder",
     find: "bgColorKeys=new Set([\"selectedBg\",",
     replace: "bgColorKeys=new Set([\"selectedBg\",\"mdCodeBlockBg\",",
     occurrences: 1,
   },
   {
-    file: "dist/bundle/chunks/chunk-JVUZSMYM.js",
+    file: PI_BUNDLE_CHUNKS,
+    signature: "mdCodeBlockBorder",
     find: "function createTheme(themeJson,mode,sourcePath){",
     replace: "function codeBlockLine(text){let bg=theme.getBgAnsi(\"mdCodeBlockBg\");return theme.bg(\"mdCodeBlockBg\",text.split(\"\\x1B[0m\").join(\"\\x1B[0m\"+bg))}function createTheme(themeJson,mode,sourcePath){",
     occurrences: 1,
   },
   {
-    file: "dist/bundle/chunks/chunk-JVUZSMYM.js",
+    file: PI_BUNDLE_CHUNKS,
+    signature: "mdCodeBlockBorder",
     find: "code.split(`\n`).map(line=>theme.fg(\"mdCodeBlock\",line))",
     replace: "code.split(`\n`).map(codeBlockLine)",
     occurrences: 3,
   },
   {
-    file: "dist/bundle/chunks/chunk-JVUZSMYM.js",
+    file: PI_BUNDLE_CHUNKS,
+    signature: "mdCodeBlockBorder",
     find: "return highlight(code,opts).split(`\n`)",
     replace: "return highlight(code,opts).split(`\n`).map(codeBlockLine)",
     occurrences: 2,
   },
   {
-    file: "dist/bundle/chunks/chunk-JVUZSMYM.js",
+    file: PI_BUNDLE_CHUNKS,
+    signature: "mdCodeBlockBorder",
     find: "catch{return code.split(`\n`)}",
     replace: "catch{return code.split(`\n`).map(codeBlockLine)}",
     occurrences: 1,
   },
   {
-    file: "dist/bundle/chunks/chunk-JVUZSMYM.js",
+    file: PI_BUNDLE_CHUNKS,
+    signature: "mdCodeBlockBorder",
     find: "codeBlock:text=>theme.fg(\"mdCodeBlock\",text),codeBlockBorder:text=>theme.fg(\"mdCodeBlockBorder\",text)",
     replace: "codeBlock:codeBlockLine,codeBlockBorder:()=>\"\"",
     occurrences: 1,
   },
   {
-    file: "dist/bundle/chunks/chunk-JVUZSMYM.js",
+    file: PI_BUNDLE_CHUNKS,
+    signature: "mdCodeBlockBorder",
     find: "mdCodeBlockBorder:ColorValueSchema,",
     replace: "mdCodeBlockBorder:ColorValueSchema,mdCodeBlockBg:typebox_exports.Optional(ColorValueSchema),",
     occurrences: 1,
@@ -169,7 +181,8 @@ export const PATCH_RULES: readonly PatchRule[] = [
     marker: MID_TEXT_SLASH_MARKER,
   },
   {
-    file: "dist/bundle/chunks/chunk-JVUZSMYM.js",
+    file: PI_BUNDLE_CHUNKS,
+    signature: "isInSlashCommandContext",
     find: "this.isInSlashCommandContext(textBeforeCursor)?this.tryTriggerAutocomplete()",
     replace:
       "this.isInSlashCommandContext(textBeforeCursor)||globalThis.__hapiMidTextSlash?.(textBeforeCursor)?this.tryTriggerAutocomplete()",
@@ -188,7 +201,8 @@ export const PATCH_RULES: readonly PatchRule[] = [
     marker: MID_TEXT_SLASH_OPEN_MARKER,
   },
   {
-    file: "dist/bundle/chunks/chunk-JVUZSMYM.js",
+    file: PI_BUNDLE_CHUNKS,
+    signature: "isInSlashCommandContext",
     find: 'else if(char==="/"&&this.isAtStartOfMessage())this.tryTriggerAutocomplete()',
     replace:
       'else if(char==="/"&&(this.isAtStartOfMessage()||globalThis.__hapiMidTextSlashOpen?.(this.state.lines[this.state.cursorLine].slice(0,this.state.cursorCol)+char)))this.tryTriggerAutocomplete()',
@@ -207,10 +221,12 @@ export const PATCH_RULES: readonly PatchRule[] = [
     replace: 'import { spawn, type ChildProcess } from "node:child_process";\n\n'
       + '// hapilon: Windows 没有 /bin/sh；Windows 下复用 pi 的平台 shell 解析（懒解析一次）\n'
       + 'import { getShellConfig } from "@earendil-works/pi-coding-agent";\n'
-      + "let hapiShellCache: string | undefined;\n"
+      + "type HapiShellConfig = ReturnType<typeof getShellConfig>;\n"
+      + "let hapiShellCache: HapiShellConfig | undefined;\n"
       + "function hapiShell(): string {\n"
-      + '    if (process.platform !== "win32") return "/bin/sh";\n'
-      + "    return (hapiShellCache ??= getShellConfig().shell);\n"
+      + '    const config = process.platform !== "win32" ? { shell: "/bin/sh", args: ["-c"], commandTransport: "argv" as const } : (hapiShellCache ??= getShellConfig());\n'
+      + '    if (config.commandTransport === "stdin") throw new Error("hapiShell: stdin shell transport is unsupported by pi-background-tasks (background/monitor)");\n'
+      + "    return config.shell;\n"
       + "}",
     occurrences: 1,
     marker: HAPI_SHELL_MARKER,
@@ -219,8 +235,8 @@ export const PATCH_RULES: readonly PatchRule[] = [
     base: "hapilon",
     package: BACKGROUND_TASKS_PACKAGE,
     file: "extensions/background-tasks.ts",
-    find: 'shell: "/bin/sh",',
-    replace: "shell: hapiShell(),",
+    find: '      shell: "/bin/sh",',
+    replace: "      shell: hapiShell(),",
     occurrences: 1,
     marker: HAPI_SHELL_MARKER,
   },
@@ -241,6 +257,12 @@ interface PatchTarget {
   label: string;
   pkg: string;
   file: string;
+  rules: PatchRule[];
+}
+
+interface ResolvedTargets {
+  targets: PatchTarget[];
+  problems: string[];
 }
 
 /**
@@ -248,19 +270,56 @@ interface PatchTarget {
  * (node_modules/@earendil-works/pi-tui 与 pi-coding-agent 并排;全局/提升安装同构)。
  * base="hapilon" 的包从 hapilon 自身依赖树解析（不在 pi 包树里）。
  */
-function resolveTargets(piDir: string, hapilonRoot: string): PatchTarget[] {
+function resolveTargets(piDir: string, hapilonRoot: string): ResolvedTargets {
   const seen = new Map<string, PatchTarget>();
+  const chunkMatches = new Map<string, string | null>();
+  const problems: string[] = [];
   for (const rule of PATCH_RULES) {
     const pkg = rule.package ?? PI_PACKAGE;
     const base: PatchBase = rule.base ?? "pi";
-    const key = `${base}::${pkg}::${rule.file}`;
-    if (seen.has(key)) continue;
     const pkgDir = base === "hapilon"
       ? (findAncestorPackageDir(pkg, hapilonRoot) ?? join(hapilonRoot, "node_modules", pkg))
       : resolvePackageDir(piDir, pkg);
-    seen.set(key, { key, path: join(pkgDir, rule.file), label: `${pkg}/${rule.file}`, pkg, file: rule.file });
+    let file = rule.file;
+    if (rule.signature) {
+      const chunkKey = `${pkgDir}::${rule.file}::${rule.signature}`;
+      if (!chunkMatches.has(chunkKey)) {
+        const chunksDir = join(pkgDir, rule.file);
+        try {
+          const candidates = readdirSync(chunksDir)
+            .filter((name) => name.endsWith(".js"))
+            .filter((name) => readFileSync(join(chunksDir, name), "utf8").includes(rule.signature!));
+          if (candidates.length !== 1) {
+            problems.push(`${pkg}/${rule.file}: 签名「${rule.signature}」命中 ${candidates.length} 个文件（期望唯一）`);
+            chunkMatches.set(chunkKey, null);
+          } else {
+            chunkMatches.set(chunkKey, join(rule.file, candidates[0]));
+          }
+        } catch (error) {
+          problems.push(`${pkg}/${rule.file}: 查找签名「${rule.signature}」失败（${errorMessage(error)}）`);
+          chunkMatches.set(chunkKey, null);
+        }
+      }
+      const resolved = chunkMatches.get(chunkKey);
+      if (resolved === null || resolved === undefined) continue;
+      file = resolved;
+    }
+    const key = `${base}::${pkg}::${file}`;
+    const target = seen.get(key);
+    if (target) {
+      target.rules.push(rule);
+    } else {
+      seen.set(key, {
+        key,
+        path: join(pkgDir, file),
+        label: `${pkg}/${file}`,
+        pkg,
+        file,
+        rules: [rule],
+      });
+    }
   }
-  return [...seen.values()].sort((a, b) => a.key.localeCompare(b.key));
+  return { targets: [...seen.values()].sort((a, b) => a.key.localeCompare(b.key)), problems };
 }
 
 /**
@@ -273,10 +332,6 @@ function resolvePackageDir(piDir: string, pkg: string): string {
   const nested = join(piDir, "node_modules", pkg);
   if (existsSync(join(nested, "package.json"))) return nested;
   return join(dirname(dirname(piDir)), pkg);
-}
-
-function rulesForTarget(pkg: string, file: string): PatchRule[] {
-  return PATCH_RULES.filter((rule) => (rule.package ?? PI_PACKAGE) === pkg && rule.file === file);
 }
 
 export type PiPatchResult =
@@ -330,7 +385,9 @@ export function ensurePiPatch(options: EnsurePatchOptions = {}): PiPatchResult {
   if (piDir === undefined) return { kind: "pi-not-found" };
 
   const hapilonRoot = options.hapilonRoot ?? dirname(fileURLToPath(import.meta.url));
-  const targets = resolveTargets(piDir, hapilonRoot);
+  const resolved = resolveTargets(piDir, hapilonRoot);
+  if (resolved.problems.length > 0) return { kind: "stale", piDir, problems: resolved.problems };
+  const targets = resolved.targets;
   const contents = new Map<string, string>();
   const readProblems: string[] = [];
   for (const target of targets) {
@@ -347,8 +404,7 @@ export function ensurePiPatch(options: EnsurePatchOptions = {}): PiPatchResult {
   if (readProblems.length > 0) return { kind: "stale", piDir, problems: readProblems };
 
   const alreadyPatched = targets.every((target) =>
-    rulesForTarget(target.pkg, target.file)
-      .every((rule) => contents.get(target.key)!.includes(rule.marker ?? PATCH_MARKER)));
+    target.rules.every((rule) => contents.get(target.key)!.includes(rule.marker ?? PATCH_MARKER)));
   if (alreadyPatched) {
     return { kind: "already-patched", piDir };
   }
@@ -358,7 +414,7 @@ export function ensurePiPatch(options: EnsurePatchOptions = {}): PiPatchResult {
   for (const target of targets) {
     let text = contents.get(target.key)!;
     let fileOk = true;
-    for (const rule of rulesForTarget(target.pkg, target.file)) {
+    for (const rule of target.rules) {
       // 替换产物已在 → 规则已应用,幂等跳过。必须在锚点计数之前判:
       // 插入式规则(替换文本包含锚点)在已补丁文件上锚点依然存活,
       // 重入会重复插入(曾把 theme.js 打出重复函数声明,ESM 直接 SyntaxError)

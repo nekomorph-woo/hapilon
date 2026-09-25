@@ -39,7 +39,10 @@ function makeExtension(recapModel = { provider: "fast", id: "flash", name: "Flas
         },
     };
     hplRecap({
-        on: ((event, handler) => handlers.set(event, handler)),
+        on: ((event, handler) => {
+            handlers.set(event, handler);
+            return () => handlers.delete(event);
+        }),
     });
     return { ctx, handlers, widgets, getCompleteCount: () => completeCount, completeOptions };
 }

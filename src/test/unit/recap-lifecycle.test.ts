@@ -55,7 +55,10 @@ function makeExtension(
     },
   };
   hplRecap({
-    on: ((event: string, handler: Handler) => handlers.set(event, handler)) as ExtensionAPI["on"],
+    on: ((event: string, handler: Handler) => {
+      handlers.set(event, handler);
+      return () => handlers.delete(event);
+    }) as unknown as ExtensionAPI["on"],
   } as unknown as ExtensionAPI);
   return { ctx, handlers, widgets, getCompleteCount: () => completeCount, completeOptions };
 }
