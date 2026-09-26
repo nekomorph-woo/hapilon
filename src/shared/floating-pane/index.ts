@@ -9,7 +9,15 @@ import type { FloatingPaneOptions } from "./options.js";
 
 export { FloatingPane } from "./pane.js";
 export type { FloatingPaneOptions } from "./options.js";
-export { OVERLAY_MOUSE_ON, MOUSE_OFF, SGR_MOUSE_RE, parseMouseEvent } from "./mouse.js";
+export {
+  OVERLAY_MOUSE_ON,
+  MOUSE_OFF,
+  SGR_MOUSE_RE,
+  parseMouseEvent,
+  overlayMouseOn,
+  overlayMouseOff,
+  type TuiMouseTarget,
+} from "./mouse.js";
 
 /** ANSI 剥离后的可见宽度取整到终端偶数对齐（pi overlay 宽度按终端列数上限截断）。 */
 export function fitContentWidth(

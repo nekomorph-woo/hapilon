@@ -9,7 +9,7 @@ import { visibleWidth, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@ea
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { FloatingPane } from "../../shared/floating-pane/index.js";
 import type { FloatingPaneOptions } from "../../shared/floating-pane/index.js";
-import { OVERLAY_MOUSE_ON, MOUSE_OFF } from "../../shared/floating-pane/index.js";
+import { overlayMouseOff, overlayMouseOn } from "../../shared/floating-pane/index.js";
 import { state } from "./shared.js";
 import {
   navigableExpandables, panelTitle, panelContent,
@@ -40,7 +40,7 @@ export class PanelViewer extends FloatingPane {
     }
 
     state.activeViewer = this;
-    tui.terminal.write(OVERLAY_MOUSE_ON);
+    overlayMouseOn(tui);
   }
 
   /** 实时同步面板列表，按对象引用保持选中 */
@@ -133,13 +133,13 @@ export class PanelViewer extends FloatingPane {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private close(): void {
     state.activeViewer = null;
-    this.tuiInst.terminal.write(MOUSE_OFF);
+    overlayMouseOff(this.tuiInst);
     this.doneCb();
   }
 
   dispose(): void {
     if (state.activeViewer === this) state.activeViewer = null;
-    this.tuiInst?.terminal?.write(MOUSE_OFF);
+    overlayMouseOff(this.tuiInst);
   }
 }
 

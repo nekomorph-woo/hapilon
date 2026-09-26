@@ -3,7 +3,7 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { FloatingPane, showFloatingPane } from "../../shared/floating-pane/index.js";
+import { FloatingPane, showFloatingPane, overlayMouseOn, overlayMouseOff } from "../../shared/floating-pane/index.js";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockTheme = { fg: (_name, text) => text };
 function makePane(lines = [], title = "Test") {
@@ -133,5 +133,35 @@ describe("FloatingPane", () => {
             await showFloatingPane(mockCtx, { title: "X", lines: ["a"] });
             assert.ok(!customCalled, "非 TUI 模式不调用 ui.custom");
         });
+    });
+});
+describe("overlay mouse 序列（viewer 不碰全屏鼠标状态）", () => {
+    const makeTui = (mode) => {
+        const writes = [];
+        return {
+            tui: { mode, terminal: { write: (s) => writes.push(s) } },
+            writes,
+        };
+    };
+    it("全屏（alt-screen）下开/关都不写鼠标序列", () => {
+        const { tui, writes } = makeTui("fullscreen");
+        overlayMouseOn(tui);
+        overlayMouseOff(tui);
+        assert.deepEqual(writes, [], "全屏下零写入");
+    });
+    it("regular 模式保留原行为：开写 ?1000h?1006h，关写 MOUSE_OFF", () => {
+        const { tui, writes } = makeTui("regular");
+        overlayMouseOn(tui);
+        overlayMouseOff(tui);
+        assert.ok(writes[0].includes("?1000h") && writes[0].includes("?1006h"), "开启序列");
+        assert.ok(writes[1].includes("?1000l") && writes[1].includes("?1006l"), "关闭序列");
+    });
+    it("边界条件: mode 缺失（旧 TUI 实例）按 regular 处理；tui 为空不炸", () => {
+        const { tui, writes } = makeTui(undefined);
+        overlayMouseOn(tui);
+        assert.equal(writes.length, 1);
+        overlayMouseOff(undefined);
+        overlayMouseOn(undefined);
+        assert.equal(writes.length, 1, "空实例零写入且不抛错");
     });
 });
