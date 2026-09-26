@@ -10,12 +10,13 @@ import {
   GLM_QUOTA_ENDPOINT_INTL,
 } from "./providers/glm.js";
 import { fetchQuotaEffect as fetchCodexQuota, parseQuotaLines as parseCodexQuota, parseSnapshot as parseCodexSnapshot } from "./providers/codex.js";
+import { fetchQuotaEffect as fetchXaiQuota, parseQuotaLines as parseXaiQuota, parseSnapshot as parseXaiSnapshot } from "./providers/xai.js";
 import { field, type QuotaAuth, type QuotaField, type QuotaResult } from "./types.js";
 import { quotaNamespace, type QuotaSnapshot } from "./snapshot.js";
 import { writeQuotaSnapshot } from "./cache.js";
 import { appendAdaptiveEvent } from "../hpl-model-tiers/adaptive-events.js";
 
-const SUPPORTED_PROVIDERS = new Set(["deepseek", "zai", "zai-coding-cn", "openai-codex"]);
+const SUPPORTED_PROVIDERS = new Set(["deepseek", "zai", "zai-coding-cn", "openai-codex", "xai"]);
 
 export function isSupportedProvider(provider: string): boolean {
   return SUPPORTED_PROVIDERS.has(provider);
@@ -30,6 +31,8 @@ function fetchAndParseSnapshot(provider: string, auth: QuotaAuth, now: number): 
           return parseDeepSeekSnapshot(payload, now);
         case "glm":
           return parseGlmSnapshot(payload, now);
+        case "xai":
+          return parseXaiSnapshot(payload, now);
         default:
           return parseCodexSnapshot(payload, now);
       }
@@ -42,6 +45,8 @@ function fetchAndParseSnapshot(provider: string, auth: QuotaAuth, now: number): 
       return run(fetchGlmQuota(auth, provider === "zai" ? GLM_QUOTA_ENDPOINT_INTL : undefined));
     case "openai-codex":
       return run(fetchCodexQuota(auth));
+    case "xai":
+      return run(fetchXaiQuota(auth));
     default:
       return Promise.reject(new Error(`Unsupported provider: ${key}`));
   }
@@ -57,6 +62,8 @@ export function queryQuotaEffect(provider: string, auth: QuotaAuth): Effect.Effe
       return fetchGlmQuota(auth, GLM_QUOTA_ENDPOINT_INTL).pipe(Effect.map(parseGlmQuota));
     case "openai-codex":
       return fetchCodexQuota(auth).pipe(Effect.map(parseCodexQuota));
+    case "xai":
+      return fetchXaiQuota(auth).pipe(Effect.map(parseXaiQuota));
     default:
       return Effect.fail(new Error(`Unsupported provider: ${provider}`));
   }

@@ -14,6 +14,10 @@ import {
   CODEX_USAGE_ENDPOINT,
   parseQuotaLines as parseCodexQuota,
 } from "../../extensions/hpl-quota-usage/providers/codex.js";
+import {
+  parseQuotaLines as parseXaiQuota,
+  parseSnapshot as parseXaiSnapshot,
+} from "../../extensions/hpl-quota-usage/providers/xai.js";
 import { fetchJson } from "../../extensions/hpl-quota-usage/providers/common.js";
 
 function values(rows: Array<{ label: string; value: string }>): string {
@@ -124,6 +128,51 @@ describe("hpl-quota-usage provider 解析", () => {
     const rows = parseCodexQuota({ plan_type: "pro", rate_limit: {}, credits: {} });
     assert.ok(rows.some((row) => row.label === "5 小时窗口已使用" && row.value === "unknown"));
     assert.ok(rows.some((row) => row.label === "额度余额" && row.value === "unknown"));
+  });
+
+  it("xAI billing 样例解析周用量、周期、产品和预付余额", () => {
+    const payload = {
+      config: {
+        currentPeriod: {
+          type: "USAGE_PERIOD_TYPE_WEEKLY",
+          start: "2026-09-21T01:01:03.270528+00:00",
+          end: "2026-09-28T01:01:03.270528+00:00",
+        },
+        creditUsagePercent: 3,
+        productUsage: [
+          { product: "GrokBuild", usagePercent: 2 },
+          { product: "GrokChat", usagePercent: 1 },
+        ],
+        prepaidBalance: { val: 0 },
+        billingPeriodEnd: "2026-09-28T01:01:03.270528+00:00",
+      },
+    };
+    const text = values(parseXaiQuota(payload));
+    assert.match(text, /周用量: 3%/);
+    assert.match(text, /周期结束: 2026-09-28T01:01:03\.270Z/);
+    assert.match(text, /GrokBuild 用量: 2%/);
+    assert.match(text, /GrokChat 用量: 1%/);
+    assert.match(text, /预付余额: 0/);
+
+    const snapshot = parseXaiSnapshot(payload, 123);
+    assert.deepEqual(snapshot, {
+      provider: "xai",
+      windows: [{ window: "wk", percent: 3, resetAt: Date.parse("2026-09-28T01:01:03.270528+00:00") }],
+      timestamp: 123,
+    });
+  });
+
+  it("xAI billing 缺字段时显示 unknown 且不抛异常", () => {
+    const rows = parseXaiQuota({ config: {} });
+    assert.ok(rows.some((row) => row.label === "周用量" && row.value === "unknown"));
+    assert.ok(rows.some((row) => row.label === "周期结束" && row.value === "unknown"));
+    assert.ok(rows.some((row) => row.label === "产品用量" && row.value === "unknown"));
+    assert.deepEqual(parseXaiSnapshot({ config: {} }, 123), { provider: "xai", windows: [], timestamp: 123 });
+  });
+
+  it("xAI 周用量达到 90% 标 warning", () => {
+    const rows = parseXaiQuota({ config: { creditUsagePercent: 95 } });
+    assert.ok(rows.some((row) => row.label === "周用量" && row.value === "95%" && row.tone === "warning"));
   });
 });
 

@@ -7,17 +7,19 @@ import hplQuotaUsage, {
   queryQuotaEffect,
 } from "../../extensions/hpl-quota-usage/index.js";
 import { GLM_QUOTA_ENDPOINT_INTL } from "../../extensions/hpl-quota-usage/providers/glm.js";
+import { XAI_BILLING_ENDPOINT } from "../../extensions/hpl-quota-usage/providers/xai.js";
 
 function makeModel(provider: string) {
   return { provider, id: "test-model", name: "Test model" } as never;
 }
 
 describe("hpl-quota-usage provider 分发", () => {
-  it("只支持 DeepSeek、GLM 中国区和 OpenAI Codex", () => {
+  it("支持 DeepSeek、GLM、OpenAI Codex 和 xAI", () => {
     assert.equal(isSupportedProvider("deepseek"), true);
     assert.equal(isSupportedProvider("zai-coding-cn"), true);
     assert.equal(isSupportedProvider("openai-codex"), true);
     assert.equal(isSupportedProvider("zai"), true);
+    assert.equal(isSupportedProvider("xai"), true);
     assert.equal(isSupportedProvider("anthropic"), false);
   });
 
@@ -25,7 +27,7 @@ describe("hpl-quota-usage provider 分发", () => {
     const ctx = {
       modelRegistry: { getApiKeyAndHeaders: async () => ({ ok: false, error: "missing" }) },
     } as never;
-    const result = await Effect.runPromise(loadQuotaEffect(ctx, makeModel("xai")));
+    const result = await Effect.runPromise(loadQuotaEffect(ctx, makeModel("anthropic")));
     assert.equal(result.fields[0]?.value, "该 provider 未提供公开用量查询");
   });
 
@@ -64,6 +66,26 @@ describe("hpl-quota-usage provider 分发", () => {
       assert.equal(url, GLM_QUOTA_ENDPOINT_INTL);
       assert.equal(GLM_QUOTA_ENDPOINT_INTL, "https://api.z.ai/api/monitor/usage/quota/limit");
       assert.ok(fields.some((item) => item.label === "Token 用量（5 小时窗口）" && item.value.includes("42%")));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("xAI 订阅侧分发到 cli-chat-proxy.grok.com billing 并解析周用量", async () => {
+    const originalFetch = globalThis.fetch;
+    let url = "";
+    globalThis.fetch = (async (input) => {
+      url = String(input);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ config: { creditUsagePercent: 3, billingPeriodEnd: "2026-09-28T01:01:03.270528+00:00" } }),
+      } as Response;
+    }) as typeof fetch;
+    try {
+      const fields = await Effect.runPromise(queryQuotaEffect("xai", { apiKey: "xai-key" }));
+      assert.equal(url, XAI_BILLING_ENDPOINT);
+      assert.ok(fields.some((item) => item.label === "周用量" && item.value === "3%"));
     } finally {
       globalThis.fetch = originalFetch;
     }
