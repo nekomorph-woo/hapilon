@@ -16,6 +16,7 @@ import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildRunModeText, BUILTIN
 import { buildRoleSection, buildCodeStyleSection, buildCommitDisciplineSection, buildRoleCommitBoundarySection, buildWorkflowSection, buildToolsSection, buildCustomToolsNote, buildGuidelinesSection, buildPiDocSection, buildHapilonInstructions, buildHapilonRules, buildContextSection, buildSkillsSection, buildAppendSection, buildExternalDirsSection, buildEnvironmentSection, assembleSystemPrompt, collectHapilonContext, } from "../../extensions/hpl-system-prompt/assemble.js";
 import hplSystemPrompt from "../../extensions/hpl-system-prompt/index.js";
 import { setAddedDirs, resetAddedDirs } from "../../extensions/hpl-add-dir/bridge.js";
+import { fillOrchestratorSection } from "../../extensions/hpl-orchestra/roles.js";
 import { getLastMeta as getSpMeta, clearLastMeta as clearSpMeta } from "../../extensions/hpl-system-prompt/metadata.js";
 // ── shared/format.ts: xmlEscape ────────────────────────────────────────
 describe("xmlEscape", () => {
@@ -704,6 +705,14 @@ describe("写入目标授权边界与提交权（真实 assemble）", () => {
         }
         return assembleSystemPrompt(opts);
     }
+    function assembleTeamOwner() {
+        process.env.HERDR_ENV = "1";
+        delete process.env.HAPI_ORCH_ROLE;
+        return assembleSystemPrompt({
+            ...opts,
+            team: { orchestrator: fillOrchestratorSection([{ key: "worker", paneId: "w1:p8" }]) },
+        });
+    }
     it("普通会话: 不注入授权边界，也不注入 owner 的提交权", () => {
         const result = assembleAs("plain");
         assert.ok(!result.includes(GATE_TITLE), "无写入目标授权边界");
@@ -711,8 +720,14 @@ describe("写入目标授权边界与提交权（真实 assemble）", () => {
         assert.ok(!result.includes(OWNER_CAN_STAGE), "无 owner staging 权限");
         assert.ok(!result.includes("待提交"), "无 owner 提交流程");
     });
-    it("team owner: 授权以写入目标为单位，新目标与扩范围要问、只读与已批准链不问", () => {
+    it("herdr 单会话: 不注入 orchestrator 段", () => {
         const result = assembleAs("owner");
+        assert.ok(!result.includes("开始吗?"), "无显式放行询问");
+        assert.ok(!result.includes(GATE_TITLE), "无写入目标授权边界");
+        assert.ok(!result.includes("NEVER modify project files"), "无 orchestrator 文件修改禁令");
+    });
+    it("team owner: 授权以写入目标为单位，新目标与扩范围要问、只读与已批准链不问", () => {
+        const result = assembleTeamOwner();
         assert.ok(result.includes(GATE_TITLE), "含写入目标授权边界标题");
         assert.ok(result.includes("A new write target"), "新写入目标先出 2-3 行计划");
         assert.ok(result.includes('Re-ask "开始吗?" for a new write target'), "新目标与扩范围要重新问");
@@ -730,7 +745,7 @@ describe("写入目标授权边界与提交权（真实 assemble）", () => {
         assert.ok(result.includes("re-ask the user before any dispatch"), "reject 才回用户重新授权");
     });
     it("team owner: 计划含 commit 时可 staging + snap 本地提交，但不得直接编辑或 push", () => {
-        const result = assembleAs("owner");
+        const result = assembleTeamOwner();
         assert.ok(result.includes("Commit boundary — you stage and commit, you never write:"));
         assert.ok(result.includes(OWNER_CAN_STAGE), "可按已审范围显式 staging");
         assert.ok(result.includes("local commit through the snap skill"), "本地提交走 snap");

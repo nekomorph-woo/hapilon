@@ -239,8 +239,3 @@ export function fillOrchestratorSection(roles: Array<{ key: string; paneId: stri
 
 // 默认兜底段不带任何 pane id；正常路径由 hpl-orchestra 经 bridge 传入真实 crew。
 export const ORCHESTRATOR_SECTION = fillOrchestratorSection([]);
-// 兜底没有状态可填真实 pane，只保留 worker 占位行，避免编排纪律缺少派发目标。
-export const ORCHESTRATOR_TAGGED = ORCHESTRATOR_SECTION.replace(
-  "Crew (pane ids are real, use them as-is):\n",
-  "Crew (pane ids are real, use them as-is):\n- worker <WORKER_PANE>: all code changes happen there\n",
-);

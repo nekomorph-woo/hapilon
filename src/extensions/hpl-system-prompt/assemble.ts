@@ -36,7 +36,7 @@ import { getPolicySection } from "../hpl-effect-policy/bridge.js";
 import { hapilonHome } from "../../config/hapilon-home.js";
 import { getAddedDirs } from "../hpl-add-dir/bridge.js";
 import { buildContextInjection } from "../hpl-add-dir/context.js";
-import { buildTeamRoleSection, MISSING_ROLE_SECTION, ORCHESTRATOR_TAGGED } from "../hpl-orchestra/roles.js";
+import { buildTeamRoleSection, MISSING_ROLE_SECTION } from "../hpl-orchestra/roles.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -303,7 +303,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   // Keep this branch deliberately exclusive: before_agent_start returns a full prompt,
   // so a worker/reviewer role must never coexist with the orchestrator section.
   // Orchestrator 段文本由 hpl-orchestra 经 bridge 提供（含实值 pane id）；
-  // 仅 herdr 会话启用兜底，普通会话不应读到大段 orchestrator 纪律。
+  // team 未启用时不注入，普通/单会话不应读到大段 orchestrator 纪律。
   // 不变量（review-r3 N2）：HAPI_ORCH_ROLE 非空的面板永远不落回 orchestrator 段——
   // 即使它的角色定义与状态文件都被删除，也只能拿到 MISSING_ROLE_SECTION。
   const hasRoleEnv = Boolean(process.env.HAPI_ORCH_ROLE);
@@ -311,7 +311,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     ? ""
     : hasRoleEnv || team?.role
       ? (buildTeamRoleSection(team?.role ?? (process.env.HAPI_ORCH_ROLE as string)) ?? MISSING_ROLE_SECTION)
-      : (team?.orchestrator ?? ORCHESTRATOR_TAGGED);
+      : (team?.orchestrator ?? "");
   const codeStyleSection = buildCodeStyleSection();
   const commitDisciplineSection = buildCommitDisciplineSection();
   const roleCommitBoundarySection = buildRoleCommitBoundarySection();

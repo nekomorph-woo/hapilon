@@ -1386,7 +1386,7 @@ describe("hpl-orchestra system prompt exclusivity", { concurrency: false }, () =
     assert.ok(dispatchLine.includes('node "$HAPILON_CLI_PATH" wait-pane <id>'));
   });
 
-  it("普通会话不注入兜底段，herdr 空状态保留 worker 占位行", async () => {
+  it("普通会话与 herdr 空 team 状态均不注入 team section", async () => {
     const handler = promptHandler();
     delete process.env.HERDR_ENV;
     resetTeamSections();
@@ -1395,8 +1395,7 @@ describe("hpl-orchestra system prompt exclusivity", { concurrency: false }, () =
 
     process.env.HERDR_ENV = "1";
     result = await handler({ systemPromptOptions: promptOptions() }, {});
-    assert.ok(result.systemPrompt.includes('<team mode="orchestrator">'));
-    assert.ok(result.systemPrompt.includes("- worker <WORKER_PANE>"));
+    assert.equal((result.systemPrompt.match(/<team mode=/g) ?? []).length, 0);
   });
 
   it("hpl-orchestra 的 before_agent_start 每轮现读状态写入 bridge", async () => {
