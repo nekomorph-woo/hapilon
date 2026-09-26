@@ -14,9 +14,9 @@ const RECAP_SYSTEM_PROMPT =
 
 // 空正文时逐级放大预算重试：小预算先走（便宜快），服务端偶发空响应靠放大兜底。
 const RECAP_TOKEN_BUDGETS = [256, 1024, 4096, 4096];
-const RECAP_MAX_CHARS = 160;
+const RECAP_MAX_CHARS = 200;
 const RECAP_MAX_LINES = 3;
-const RECAP_TRUNCATED_MARK = "…（已截断）";
+const RECAP_TRUNCATED_MARK = "...";
 
 function errorText(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
@@ -34,17 +34,27 @@ function responseText(response: unknown): string {
   }).filter(Boolean).join("\n").trim();
 }
 
-// 提示词的字数约束只是软约束，偶发的超长正文会撑爆 widget，故在渲染前硬截断；
-// 它是异常兜底而非常态防线（Claude Code 出过 runaway recap 事故后，同样在 40 词提示词外加 400 字符硬顶）。
+// 提示词的字数约束只是软约束，偶发超长正文会撑爆 widget，渲染前必须硬截断（异常兜底，非常态防线）。
+// 截断完整保留末句：两句话结构里它是「下一步建议」，纯头部切片必把它剁掉，等于预告了再收走。
+// 前文按句读符回退到句边界、以 ... 衔接（计入总长）；末句装不下或全文无句读符时退化为头部切片。
 function truncateRecap(text: string): string {
   const lines = text.split(/\r?\n/);
-  let body = lines.slice(0, RECAP_MAX_LINES).join("\n");
-  let truncated = lines.length > RECAP_MAX_LINES;
-  if (body.length > RECAP_MAX_CHARS) {
-    body = body.slice(0, RECAP_MAX_CHARS);
-    truncated = true;
+  if (lines.length <= RECAP_MAX_LINES && text.length <= RECAP_MAX_CHARS) return text;
+  if (text.length <= RECAP_MAX_CHARS) {
+    return `${lines.slice(0, RECAP_MAX_LINES).join("\n")}${RECAP_TRUNCATED_MARK}`;
   }
-  return truncated ? `${body}${RECAP_TRUNCATED_MARK}` : body;
+  const sentences = text.split(/(?<=[。！？；])/).filter(Boolean);
+  const last = sentences.at(-1) ?? "";
+  if (sentences.length < 2 || last.length > RECAP_MAX_CHARS - RECAP_TRUNCATED_MARK.length) {
+    const head = lines.slice(0, RECAP_MAX_LINES).join("\n");
+    return `${head.slice(0, RECAP_MAX_CHARS)}${RECAP_TRUNCATED_MARK}`;
+  }
+  let kept = "";
+  for (const sentence of sentences.slice(0, -1)) {
+    if (kept.length + sentence.length + RECAP_TRUNCATED_MARK.length + last.length > RECAP_MAX_CHARS) break;
+    kept += sentence;
+  }
+  return `${kept}${RECAP_TRUNCATED_MARK}${last}`;
 }
 
 function recapLines(
