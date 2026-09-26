@@ -170,7 +170,7 @@ export default function hplModelTiers(pi) {
             handleTierAdaptiveMode(args, ctx);
         },
     });
-    pi.on("session_start", (_event, ctx) => {
+    pi.on("session_start", (event, ctx) => {
         setTierAdaptiveSessionOverride(undefined);
         const result = Effect.runSync(Effect.try({
             try: () => ctx.modelRegistry.getAvailable(),
@@ -179,6 +179,9 @@ export default function hplModelTiers(pi) {
             console.warn(`[hpl-model-tiers] 读取可用模型失败，按空档位继续：${String(error)}`);
             return emptyResult();
         }))));
+        // resume/fork/reload 时档位照常装配，但汇总行只在新会话打——不重复复述
+        if (event.reason !== "startup" && event.reason !== "new")
+            return;
         const reloadHint = result.settingsChanged ? "，已写入 Pi settings；请执行 /reload" : "";
         console.log(`[hpl-model-tiers] opus=${result.tiers.opus.length} sonnet=${result.tiers.sonnet.length} haiku=${result.tiers.haiku.length}${reloadHint}`);
     });
