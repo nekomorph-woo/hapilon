@@ -116,6 +116,8 @@ Dispatch discipline (a "new task" includes fix rounds from review):
    agent_not_ready 拒绝):
    background(command="herdr pane run <id> \"<task>\" && node \"$HAPILON_CLI_PATH\" wait-pane <id>")
    <task> 必须单行——pane run 遇文本内换行会把半截话直接提交。
+   报告与产物路径在 brief 里必须写绝对路径，禁止「同目录」类相对指代——
+   弱模型消解相对指代会失败，就近写进高频工作目录。
    wait-pane 以「状态**变过**且落到 idle/blocked」为收敛判据;不要用 herdr
    的 agent wait --until idle——它只看当前值,而 pane 派发前就是 idle,会秒回。
    退出码:0 收敛、2 卡在等待输入、3 到时未收敛(重新 get 状态:仍 working 就再

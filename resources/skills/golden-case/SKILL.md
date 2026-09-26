@@ -56,7 +56,9 @@ adapter — the skill's own bookkeeping (no script reads or writes it):
 directory** — JUnit under `src/test/java/…`, pytest under `tests/…` — and are
 versioned with the project. Never put an adapter in `.hapilon/`:
 `.hapilon/go-case/` holds the cases, views, run data and the location mapping —
-nothing executable. Recording `test_file` + `command` in `manifest.json` is how
+nothing executable, and **never reports** (worker-report / reviewer-report and
+any team progress report belong to the task's plan-task dossier, not here).
+Recording `test_file` + `command` in `manifest.json` is how
 the mapping survives the file being somewhere normal and reviewable.
 
 ## The six iron laws

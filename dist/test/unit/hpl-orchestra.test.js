@@ -531,7 +531,8 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         const worker = buildTeamRoleSection("worker") ?? "";
         assert.ok(worker.includes("worker-report.md in that directory"));
         assert.ok(worker.includes("what changed, verification evidence"));
-        assert.ok(worker.includes("one-line status plus a pointer to the\nreport file"));
+        assert.ok(worker.includes("never from where you happen to be working"));
+        assert.ok(worker.includes("one-line status plus a pointer to the report file"));
         const reviewer = buildTeamRoleSection("reviewer") ?? "";
         assert.ok(reviewer.includes("reviewer-report.md in that directory"));
         assert.ok(reviewer.includes("numbered findings and the verdict"));

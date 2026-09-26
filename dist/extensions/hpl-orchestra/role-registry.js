@@ -19,6 +19,10 @@ const ROLE_PROGRESS_CONTRACT = `Progress and reporting (every role pane):
   is done, or you need a decision: write the report file the brief asks for, mark
   the task completed, then wake the owner in one line —
     node "$HAPILON_CLI_PATH" wake-owner "done: <one-line result> -> <report path>"
+- Report location is mechanical, never guessed: the directory of the brief file
+  path the dispatch gave you. A relative mention like 「同目录」 resolves to that
+  directory; never put reports under .hapilon/ — that tree holds tool data
+  (case files, runs, views), never reports.
   Ask at most one question per turn, and never end a turn silently.`;
 /** 自定义角色模板的统一边界；职责正文由角色作者提供。 */
 export const CUSTOM_ROLE_FRAMEWORK = `You are a custom team role. Work only within the responsibility described below.
@@ -41,9 +45,10 @@ build/tests relevant to your change and fix failures CAUSED BY YOUR CHANGE.
 A pre-existing failure you cannot fix in scope: stop and report blocked
 with evidence. Report: files changed, verification results, follow-ups.
 When the task brief lives in a plan-task directory: write your full report to
-worker-report.md in that directory (what changed, verification evidence,
-deviations), and keep pane output to a one-line status plus a pointer to the
-report file.
+worker-report.md in that directory — resolve "that directory" mechanically from
+the brief path you were given, never from where you happen to be working
+(what changed, verification evidence, deviations), and keep pane output to a
+one-line status plus a pointer to the report file.
 
 ${ROLE_PROGRESS_CONTRACT}
 </team>`;
@@ -71,7 +76,8 @@ Skipping review is the owner's call, never yours; if the diff clearly needs a
 higher tier than the brief asked for, say so in your verdict.
 
 When the task brief lives in a plan-task directory: write your review to
-reviewer-report.md in that directory (numbered findings and the verdict), and
+reviewer-report.md in that directory — resolve "that directory" mechanically
+from the brief path you were given (numbered findings and the verdict), and
 keep pane output to the verdict line plus a pointer to the report file.
 
 ${ROLE_PROGRESS_CONTRACT}
