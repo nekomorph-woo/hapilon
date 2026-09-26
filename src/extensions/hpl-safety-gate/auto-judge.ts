@@ -52,6 +52,13 @@ function positiveIntOr(raw: unknown, fallback: number, warn: string): number {
   return fallback;
 }
 
+function stringOr(raw: unknown, fallback: string, warn: string): string {
+  if (raw === undefined) return fallback;
+  if (typeof raw === "string" && raw.trim() !== "") return raw.trim();
+  console.warn(`[hpl-safety-gate] ${warn}，使用默认值。`);
+  return fallback;
+}
+
 export const readGateAutoConfigEffect: Effect.Effect<GateAutoConfig, never> = Effect.try({
   try: () => {
     const path = gateAutoSettingsPath();
@@ -71,9 +78,7 @@ export const readGateAutoConfigEffect: Effect.Effect<GateAutoConfig, never> = Ef
     return {
       enabled: boolOr(g.enabled, GATE_AUTO_DEFAULTS.enabled, "gateAuto.enabled 非布尔值"),
       timeoutMs: positiveIntOr(g.timeoutMs, GATE_AUTO_DEFAULTS.timeoutMs, "gateAuto.timeoutMs 非正数"),
-      model: typeof g.model === "string" && g.model.trim() !== ""
-        ? g.model.trim()
-        : (console.warn("[hpl-safety-gate] gateAuto.model 非字符串，使用默认值。"), GATE_AUTO_DEFAULTS.model),
+      model: stringOr(g.model, GATE_AUTO_DEFAULTS.model, "gateAuto.model 非字符串"),
     };
   },
   catch: (error) => error,

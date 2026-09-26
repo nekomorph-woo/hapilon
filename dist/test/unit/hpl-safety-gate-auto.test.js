@@ -251,6 +251,10 @@ describe("hpl-safety-gate auto", () => {
             writeFileSync(join(testHome, "agent", "settings.json"), JSON.stringify({ gateAuto: { enabled: true, timeoutMs: 1234, model: "tier:sonnet" } }));
             assert.deepEqual(readGateAutoConfig(), { enabled: true, timeoutMs: 1234, model: "tier:sonnet" });
         });
+        it("未配置 model 静默用默认值（不告警）", () => {
+            writeFileSync(join(testHome, "agent", "settings.json"), JSON.stringify({ gateAuto: { enabled: true } }));
+            assert.deepEqual(readGateAutoConfig(), { enabled: true, timeoutMs: GATE_AUTO_DEFAULTS.timeoutMs, model: GATE_AUTO_DEFAULTS.model });
+        });
         it("非法字段逐项回落默认值", () => {
             writeFileSync(join(testHome, "agent", "settings.json"), JSON.stringify({ gateAuto: { enabled: "yes", timeoutMs: -1, model: 42 } }));
             assert.deepEqual(readGateAutoConfig(), GATE_AUTO_DEFAULTS);
