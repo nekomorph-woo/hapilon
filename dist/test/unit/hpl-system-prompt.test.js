@@ -79,7 +79,8 @@ describe("sections", () => {
     });
     it("buildPiDocText 包含 hapilon 路径体系与 Pi 文档绝对路径", () => {
         const text = buildPiDocText();
-        assert.ok(text.includes(".hapilon"), "引用 .hapilon 而非 .pi");
+        assert.ok(text.includes(".hapilon/HAPILON.md"), "项目级上下文写入 .hapilon");
+        assert.ok(text.includes("never root HAPILON.md (not loaded)"), "明确根 HAPILON.md 不会加载");
         assert.ok(text.includes("extensions"), "提及 extensions 路径");
         // 动态路径：getReadmePath/getDocsPath 返回绝对路径
         assert.ok(text.includes("Main documentation: /"), "包含 README 绝对路径");

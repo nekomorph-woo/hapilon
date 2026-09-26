@@ -46,8 +46,8 @@ export function buildPiDocText() {
         `- Global settings: ${home}/agent/settings.json\n` +
         `- Project extensions: .pi/extensions/\n` +
         `- Project skills: .pi/skills/\n` +
-        `- hapilon context: ${home}/HAPILON.md, .hapilon/HAPILON.md ` +
-        `(ancestor-traversal, auto-injected)\n` +
+        `- hapilon context: global ${home}/HAPILON.md; project-level write .hapilon/HAPILON.md ` +
+        `(commit it), never root HAPILON.md (not loaded) (ancestor-traversal, auto-injected)\n` +
         `- hapilon rules: ${home}/agents/rules/*.md, .hapilon/agents/rules/*.md ` +
         `(ancestor-traversal, auto-injected)`);
 }
