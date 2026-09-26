@@ -563,6 +563,9 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
     assert.ok(filled.includes("escalate to the human — never\n  auto-answer"));
     assert.ok(filled.includes("read that pane's own report file in the task's dossier"));
     assert.ok(filled.includes("worker-report.md for the worker, reviewer-report.md for the"));
+    // 派发软扫描：go-case 有相关 case 就引用，没有不硬扯
+    assert.ok(filled.includes(".hapilon/go-case/"));
+    assert.ok(filled.includes("不为凑数硬扯"));
     assert.ok(filled.includes("the respawned pane assess partial work"));
     assert.ok(filled.includes("respawn per the crew table"));
     assert.ok(filled.includes("read the pane manually before acting"));

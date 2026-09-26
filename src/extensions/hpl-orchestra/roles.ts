@@ -119,6 +119,10 @@ Dispatch discipline (a "new task" includes fix rounds from review):
    <task> 必须单行——pane run 遇文本内换行会把半截话直接提交。
    报告与产物路径在 brief 里必须写绝对路径，禁止「同目录」类相对指代——
    弱模型消解相对指代会失败，就近写进高频工作目录。
+   派发前扫一眼 <project>/.hapilon/go-case/（cases.yaml 或 cases/ 目录）
+   是否有与任务相关的 case：有就在 brief 里带上相关 case 的 id/锚点与
+   文件路径（已封金则带 frozen.md），让实现者知道会被怎么验收；
+   没有就什么都不加，不为凑数硬扯。
    wait-pane 以「状态**变过**且落到 idle/blocked」为收敛判据;不要用 herdr
    的 agent wait --until idle——它只看当前值,而 pane 派发前就是 idle,会秒回。
    退出码:0 收敛、2 卡在等待输入、3 到时未收敛(重新 get 状态:仍 working 就再
