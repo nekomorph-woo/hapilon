@@ -471,9 +471,11 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         assert.equal(reviewerLine.includes("tell the user to open it via /team menu"), false);
         assert.equal(reviewerLine.includes("do not dispatch until open"), false);
         const dispatchLine = filled.split("\n").find((line) => line.includes("background(command=")) ?? "";
-        assert.ok(dispatchLine.includes("herdr pane send-text <id>"), JSON.stringify(dispatchLine));
-        assert.ok(dispatchLine.includes("herdr pane send-keys <id> enter"), JSON.stringify(dispatchLine));
+        assert.ok(dispatchLine.includes("herdr pane run <id>"), JSON.stringify(dispatchLine));
         assert.ok(dispatchLine.includes('node "$HAPILON_CLI_PATH" wait-pane <id>'), JSON.stringify(dispatchLine));
+        // 回归：两段式 send-text + send-keys 的 enter 会被 bracketed-paste 吞掉（文本进了输入框但不提交）
+        assert.equal(dispatchLine.includes("herdr pane send-text"), false, JSON.stringify(dispatchLine));
+        assert.equal(dispatchLine.includes("herdr pane send-keys"), false, JSON.stringify(dispatchLine));
         // 回归：herdr 的 wait --until idle 只看当前状态，pane 派发前本来就是 idle → 秒回
         assert.equal(dispatchLine.includes("herdr agent wait"), false, "不得再用 herdr agent wait 做派发等待");
         assert.ok(filled.includes("2. Dispatch"), "新任务的派发纪律标题保留");
@@ -1208,9 +1210,10 @@ describe("hpl-orchestra system prompt exclusivity", { concurrency: false }, () =
         assert.ok(result.systemPrompt.includes("worker w1:p8"));
         assert.equal((result.systemPrompt.match(/<team mode=/g) ?? []).length, 1);
         const dispatchLine = ORCHESTRATOR_SECTION.split("\n").find((line) => line.includes("background(command=")) ?? "";
-        assert.ok(dispatchLine.includes("herdr pane send-text <id>"));
-        assert.ok(dispatchLine.includes("herdr pane send-keys <id> enter"));
+        assert.ok(dispatchLine.includes("herdr pane run <id>"));
         assert.ok(dispatchLine.includes('node "$HAPILON_CLI_PATH" wait-pane <id>'));
+        assert.equal(dispatchLine.includes("herdr pane send-text"), false);
+        assert.equal(dispatchLine.includes("herdr pane send-keys"), false);
     });
     it("普通会话与 herdr 空 team 状态均不注入 team section", async () => {
         const handler = promptHandler();

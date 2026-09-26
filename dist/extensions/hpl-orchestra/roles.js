@@ -111,9 +111,11 @@ Dispatch discipline (a "new task" includes fix rounds from review):
    working or blocked; that refusal is the point, and a hand-written \`/new\`
    bypasses it. If it refuses, queue the work instead of clearing. After a
    successful clear, re-check that the state is idle.
-2. Dispatch (pane 级输入——hapi 是自定义 agent 类型,agent prompt 会以
+2. Dispatch (pane run 一次写入文本+回车——send-text + send-keys 两段式的
+   enter 会被 bracketed-paste 吞掉;agent prompt 对自定义 agent 类型以
    agent_not_ready 拒绝):
-   background(command="herdr pane send-text <id> \"<task>\" && herdr pane send-keys <id> enter && node \"$HAPILON_CLI_PATH\" wait-pane <id>")
+   background(command="herdr pane run <id> \"<task>\" && node \"$HAPILON_CLI_PATH\" wait-pane <id>")
+   <task> 必须单行——pane run 遇文本内换行会把半截话直接提交。
    wait-pane 以「状态**变过**且落到 idle/blocked」为收敛判据;不要用 herdr
    的 agent wait --until idle——它只看当前值,而 pane 派发前就是 idle,会秒回。
    退出码:0 收敛、2 卡在等待输入、3 到时未收敛(重新 get 状态:仍 working 就再

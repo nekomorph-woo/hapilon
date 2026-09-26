@@ -268,9 +268,10 @@ describe("hapi wake-owner", { concurrency: false }, () => {
         const { code, logs } = capture(() => runWakeOwnerCommand(["--message", "done: 修好了 -> /tmp/r.md"], spawn));
         assert.equal(code, WAKE_OWNER_EXIT.sent);
         assert.match(logs.join("\n"), /已通知 w1:p7/);
-        const text = calls.find((call) => call.args[1] === "send-text");
-        assert.deepEqual(text?.args, ["pane", "send-text", ownerPane, "[阿澈 w1:p8] done: 修好了 -> /tmp/r.md"]);
-        assert.deepEqual(calls.find((call) => call.args[1] === "send-keys")?.args, ["pane", "send-keys", ownerPane, "enter"]);
+        const text = calls.find((call) => call.args[1] === "run");
+        assert.deepEqual(text?.args, ["pane", "run", ownerPane, "[阿澈 w1:p8] done: 修好了 -> /tmp/r.md"]);
+        // 回归：两段式 send-text + send-keys 的 enter 会被 bracketed-paste 吞掉，投递必须走 pane run 原子提交
+        assert.equal(calls.find((call) => call.args[1] === "send-text" || call.args[1] === "send-keys"), undefined);
     });
     it("没有 HERDR_PANE_ID / 不属于任何团队 → 退出 2", () => {
         saveState();

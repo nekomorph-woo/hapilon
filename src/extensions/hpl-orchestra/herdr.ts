@@ -352,24 +352,19 @@ export function agentSendKeys(
   return runCommandEffect(["pane", "send-keys", paneId, ...keys], spawn);
 }
 
-/** 向 pane 注入文本（不提交）；派发时配合 agentSendKeys(["enter"]) 完成 */
-export function paneSendText(
-  paneId: string,
-  text: string,
-  spawn: SpawnFn = defaultSpawn,
-): Effect.Effect<boolean, never> {
-  return runCommandEffect(["pane", "send-text", paneId, text], spawn);
-}
-
+/**
+ * 派发 = 文本 + 回车一次提交。不能用 send-text + send-keys 两段式：
+ * 两个独立请求无顺序保证，bracketed-paste 下 enter 落在 paste 窗口内
+ * 会被 pi 输入框当作粘贴内容吞掉——文本留在输入框、消息不发出。
+ * pane run 单次调用写入文本+回车；pane 级，不受自定义 agent 类型
+ * （hapi）触发 agent prompt 的 agent_not_ready 拒绝。
+ */
 export function agentPrompt(
   paneId: string,
   text: string,
   spawn: SpawnFn = defaultSpawn,
 ): Effect.Effect<boolean, never> {
-  // 派发 = 输入文本 + 回车提交；hapi 是自定义 agent 类型，herdr agent prompt 不认。
-  // 文本不落地时（管道/转义问题）不提交，避免把半句话发给模型。
-  return Effect.flatMap(paneSendText(paneId, text, spawn), (sent) =>
-    sent ? agentSendKeys(paneId, ["enter"], spawn) : Effect.succeed(false));
+  return paneRun(paneId, text, spawn);
 }
 
 function shellArg(value: string): string {
