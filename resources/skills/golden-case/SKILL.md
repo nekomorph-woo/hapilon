@@ -204,10 +204,15 @@ node <skill>/scripts/report.mjs --cases .hapilon/go-case/cases.yaml <test-output
 node <skill>/scripts/audit.mjs  --cases .hapilon/go-case/cases.yaml --tests src/test/java,tests
 ```
 
-`report.mjs` parses the console output of a Gradle/JUnit or pytest run, groups
-it by case from the anchors in the test names, and puts the first failing
-verification point at the top of each case block (exit 1 unless every case is
-green and no orphan anchor appears). `audit.mjs` reconciles case ↔ test code and
+`report.mjs` eats the adapters' run output (console text or JUnit XML — see the
+input contract in `references/format.md`), groups it by case from the anchors in
+the test names, and puts the first failing verification point at the top of each
+case block (exit 1 unless every case is green and no orphan anchor appears).
+Fail-closed on coverage: an expected observation point missing from the output
+is **undetermined, not passing** — the case goes ⚠️ non-green. To verify a
+subset on purpose, declare it upfront with `--only CASE-001,CASE-002`: the
+report and the exit code then answer only for the declared cases, and anchors
+outside the scope are ignored (not orphan-flagged). `audit.mjs` reconciles case ↔ test code and
 reports three findings: `UNOWNED` case (no test references it), `ORPHAN` anchor
 (a test cites a case that does not exist), `LITERAL` (an assertion line with a
 golden value written into it — law 2 drift).

@@ -362,7 +362,7 @@ describe("golden-case · yaml-lite 对不可判定期望的拒判", () => {
 });
 
 describe("golden-case · report 聚合（文本与 JUnit XML 双路径）", () => {
-  // 最小 case 集：observe 三个锚，覆盖 pass / fail / skip / 未出现四种聚合分支
+  // 最小 case 集两个 case：覆盖 pass / fail / skip / 部分缺失 / --only 圈子集
   const CASES = `cases:
   - id: CASE-301
     name: 聚合夹具
@@ -371,6 +371,12 @@ describe("golden-case · report 聚合（文本与 JUnit XML 双路径）", () =
       alpha: 1
       beta: 2
       gamma: 3
+  - id: CASE-302
+    name: 圈子集夹具
+    observe: [delta, epsilon]
+    expect:
+      delta: 4
+      epsilon: 5
 `;
   function runReport(dir: string, outputs: string[]): { code: number | null; stdout: string } {
     const casesPath = join(dir, "cases.yaml");
@@ -420,16 +426,41 @@ describe("golden-case · report 聚合（文本与 JUnit XML 双路径）", () =
     assert.equal(code, 1);
   });
 
-  it("全绿时退出 0；锚缺失的观察点标『未在输出中发现』", () => {
-    const out = " ✓ CASE-301:alpha\n ✓ CASE-301:beta\n ✓ CASE-301:gamma\n";
-    const { code, stdout } = withTmp((dir) => runReport(dir, [out]));
-    assert.equal(code, 0);
-    assert.match(stdout, /3\/1 case 全绿|1\/1 case 全绿/);
+  it("全量全绿退出 0；部分缺失 fail-closed 不再算绿；--only 圈子集后只对声明负责", () => {
+    const full = [
+      " ✓ CASE-301:alpha", " ✓ CASE-301:beta", " ✓ CASE-301:gamma",
+      " ✓ CASE-302:delta", " ✓ CASE-302:epsilon",
+    ].join("\n");
+    const { code } = withTmp((dir) => runReport(dir, [full]));
+    assert.equal(code, 0, "全量全绿 = 0");
 
+    // fail-closed：301 只跑出 alpha，缺的两个观察点是未判定，不得计入通过
     const partial = " ✓ CASE-301:alpha\n";
     const { code: code2, stdout: stdout2 } = withTmp((dir) => runReport(dir, [partial]));
-    // 既有语义：部分锚缺失不改变 case 绿/红（只有全部缺失才标 ⚠️），缺失行仅逐点标注
-    assert.equal(code2, 0);
+    assert.equal(code2, 1, "部分缺失必须非零——未判定 ≠ 通过");
     assert.match(stdout2, /未在输出中发现/);
+
+    // 故意子集：--only 声明后只对 301 负责，302 不进统计也不被当无源锚
+    const onlyOut = " ✓ CASE-301:alpha\n ✓ CASE-301:beta\n ✓ CASE-301:gamma\n ✓ CASE-302:delta\n";
+    const { status: code3, stdout: stdout3 } = withTmp((dir) => {
+      const casesPath = join(dir, "cases.yaml");
+      writeFileSync(casesPath, CASES);
+      const p = join(dir, "out.txt");
+      writeFileSync(p, onlyOut);
+      return runScript("report.mjs", ["--cases", casesPath, "--only", "CASE-301", p]);
+    });
+    assert.equal(code3, 0, "声明范围内全绿 = 0");
+    assert.doesNotMatch(stdout3, /CASE-302/);
+
+    // 声明了不存在的 case id：直接报错而非静默忽略（拼写错误否则变回假绿）
+    const bad = withTmp((dir) => {
+      const casesPath = join(dir, "cases.yaml");
+      writeFileSync(casesPath, CASES);
+      const p = join(dir, "out.txt");
+      writeFileSync(p, full);
+      return runScript("report.mjs", ["--cases", casesPath, "--only", "CASE-999", p]);
+    });
+    assert.equal(bad.status, 2);
+    assert.match(bad.stderr, /CASE-999/);
   });
 });

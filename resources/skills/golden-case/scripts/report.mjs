@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // report —— 测试输出 → 按 CASE 聚合报告（首个失败观察点优先）。
 // 用法：node report.mjs --cases <yaml|目录> <junit-or-pytest-output.txt>...
-// 解析 v1：JUnit 控制台（Gradle 风格「Class > displayName STATE」+ 缩进失败详情）
-// 与 pytest 文本（verbose 行 + 短摘要行）。测试名里含锚 CASE-XXX:point 即认。
+// 解析 v1：JUnit 控制台（Gradle 风格「Class > displayName STATE」+ 缩进失败详情）、
+// pytest 文本、vitest/jest verbose 符号行、JUnit XML（各栈通用出口）。
+// 测试名里含锚 CASE-XXX:point 即认。
 import { readFileSync } from 'node:fs';
 import { loadCases } from './cases-source.mjs';
 
@@ -16,7 +17,24 @@ if (!casesPath) {
   console.error('report: 缺少 --cases');
   process.exit(2);
 }
-const caseList = loadCases(casesPath);
+// 本次预期集合：不声明 = 全量验收；子集跑必须 --only 显式声明（对账只对声明范围负责）。
+// 声明了不存在的 case id 直接报错——拼写错误若被静默忽略会变回假绿。
+const onlyRaw = arg('only');
+const onlySet = onlyRaw ? new Set(onlyRaw.split(',').map((s) => s.trim()).filter(Boolean)) : null;
+if (onlyRaw && onlySet.size === 0) {
+  console.error('report: --only 需要至少一个 case id');
+  process.exit(2);
+}
+const allCases = loadCases(casesPath);
+if (onlySet) {
+  const unknown = [...onlySet].filter((id) => !allCases.some((c) => c.id === id));
+  if (unknown.length) {
+    console.error(`report: --only 里有 case 集中不存在的：${unknown.join(', ')}`);
+    process.exit(2);
+  }
+}
+const caseList = onlySet ? allCases.filter((c) => onlySet.has(c.id)) : allCases;
+const allIds = new Set(allCases.map((c) => c.id));
 const order = new Map(caseList.map((c, i) => [c.id, i]));
 
 // Gradle 风格：ClassName > displayName PASSED|FAILED|SKIPPED|ABORTED
@@ -35,11 +53,12 @@ const seenUnknown = new Map(); // case 集外的锚 → [位置]
 
 function record(anchor, state, detail, where) {
   const caseId = anchor.split(':')[0];
-  if (!order.has(caseId)) {
+  if (!allIds.has(caseId)) {
     if (!seenUnknown.has(anchor)) seenUnknown.set(anchor, []);
     seenUnknown.get(anchor).push(where);
     return;
   }
+  if (!order.has(caseId)) return; // --only 圈外的 case：不属于本次对账，静默跳过
   const r = results.get(anchor) ?? { state: null, details: [] };
   if (detail) r.details.push(detail);
   // 多份输出里同锚重复：FAILED 优先呈现，其余以最后一次为准
@@ -67,7 +86,7 @@ function parseJUnitXml(text, path) {
   }
 }
 
-const inputs = process.argv.slice(2).filter((a, i, arr) => !a.startsWith('--') && arr[i - 1] !== '--cases');
+const inputs = process.argv.slice(2).filter((a, i, arr) => !a.startsWith('--') && arr[i - 1] !== '--cases' && arr[i - 1] !== '--only');
 for (const path of inputs) {
   const text = readFileSync(path, 'utf8');
   if (/^\s*(<\?xml|<testsuites?[>\s])/.test(text)) { parseJUnitXml(text, path); continue; }
@@ -137,8 +156,9 @@ for (const c of caseList) {
   const extra = (c.observe ?? []).filter((p) => !results.has(`${c.id}:${p}`)).length;
   if (failed) {
     blocks.push(`❌ ${c.id} ${c.name}\n${rows.join('\n')}`);
-  } else if (extra === (c.observe ?? []).length && (c.observe ?? []).length > 0) {
-    blocks.push(`⚠️  ${c.id} ${c.name} —— 未在测试输出中发现\n${rows.join('\n')}`);
+  } else if (extra > 0) {
+    // fail-closed：预期集合内没跑出来的观察点就是未判定，不得计入通过（含全部缺失）
+    blocks.push(`⚠️  ${c.id} ${c.name} —— ${extra}/${(c.observe ?? []).length} 观察点未在输出中发现\n${rows.join('\n')}`);
   } else {
     green++;
     blocks.push(`✅ ${c.id} ${c.name}\n${rows.join('\n')}`);
