@@ -1,6 +1,6 @@
 ---
 name: golden-case
-description: Business-specification cases whose golden values belong to the user. Use when the user wants to draft, review, or freeze cases ("起草用例", "审阅 case", "封金"); generate an agent verification prompt; write or repair JUnit/pytest adapters for cases; audit case coverage; or sediment a bug fix as a permanent regression case. Not for unit-test coverage — L1 all-mock logic checks stay the AI's own unit tests.
+description: Business-specification cases whose golden values belong to the user. Use when the user wants to draft, review, or freeze cases ("起草用例", "审阅 case", "封金"); generate an agent verification prompt; write or repair test adapters for cases (JUnit/pytest/vitest templates, other stacks via the loader contract); audit case coverage; or sediment a bug fix as a permanent regression case. Not for unit-test coverage — L1 all-mock logic checks stay the AI's own unit tests.
 ---
 
 # golden-case
@@ -8,7 +8,7 @@ description: Business-specification cases whose golden values belong to the user
 A **case** is a business specification, not a test: a scenario with an id
 (`CASE-001`), a `given`/`when`/`then` in plain language, and — the point — an
 `expect` whose values (the **golden values**) come from the user, never from a
-snapshot of the implementation. The AI writes the adapters (JUnit/pytest) and
+snapshot of the implementation. The AI writes the adapters and
 the implementation; the user defines and freezes what "correct" means. A run's
 verdict is aggregated from the case's **verification points**, and the first
 failing point is the debug entry point.
@@ -173,8 +173,9 @@ before touching anything.
 
 ### 4. Adapter — the AI's half
 
-Write or repair the adapters from the templates in `references/format.md` (JUnit 5
-and pytest), into the project's real test directory, then record the file and its
+Write or repair the adapters from the templates in `references/format.md`
+(JUnit 5, pytest, vitest; other stacks translate the nearest template and follow
+the loader contract), into the project's real test directory, then record the file and its
 run command in `manifest.json`. Rules that decide whether the adapter is any good:
 
 - One test per verification point, the anchor in the test name

@@ -424,12 +424,74 @@ def test_golden(cid, point, shop):
     assert result.observe(point) == CASES[cid].expect(point)
 ```
 
+### TypeScript (vitest)
+
+```ts
+import { test, expect } from "vitest";
+// Expectation values come ONLY from the case file (zero expectation literals;
+// the anchor is the one allowed literal). loadCases implements the loader
+// contract below; runCase is the adapter-owned fixture (given/when + mocks
+// outside the observation surface).
+import { loadCases, type GoldenCase } from "./case-loader.js";
+
+const CASES = loadCases(".hapilon/go-case/cases.yaml");
+const POINTS = CASES.flatMap((c) => c.observe.map((p) => [c.id, p] as const));
+
+test.each(POINTS)("%s:%s", (cid, point) => {
+  const c = CASES.get(cid) as GoldenCase;
+  expect(runCase(c).observe(point)).toBe(c.expect(point));
+});
+```
+
+`test.each` formats the ids with `%s:%s`, so every test name carries its anchor
+and vitest's verbose/JUnit output stays parseable.
+
+### Case loader contract (every framework needs one)
+
+The templates import a case loader — that loader is **not shipped with the
+skill**; each project/framework writes its own. The whole contract: load the
+case file, expose `id` / `observe[]` / `expect(point)`, and look cases up by
+id. Nothing else. Minimal Python reference (PyYAML):
+
+```python
+# case_loader.py
+import yaml
+
+class GoldenCase:
+    def __init__(self, raw): self._raw = raw
+    @property
+    def id(self): return self._raw["id"]
+    @property
+    def observe(self): return self._raw.get("observe", [])
+    def expect(self, point): return self._raw["expect"][point]
+
+class CaseSet:
+    def __init__(self, raws): self._by_id = {r["id"]: GoldenCase(r) for r in raws}
+    @classmethod
+    def load(cls, path):
+        with open(path, encoding="utf-8") as f:
+            return cls(yaml.safe_load(f)["cases"])
+    def __iter__(self): return iter(self._by_id.values())
+    def get(self, cid): return self._by_id[cid]
+    def __getitem__(self, cid): return self._by_id[cid]
+```
+
 ## Report input contract
 
-`report.mjs` parses plain console text. Any line whose test name/display name
-contains an anchor counts:
+`report.mjs` eats two input shapes (it sniffs each file: content starting with
+`<?xml` / `<testsuites>` goes the XML path, everything else is line-parsed).
+Any per-test entry whose name carries an anchor counts:
+
+Plain console text:
 
 - Gradle/JUnit: `ShopGoldenCaseTest > CASE-001:api_return PASSED|FAILED`
   (following indented lines attach to the failure as its detail)
 - pytest short summary: `FAILED tests/test_shop.py::test_golden[CASE-001:api_return] - assert ...`
 - pytest verbose: `tests/test_shop.py::test_golden[CASE-001:api_return] PASSED`
+- vitest/jest verbose (`--reporter=verbose`): `✓ tests/shop.test.ts > CASE-001:api_return 3ms` —
+  leading ✓/✔ counts PASSED, ×/✗/❌ FAILED, ○ SKIPPED
+
+JUnit XML (the universal exit when a stack has no line-per-test text output:
+vitest/jest `--reporter=junit`, pytest `--junitxml`, go via `gotestsum`,
+cargo2junit, …): each `<testcase>` whose `name`/`classname` carries the anchor;
+`<failure>`/`<error>` body (first lines) becomes the failure detail.

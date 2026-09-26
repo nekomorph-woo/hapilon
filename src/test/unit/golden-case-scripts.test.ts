@@ -360,3 +360,76 @@ describe("golden-case · yaml-lite 对不可判定期望的拒判", () => {
     assert.equal(all.run?.status, "NOT_RUN", "全不可判定 = 拒判，不得给 PASS/FAIL");
   });
 });
+
+describe("golden-case · report 聚合（文本与 JUnit XML 双路径）", () => {
+  // 最小 case 集：observe 三个锚，覆盖 pass / fail / skip / 未出现四种聚合分支
+  const CASES = `cases:
+  - id: CASE-301
+    name: 聚合夹具
+    observe: [alpha, beta, gamma]
+    expect:
+      alpha: 1
+      beta: 2
+      gamma: 3
+`;
+  function runReport(dir: string, outputs: string[]): { code: number | null; stdout: string } {
+    const casesPath = join(dir, "cases.yaml");
+    writeFileSync(casesPath, CASES);
+    const outs = outputs.map((text, i) => {
+      const p = join(dir, `out${i}.txt`);
+      writeFileSync(p, text);
+      return p;
+    });
+    const r = runScript("report.mjs", ["--cases", casesPath, ...outs]);
+    return { code: r.status, stdout: r.stdout };
+  }
+
+  it("vitest/jest verbose 符号行：✓/×/○ 分别聚合为 PASSED/FAILED/SKIPPED", () => {
+    const out = [
+      " ✓ tests/shop.test.ts > CASE-301:alpha 3ms",
+      "   ✓ CASE-301:gamma (5 ms)",
+      " × tests/shop.test.ts > CASE-301:beta 4ms",
+    ].join("\n");
+    const { code, stdout } = withTmp((dir) => runReport(dir, [out]));
+    assert.match(stdout, /✓ alpha/);
+    assert.match(stdout, /✗ beta/);
+    assert.match(stdout, /✓ gamma/);
+    assert.equal(code, 1, "有 FAILED 锤必须退出非零");
+  });
+
+  it("JUnit XML：vitest --reporter=junit 形态，failure 正文进详情，skipped 自闭合", () => {
+    const xml = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<testsuites name="vitest">',
+      '<testsuite name="tests/shop.test.ts">',
+      '<testcase classname="tests/shop.test.ts" name="CASE-301:alpha" time="0.003"/>',
+      '<testcase classname="tests/shop.test.ts" name="CASE-301:beta" time="0.004">',
+      '<failure message="expected 2 to be 7">AssertionError: expected 2 to be 7</failure>',
+      '</testcase>',
+      '<testcase classname="tests/shop.test.ts" name="CASE-301:gamma" time="0.001">',
+      '<skipped/>',
+      '</testcase>',
+      '</testsuite>',
+      '</testsuites>',
+    ].join("\n");
+    const { code, stdout } = withTmp((dir) => runReport(dir, [xml]));
+    assert.match(stdout, /✓ alpha/);
+    assert.match(stdout, /✗ beta/);
+    assert.match(stdout, /AssertionError: expected 2 to be 7/, "failure 正文应作为详情呈现");
+    assert.match(stdout, /○ gamma/);
+    assert.equal(code, 1);
+  });
+
+  it("全绿时退出 0；锚缺失的观察点标『未在输出中发现』", () => {
+    const out = " ✓ CASE-301:alpha\n ✓ CASE-301:beta\n ✓ CASE-301:gamma\n";
+    const { code, stdout } = withTmp((dir) => runReport(dir, [out]));
+    assert.equal(code, 0);
+    assert.match(stdout, /3\/1 case 全绿|1\/1 case 全绿/);
+
+    const partial = " ✓ CASE-301:alpha\n";
+    const { code: code2, stdout: stdout2 } = withTmp((dir) => runReport(dir, [partial]));
+    // 既有语义：部分锚缺失不改变 case 绿/红（只有全部缺失才标 ⚠️），缺失行仅逐点标注
+    assert.equal(code2, 0);
+    assert.match(stdout2, /未在输出中发现/);
+  });
+});

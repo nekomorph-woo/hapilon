@@ -25,6 +25,9 @@ const GRADLE = /^[\w.$-]+\s*>\s*(.+?)\s+(PASSED|FAILED|SKIPPED|ABORTED)\s*$/;
 const PY_SHORT = /^(FAILED|ERROR)\s+(\S+?)(?:\s+-\s*(.*))?$/;
 // pytest verbose：path::test[...] PASSED|FAILED|ERROR|SKIPPED|XFAIL
 const PY_VERBOSE = /^(\S+::\S+?)\s+(PASSED|FAILED|ERROR|SKIPPED|XFAIL)\s*$/;
+// vitest/jest verbose：`✓ name 3ms` / `× name (5 ms)`，符号即状态；只认含锚的行，不怕误伤
+const SYMBOL = /^\s*([✓✔]|×|✗|✘|❌|○|◯)\s+(.+?)\s*(?:\(\d+\s*ms\)|\d+ms)?\s*$/;
+const SYMBOL_STATE = { '✓': 'PASSED', '✔': 'PASSED', '×': 'FAILED', '✗': 'FAILED', '✘': 'FAILED', '❌': 'FAILED', '○': 'SKIPPED', '◯': 'SKIPPED' };
 const ANCHOR = /CASE-\d{3}(?::[A-Za-z0-9_.-]+)?/;
 
 const results = new Map(); // "CASE-001:api_return" → {state, detail}
@@ -44,9 +47,31 @@ function record(anchor, state, detail, where) {
   results.set(anchor, r);
 }
 
+// JUnit XML（各栈通用出口：vitest/jest --reporter=junit、pytest --junitxml、gotestsum、cargo2junit）。
+// 只认 xUnit 固定骨架 <testcase name classname> + <failure|error|skipped>，不做通用 XML 解析、不引依赖。
+function parseJUnitXml(text, path) {
+  const unesc = (s) => s.replace(/&(?:amp|lt|gt|quot|apos);/g, (e) =>
+    ({ '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'" })[e]);
+  for (const [, attrs, body = ''] of text.matchAll(/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g)) {
+    const attr = (n) => attrs.match(new RegExp(`(?:^|\\s)${n}="([^"]*)"`))?.[1] ?? '';
+    const name = `${attr('name')} ${attr('classname')}`;
+    const a = name.match(ANCHOR)?.[0];
+    if (!a) continue;
+    const state = /<(?:failure|error)[\s/>]/.test(body) ? 'FAILED' : /<skipped[\s/>]/.test(body) ? 'SKIPPED' : 'PASSED';
+    let detail = null;
+    if (state === 'FAILED') {
+      const raw = unesc(body.match(/<(?:failure|error)[^>]*>([\s\S]*?)<\/(?:failure|error)>/)?.[1] ?? '');
+      detail = raw.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 3).join(' | ') || null;
+    }
+    record(a, state, detail, `${path}:${name.trim().slice(0, 60)}`);
+  }
+}
+
 const inputs = process.argv.slice(2).filter((a, i, arr) => !a.startsWith('--') && arr[i - 1] !== '--cases');
 for (const path of inputs) {
-  const lines = readFileSync(path, 'utf8').split('\n');
+  const text = readFileSync(path, 'utf8');
+  if (/^\s*(<\?xml|<testsuites?[>\s])/.test(text)) { parseJUnitXml(text, path); continue; }
+  const lines = text.split('\n');
   let lastFailAnchor = null;
   lines.forEach((line, idx) => {
     const where = `${path}:${idx + 1}`;
@@ -66,6 +91,16 @@ for (const path of inputs) {
       if (a) {
         record(a, m[1], m[3] ?? null, where);
         lastFailAnchor = a;
+        return;
+      }
+    }
+    m = line.match(SYMBOL);
+    if (m && SYMBOL_STATE[m[1]]) {
+      const a = m[2].match(ANCHOR)?.[0];
+      if (a) {
+        const state = SYMBOL_STATE[m[1]];
+        record(a, state, null, where);
+        lastFailAnchor = state === 'FAILED' ? a : null;
         return;
       }
     }
