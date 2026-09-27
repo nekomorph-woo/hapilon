@@ -40,6 +40,58 @@ Fundamentals below apply to everything. The editorial process after that runs on
 
 **When it's a UI, not a document** A dashboard or tool is scanned and operated, not read top-to-bottom, so the craft shifts from typography to information design. Surface the summary before the detail; encode state in form as well as number — a pill, a chip, a severity stripe — so what needs attention reads at a glance. Semantic color (good / warning / critical) is separate from the accent hue and doesn't count as your accent. Give sparklines and charts the same care as type: an area fill, a faint grid, an emphasized endpoint. What's interactive should look interactive.
 
+## Numeric system (shared across all output)
+
+These numbers are the shared skeleton of every page — what you invent is which value to pick, which hue, which type pairing; never the numbers themselves. No padding, gap, font size, radius, or line width may fall outside the grid.
+
+**Type scale** (ratio 1.25, base 16px; rem sizes with unitless leading):
+
+| token | size/leading | weight | role |
+|---|---|---|---|
+| `--text-caption` | 12px / 1.34 | 600 | eyebrows, short labels |
+| `--text-small` | 14px / 1.43 | 400 | captions, table secondary columns |
+| `--text-body` | 16px / 1.625 | 400 | body, lists |
+| `--text-lead` | 20px / 1.5 | 400 | summary, lede |
+| `--text-h3` | 25px / 1.28 | 650 | section headings |
+| `--text-h2` | 31px / 1.16 | 700 | chapter headings |
+| `--text-h1` | 39px / 1.13 | 750 | document title |
+| `--text-display` | 49px / 1.06 | 750 | editorial covers or key numbers only |
+| `--text-data` | 14px / 1.43 | 500 | tables, figures, metadata |
+| `--text-data-lg` | 25px / 1.12 | 650 | KPIs and emphasized numbers |
+
+Hard rules: measure `--measure-prose: 68ch` (ceiling `75ch`); use `--measure-cjk: 44em` when the body is mostly Chinese; `text-wrap: balance` on h1–h3 only; `font-variant-numeric: tabular-nums lining-nums` on all data with right-aligned number columns; label tracking `0.08em`, display tracking `-0.028em`.
+
+**Spacing** (4px base, values from this list only; prefer `gap` on layout containers over sibling margins):
+
+`--space-1` 4px · `--space-2` 8px · `--space-3` 12px · `--space-4` 16px · `--space-5` 20px · `--space-6` 24px · `--space-8` 32px · `--space-10` 40px · `--space-12` 48px (between sections) · `--space-16` 64px (page top) · `--space-20` 80px (editorial covers only)
+
+Page inline padding `clamp(20px, 5vw, 64px)`; main container `max-width: 1120px`.
+
+**Radius / lines / shadows**: radii in four steps `0 / 2px / 6px / 12px` (plus `999px` pills, single-line controls only); line widths `1px / 2px / 3px` (hairline / focus & selected / strong semantics); shadows default to `none` — hierarchy comes from whitespace, lines, and ground; only overlays use `--shadow-raised` and modals `--shadow-modal` (dark theme multiplies opacities ×1.5 and keeps a visible border).
+
+**Component mappings** (apply as written; do not size these at runtime):
+
+| Component | Fixed mapping |
+|---|---|
+| Page | `max-width: 1120px; padding-inline: clamp(20px, 5vw, 64px); padding-block: var(--space-16)` |
+| Reading column | English-led `--measure-prose`; Chinese-led `--measure-cjk` |
+| section | `grid; gap: var(--space-6); margin-block-start: var(--space-12)` |
+| Panel | `padding: var(--space-6); border: var(--line-hairline) solid var(--border)` |
+| Status pill | `padding: var(--space-1) var(--space-2); radius: var(--radius-pill); font: 600 var(--text-caption)` |
+| Focus | `outline: var(--line-strong) solid var(--focus); outline-offset: 2px` |
+| Wide content | wrapper `overflow-x: auto; max-width: 100%`; the body never scrolls sideways |
+
+## Pre-deliver gates
+
+Every answer must be **no**:
+
+1. Any font size, spacing, radius, or line width off the numeric grid? (No magic values in the CSS.)
+2. Any color declared as a literal outside the token set (including inside media blocks)?
+3. Is the accent spent in one place, with semantic colors (good / warning / critical) kept separate from it?
+4. Did the output fall into an anti-default look (Inter/Space Grotesk safe face, purple-blue gradient, emoji section markers, everything centered, rounded-lg everywhere, accent rail on rounded cards)?
+5. Is the measure ≤75ch (`--measure-cjk` for Chinese-led text), with wide content scrolling in its own container?
+6. Do both themes and print hold: legible contrast in dark, print re-pinned to light, explicit body background?
+
 ## Process
 
 Before writing code, sketch a short design plan — a compact token system with color, type, and layout:
@@ -48,7 +100,7 @@ Before writing code, sketch a short design plan — a compact token system with 
 - **Type**: typefaces for 2+ roles — a characterful display face used with restraint, a complementary body face, and a utility face for captions or data if needed.
 - **Layout**: a layout concept in one or two sentences.
 
-Then build, following the plan and deriving every color and type decision from it.
+Then build, following the plan and deriving every color and type decision from it. Concrete values anchor generation — invent fully from the subject's own world first, before consulting any reference. Finish with the [pre-deliver gates](#pre-deliver-gates).
 
 ## When the request is editorial
 
