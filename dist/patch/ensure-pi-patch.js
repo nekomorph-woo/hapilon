@@ -25,13 +25,16 @@ const MID_TEXT_SLASH_MARKER = "__hapiMidTextSlash";
 const MID_TEXT_SLASH_OPEN_MARKER = "__hapiMidTextSlashOpen";
 /** 后台任务插件 shell 修复的 marker */
 const HAPI_SHELL_MARKER = "hapiShell";
+/** 背景重放补丁的 marker（Box/Markdown 全宽底色下的子元素 reset 不再裸奔） */
+const HAPI_BG_REPLAY_MARKER = "hapiBgReplay";
 /** 后台任务插件包名（hapilon 自身的依赖，不在 pi 包树里） */
 const BACKGROUND_TASKS_PACKAGE = "@nklisch/pi-background-tasks";
 /** Bundle chunk directory; the host file is located by signature, not its hash name. */
 const PI_BUNDLE_CHUNKS = "dist/bundle/chunks";
 /**
  * 全部改动均为字符串级替换，逐条 anchors 与实际 pi dist 产物 byte-for-byte 校验过
- * （theme.js 7 条 + theme-json.js 1 条 + theme-schema.json 1 条 + bundle chunk 8 条）。
+ * （theme.js 7 条 + theme-json.js 1 条 + theme-schema.json 1 条 + assistant-message.js 1 条
+ * + pi-tui utils.js 1 条 + bundle chunk 11 条）。
  */
 /** 补丁规则表(导出仅供测试构造 fixture;运行时只读) */
 export const PATCH_RULES = [
@@ -144,6 +147,45 @@ export const PATCH_RULES = [
         find: "mdCodeBlockBorder:ColorValueSchema,",
         replace: "mdCodeBlockBorder:ColorValueSchema,mdCodeBlockBg:typebox_exports.Optional(ColorValueSchema),",
         occurrences: 1,
+    },
+    // ── 助手消息整块底色：assistant 消息的 Markdown 此前 defaultTextStyle 传 undefined，
+    //    全宽涂底机制（applyBackgroundToLine）不启用，代码块底色只能逐行逐字符涂、
+    //    右缘参差成「字周边」拼布。传入 bgColor 后每行（含空行与补齐空格）都涂满
+    //    mdCodeBlockBg，整条消息连成一块完整色板，代码块融入其中。主题缺 token 时
+    //    bgAnsi("") 退化为终端默认底色，theme.bg 不会抛错。
+    {
+        file: "dist/modes/interactive/components/assistant-message.js",
+        find: "new Markdown(content.text.trim(), this.outputPad, 0, this.markdownTheme, undefined, {",
+        replace: 'new Markdown(content.text.trim(), this.outputPad, 0, this.markdownTheme, { bgColor: (text) => theme.bg("mdCodeBlockBg", text) }, {',
+        occurrences: 1,
+    },
+    {
+        file: PI_BUNDLE_CHUNKS,
+        signature: "mdCodeBlockBorder",
+        find: 'this.markdownTheme,void 0,{transform:createMarkdownTransform("assistant"',
+        replace: 'this.markdownTheme,{bgColor:t=>theme.bg("mdCodeBlockBg",t)},{transform:createMarkdownTransform("assistant"',
+        occurrences: 1,
+    },
+    // ── 背景重放：Box/Markdown 的全宽底色（bgColor）会被行内子元素自带的背景复位
+    //    （\x1b[49m/\x1b[0m，如代码 chip、cli-highlight span）中途杀掉，复位点之后的
+    //    补齐空格与正文裸奔成终端默认底——用户气泡里的代码行就是一条贯穿整行的裸带。
+    //    在每个内层复位后重放外层底色；行尾最后一个复位保持原样，避免把底色泄漏
+    //    进下一行的擦除。主题缺 token 时 open 为空串，重放自然退化为无操作。
+    {
+        package: PI_TUI_PACKAGE,
+        file: "dist/utils.js",
+        find: "export function applyBackgroundToLine(line, width, bgFn) {\n    // Calculate padding needed\n    const visibleLen = visibleWidth(line);\n    const paddingNeeded = Math.max(0, width - visibleLen);\n    const padding = \" \".repeat(paddingNeeded);\n    // Apply background to content + padding\n    const withPadding = line + padding;\n    return bgFn(withPadding);\n}",
+        replace: "export function applyBackgroundToLine(line, width, bgFn) {\n    // Calculate padding needed\n    const visibleLen = visibleWidth(line);\n    const paddingNeeded = Math.max(0, width - visibleLen);\n    const padding = \" \".repeat(paddingNeeded);\n    // Apply background to content + padding\n    const withPadding = line + padding;\n    // hapilon: hapiBgReplay —— 内层背景复位后重放外层底色（open 只取开头首个完整 SGR 序列，\n    // 首个复位前的正文不能带进去重放）\n    const wrapped = bgFn(withPadding);\n    const esc = wrapped.indexOf(\"\\x1b[\");\n    if (esc === -1) return wrapped;\n    const mEnd = wrapped.indexOf(\"m\", esc);\n    if (mEnd === -1) return wrapped;\n    const open = wrapped.slice(0, mEnd + 1);\n    let out = wrapped.slice(mEnd + 1).split(\"\\x1b[49m\").join(\"\\x1b[49m\" + open);\n    out = out.split(\"\\x1b[0m\").join(\"\\x1b[0m\" + open);\n    if (out.endsWith(open)) out = out.slice(0, out.length - open.length);\n    return open + out;\n}",
+        occurrences: 1,
+        marker: HAPI_BG_REPLAY_MARKER,
+    },
+    {
+        file: PI_BUNDLE_CHUNKS,
+        signature: "mdCodeBlockBorder",
+        find: 'function applyBackgroundToLine(line,width,bgFn){let visibleLen=visibleWidth(line),paddingNeeded=Math.max(0,width-visibleLen),padding=" ".repeat(paddingNeeded),withPadding=line+padding;return bgFn(withPadding)}',
+        replace: 'function applyBackgroundToLine(line,width,bgFn){const wrapped=bgFn(line+" ".repeat(Math.max(0,width-visibleWidth(line))));const esc=wrapped.indexOf("\\x1B[");if(esc===-1)return wrapped;const mEnd=wrapped.indexOf("m",esc);if(mEnd===-1)return wrapped;const open=wrapped.slice(0,mEnd+1);let out=wrapped.slice(mEnd+1).split("\\x1B[49m").join("\\x1B[49m"+open).split("\\x1B[0m").join("\\x1B[0m"+open);out.endsWith(open)&&(out=out.slice(0,out.length-open.length));return open+out}/*hapiBgReplay*/',
+        occurrences: 1,
+        marker: HAPI_BG_REPLAY_MARKER,
     },
     // ── 中段 slash 补全触发门(hpl-editor-slash):provider 在编辑器触发门之后,
     //    门的行首判定会让中段打字永远不请求补全。给「字母键触发分支」加一个
