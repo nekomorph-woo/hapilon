@@ -1,12 +1,11 @@
 import { after, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Effect } from "effect";
-import { appendPendingTaskEffect, readTaskStoreEffect } from "../../extensions/hpl-orchestra/team-tasks.js";
 import { DEFAULT_STALE_THRESHOLD_MS } from "../../extensions/hpl-orchestra/agent-state.js";
-import { TEAM_ENQUEUE_EXIT, TEAM_STATUS_EXIT, WAKE_OWNER_EXIT, runTeamEnqueueCommand, runTeamStatusCommand, runWakeOwnerCommand, } from "../../extensions/hpl-orchestra/team-cli.js";
+import { TEAM_STATUS_EXIT, WAKE_OWNER_EXIT, runTeamStatusCommand, runWakeOwnerCommand, } from "../../extensions/hpl-orchestra/team-cli.js";
 import { resolveSessionStatePath, teamTasksPathFor, teamsDir, writeTeamStateEffect, } from "../../extensions/hpl-orchestra/state.js";
 const ownerPane = "w1:p7";
 const workerPane = "w1:p8";
@@ -105,87 +104,26 @@ function capture(fn) {
         console.error = originalError;
     }
 }
-describe("team-tasks 文件协议", { concurrency: false }, () => {
-    it("追加写出的文件是 pi-tasks 形状，nextId 自增", () => {
-        const path = teamTasksPathFor(workerPane);
-        assert.equal(Effect.runSync(appendPendingTaskEffect(path, { paneId: workerPane, subject: "第一件" }, () => 1000)), "1");
-        assert.equal(Effect.runSync(appendPendingTaskEffect(path, { paneId: workerPane, subject: "第二件", brief: "/tmp/dossier" }, () => 2000)), "2");
-        const raw = JSON.parse(readFileSync(path, "utf8"));
-        assert.equal(raw.nextId, 3);
-        assert.equal(raw.tasks.length, 2);
-        assert.equal(raw.tasks[0].status, "pending");
-        assert.deepEqual(raw.tasks[0].metadata, { pane: workerPane, enqueuedBy: "owner" });
-        assert.deepEqual(raw.tasks[1].metadata, { pane: workerPane, enqueuedBy: "owner", brief: "/tmp/dossier" });
-        assert.equal(raw.tasks[1].createdAt, 2000);
-        assert.deepEqual(raw.tasks[1].blocks, []);
-        const read = Effect.runSync(readTaskStoreEffect(path));
-        assert.equal(read?.tasks.length, 2);
-    });
-    it("既有文件形状不符 → 报错退出，文件原样不动", () => {
-        const path = teamTasksPathFor(workerPane);
-        mkdirSync(dirname(path), { recursive: true });
-        const original = JSON.stringify({ tasks: [] });
-        writeFileSync(path, original);
-        const result = Effect.runSync(Effect.either(appendPendingTaskEffect(path, { paneId: workerPane, subject: "x" })));
-        if (result._tag === "Right")
-            assert.fail("形状不符必须报错，不许硬写");
-        assert.match(result.left.message, /nextId/);
-        assert.equal(readFileSync(path, "utf8"), original);
-    });
-    it("死进程留下的锁可回收，写入后自己的锁被释放", () => {
-        const path = teamTasksPathFor(workerPane);
-        mkdirSync(dirname(path), { recursive: true });
-        writeFileSync(`${path}.lock`, "999999:dead-owner-token");
-        assert.equal(Effect.runSync(appendPendingTaskEffect(path, { paneId: workerPane, subject: "锁回收" })), "1");
-        assert.equal(existsSync(`${path}.lock`), false);
-    });
-});
-describe("hapi team-enqueue", { concurrency: false }, () => {
-    it("入队写进目标 pane 自己的任务文件", () => {
-        saveState();
-        const { code, logs } = capture(() => runTeamEnqueueCommand([workerPane, "[阿澈]", "修 X", "--brief", "/tmp/dossier"]));
-        assert.equal(code, TEAM_ENQUEUE_EXIT.ok);
-        assert.match(logs.join("\n"), /已入队 #1 → w1:p8/);
-        const store = Effect.runSync(readTaskStoreEffect(teamTasksPathFor(workerPane)));
-        assert.equal(store?.tasks[0]?.subject, "[阿澈] 修 X");
-        assert.equal(store?.tasks[0]?.metadata?.brief, "/tmp/dossier");
-    });
-    it("目标不在本团队 → 退出 2，且不建文件", () => {
-        saveState();
-        const { code, errors } = capture(() => runTeamEnqueueCommand(["w1:pBogus", "x"]));
-        assert.equal(code, TEAM_ENQUEUE_EXIT.notInTeam);
-        assert.match(errors.join("\n"), /不在本团队/);
-        assert.equal(existsSync(teamTasksPathFor("w1:pBogus")), false);
-    });
-    it("缺参数 → 退出 4；任务文件形状不符 → 退出 3", () => {
-        saveState();
-        assert.equal(capture(() => runTeamEnqueueCommand([workerPane])).code, TEAM_ENQUEUE_EXIT.usage);
-        const path = teamTasksPathFor(workerPane);
-        mkdirSync(dirname(path), { recursive: true });
-        writeFileSync(path, JSON.stringify({ tasks: [] }));
-        const { code, errors } = capture(() => runTeamEnqueueCommand([workerPane, "x"]));
-        assert.equal(code, TEAM_ENQUEUE_EXIT.store);
-        assert.match(errors.join("\n"), /未写入/);
-    });
-    it("非 owner 面板退出 2，不写别人家的队列", () => {
-        saveState();
-        process.env.HERDR_PANE_ID = workerPane;
-        const { code } = capture(() => runTeamEnqueueCommand([workerPane, "x"]));
-        assert.equal(code, TEAM_ENQUEUE_EXIT.notInTeam);
-        assert.equal(existsSync(teamTasksPathFor(workerPane)), false);
-    });
-});
+/** 直写 pi-tasks 形状的任务文件造数（外部追加入口已删，pane 侧写入归 pi-tasks）。 */
+function seedTasks(paneId, tasks) {
+    const path = teamTasksPathFor(paneId);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${JSON.stringify({ nextId: tasks.length + 1, tasks }, null, 2)}\n`);
+}
 describe("hapi team-status", { concurrency: false }, () => {
     it("列出各 pane 的状态、任务摘要与回执有无（只读）", () => {
         saveState();
         const dossier = join(home, "plan-task", "2026-09-19-demo");
         mkdirSync(dossier, { recursive: true });
         writeFileSync(join(dossier, "worker-report.md"), "done\n");
-        Effect.runSync(appendPendingTaskEffect(teamTasksPathFor(workerPane), {
-            paneId: workerPane,
-            subject: "[阿澈] 修 X",
-            brief: dossier,
-        }));
+        seedTasks(workerPane, [{
+                id: "1",
+                subject: "[阿澈] 修 X",
+                status: "pending",
+                metadata: { pane: workerPane, brief: dossier },
+                createdAt: 1000,
+                updatedAt: 1000,
+            }]);
         const { code, logs } = capture(() => runTeamStatusCommand([], makeSpawn().spawn));
         assert.equal(code, TEAM_STATUS_EXIT.ok);
         const text = logs.join("\n");
@@ -199,11 +137,14 @@ describe("hapi team-status", { concurrency: false }, () => {
         saveState();
         const dossier = join(home, "plan-task", "2026-09-19-idle");
         mkdirSync(dossier, { recursive: true });
-        Effect.runSync(appendPendingTaskEffect(teamTasksPathFor(workerPane), {
-            paneId: workerPane,
-            subject: "[阿澈] 排队中",
-            brief: dossier,
-        }));
+        seedTasks(workerPane, [{
+                id: "1",
+                subject: "[阿澈] 排队中",
+                status: "pending",
+                metadata: { brief: dossier },
+                createdAt: 1000,
+                updatedAt: 1000,
+            }]);
         const { code, logs } = capture(() => runTeamStatusCommand([], makeSpawn().spawn));
         assert.equal(code, TEAM_STATUS_EXIT.ok);
         const text = logs.join("\n");
@@ -214,17 +155,15 @@ describe("hapi team-status", { concurrency: false }, () => {
         saveState();
         const dossier = join(home, "plan-task", "2026-09-19-stale");
         mkdirSync(dossier, { recursive: true });
-        const path = teamTasksPathFor(workerPane);
         const staleAt = Date.now() - DEFAULT_STALE_THRESHOLD_MS - 60_000;
-        Effect.runSync(appendPendingTaskEffect(path, {
-            paneId: workerPane,
-            subject: "[阿澈] 卡住了",
-            brief: dossier,
-        }, () => staleAt));
-        // pi-tasks 置为 in_progress 时更新时间戳；这里直接造出「在办且久未更新」
-        const store = JSON.parse(readFileSync(path, "utf8"));
-        store.tasks[0].status = "in_progress";
-        writeFileSync(path, `${JSON.stringify(store, null, 2)}\n`);
+        seedTasks(workerPane, [{
+                id: "1",
+                subject: "[阿澈] 卡住了",
+                status: "in_progress",
+                metadata: { brief: dossier },
+                createdAt: staleAt,
+                updatedAt: staleAt,
+            }]);
         const { logs } = capture(() => runTeamStatusCommand([], makeSpawn().spawn));
         const text = logs.join("\n");
         assert.match(text, /- worker w1:p8 阿澈 · stale · report missing/);
@@ -234,16 +173,15 @@ describe("hapi team-status", { concurrency: false }, () => {
         saveState();
         const dossier = join(home, "plan-task", "2026-09-19-working-long");
         mkdirSync(dossier, { recursive: true });
-        const path = teamTasksPathFor(workerPane);
         const longAgo = Date.now() - DEFAULT_STALE_THRESHOLD_MS * 10;
-        Effect.runSync(appendPendingTaskEffect(path, {
-            paneId: workerPane,
-            subject: "[阿澈] 长任务",
-            brief: dossier,
-        }, () => longAgo));
-        const store = JSON.parse(readFileSync(path, "utf8"));
-        store.tasks[0].status = "in_progress";
-        writeFileSync(path, `${JSON.stringify(store, null, 2)}\n`);
+        seedTasks(workerPane, [{
+                id: "1",
+                subject: "[阿澈] 长任务",
+                status: "in_progress",
+                metadata: { brief: dossier },
+                createdAt: longAgo,
+                updatedAt: longAgo,
+            }]);
         const { logs } = capture(() => runTeamStatusCommand([], makeSpawn({
             agentStatuses: { [workerPane]: "working" },
         }).spawn));

@@ -32,8 +32,8 @@ Write-target authorization boundary — one approval per target, until it passes
 4. Re-ask "开始吗?" for a new write target, a widened scope, new behavior or a
    new subsystem, a re-design after a reviewer reject, credentials, release,
    push, or any irreversible / external side effect.
-5. No fresh ask inside a target already approved: queueing writes, waking a pane
-   to claim its queue, tests, builds and reports; read-only review, research
+5. No fresh ask inside a target already approved: dispatching writes inside
+   that target, tests, builds and reports; read-only review, research
    subagents and local read-only UX checks; an in-scope fix round after
    fix-then-approve and its re-review; re-running the same verification after a
    failure.
@@ -55,20 +55,27 @@ Task briefs: one dossier directory per task,
    dispatching. Workers and reviewers file their reports in the same directory.
    /tmp is never a brief home.
 
-Queue discipline — never interrupt a pane:
+Hold discipline — never interrupt a pane; there is no enqueue:
 - A pane that is working or blocked is NEVER cleared, killed, restarted or
-  re-dispatched. New work for it is queued, not pushed at it: mail into a running
-  turn is the one thing that must not happen.
-- Queue without touching the pane (this only appends to that pane's own task list):
-    node "$HAPILON_CLI_PATH" team-enqueue <pane-id> "[<nickname>] <one-line task>" --brief <dossier dir>
-  The pane picks the lowest pending id up at its own boundary — its prompt tells
-  it to. One call shows the queue and every pane's state:
-    node "$HAPILON_CLI_PATH" team-status
-- Reordering a queue, cancelling a queued item, or jumping the line is the USER's
-  call only. Unless the user says so: append, never reorder.
-- Your own task list (TaskCreate/TaskList) belongs to this session, not to the
-  team. Team-wide progress is what \`team-status\` prints; do not build the queue in
-  your own list.
+  re-dispatched, and mail into a running turn is the one thing that must not
+  happen. New work for a busy pane is HELD, not pushed: record it in your own
+  task list (TaskCreate with metadata paneId + brief dossier path).
+- Hold routing for work addressed to a busy pane: if the user names that pane,
+  hold and wait — say the wait cost plainly. If unnamed, you may dispatch in
+  parallel only when the work is orthogonal at the file level (disjoint file
+  sets, different module/package) to what the busy pane is writing; otherwise
+  hold. Parallel workers never commit — you stage and commit by path
+  afterwards. Tell the user which pane took the work and why.
+- Held work dispatches on that pane's next wake: collect its report, then
+  /team:clear, re-check idle, dispatch, and mark your task entry completed.
+  These entries live in THIS session only — a /new wipes your task list.
+  Before you end or rebuild your own session: dispatch every held entry, or
+  read the undelivered ones back to the user explicitly. If a pane went dead
+  and was respawned, look up its pane id in the crew table and dispatch the
+  held work to the new pane. Team-wide progress is what \`team-status\` prints;
+  your own list holds only work waiting for a pane to free up.
+- A transient pane dispatched for held work is kicked once its report is
+  collected.
 
 Unmanaged panes (a hapi pane in this tab that is not in the crew table):
 1. Read it first (\`herdr pane read <id> --source recent-unwrapped --lines 60\` plus
@@ -88,9 +95,7 @@ Unmanaged panes (a hapi pane in this tab that is not in the crew table):
 
 Crew state handling (states from the /team panel):
 - idle → alive with no turn running and nothing owed: clear and dispatch
-  directly. If its queue still has pending tasks, wake it with one send-keys
-  line and let it claim the lowest pending id at its own boundary — never
-  dispatch the whole queue for it.
+  directly.
 - working → wait. A pane reporting working is active — its task record age is
   never evidence of staleness, and its turn is never interrupted.
 - stale → alive but stopped (herdr idle) with an in_progress task whose report
@@ -110,8 +115,8 @@ Dispatch discipline (a "new task" includes fix rounds from review):
 1. Clear through \`/team:clear <pane-id>\`, sent to your own pane — never send
    \`/new\` by hand. \`/team:clear\` has no dialog and refuses while the pane is
    working or blocked; that refusal is the point, and a hand-written \`/new\`
-   bypasses it. If it refuses, queue the work instead of clearing. After a
-   successful clear, re-check that the state is idle.
+   bypasses it. If it refuses, hold the work instead of clearing (Hold
+   discipline above). After a successful clear, re-check that the state is idle.
 2. Dispatch (pane run 一次写入文本+回车——send-text + send-keys 两段式的
    enter 会被 bracketed-paste 吞掉;agent prompt 对自定义 agent 类型以
    agent_not_ready 拒绝):
@@ -160,7 +165,7 @@ read a pane by hand only when it reports waiting-input or unknown.
    done requires the report file in the task dossier (worker-report.md /
    reviewer-report.md): a live pane is never evidence that work finished,
    and idle alone is not done. idle = alive, no turn running, nothing owed:
-   clear and dispatch directly, or wake it to claim a pending task. stale requires
+   clear and dispatch directly. stale requires
    a stopped pane (herdr idle/done) with an in_progress task whose report is still
    missing past 15 minutes without an update — idle with no task is never stale,
    and a pane that reports working is never stale (task record age is bookkeeping,
@@ -178,7 +183,9 @@ Waking and reports — the panes wake you, you do not poll them:
 - A role pane runs \`node "$HAPILON_CLI_PATH" wake-owner "..."\` when its turn ends
   or when it needs a decision. When that message arrives, collect immediately:
   read its report file in the task dossier (the pane line is only a pointer; the
-  file is the record).
+  file is the record). Then check your own task list for held work addressed to
+  this pane (metadata paneId): each held item dispatches now — /team:clear,
+  re-check idle, dispatch, mark the entry completed.
 - \`wait-pane\` settling with NO report file is not done: idle and done look
   identical in herdr, and a pane waiting on its own background job also looks
   idle. Re-arm instead of escalating —

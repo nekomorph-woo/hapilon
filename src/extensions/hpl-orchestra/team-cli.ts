@@ -1,5 +1,5 @@
 /**
- * team-cli.ts — owner 侧团队收口 CLI：team-status / team-enqueue / wake-owner。
+ * team-cli.ts — owner 侧团队收口 CLI：team-status / wake-owner。
  *
  * 与 wait-pane 同级注册（cli/commands.ts），沿用同一套约定：退出码即结果
  * （background 唤醒只带退出码），stdout 给人和模型看。
@@ -10,10 +10,9 @@ import { Effect } from "effect";
 import { agentPrompt, defaultSpawn, paneAgentAlive, type SpawnFn } from "./herdr.js";
 import { allInstances, findTeamStateForPane, isTeamOwner, readTeamState, teamTasksPathFor } from "./state.js";
 import { sampleAgentStateEffect } from "./agent-state.js";
-import { briefDirOf, appendPendingTaskEffect, readTaskStoreEffect, taskLabel, taskUpdatedAt, type StoredTask } from "./team-tasks.js";
+import { briefDirOf, readTaskStoreEffect, taskLabel, taskUpdatedAt, type StoredTask } from "./team-tasks.js";
 
 export const TEAM_STATUS_EXIT = { ok: 0, noTeam: 2 } as const;
-export const TEAM_ENQUEUE_EXIT = { ok: 0, notInTeam: 2, store: 3, usage: 4 } as const;
 export const WAKE_OWNER_EXIT = { sent: 0, noTeam: 2, herdr: 3 } as const;
 
 /** pane 回执文件名（按角色定）：只有这两个角色有固定回执名，其余不猜。 */
@@ -30,20 +29,6 @@ function flagValue(args: string[], flag: string): string | undefined {
     if (arg.startsWith(`${flag}=`)) return arg.slice(flag.length + 1);
   }
   return undefined;
-}
-
-/** 非 flag 参数（`--flag value` 的 value 不计入）：subject 不强制引号也能拼回来 */
-function positionals(args: string[]): string[] {
-  const result: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg.startsWith("--")) {
-      if (!arg.includes("=")) i++;
-      continue;
-    }
-    result.push(arg);
-  }
-  return result;
 }
 
 function countBy(tasks: readonly StoredTask[], status: string): StoredTask[] {
@@ -83,7 +68,7 @@ function paneLines(key: string, paneId: string, nickname: string | undefined, sp
   const current = currentTaskOf(tasks);
   const currentDir = current ? briefDirOf(current) : undefined;
   const reportPath = reportFile && currentDir ? join(currentDir, reportFile) : undefined;
-  // 只有「在办」才期待回执；pending 只是排队，不能当停滞时钟
+  // 只有「在办」才期待回执；pending 是 pane 自己拆的待办步骤，不能当停滞时钟
   const expectedReportSince = current?.status === "in_progress" ? taskUpdatedAt(current) : undefined;
   const state = Effect.runSync(sampleAgentStateEffect(paneId, {
     spawn,
@@ -133,42 +118,6 @@ export function runTeamStatusCommand(_args: string[], spawn: SpawnFn = defaultSp
     }
   }
   return TEAM_STATUS_EXIT.ok;
-}
-
-/**
- * `hapi team-enqueue <pane-id> <subject> [--brief <path>]`：
- * 往目标 role pane 自己的任务列表末尾追加一条 pending（不触碰那个 pane）。
- */
-export function runTeamEnqueueCommand(args: string[], now: () => number = Date.now): number {
-  const [paneId, ...subjectParts] = positionals(args);
-  const subject = subjectParts.join(" ").trim();
-  if (!paneId || !subject) {
-    console.error("用法：hapi team-enqueue <pane-id> <subject> [--brief <档案目录|task-brief.md>]");
-    return TEAM_ENQUEUE_EXIT.usage;
-  }
-  const brief = flagValue(args, "--brief");
-
-  const state = readTeamState();
-  if (!state.enabled || !isTeamOwner(state)) {
-    console.error("[team-enqueue] 当前面板不是 Team 主面板（或没有进行中的编排）。");
-    return TEAM_ENQUEUE_EXIT.notInTeam;
-  }
-  if (!allInstances(state).some((instance) => instance.paneId === paneId)) {
-    const known = allInstances(state).map((instance) => instance.paneId).join(" ") || "(无)";
-    console.error(`[team-enqueue] ${paneId} 不在本团队，未写入。当前 crew：${known}`);
-    return TEAM_ENQUEUE_EXIT.notInTeam;
-  }
-
-  const path = teamTasksPathFor(paneId);
-  const result = Effect.runSync(Effect.either(
-    appendPendingTaskEffect(path, { paneId, subject, ...(brief ? { brief } : {}) }, now),
-  ));
-  if (result._tag === "Left") {
-    console.error(`[team-enqueue] 未写入：${result.left.message}`);
-    return TEAM_ENQUEUE_EXIT.store;
-  }
-  console.log(`[team-enqueue] 已入队 #${result.right} → ${paneId}：${subject}`);
-  return TEAM_ENQUEUE_EXIT.ok;
 }
 
 /**

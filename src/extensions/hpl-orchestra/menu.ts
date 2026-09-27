@@ -369,7 +369,7 @@ interface PaneModelPlan {
  * 新建 pane 的选模：Worker 走配额/画像/负载选择器；其它角色点名即权威
  * （非法/越界指代告警后回落该角色原有默认档位解析），未点名维持默认档位语义。
  * 模型选定后，adaptive 开启且没有显式 thinking 后缀时用学习到的 role+model 偏好补齐。
- * 只在真正新建时调用——复用/崩溃重灌/队列唤醒都沿用已存 concrete model。
+ * 只在真正新建时调用——复用/崩溃重灌都沿用已存 concrete model。
  */
 function planPaneModel(
   role: TeamRoleDef,

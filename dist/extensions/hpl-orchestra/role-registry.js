@@ -11,14 +11,12 @@ const ROLE_PROGRESS_CONTRACT = `Progress and reporting (every role pane):
   front, mark one in_progress before you start it and completed the moment it is
   done, and prefix every subject with this pane's id or nickname. Blocked: write
   the blocker into the task description instead of going silent.
-- Before you end a turn, read the task list once. A pending item addressed to this
-  pane is queued work: take the lowest id and start it. Never park waiting for a
-  new dispatch — picking queued work up at your own boundary is what lets the team
-  hand you more work without interrupting you.
 - The owner does not poll you, so silence is a lost report. When this turn's work
   is done, or you need a decision: write the report file the brief asks for, mark
   the task completed, then wake the owner in one line —
     node "$HAPILON_CLI_PATH" wake-owner "done: <one-line result> -> <report path>"
+  — and end the turn. Never start more work on your own: every next dispatch
+  goes through the owner, who clears and re-briefs you fresh.
 - Report location is mechanical, never guessed: the directory of the brief file
   path the dispatch gave you. A relative mention like 「同目录」 resolves to that
   directory; never put reports under .hapilon/ — that tree holds tool data

@@ -125,26 +125,11 @@ export const COMMANDS = [
     },
     {
         name: "team-status",
-        description: "看本团队各角色 pane 的状态、任务队列与回执（只读，替掉逐 pane 轮询）",
+        description: "看本团队各角色 pane 的状态、任务进度与回执（只读，替掉逐 pane 轮询）",
         usage: `${cliIdentity.cliName} team-status`,
         handler: async (args) => {
             const { runTeamStatusCommand } = await import("../extensions/hpl-orchestra/team-cli.js");
             process.exitCode = runTeamStatusCommand(args.slice(1));
-        },
-    },
-    {
-        name: "team-enqueue",
-        description: "向某个角色 pane 自己的任务队列追加一条待办（不打断正在干活的 pane）",
-        usage: `${cliIdentity.cliName} team-enqueue <pane-id> <subject> [--brief <档案目录|task-brief.md>]`,
-        subcommands: [
-            {
-                name: "--brief <路径>",
-                description: "任务档案（回执目录）：写进任务 metadata.brief，供 team-status 定位回执",
-            },
-        ],
-        handler: async (args) => {
-            const { runTeamEnqueueCommand } = await import("../extensions/hpl-orchestra/team-cli.js");
-            process.exitCode = runTeamEnqueueCommand(args.slice(1));
         },
     },
     {
