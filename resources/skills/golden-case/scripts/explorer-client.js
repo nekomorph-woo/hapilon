@@ -192,6 +192,10 @@ transition:transform .14s,opacity .14s}
 .blk.warn-h{border-color:var(--warn);background:var(--warn-soft)}
 .blk ul{margin:.15rem 0;padding-left:1.1rem}
 .blk li{margin:.12rem 0}
+.given-value{margin:.15rem 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.invariant{margin:.35rem 0}
+.invariant .expr{display:block;margin:.2rem 0;white-space:pre-wrap}
+.invariant .meta{display:flex;gap:.3rem;flex-wrap:wrap}
 .blk p{margin:.2rem 0}
 .blk h4{margin:.8rem 0 .3rem;font-size:.72rem;color:var(--soft);font-weight:600}
 .muted{color:var(--soft)}
@@ -363,19 +367,32 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
   const TYPE_ORDER = ['HAPPY_PATH', 'BOUNDARY', 'STATE', 'ERROR', 'CONCURRENCY', 'REGRESSION'];
   const LV_ORDER = ['L1', 'L2', 'L3', 'L4'];
   const PR_ORDER = ['P0', 'P1', 'P2', 'P3'];
-  const LC_CN = { DRAFT: '草稿', REVIEW: '待复核', CONFIRMED: '已确认', FROZEN: '已冻结' };
-  const HL_CN = { ACTIVE: '有效', STALE: '陈旧', BROKEN: '已损坏', DEPRECATED: '已废弃' };
+  const LC_CN = { DRAFT: '草案', REVIEW: '待复核', CONFIRMED: '已确认', FROZEN: '已冻结' };
+  const HL_CN = { ACTIVE: '生效', STALE: '陈旧', BROKEN: '已损坏', DEPRECATED: '已废弃' };
+  const PR_CN = { P0: '最高', P1: '高', P2: '中', P3: '低' };
+  const SEVERITY_CN = { critical: '致命', major: '主要', minor: '次要' };
+  const STATUS_CN = { PENDING: '待验证', PASS: '通过', FAIL: '失败', ERROR: '错误' };
+  const SCOPE_CN = {
+    Description: '业务描述', Given: '前置条件', When: '执行动作', Then: '预期结果',
+    Invariant: '约束规则', 'Verification Point': '验证点', Meta: '元数据', 其他: '其他',
+  };
   const TYPE_CN = {
     HAPPY_PATH: '正常路径', BOUNDARY: '边界', STATE: '状态', ERROR: '异常',
-    CONCURRENCY: '并发', REGRESSION: '回归沉淀',
+    CONCURRENCY: '并发', REGRESSION: '回归',
   };
-  const LV_CN = { L1: 'Logic', L2: 'Local Integration', L3: 'Real Dependency', L4: 'E2E' };
+  const LV_CN = { L1: 'AI 自测', L2: '人工核对', L3: '真实依赖', L4: '端到端' };
   const VERDICT_CN = {
     NOT_RUN: '未跑', RUNNING: '运行中', PASS: '通过', FAIL: '失败', ERROR: '环境错误', SKIPPED: '跳过',
   };
   const ST_CN = { pending: '待处理', generated: '已生成', done: '已完成' };
   const PR = { P0: 0, P1: 1, P2: 2, P3: 3 };
   const uniq = (a) => Array.from(new Set(a.filter(Boolean)));
+  const lcLabel = (v) => LC_CN[v] ? LC_CN[v] + ' ' + v : v;
+  const hlLabel = (v) => HL_CN[v] ? HL_CN[v] + ' ' + v : v;
+  const levelLabel = (v) => LV_CN[v] ? v + ' · ' + LV_CN[v] : v;
+  const severityLabel = (v) => SEVERITY_CN[v] || v;
+  const statusLabel = (v) => STATUS_CN[v] || v;
+  const scopeLabel = (v) => SCOPE_CN[v] || v;
 
   // ── 状态（UI 偏好 → localStorage） ──
   const PREF = 'gce:prefs';
@@ -421,17 +438,17 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     root.innerHTML =
       '<div class="app">' +
         '<aside class="side">' +
-          '<div class="brand"><b>' + esc(DATA.title) + '</b><span>Case Explorer · ' + esc(DATA.subtitle || '本地只读审阅面') + '</span></div>' +
+          '<div class="brand"><b>' + esc(DATA.title) + '</b><span>用例浏览器 · ' + esc(DATA.subtitle || '本地只读审阅面') + '</span></div>' +
           '<nav class="tree" id="tree"></nav>' +
-          '<div class="sidehint" id="storageNote">便签仅存本机浏览器（IndexedDB），不会修改 Case 文件 · 生成于 ' +
+          '<div class="sidehint" id="storageNote">便签仅存本机浏览器（IndexedDB），不会修改用例文件 · 生成于 ' +
             esc(DATA.generated_at) + '</div>' +
         '</aside>' +
         '<main class="main">' +
           '<div class="mhead"><div class="row">' +
-            '<div><h1>Case Explorer</h1><p class="sub" id="count"></p>' +
+            '<div><h1>用例浏览器</h1><p class="sub" id="count"></p>' +
               '<button class="btn lselall hidden" id="lselall" data-act="selAll"></button></div>' +
             '<div class="tools">' +
-              '<span class="search"><input id="q" placeholder="搜索 Case（名称、描述、标签…）" autocomplete="off">' +
+              '<span class="search"><input id="q" placeholder="搜索用例（名称、描述、标签…）" autocomplete="off">' +
               '<kbd>/</kbd></span>' +
               '<span class="seg"><button data-view="card">卡片</button><button data-view="list">列表</button></span>' +
               '<select class="sel" id="sort">' +
@@ -494,9 +511,9 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
 
   // ── 三态渲染 ──
   const lcChip = (c) => '<span class="lc ' + c.lifecycle.toLowerCase() + '" title="生命周期：' +
-    (LC_CN[c.lifecycle] || c.lifecycle) + '">' + esc(c.lifecycle) + '</span>';
+    (LC_CN[c.lifecycle] || c.lifecycle) + '">' + esc(lcLabel(c.lifecycle)) + '</span>';
   const hlChip = (c) => '<span class="hl ' + c.health.toLowerCase() + '" title="健康状态：' +
-    (HL_CN[c.health] || c.health) + '"><i></i>' + esc(c.health) + '</span>';
+    (HL_CN[c.health] || c.health) + '"><i></i>' + esc(hlLabel(c.health)) + '</span>';
   function verdictOf(c) {
     const r = c.run;
     if (!r) return { cls: 'na', text: '—', title: '无运行记录' };
@@ -516,7 +533,7 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     if (r.status === 'PASS') return '<span class="badge" style="color:var(--ok);border-color:var(--ok)">PASS</span>';
     return '<span class="badge">' + esc(r.status) + '</span>';
   }
-  const priBadge = (p) => (p ? '<span class="pri ' + p.toLowerCase() + '">' + esc(p) + '</span>' : '');
+  const priBadge = (p) => (p ? '<span class="pri ' + p.toLowerCase() + '" title="优先级：' + esc(PR_CN[p] || p) + '">' + esc(p) + (PR_CN[p] ? ' · ' + esc(PR_CN[p]) : '') + '</span>' : '');
   const tagChips = (tags) => (tags || []).map((t) => '<span class="tag">#' + esc(t) + '</span>').join('');
 
   // ── 左树 ──
@@ -569,10 +586,10 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     const groups = [
       ['生命周期', 'lifecycle', LC_ORDER, (v) => v + ' · ' + LC_CN[v]],
       ['健康状态', 'health', HL_ORDER, (v) => v + ' · ' + HL_CN[v]],
-      ['Case 类型', 'type', TYPE_ORDER, (v) => v],
+      ['用例类型', 'type', TYPE_ORDER, (v) => v + ' · ' + TYPE_CN[v]],
       ['验证等级', 'level', LV_ORDER, (v) => v + ' · ' + LV_CN[v]],
       ['优先级', 'priority', PR_ORDER, (v) => v],
-      ['变更范围', 'scope', SCOPE_ALL, (v) => v],
+      ['变更范围', 'scope', SCOPE_ALL, (v) => scopeLabel(v)],
     ];
     const groupHtml = groups.map(([label, key, values, fmt]) =>
       '<div class="fgroup"><span>' + label + '</span><div class="chipset">' +
@@ -610,7 +627,7 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
   function changesCell(c) {
     const ch = c.changes.length ? c.changes[c.changes.length - 1] : null;
     if (!ch) return '<span class="muted">—</span>';
-    return (ch.scope ? '<span class="scope">' + esc(ch.scope) + '</span>' : '') +
+    return (ch.scope ? '<span class="scope">' + esc(scopeLabel(ch.scope)) + '</span>' : '') +
       '<span class="cwhat">' + esc(ch.what || '') + '</span><span class="when">' + fmtRel(ch.when || c.updated) + '</span>';
   }
   function cardHtml(c) {
@@ -624,7 +641,7 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
       '<h3 class="cname">' + esc(c.name) + '</h3>' +
       '<p class="cdesc">' + esc(c.description) + '</p>' +
       '<div class="ctags">' + tagChips(c.tags) + '</div>' +
-      '<div class="cfoot"><span class="lvl" title="' + esc(LV_CN[c.level] || '') + '">' + esc(c.level || '—') + '</span>' +
+      '<div class="cfoot"><span class="lvl" title="' + esc(LV_CN[c.level] || '') + '">' + esc(levelLabel(c.level || '—')) + '</span>' +
         priBadge(c.priority) + changesCell(c) +
         (n ? '<span class="cnote" title="本机便签">📝 ' + n + '</span>' : '') +
       '</div></article>';
@@ -644,10 +661,10 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
         '<td><div class="tags-cell">' + tagChips(c.tags) + '</div></td>' +
         '<td class="nowrap">' + lcChip(c) + '</td>' +
         '<td class="nowrap">' + hlChip(c) + '</td>' +
-        '<td class="nowrap"><span class="badge">' + esc(c.level || '—') + '</span></td>' +
+        '<td class="nowrap"><span class="badge">' + esc(levelLabel(c.level || '—')) + '</span></td>' +
         '<td class="nowrap">' + (priBadge(c.priority) || '<span class="muted">—</span>') + '</td>' +
         '<td class="nowrap muted">' + fmtRel(c.updated) + '</td>' +
-        '<td>' + (ch ? (ch.scope ? '<span class="badge">' + esc(ch.scope) + '</span> ' : '') +
+        '<td>' + (ch ? (ch.scope ? '<span class="badge">' + esc(scopeLabel(ch.scope)) + '</span> ' : '') +
           '<span class="muted">' + esc(ch.what || '') + '</span>' : '<span class="muted">—</span>') + '</td>' +
         '</tr>';
     }).join('');
@@ -665,7 +682,7 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     all.classList.toggle('hidden', !list.length);
     $('#list').innerHTML = list.length
       ? (S.view === 'card' ? '<div class="cards">' + list.map(cardHtml).join('') + '</div>' : tableHtml())
-      : '<div class="empty">没有匹配的 Case —— 放宽筛选或清空搜索。</div>';
+      : '<div class="empty">没有匹配的用例 —— 放宽筛选或清空搜索。</div>';
   }
 
   // ── Selection Bar ──
@@ -687,6 +704,28 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     ['HISTORY', '运行历史', c.history.length],
     ['VERSION', '版本历史', c.changes.length]];
   const firstFail = (c) => c.vps.find((v) => v.status === 'FAIL' || v.status === 'ERROR') || null;
+  const isStructured = (value) => value !== null && typeof value === 'object';
+
+  function formatGivenValue(value, depth = 0) {
+    if (!isStructured(value)) return value == null ? 'null' : String(value);
+    const pad = '  '.repeat(depth);
+    if (Array.isArray(value)) {
+      if (!value.length) return pad + '[]';
+      return value.map((item) => isStructured(item)
+        ? pad + '-\n' + formatGivenValue(item, depth + 1)
+        : pad + '- ' + formatGivenValue(item, depth + 1)).join('\n');
+    }
+    const entries = Object.entries(value);
+    if (!entries.length) return pad + '{}';
+    return entries.map(([key, item]) => {
+      const label = pad + key;
+      return isStructured(item)
+        ? label + ':\n' + formatGivenValue(item, depth + 1)
+        : label + ': ' + formatGivenValue(item, depth + 1);
+    }).join('\n');
+  }
+
+  const givenValueHtml = (value) => '<div class="given-value">' + esc(formatGivenValue(value)) + '</div>';
 
   function specTab(c) {
     const g = c.given;
@@ -695,14 +734,14 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     Object.keys(g.balances || {}).forEach((u) => facts.push(esc(u) + ' 账上有 ' + esc(Number(g.balances[u])) + ' 元'));
     Object.keys(g.stock || {}).forEach((k) => facts.push(esc(k) + ' 还剩 ' + esc(Number(g.stock[k])) + ' ' +
       esc((g.stockUnits || {})[k] || '个')));
-    const none = !items.length && !facts.length && !c.given_prose;
+    const none = !items.length && !facts.length && !c.given_prose && !g.environment;
     return '<div class="blk lead-h"><h3><span class="no">1</span>Description · 业务描述</h3><p>' +
       esc(c.description || '未描述') + '</p></div>' +
       '<div class="blk"><h3><span class="no">2</span>Given · 前置条件</h3>' +
-        (items.length ? '<ul>' + items.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul>' : '') +
+        (items.length ? '<ul>' + items.map((x) => '<li>' + givenValueHtml(x) + '</li>').join('') + '</ul>' : '') +
         (facts.length ? '<ul>' + facts.map((x) => '<li>' + x + '</li>').join('') + '</ul>' : '') +
         (c.given_prose ? '<p class="muted">' + esc(c.given_prose) + '</p>' : '') +
-        (g.environment ? '<p class="muted">环境：' + esc(g.environment) + '</p>' : '') +
+        (g.environment ? '<p class="muted">环境：</p>' + givenValueHtml(g.environment) : '') +
         (none ? '<p class="muted">未描述</p>' : '') + '</div>' +
       '<div class="blk"><h3><span class="no">3</span>When · 执行动作</h3><p>' +
         esc(c.when_prose || c.when_struct || '未描述') + '</p>' +
@@ -711,12 +750,13 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
       '<div class="blk"><h3><span class="no">4</span>Then · 预期结果</h3>' +
         (c.then.length ? '<ul>' + c.then.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>'
           : '<p class="muted">未描述</p>') + '</div>' +
-      '<div class="blk"><h3><span class="no">5</span>Invariant · 不变性要求</h3>' +
-        (c.invariants.length ? c.invariants.map((iv) => '<p><b>' + esc(iv.id) + '</b> ' + esc(iv.description) +
-          (iv.expression ? ' <span class="mono muted">' + esc(iv.expression) + '</span>' : '') +
-          (iv.severity ? ' <span class="badge">' + esc(iv.severity) + '</span>' : '') +
-          (iv.verification_status ? ' <span class="badge">' + esc(iv.verification_status) + '</span>' : '') +
-          '</p>').join('') : '<p class="muted">无独立不变量对象</p>') + '</div>';
+      '<div class="blk"><h3><span class="no">5</span>Invariant · 约束规则</h3>' +
+        (c.invariants.length ? c.invariants.map((iv) => '<div class="invariant"><div><b>' + esc(iv.id) + '</b> ' + esc(iv.description) + '</div>' +
+          (iv.expression ? '<span class="expr mono muted">' + esc(iv.expression) + '</span>' : '') +
+          ((iv.severity || iv.verification_status) ? '<div class="meta">' +
+            (iv.severity ? '<span class="badge">' + esc(severityLabel(iv.severity)) + '</span>' : '') +
+            (iv.verification_status ? '<span class="badge">' + esc(statusLabel(iv.verification_status)) + '</span>' : '') +
+            '</div>' : '') + '</div>').join('') : '<p class="muted">无独立不变量对象</p>') + '</div>';
   }
   function verifyTab(c) {
     const ff = firstFail(c);
@@ -730,7 +770,7 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
           : (v.status ? '<span class="vd na">' + esc(v.status) + '</span>' : '');
       return '<div class="vp' + (v.status === 'FAIL' || v.status === 'ERROR' ? ' fail' : '') + '">' +
         '<div class="vh"><span class="vid">' + esc(v.id) + '</span><span class="vn">' + esc(v.name) + '</span>' +
-        (v.severity ? '<span class="badge">' + esc(v.severity) + '</span>' : '') +
+        (v.severity ? '<span class="badge">' + esc(severityLabel(v.severity)) + '</span>' : '') +
         (ff && ff.id === v.id ? '<span class="first-fail">首失败</span>' : '') + st + '</div>' +
         '<dl class="qa">' +
           '<dt>看什么</dt><dd>' + esc(v.name) + '</dd>' +
@@ -744,14 +784,14 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
         (v.example ? '<details class="q"><summary>示例查询</summary><div class="sql">' + esc(v.example) +
           '</div></details>' : '') + '</div>';
     }).join('');
-    return head + (vps || '<div class="blk"><p class="muted">该 Case 没有验证点。</p></div>');
+    return head + (vps || '<div class="blk"><p class="muted">该用例没有验证点。</p></div>');
   }
   function execTab(c) {
     const rows = [
-      ['Case 类型', c.type ? esc(c.type) + (TYPE_CN[c.type] ? ' · ' + TYPE_CN[c.type] : '') : null],
-      ['验证等级', c.level ? esc(c.level) + (LV_CN[c.level] ? ' · ' + LV_CN[c.level] : '') : null],
+      ['用例类型', c.type ? esc(c.type) + (TYPE_CN[c.type] ? ' · ' + TYPE_CN[c.type] : '') : null],
+      ['验证等级', c.level ? esc(levelLabel(c.level)) : null],
       ['优先级', c.priority ? priBadge(c.priority) : null],
-      ['执行环境', c.run && c.run.environment ? esc(c.run.environment) : (c.given.environment ? esc(c.given.environment) : null)],
+      ['执行环境', c.run && c.run.environment ? givenValueHtml(c.run.environment) : (c.given.environment ? givenValueHtml(c.given.environment) : null)],
     ].filter((r) => r[1]);
     let h = '<div class="blk"><h3>执行相关</h3>' + (rows.length
       ? '<dl class="meta-grid">' + rows.map((r) => '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>').join('') + '</dl>'
@@ -763,7 +803,7 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
         (d.mock_behavior ? '<br><span class="muted">Mock：' + esc(d.mock_behavior) + '</span>' : '') + '</p>').join('');
     }
     if (c.tests.length) {
-      h += '<h4>测试（机器可执行实现，Case 一对多）</h4>' + c.tests.map((t) => '<p><b>' + esc(t.id) + '</b> ' +
+      h += '<h4>测试（机器可执行实现，用例一对多）</h4>' + c.tests.map((t) => '<p><b>' + esc(t.id) + '</b> ' +
         '<span class="badge">' + esc(t.type) + '</span> <span class="badge" style="' +
         (t.status === 'EXPECTED_RED' ? 'color:var(--warn);border-color:var(--warn)'
           : t.status === 'GREEN' || t.status === 'PASS' ? 'color:var(--ok);border-color:var(--ok)' : '') + '">' +
@@ -805,12 +845,12 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     const tl = c.changes.slice().reverse().map((ch, i) => '<li class="' + (i === 0 ? 'cur' : '') + '">' +
       '<span class="v">v' + esc(ch.v) + '</span><span class="w">' + esc(ch.when) + '</span>' +
       (ch.by ? '<span class="muted">' + esc(ch.by) + '</span> ' : '') +
-      (ch.scope ? '<span class="badge">' + esc(ch.scope) + '</span> ' : '') + esc(ch.what) + '</li>').join('');
+      (ch.scope ? '<span class="badge">' + esc(scopeLabel(ch.scope)) + '</span> ' : '') + esc(ch.what) + '</li>').join('');
     return '<div class="blk"><h3>版本历史</h3><p class="muted">当前版本 v' + esc(c.version) + ' · 创建 ' +
       esc(c.created || '—') + ' ' + esc(c.createdBy) + '</p>' +
       (tl ? '<ul class="tl">' + tl + '</ul>' : '<p class="muted">无变更记录</p>') + '</div>' +
-      (c.lifecycle === 'FROZEN' ? '<div class="blk warn-h"><h3>🔒 Frozen 保护规则</h3><p>当前 Case 处于 FROZEN 状态。' +
-        'Then / Invariant / Verification Point 是人工确认过的业务标准，AI 不得静默覆盖。<br>' +
+      (c.lifecycle === 'FROZEN' ? '<div class="blk warn-h"><h3>🔒 已冻结保护规则</h3><p>当前用例处于已冻结状态。' +
+        '预期结果、约束规则、验证点是人工确认过的业务标准，AI 不得静默覆盖。<br>' +
         '如需修改：<b>创建新版本 → 修改 → 重新进入人工确认 → 再次冻结</b>。</p></div>' : '');
   }
 
@@ -836,19 +876,19 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     el.innerHTML =
       '<div class="dhead"><div class="r1"><span class="cid">' + esc(c.id) + '</span>' + lcChip(c) + hlChip(c) +
         '<span class="badge">v' + esc(c.version) + '</span>' + priBadge(c.priority) +
-        '<span class="badge" title="' + esc(LV_CN[c.level] || '') + '">' + esc(c.level || '—') + '</span>' +
+        '<span class="badge" title="' + esc(LV_CN[c.level] || '') + '">' + esc(levelLabel(c.level || '—')) + '</span>' +
         '<span class="dnav"><button data-act="prev" title="上一个（筛选结果内）">‹</button>' +
         '<button data-act="next" title="下一个">›</button><button data-act="closeDrawer" title="关闭">✕</button></span></div>' +
       '<h2>' + esc(c.name) + '</h2><p class="ddesc">' + esc(c.description) + '</p>' +
       '<div class="ctags">' + tagChips(c.tags) + '</div>' +
       '<div class="dmeta"><span>业务分类 ' + esc(c.business) + '</span><span>创建 ' + esc(c.created || '—') + '</span>' +
-        '<span>最近关键标准修改 ' + fmtRel(c.updated) + (last ? '（' + esc(last.scope || '变更') + '）' : '') + '</span>' +
+        '<span>最近关键标准修改 ' + fmtRel(c.updated) + (last ? '（' + esc(last.scope ? scopeLabel(last.scope) : '变更') + '）' : '') + '</span>' +
         (c.updatedBy ? '<span>修改者 ' + esc(c.updatedBy) + '</span>' : '') +
         '<span>筛选结果内 ' + (idx >= 0 ? idx + 1 : '—') + '/' + list.length + '</span></div>' +
       '<div class="dactions">' +
         '<button class="btn" data-act="noteAdd" data-id="' + c.id + '">加入便签</button>' +
         '<button class="btn" data-act="composeVerify" data-id="' + c.id + '">生成验证指令</button>' +
-        '<button class="btn pri" data-act="composeModify" data-id="' + c.id + '">让 Agent 修改</button>' +
+        '<button class="btn pri" data-act="composeModify" data-id="' + c.id + '">让 Agent 修改用例</button>' +
         '<span class="vd ' + v.cls + '" title="' + esc(v.title) + '">最近判定 ' + v.text + '</span></div></div>' +
       '<div class="tabs">' + tabsOf(c).map(([k, label, n]) => '<button class="' + (S.tab === k ? 'on' : '') +
         '" data-tab="' + k + '">' + label + '<span>' + n + '</span></button>').join('') + '</div>' +
@@ -972,20 +1012,20 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
         '<div class="r2"><span>' + fmtRel(n.updated_at) + '</span><span class="ops">' +
           '<button data-act="noteEdit" data-nid="' + n.id + '">编辑</button>' +
           '<button data-act="noteDel" data-nid="' + n.id + '">删除</button></span></div></div>').join('')
-        : '<div class="empty">还没有便签。<br>浏览 Case 时点「加入便签」，或直接记一条不关联 Case 的想法。</div>') +
+        : '<div class="empty">还没有便签。<br>浏览用例时点「加入便签」，或直接记一条不关联用例的想法。</div>') +
       '</div>' +
       '<div class="nfoot"><span>已选 ' + S.noteSel.size + ' 条</span><span class="ops">' +
         '<button class="btn" data-act="noteNewFree">+ 自由便签</button>' +
         '<button class="btn pri" data-act="notesCompose"' + (S.noteSel.size ? '' : ' disabled') +
         '>生成 Agent 指令</button></span></div>' +
-      '<div class="sidehint">⚠ 临时便签仅保存在当前浏览器（IndexedDB），不会修改任何 Case 文件。</div>';
+      '<div class="sidehint">⚠ 临时便签仅保存在当前浏览器（IndexedDB），不会修改任何用例文件。</div>';
   }
 
   // ── Prompt 生成（§8 / §9 / §12：初稿可编辑 → 复制） ──
   function modifyPrompt(ids, scopes, requirement) {
     const cases = ids.map((id) => BY_ID.get(id)).filter(Boolean);
     const frozen = cases.filter((c) => c.lifecycle === 'FROZEN' && scopes.some((s) => SCOPE_FROZEN.indexOf(s) >= 0));
-    const lines = ['# 请处理以下 Case 的修改', ''];
+    const lines = ['# 请处理以下用例的修改', ''];
     cases.forEach((c, i) => {
       lines.push('## ' + (i + 1) + '. ' + c.id + ' ' + c.name);
       lines.push('- 修改范围：' + (scopes.length ? scopes.join('、') : '（未指定，请先向用户确认）'));
@@ -1003,42 +1043,42 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
       lines.push('');
     }
     lines.push('## 通用要求');
-    lines.push('1. 只改指定 Case 的指定范围，不动其它业务标准。');
+    lines.push('1. 只改指定用例的指定范围，不动其它业务标准。');
     lines.push('2. 期望值（金标）只能由需求方定义/确认，不得从实现输出反推。');
     lines.push('3. 不得为了让测试转绿而修改期望值：改实现，不改标准。');
     lines.push('4. 修改后同步 cases 文件的 changes（v / when / what / scope）。');
-    lines.push('5. 完成后回报每个 Case 的变更摘要与影响面。');
+    lines.push('5. 完成后回报每个用例的变更摘要与影响面。');
     return lines.join('\n');
   }
   function verifyPrompt(ids, o) {
     const cases = ids.map((id) => BY_ID.get(id)).filter(Boolean);
-    const lines = ['# 请执行以下 Case 的批量验证', '', '用例清单（' + cases.length + '）：'];
+    const lines = ['# 请执行以下用例的批量验证', '', '用例清单（' + cases.length + '）：'];
     cases.forEach((c) => lines.push('- ' + c.id + ' ' + c.name + '（' + (c.level || '默认等级') + ' · ' +
       c.business + ' · ' + c.vps.length + ' 个验证点）'));
     lines.push('', '要求：');
-    lines.push('1. 按各 Case 的 Given / When 搭建验证环境；观察点见对应 Verification Point（看什么 / 去哪里看 / 怎么判断 / Expected）。');
+    lines.push('1. 按各用例的 Given / When 搭建验证环境；观察点见对应 Verification Point（看什么 / 去哪里看 / 怎么判断 / Expected）。');
     lines.push('2. 验证范围：' + (o.scope.join('、') || '全部'));
-    lines.push(o.l12 ? '3. 仅执行本地验证（L1 + L2），不申请真实外部依赖。' : '3. 按各 Case 的 Verification Level 执行。');
-    lines.push(o.real ? '4. 包含真实依赖执行；需要 Key 时只引用环境变量，不把密钥写进文件或 Case 数据。'
+    lines.push(o.l12 ? '3. 仅执行本地验证（L1 + L2），不申请真实外部依赖。' : '3. 按各用例的 Verification Level 执行。');
+    lines.push(o.real ? '4. 包含真实依赖执行；需要 Key 时只引用环境变量，不把密钥写进文件或用例数据。'
       : '4. 缺少真实依赖时使用 MOCK / FAKE，并在报告中标注哪些验证点因此降级。');
-    lines.push('5. ' + (o.keepGoing ? '某个 Case 失败后继续执行其它 Case。' : '遇失败即停止，先报告首个失败。'));
-    if (o.firstFail) lines.push('6. 每个 Case 返回第一个失败的 Verification Point，作为 Debug 入口。');
+    lines.push('5. ' + (o.keepGoing ? '某个用例失败后继续执行其它用例。' : '遇失败即停止，先报告首个失败。'));
+    if (o.firstFail) lines.push('6. 每个用例返回第一个失败的 Verification Point，作为 Debug 入口。');
     if (o.expActual) lines.push('7. 输出 Expected / Actual 对照（含实际取值与差异）。');
     lines.push('8. 测试名携带锚点（如 CASE-003:checkpoint_c_total），便于报告按 CASE 聚合。');
-    lines.push('9. 不得修改 Case 文件里的期望值（金标）；若发现期望可疑，单独提出由需求方裁决。');
+    lines.push('9. 不得修改用例文件里的期望值（金标）；若发现期望可疑，单独提出由需求方裁决。');
     return lines.join('\n');
   }
   function notesPrompt(notes) {
-    const lines = ['# 请处理以下 Case 的修改', '', '（来源：Review 便签，共 ' + notes.length + ' 条）', ''];
+    const lines = ['# 请处理以下用例的修改', '', '（来源：Review 便签，共 ' + notes.length + ' 条）', ''];
     notes.forEach((n, i) => {
-      lines.push('## ' + (i + 1) + '. ' + (n.case_id ? n.case_id + ' ' + n.case_name : '不关联具体 Case（自由记录）'));
+      lines.push('## ' + (i + 1) + '. ' + (n.case_id ? n.case_id + ' ' + n.case_name : '不关联具体用例（自由记录）'));
       if (n.scope.length) lines.push('- 修改范围：' + n.scope.join('、'));
       lines.push('- 要求：', '  ' + n.content.replace(/\n/g, '\n  '), '');
     });
     lines.push('## 通用要求');
-    lines.push('1. 分别定位到对应 Case；不修改无关的业务标准。');
-    lines.push('2. 涉及 Frozen Case 的核心标准（Then / Invariant / Verification Point）修改，请创建新版本并进入人工确认流程。');
-    lines.push('3. 完成后汇总每个 Case 的变更。');
+    lines.push('1. 分别定位到对应用例；不修改无关的业务标准。');
+    lines.push('2. 涉及已冻结用例的核心标准（Then / Invariant / Verification Point）修改，请创建新版本并进入人工确认流程。');
+    lines.push('3. 完成后汇总每个用例的变更。');
     return lines.join('\n');
   }
 
@@ -1068,7 +1108,7 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     const c = composer;
     const cases = c.ids.map((id) => BY_ID.get(id)).filter(Boolean);
     el.classList.remove('hidden');
-    const title = c.mode === 'modify' ? '让 Agent 修改 Case' : c.mode === 'verify' ? '生成验证指令' : '生成 Agent 指令（来自便签）';
+    const title = c.mode === 'modify' ? '让 Agent 修改用例' : c.mode === 'verify' ? '生成验证指令' : '生成 Agent 指令（来自便签）';
     let body = '';
     if (c.mode === 'notes') {
       const notes = notesCache.filter((n) => S.noteSel.has(n.id));
@@ -1093,7 +1133,7 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
           esc(c.requirement) + '</textarea><div class="count" id="mcount">' + c.requirement.length + '/500</div>';
       } else {
         body += '<h4>验证选项</h4><div class="opts">' +
-          [['l12', '仅本地验证 L1 + L2'], ['real', '包含真实依赖执行'], ['keepGoing', '失败后继续执行其它 Case'],
+          [['l12', '仅本地验证 L1 + L2'], ['real', '包含真实依赖执行'], ['keepGoing', '失败后继续执行其它用例'],
             ['firstFail', '返回首个失败 Verification Point'], ['expActual', '输出 Expected / Actual 对照']]
             .map(([k, l]) => '<label><input type="checkbox" data-vopt="' + k + '"' + (c.v[k] ? ' checked' : '') +
               '>' + l + '</label>').join('') + '</div>' +
@@ -1148,8 +1188,8 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
     el._note = n;
     el.innerHTML = '<div class="mcard narrow"><div class="mhead2"><h3>' + (note ? '编辑便签' : '加入便签') +
       '</h3><button class="x" data-act="noteCancel">✕</button></div><div class="mbody">' +
-      '<h4>关联 Case</h4><select class="sel" id="ncase" style="width:100%">' +
-        '<option value="">不关联具体 Case（自由便签）</option>' +
+      '<h4>关联用例</h4><select class="sel" id="ncase" style="width:100%">' +
+        '<option value="">不关联具体用例（自由便签）</option>' +
         CASES.map((c) => '<option value="' + c.id + '"' + (n.case_id === c.id ? ' selected' : '') + '>' + c.id + ' ' +
           esc(c.name) + '</option>').join('') + '</select>' +
       '<h4>修改范围（可选）</h4><div class="chipset">' + SCOPE_ALL.map((s) =>
@@ -1157,7 +1197,7 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
         '</button>').join('') + '</div>' +
       '<h4>便签内容</h4><textarea id="ncontent" rows="5" placeholder="例如：Then 里的余额验证应该使用 delta，不应该写死 80。同时检查库存是否正确减少。">' +
       esc(n.content) + '</textarea><div class="count" id="ncount">' + n.content.length + '/1000</div>' +
-      '<p class="side-note">仅存本浏览器（IndexedDB），不会修改 Case 文件。</p></div>' +
+      '<p class="side-note">仅存本浏览器（IndexedDB），不会修改用例文件。</p></div>' +
       '<div class="mfoot"><span class="hint"></span><button class="btn" data-act="noteCancel">取消</button>' +
       '<button class="btn pri" data-act="noteSave">保存便签</button></div></div>';
     $('#ncontent').addEventListener('input', (e) => {

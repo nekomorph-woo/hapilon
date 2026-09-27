@@ -301,9 +301,9 @@ function buildModel(list) {
         stock: given.stock ?? {},
         stockUnits: Object.fromEntries(Object.entries(units)
           .filter(([k]) => k.startsWith('stock_')).map(([k, v]) => [k.slice(6), v])),
-        inputs: Array.isArray(given.inputs) ? given.inputs.map((x) => s(x)) : [],
-        preconditions: Array.isArray(given.preconditions) ? given.preconditions.map((x) => s(x)) : [],
-        environment: s(given.environment, s(c.environment)),
+        inputs: Array.isArray(given.inputs) ? given.inputs : [],
+        preconditions: Array.isArray(given.preconditions) ? given.preconditions : [],
+        environment: given.environment ?? c.environment ?? '',
       },
       given_prose: s(c.given_prose, givenProse(given, units)),
       units,

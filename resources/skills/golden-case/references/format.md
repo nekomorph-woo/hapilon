@@ -59,7 +59,7 @@ units and freeze-check can compare numerically.
 cases:
   - id: CASE-005                    # required, stable, CASE-\d{3}
     name: 支付重试幂等（同一支付单最多成功一次）
-    description: 支付重放事故的回归沉淀：无论重发几次，钱只扣一次、事件只发一条、钱守恒。
+    description: 支付重放事故的回归 case：无论重发几次，钱只扣一次、事件只发一条、钱守恒。
     business: 不变量                # 业务分类；缺 → narrative.group → 未分类
     tags: [payment, idempotence]    # optional; searched
     type: REGRESSION                # HAPPY_PATH | BOUNDARY | STATE | ERROR | CONCURRENCY | REGRESSION
@@ -69,7 +69,7 @@ cases:
     health: ACTIVE                   # ACTIVE | STALE | BROKEN | DEPRECATED
     version: 1                       # current case version; 1 at draft time, +1 per confirmed change
     changes:                         # change log, oldest first; newest entry drives「最近改动」
-      - {v: 1, when: 2026-09-17, what: 由支付重放双扣 bug 沉淀的回归 Case}
+      - {v: 1, when: 2026-09-17, what: 由支付重放双扣 bug 转成的回归 Case}
       # optional per entry: scope: Then | given | VP … , by: <who>
     created: 2026-09-17              # optional; ordering fallback for log-less cases
     given:                           # world state before the action (domain-owned)
@@ -116,7 +116,7 @@ cases:
       results:
         - {vp_id: VP-001, source: charge_count_P5, expected: 1, actual: 2, status: FAIL, message: ""}
     narrative:                       # plain-language metadata; feeds the review view
-      scene: 支付重放事故的回归沉淀：钱只扣一次。
+      scene: 支付重放事故的回归：钱只扣一次。
       when: erin 用同一支付单 P5 重放两次下单。
       where:                         # observation-point name → plain-language label
         charge_count_P5: 扣款次数

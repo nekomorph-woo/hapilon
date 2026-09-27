@@ -190,11 +190,11 @@ ${extra}`;
 
 function page(title, css, body, hint, extraJs = '') {
   return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Case 审阅</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>用例审阅</title>
 <style>
 ${css}</style></head><body><div class="page">
 <h1>${esc(title)}</h1>
-<div class="hint">${hint ?? '像读故事一样读。任何一行不对：点那行末尾的 ⚓，然后对 hapi 说「CASE-003:含税总价 应该是 xx」。'}</div>
+<div class="hint">${hint ?? '像读故事一样读。任何一行不对：点那行末尾的 ⚓，然后对 hapi 说「CASE-003:这条期望 应该是 xx」。'}</div>
 ${body}
 ${COPY_JS}
 ${extraJs ? extraJs + '\n' : ''}</div></body></html>`;
@@ -250,7 +250,7 @@ function renderWorkbench(model, title, runs) {
       `<tr><td>${esc(r.label)}</td><td>${shownValue(r)}${anchorBtn(m.id, r.key)}</td></tr>${badCallout(r)}`).join('');
     const run = caseRun(m, runs);
     const verdict = !run ? '' : !run.ran
-      ? '<p class="verdict"><span class="chip na">未跑</span>最近一次运行没有这个 case 的记录</p>'
+      ? '<p class="verdict"><span class="chip na">未跑</span>最近一次运行没有这个用例的记录</p>'
       : run.fail.length
         ? `<p class="verdict"><span class="chip no">✗ ${run.fail.length} 项不符</span>与期望不符：${run.fail.map(esc).join('、')}</p>`
         : `<p class="verdict"><span class="chip ok">✓ ${run.ok} 项全过</span>最近一次运行全部符合期望</p>`;
@@ -306,11 +306,11 @@ document.querySelectorAll('.item').forEach(b=>b.classList.toggle('on',b.dataset.
   const body = `<div class="wb"><aside>
 <div class="caselist">${items}</div>
 <div class="cover"><h3>覆盖面板</h3>${covRows}
-<div class="covsum"><span>不变量 case <b>${groups.get('不变量').length}</b></span><span>可疑 case <b class="${suspicious ? 'hot' : ''}">${suspicious}</b></span></div>
+<div class="covsum"><span>不变量用例 <b>${groups.get('不变量').length}</b></span><span>可疑用例 <b class="${suspicious ? 'hot' : ''}">${suspicious}</b></span></div>
 </div></aside>
 <main>${panels}</main></div>`;
   return page(title, pageCss(extra), body,
-    '左栏选案，右栏读完整档案；左下覆盖面板回答「全不全」。哪行不对：点 ⚓ 复制锚点，对 hapi 说「CASE-003:含税总价 应该是 xx」。', js);
+    '左栏选案，右栏读完整档案；左下覆盖面板回答「全不全」。哪行不对：点 ⚓ 复制锚点，对 hapi 说「CASE-003:这条期望 应该是 xx」。', js);
 }
 
 // ── style 3：ledger 审计对照稿 —— 回答「最近跑得怎样」──
@@ -452,7 +452,7 @@ function renderIndex(model, title, runs) {
   const rows = model.map((m) =>
     `<a class="row${m === model[0] ? ' on' : ''}" data-c="${m.id}" href="#case-${m.id}" onclick="showCase('${m.id}',event)" title="${m.id} ${m.name}"><span class="no">${m.id}</span><span class="nm">${m.name}</span>${statusChip(m)}${verdictCell(m)}</a>`).join('');
   const when = runs?._meta?.captured ? `<span class="when">最近运行 ${esc(String(runs._meta.captured))}</span>` : '';
-  const overview = `<div class="overview"><span class="kv"><b>${model.length - frozen}</b>在办</span><span class="kv"><b>${frozen}</b>已封</span><span class="kv"><b class="${suspicious ? 'hot' : ''}">${suspicious}</b>可疑</span>${when}</div>`;
+  const overview = `<div class="overview"><span class="kv">在办 <b>${model.length - frozen}</b></span><span class="kv">已封 <b>${frozen}</b></span><span class="kv">可疑 <b class="${suspicious ? 'hot' : ''}">${suspicious}</b></span>${when}</div>`;
   const details = model.map((m) =>
     `<div class="detail${m === model[0] ? ' on' : ''}" id="case-${m.id}">${dossierCard(m, runs)}</div>`).join('');
   const extra = `:root{--serif:ui-serif,Georgia,'Songti SC','SimSun',serif}
@@ -515,7 +515,7 @@ document.querySelectorAll('.detail').forEach(p=>p.classList.toggle('on',p.id==='
 document.querySelectorAll('.row').forEach(r=>r.classList.toggle('on',r.dataset.c===id));}</script>`;
   const body = `${overview}<div class="grid"><nav class="index">${ihead}${rows}</nav><div class="focus">${details}</div></div>`;
   return page(title, pageCss(extra), body,
-    '索引一行一案，点行在右侧展开案卷（窄屏自动改为跳到对应案卷）。哪行期望不对：点行内 ⚓ 复制锚点，对 hapi 说「CASE-003:含税总价 应该是 xx」。', js);
+    '索引一行一案，点行在右侧展开案卷（窄屏自动改为跳到对应案卷）。哪行期望不对：点行内 ⚓ 复制锚点，对 hapi 说「CASE-003:这条期望 应该是 xx」。', js);
 }
 
 // ── style 6：manager 案管工作台 —— v4 默认推荐（紧凑管理工作台，「case 管理」的感觉）──
@@ -556,7 +556,7 @@ ${labelOf(m)}
 <span class="cell-id"><span class="cid">${m.id}</span><span class="nm">${m.name}</span></span>
 ${changeCell(m)}
 ${verdictCell(m)}
-<button class="anchor" onclick="event.stopPropagation();copyAnchor('${m.id}')" title="复制案号，对 hapi 说出这个 case 的问题">⚓</button>
+<button class="anchor" onclick="event.stopPropagation();copyAnchor('${m.id}')" title="复制案号，对 hapi 说出这个用例的问题">⚓</button>
 </div>
 <div class="detail" id="d-${m.id}">${dossierCard(m, runs)}</div>`;
   const groupHtml = ([g, ms]) => {
@@ -572,7 +572,7 @@ ${ms.map(rowHtml).join('')}</section>`;
   const recent = newest
     ? `<span class="recent">最近改动 <span class="vb">v${esc(newest.version ?? '')}</span> ${newest.id} ${esc(newest.changes.at(-1).what ?? '')} <span class="chgd">${esc(lastWhen(newest))}</span></span>`
     : '';
-  const overview = `<div class="overview"><span class="kv"><b>${model.length - frozen}</b>在办</span><span class="kv"><b>${frozen}</b>已封</span><span class="kv"><b class="${suspicious ? 'hot' : ''}">${suspicious}</b>可疑</span>${recent}</div>`;
+  const overview = `<div class="overview"><span class="kv">在办 <b>${model.length - frozen}</b></span><span class="kv">已封 <b>${frozen}</b></span><span class="kv">可疑 <b class="${suspicious ? 'hot' : ''}">${suspicious}</b></span>${recent}</div>`;
   const extra = `/* manager 语义色 label：与品牌强调色分离，深浅色各自成套 */
 :root{--gold:#7e5c10;--gold-soft:#f0e7cf;--slate:#4f5f6e;--slate-soft:#e6ebef;--ok:#2e7c4d}
 @media(prefers-color-scheme:dark){:root{--gold:#d2ad67;--gold-soft:#2b2312;--slate:#9db0c0;--slate-soft:#212932;--ok:#83c99e}}
@@ -632,13 +632,13 @@ if(!open){det.classList.add('on');document.querySelector('.row[data-c="'+id+'"]'
   const body = `<div class="mgr">${overview}${shown.map(groupHtml).join('')}</div>`;
   return page(title, pageCss(`${DOSSIER_CSS}
 ${extra}`), body,
-    '一行一案，点行展开案卷与变更记录，再点收起。哪行期望不对：点 ⚓ 复制，对 hapi 说「CASE-003:含税总价 应该是 xx」。', js);
+    '一行一案，点行展开案卷与变更记录，再点收起。哪行期望不对：点 ⚓ 复制，对 hapi 说「CASE-003:这条期望 应该是 xx」。', js);
 }
 
 // ── main ──
 const casesPath = arg('cases');
 const frozenPath = arg('frozen');
-const title = arg('title', 'Case 审阅');
+const title = arg('title', '用例审阅');
 const outPath = arg('out');
 const style = arg('style') ?? arg('layout', 'manager');
 const runsPath = arg('runs');
