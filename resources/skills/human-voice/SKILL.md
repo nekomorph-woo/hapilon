@@ -1,6 +1,6 @@
 ---
 name: human-voice
-description: Anti-slop writing discipline for user-facing Chinese and English output — plans, design docs, decision notes, READMEs, code comments, and naming (categories, tags, modules, domain terms). Use when writing any of those, when the user calls output "AI 味" / "AI slop", or for auditing or rewriting existing text (audit / rewrite verbs).
+description: MANDATORY before any user-facing output ships — no reply, status update, document, or name goes back without a gates pass, trivial ones included. Covers chat replies, plans, design docs, decision notes, READMEs, code comments, commit messages, and naming (categories, tags, modules, domain terms). Also use when the user calls output "AI 味" / "AI slop", or for auditing or rewriting existing text (audit / rewrite verbs).
 ---
 
 # Human voice
@@ -9,11 +9,13 @@ Write text a busy teammate would actually read. AI 味 is not a style preference
 
 The rules here came from a 2026-09 four-source survey (arXiv vocabulary-shift studies, the Wikipedia editors' field guides, GitLab/Microsoft/Google style guides, and the X community). Every rule is testable: forbidden pattern + bad → good pair. No rule says "be natural" — that is not executable.
 
+Scope and the only exemption: every user-facing output, replies and status updates included — no short-output or internal-communication exemption, and no role exempts itself. The only exemption: the user explicitly asks for output that ignores writing_style / human-voice. Default scope is that single output; a user-named duration (n outputs, this session, every pane) holds until it expires, then the rules return on their own.
+
 ## Verbs
 
 | Invocation | What it does |
 | --- | --- |
-| *(default)* | Write with the rules below. Before handing back any document or name, run the [gates](references/gates.md) once. |
+| *(default)* | Write with the rules below. Before handing back any reply, document, or name, run the [gates](references/gates.md) once. |
 | `human-voice audit <text or file>` | Read-only. Sweep the gates, report each hit with the quoted line, the violated gate, and a suggested fix. End with a 0-10 score. |
 | `human-voice rewrite <text or file>` | Audit first, then rewrite per the findings. Show before → after for every changed passage; keep the facts and judgments, change only the expression. |
 
@@ -36,8 +38,7 @@ Reader and voice: the reader is a teammate mid-task. Test every sentence — wou
 8. Comments and doc prose answer why, never restate what the code does.
 
 Buzzword blocklist (one hit is a note, not a verdict; two hits in one piece, or
-stacked with sentence/structure tells, is a violation. Exempt: quotes, code,
-bad→good examples, real domain terms. The list drifts over time — prune it so it
+stacked with sentence/structure tells, is a violation. Boundary: what is checked is your own statement — quotes, code, bad→good examples, and real domain terms sit outside the check. The list drifts over time — prune it so it
 doesn't become the new AI tell): 赋能、抓手、闭环、沉淀、打通、拉齐、链路、颗粒度、心智、底层逻辑、打法、范式、值得注意的是、不仅……更是……、总而言之、说实话、不得不说、有一说一.
 
 ## Rules (English)
@@ -59,5 +60,5 @@ Same bar, English tells:
 - Say-it-out-loud test: if you wouldn't say the term to a colleague, rename it.
 - One concept, one word. No self-invented compounds (中英混拼, verb-object pastes) — unpack them.
 - Bare English abbreviations in Chinese sentences: say it in Chinese, or give a Chinese name on first use. Engineers say these out loud, so the say-it-out-loud test passes them wrongly — use the week-later reader test: understandable with no explanation?
-- Session-grown code names and internal shorthand are fine mid-conversation but poison deliverables: on first use in a document, expand once for the reader who lacks the context.
+- Session-grown code names and internal shorthand hold only while every reader present has the context; any deliverable expands them once on first use.
 - Before creating a category or tag, reuse what exists; a tag attached to only one item is a drafting failure, not a category.
