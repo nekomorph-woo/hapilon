@@ -217,15 +217,17 @@ export function buildTeamRoleSection(key) {
 export const MISSING_ROLE_SECTION = `<team mode="unknown">
 This panel's team role definition is missing. Ask the user to re-create the role or run /team.
 </team>`;
-/** 自愈指令：主 agent 把 /team:open <key> 打进自己的输入框就能开/救活对应角色面板。 */
+/** 自愈指令：主 agent 把 /team:open <key> 用 pane run 一次打进自己的输入框就能开/救活对应角色面板。 */
 function selfOpenLine(key) {
-    return `- ${key} not open — send \`/team:open ${key}\` to your own pane, wait for it in the crew table, then dispatch.`;
+    return `- ${key} not open — \`herdr pane run "$HERDR_PANE_ID" "/team:open ${key}"\` (text + Enter in one call;
+  a send-text + send-keys enter lands too fast and gets dropped), wait for it in the crew table, then dispatch.`;
 }
 /** reviewer 缺席时的唯一定义：crew 行与无 reviewer 兜底行共用，避免两处文案漂移。 */
 const REVIEWER_NOT_OPEN_LINE = "- reviewer not open — pick the tier from the table above: docs/comments/"
     + "strings or ≤3 lines with no behavior change → no review; one file, ≤~50 lines, nothing"
-    + " concurrent/security/persistent → open it (send `/team:open reviewer` to your own pane, wait for"
-    + " it in the crew table) and dispatch 简审; multi-file, behavior change, or you are unsure →"
+    + " concurrent/security/persistent → open it (`herdr pane run \"$HERDR_PANE_ID\" \"/team:open reviewer\"` —"
+    + " one call, text + enter; send-text + send-keys gets dropped), wait for it in the crew table,"
+    + " and dispatch 简审; multi-file, behavior change, or you are unsure →"
     + " 深审. Never skip review for a non-trivial change.";
 function crewLine(key, paneId) {
     if (key === "worker" && paneId !== "not open")
