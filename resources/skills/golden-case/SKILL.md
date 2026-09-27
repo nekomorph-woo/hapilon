@@ -105,7 +105,16 @@ set first and reuse them — a synonym for a category that exists (「付款」 
 is only for a genuinely new capability area, and when you show the draft you say
 so out loud — "created the category / tag X" is the user's call, not yours.
 
-Run the four-eye self-check on every draft before showing it:
+Tag naming — a tag that only one case uses is a drafting failure, not a category:
+- A tag is a reusable capability area a teammate would say out loud in a work
+  conversation (「输入校验」「容错降级」). This case's storyline keywords
+  (「绝望线」「硬拦截」) belong in the description, never in tags.
+- Field names, enum values and verdict words (BD2_RESULT, null语义, 静默降级)
+  never become tags.
+- Case prose follows the same bar: write the way a teammate talks about the
+  feature; if a name would never be said out loud, rename it.
+
+Run the self-check on every draft before showing it:
 
 - **Decidable** — every `expect` value passes law 5.
 - **Three questions** — each observation point answers 看什么 / 去哪看 / 看到什么算对.
@@ -114,6 +123,9 @@ Run the four-eye self-check on every draft before showing it:
   uncovered category is a coverage hole, not a passing grade.
 - **Invariants present** — a case that can only break a shared property
   (`balance >= 0`, idempotent charge) must carry that `invariant`.
+- **Tag reuse** — every tag attaches to at least two cases; a single-case tag
+  is a drafting failure: merge it or demote it to the description before
+  showing the draft.
 
 Seed a regression case from a real bug: reproduce the bug, then write the case
 that would have caught it (invariant + the concrete observation points), and

@@ -28,6 +28,7 @@ describe("metadata", () => {
       commitDiscipline: 0,
       roleCommitBoundary: 0,
       workflow: 0,
+      writingStyle: 0,
       hapilonInstructions: 0,
       hapilonRules: 800,
       contextFiles: 0,

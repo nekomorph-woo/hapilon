@@ -30,6 +30,7 @@ import {
   COMMIT_DISCIPLINE_TEXT,
   ROLE_COMMIT_BOUNDARY_TEXT,
   WORKFLOW_TEXT,
+  WRITING_STYLE_TEXT,
 } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
@@ -155,6 +156,11 @@ export function buildRoleCommitBoundarySection(): string {
 export function buildWorkflowSection(): string {
   // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
   return `<workflow>\n${WORKFLOW_TEXT}\n</workflow>`;
+}
+
+export function buildWritingStyleSection(): string {
+  // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
+  return `<writing_style>\n${WRITING_STYLE_TEXT}\n</writing_style>`;
 }
 
 export function buildPiDocSection(): string {
@@ -316,6 +322,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   const commitDisciplineSection = buildCommitDisciplineSection();
   const roleCommitBoundarySection = buildRoleCommitBoundarySection();
   const workflowSection = buildWorkflowSection();
+  const writingStyleSection = buildWritingStyleSection();
   const piDocSection = buildPiDocSection();
   const hapilonInstructions = buildHapilonInstructions(hapilonMd);
   const hapilonRulesSection = buildHapilonRules(hapilonRules);
@@ -339,6 +346,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
       commitDiscipline: commitDisciplineSection.length,
       roleCommitBoundary: roleCommitBoundarySection.length,
       workflow: workflowSection.length,
+      writingStyle: writingStyleSection.length,
       hapilonInstructions: hapilonInstructions.length,
       hapilonRules: hapilonRulesSection.length,
       contextFiles: contextFilesSection.length,
@@ -361,6 +369,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     commitDisciplineSection,
     roleCommitBoundarySection,
     workflowSection,
+    writingStyleSection,
     piDocSection,
     hapilonInstructions,
     hapilonRulesSection,

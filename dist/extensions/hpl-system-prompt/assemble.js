@@ -13,7 +13,7 @@
 import { collectUpward, readHapilonMd, readRules, } from "../../shared/files.js";
 import { xmlEscape } from "../../shared/format.js";
 import { wrapSystemPrompt } from "./xml.js";
-import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildMcpSectionText, BUILTIN_GUIDELINES, CODE_STYLE_TEXT, COMMIT_DISCIPLINE_TEXT, ROLE_COMMIT_BOUNDARY_TEXT, WORKFLOW_TEXT, } from "./sections.js";
+import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildMcpSectionText, BUILTIN_GUIDELINES, CODE_STYLE_TEXT, COMMIT_DISCIPLINE_TEXT, ROLE_COMMIT_BOUNDARY_TEXT, WORKFLOW_TEXT, WRITING_STYLE_TEXT, } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
 import { hapilonHome } from "../../config/hapilon-home.js";
@@ -90,6 +90,10 @@ export function buildRoleCommitBoundarySection() {
 export function buildWorkflowSection() {
     // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
     return `<workflow>\n${WORKFLOW_TEXT}\n</workflow>`;
+}
+export function buildWritingStyleSection() {
+    // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
+    return `<writing_style>\n${WRITING_STYLE_TEXT}\n</writing_style>`;
 }
 export function buildPiDocSection() {
     return `<pi_documentation>\n${buildPiDocText()}\n</pi_documentation>`;
@@ -211,6 +215,7 @@ export function assembleSystemPrompt(opts) {
     const commitDisciplineSection = buildCommitDisciplineSection();
     const roleCommitBoundarySection = buildRoleCommitBoundarySection();
     const workflowSection = buildWorkflowSection();
+    const writingStyleSection = buildWritingStyleSection();
     const piDocSection = buildPiDocSection();
     const hapilonInstructions = buildHapilonInstructions(hapilonMd);
     const hapilonRulesSection = buildHapilonRules(hapilonRules);
@@ -233,6 +238,7 @@ export function assembleSystemPrompt(opts) {
             commitDiscipline: commitDisciplineSection.length,
             roleCommitBoundary: roleCommitBoundarySection.length,
             workflow: workflowSection.length,
+            writingStyle: writingStyleSection.length,
             hapilonInstructions: hapilonInstructions.length,
             hapilonRules: hapilonRulesSection.length,
             contextFiles: contextFilesSection.length,
@@ -254,6 +260,7 @@ export function assembleSystemPrompt(opts) {
         commitDisciplineSection,
         roleCommitBoundarySection,
         workflowSection,
+        writingStyleSection,
         piDocSection,
         hapilonInstructions,
         hapilonRulesSection,
