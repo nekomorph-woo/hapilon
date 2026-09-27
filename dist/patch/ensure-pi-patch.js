@@ -397,13 +397,16 @@ export function ensurePiPatch(options = {}) {
     for (const target of targets) {
         let text = contents.get(target.key);
         let fileOk = true;
+        // marker 判定用进入本文件规则循环前的原文：多条规则共享 marker 时，
+        // 前一条规则应用后滚动 text 就含 marker，会把后面的规则错误跳过（首跑只打 1/N）。
+        const initialText = text;
         for (const rule of target.rules) {
             // marker 命中 → 该规则已应用（旧版也算），跳过。必须在 replace 全文比对之前判：
             // 插入式规则（replace 含锚点）的锚点在旧补丁块里依然存活，规则 replace 文本
             // 改版后全文比对失效，重入会新旧两份声明并存（background-tasks 曾被打出两份
             // hapiShellCache，ESM 直接 SyntaxError 拒载，整个 hapi 启动失败）。规则改版要
             // 生效：换 marker 值，或重装包恢复原始文件。
-            if (rule.marker && text.includes(rule.marker))
+            if (rule.marker && initialText.includes(rule.marker))
                 continue;
             // 替换产物已在 → 规则已应用,幂等跳过。必须在锚点计数之前判:
             // 插入式规则(替换文本包含锚点)在已补丁文件上锚点依然存活,
