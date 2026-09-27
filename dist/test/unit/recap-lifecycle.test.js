@@ -202,84 +202,83 @@ describe("hpl-recap session 生命周期", () => {
             fire(test, "session_shutdown", { reason: "quit" });
         }
     });
-    it("超长多行正文：行数超限但字符在预算内，截到 3 行并追加标记", async () => {
-        const source = Array.from({ length: 12 }, (_, i) => `第${i + 1}行短内容`).join("\n");
-        const test = makeExtension(undefined, [source]);
+    it("JSON 正常路径：progress 与 next 分行渲染，标签由渲染侧拼接", async () => {
+        const payload = JSON.stringify({ progress: "正在起草金值用例，7 条 case 已写入 cases.yaml。", next: "确认归并词后跑判卷。" });
+        const test = makeExtension(undefined, [payload]);
         fire(test, "session_start", { reason: "startup" });
         fire(test, "message_end", { type: "message_end" });
         await waitForWidget(test);
-        const bodyLines = widgetBody(test);
-        assert.equal(bodyLines.length, 3, JSON.stringify(bodyLines));
-        assert.equal(bodyLines.join("\n").replace("...", ""), Array.from({ length: 3 }, (_, i) => `第${i + 1}行短内容`).join("\n"));
-        assert.equal(bodyLines.at(-1)?.endsWith("..."), true);
+        assert.equal(test.getCompleteCount(), 1, "合法 JSON 不得触发预算放大");
+        const body = widgetBody(test);
+        assert.deepEqual(body, ["正在起草金值用例，7 条 case 已写入 cases.yaml。", "下一步建议：确认归并词后跑判卷。"]);
         fire(test, "session_shutdown", { reason: "quit" });
     });
-    it("单行超长无句读符：退化为头部切 200 字符并追加标记", async () => {
+    it("JSON 带 ```json 围栏与前后杂文：仍可解析", async () => {
+        const payload = "好的，这是摘要：\n```json\n{\"progress\": \"单测全绿，基线确认。\", \"next\": \"开始改截断逻辑。\"}\n```\n以上。";
+        const test = makeExtension(undefined, [payload]);
+        fire(test, "session_start", { reason: "startup" });
+        fire(test, "message_end", { type: "message_end" });
+        await waitForWidget(test);
+        assert.equal(test.getCompleteCount(), 1);
+        const body = widgetBody(test);
+        assert.deepEqual(body, ["单测全绿，基线确认。", "下一步建议：开始改截断逻辑。"]);
+        fire(test, "session_shutdown", { reason: "quit" });
+    });
+    it("纯文本兜底：末句作建议段，其余作 progress", async () => {
+        const test = makeExtension(undefined, ["单测全绿了。文档也更新完。接下来跑回归。"]);
+        fire(test, "session_start", { reason: "startup" });
+        fire(test, "message_end", { type: "message_end" });
+        await waitForWidget(test);
+        assert.equal(test.getCompleteCount(), 1, "纯文本不烧预算重试");
+        const body = widgetBody(test);
+        assert.deepEqual(body, ["单测全绿了。文档也更新完。", "下一步建议：接下来跑回归。"]);
+        fire(test, "session_shutdown", { reason: "quit" });
+    });
+    it("progress 超 200 字：保头丢尾到 197 字 + 省略号；next 完整不截", async () => {
+        const progress = "甲".repeat(250) + "。";
+        const next = "乙".repeat(60) + "。";
+        const test = makeExtension(undefined, [JSON.stringify({ progress, next })]);
+        fire(test, "session_start", { reason: "startup" });
+        fire(test, "message_end", { type: "message_end" });
+        await waitForWidget(test);
+        const body = widgetBody(test);
+        assert.equal(body[0].length, 200, `progress 行长度 ${body[0].length}`);
+        assert.ok(body[0].endsWith("..."));
+        assert.ok(body[0].startsWith("甲".repeat(197)));
+        assert.equal(body[1], `下一步建议：${next}`, "建议段一字不动");
+        fire(test, "session_shutdown", { reason: "quit" });
+    });
+    it("多行 progress 在 200 字内：行数不限，全部保留", async () => {
+        const progress = Array.from({ length: 12 }, (_, i) => `第${i + 1}行短内容`).join("\n");
+        assert.ok(progress.length < 200);
+        const test = makeExtension(undefined, [JSON.stringify({ progress, next: "看完继续。" })]);
+        fire(test, "session_start", { reason: "startup" });
+        fire(test, "message_end", { type: "message_end" });
+        await waitForWidget(test);
+        const body = widgetBody(test);
+        assert.equal(body.length, 13, JSON.stringify(body));
+        assert.equal(body.at(-1), "下一步建议：看完继续。");
+        assert.equal(body.some((line) => line.includes("...")), false);
+        fire(test, "session_shutdown", { reason: "quit" });
+    });
+    it("单句无句读纯文本超长：整段作 progress 保头切 200", async () => {
         const test = makeExtension(undefined, ["长".repeat(400)]);
         fire(test, "session_start", { reason: "startup" });
         fire(test, "message_end", { type: "message_end" });
         await waitForWidget(test);
-        const bodyLines = widgetBody(test);
-        assert.equal(bodyLines.length, 1);
-        const body = bodyLines[0].replace("...", "");
-        assert.equal(bodyLines[0].includes("..."), true);
-        assert.equal(body.length, 200, `字符数 ${body.length}`);
+        const body = widgetBody(test);
+        assert.equal(body.length, 1);
+        assert.equal(body[0].length, 200, `字符数 ${body[0].length}`);
+        assert.ok(body[0].endsWith("..."));
         fire(test, "session_shutdown", { reason: "quit" });
     });
-    it("超长多句正文：末句完整保留，前文回退到句边界并以 ... 衔接，总长 ≤200", async () => {
-        const first = `一`.repeat(96) + "。";
-        const middle = `二`.repeat(96) + "。";
-        const last = `三`.repeat(27) + "。";
-        assert.ok(first.length + middle.length + last.length > 200);
-        const test = makeExtension(undefined, [first + middle + last]);
+    it("progress 为空只有 next：仅渲染建议行", async () => {
+        const test = makeExtension(undefined, [JSON.stringify({ progress: "", next: "直接跑判卷。" })]);
         fire(test, "session_start", { reason: "startup" });
         fire(test, "message_end", { type: "message_end" });
         await waitForWidget(test);
-        const body = widgetBody(test).join("\n");
-        assert.equal(body, `${first}...${last}`);
-        assert.equal(body.endsWith(last), true, "末句（下一步建议）必须完整保留");
-        assert.equal(body.includes(middle), false);
-        assert.ok(body.length <= 200, `总长 ${body.length}`);
-        fire(test, "session_shutdown", { reason: "quit" });
-    });
-    it("两句超长且首句装不下：仅保留 ... 衔接的末句", async () => {
-        const first = `一`.repeat(200) + "。";
-        const last = `三`.repeat(20) + "。";
-        assert.ok(first.length + last.length > 200);
-        const test = makeExtension(undefined, [first + last]);
-        fire(test, "session_start", { reason: "startup" });
-        fire(test, "message_end", { type: "message_end" });
-        await waitForWidget(test);
-        const body = widgetBody(test).join("\n");
-        assert.equal(body, `...${last}`);
-        assert.ok(body.length <= 200, `总长 ${body.length}`);
-        fire(test, "session_shutdown", { reason: "quit" });
-    });
-    it("末句自身超预算：退化为头部切 200 字符并追加标记", async () => {
-        const source = "短句。" + "长".repeat(230);
-        const test = makeExtension(undefined, [source]);
-        fire(test, "session_start", { reason: "startup" });
-        fire(test, "message_end", { type: "message_end" });
-        await waitForWidget(test);
-        const bodyLines = widgetBody(test);
-        assert.equal(bodyLines.length, 1);
-        const body = bodyLines[0].replace("...", "");
-        assert.equal(bodyLines[0].endsWith("..."), true);
-        assert.equal(body.length, 200, `字符数 ${body.length}`);
-        assert.ok(body.startsWith("短句。"));
-        fire(test, "session_shutdown", { reason: "quit" });
-    });
-    it("恰在边界内（3 行 / 200 字符）：不截断、不加标记", async () => {
-        const exact = ["长".repeat(66), "长".repeat(66), "长".repeat(66)].join("\n");
-        assert.equal(exact.length, 200);
-        const test = makeExtension(undefined, [exact]);
-        fire(test, "session_start", { reason: "startup" });
-        fire(test, "message_end", { type: "message_end" });
-        await waitForWidget(test);
-        const bodyLines = widgetBody(test);
-        assert.equal(bodyLines.length, 3, JSON.stringify(bodyLines));
-        assert.equal(bodyLines.join("\n"), exact);
-        assert.equal(bodyLines.some((line) => line.includes("...")), false);
+        const body = widgetBody(test);
+        assert.deepEqual(body, ["下一步建议：直接跑判卷。"]);
         fire(test, "session_shutdown", { reason: "quit" });
     });
 });
