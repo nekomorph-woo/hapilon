@@ -6,7 +6,7 @@ export const SERVICE_TIERS = ["fast", "priority", "standard", "flex"];
 export const DEFAULT_FAST_MODE_SETTINGS = {
     enabled: false,
     serviceTier: "fast",
-    models: ["gpt-5*", "gpt-6*"],
+    models: [],
 };
 const SettingsSchema = Schema.Record({ key: Schema.String, value: Schema.Unknown });
 const FastModeSettingsSchema = Schema.Struct({
@@ -63,6 +63,24 @@ export function matchesFastModeModel(settings, model) {
 }
 export function fastModeApplies(settings, model) {
     return settings.enabled && matchesFastModeModel(settings, model);
+}
+export function addFastModeModel(settings, model) {
+    const entry = `${model.provider}/${model.id}`;
+    return settings.models.includes(entry)
+        ? settings
+        : { ...settings, models: [...settings.models, entry] };
+}
+export function toggleFastModeModel(settings, model) {
+    const removedPatterns = settings.models.filter((pattern) => matchesModelPattern(pattern, model));
+    return removedPatterns.length > 0
+        ? {
+            settings: { ...settings, models: settings.models.filter((pattern) => !removedPatterns.includes(pattern)) },
+            removedPatterns,
+        }
+        : { settings: addFastModeModel(settings, model), removedPatterns };
+}
+export function removeFastModeModel(settings, pattern) {
+    return { ...settings, models: settings.models.filter((entry) => entry !== pattern) };
 }
 const RequestBodySchema = Schema.Record({ key: Schema.String, value: Schema.Unknown });
 export function addFastModeServiceTier(payload, settings, model) {

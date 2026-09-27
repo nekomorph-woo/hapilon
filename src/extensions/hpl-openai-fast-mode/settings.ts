@@ -15,7 +15,7 @@ export interface FastModeSettings {
 export const DEFAULT_FAST_MODE_SETTINGS: FastModeSettings = {
   enabled: false,
   serviceTier: "fast",
-  models: ["gpt-5*", "gpt-6*"],
+  models: [],
 };
 
 const SettingsSchema = Schema.Record({ key: Schema.String, value: Schema.Unknown });
@@ -96,6 +96,33 @@ export function fastModeApplies(
   model: Pick<AvailableModel, "provider" | "id"> | undefined,
 ): boolean {
   return settings.enabled && matchesFastModeModel(settings, model);
+}
+
+export function addFastModeModel(
+  settings: FastModeSettings,
+  model: Pick<AvailableModel, "provider" | "id">,
+): FastModeSettings {
+  const entry = `${model.provider}/${model.id}`;
+  return settings.models.includes(entry)
+    ? settings
+    : { ...settings, models: [...settings.models, entry] };
+}
+
+export function toggleFastModeModel(
+  settings: FastModeSettings,
+  model: Pick<AvailableModel, "provider" | "id">,
+): { settings: FastModeSettings; removedPatterns: string[] } {
+  const removedPatterns = settings.models.filter((pattern) => matchesModelPattern(pattern, model));
+  return removedPatterns.length > 0
+    ? {
+      settings: { ...settings, models: settings.models.filter((pattern) => !removedPatterns.includes(pattern)) },
+      removedPatterns,
+    }
+    : { settings: addFastModeModel(settings, model), removedPatterns };
+}
+
+export function removeFastModeModel(settings: FastModeSettings, pattern: string): FastModeSettings {
+  return { ...settings, models: settings.models.filter((entry) => entry !== pattern) };
 }
 
 const RequestBodySchema = Schema.Record({ key: Schema.String, value: Schema.Unknown });

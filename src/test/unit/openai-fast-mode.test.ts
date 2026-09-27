@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -9,14 +9,17 @@ import { prepareStartupEffect } from "../../cli/startup.js";
 import { discoverExtensions, extensionNames } from "../../extensions/loader.js";
 import hplOpenAiFastMode from "../../extensions/hpl-openai-fast-mode/index.js";
 import {
+  addFastModeModel,
   addFastModeServiceTier,
   DEFAULT_FAST_MODE_SETTINGS,
   readFastModeSettingsEffect,
+  removeFastModeModel,
+  toggleFastModeModel,
   writeFastModeSettingsEffect,
   type FastModeSettings,
 } from "../../extensions/hpl-openai-fast-mode/settings.js";
 
-const enabledSettings: FastModeSettings = { ...DEFAULT_FAST_MODE_SETTINGS, enabled: true };
+const enabledSettings: FastModeSettings = { ...DEFAULT_FAST_MODE_SETTINGS, enabled: true, models: ["gpt-5*"] };
 const codexModel = { provider: "openai-codex", id: "gpt-5.6-sol" };
 const openAiModel = { provider: "openai", id: "gpt-5.6-sol" };
 
@@ -37,9 +40,22 @@ test("maps Fast for Codex and preserves the chosen tier for OpenAI", () => {
     });
   }
   assert.equal(addFastModeServiceTier(body, DEFAULT_FAST_MODE_SETTINGS, codexModel), undefined);
+  assert.equal(addFastModeServiceTier(body, { ...DEFAULT_FAST_MODE_SETTINGS, enabled: true }, codexModel), undefined);
+  assert.equal(addFastModeServiceTier(body, { ...DEFAULT_FAST_MODE_SETTINGS, enabled: true }, openAiModel), undefined);
   assert.equal(addFastModeServiceTier(body, enabledSettings, { provider: "anthropic", id: "gpt-5.6-sol" }), undefined);
   assert.equal(addFastModeServiceTier(body, enabledSettings, { provider: "openai", id: "gpt-4.1" }), undefined);
   assert.equal(addFastModeServiceTier("invalid body", enabledSettings, codexModel), undefined);
+});
+
+test("starts with an empty allowlist and supports exact add, toggle, and glob removal", () => {
+  assert.deepEqual(DEFAULT_FAST_MODE_SETTINGS.models, []);
+  const added = addFastModeModel(DEFAULT_FAST_MODE_SETTINGS, openAiModel);
+  assert.deepEqual(added.models, ["openai/gpt-5.6-sol"]);
+  assert.deepEqual(toggleFastModeModel(added, openAiModel).settings.models, []);
+
+  const withGlobs = { ...DEFAULT_FAST_MODE_SETTINGS, models: ["gpt-5*", "gpt-4*"] };
+  assert.deepEqual(toggleFastModeModel(withGlobs, openAiModel).settings.models, ["gpt-4*"]);
+  assert.deepEqual(removeFastModeModel(withGlobs, "gpt-5*").models, ["gpt-4*"]);
 });
 
 test("persists Fast settings while preserving other Pi settings", () => {
@@ -60,31 +76,141 @@ test("persists Fast settings while preserving other Pi settings", () => {
   }
 });
 
-test("registers /fast and applies persisted settings to provider requests", async () => {
+test("/fast shortcuts, completions, and menu manage the allowlist and settings", async () => {
   const root = mkdtempSync(join(tmpdir(), "hpl-fast-command-"));
   const previousHome = process.env.HAPILON_HOME;
   process.env.HAPILON_HOME = root;
-  const commands = new Map<string, { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> }>();
+  type FastCommand = {
+    handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
+    getArgumentCompletions?: (query: string) => Array<{ value: string; label: string }> | null;
+  };
+  const commands = new Map<string, FastCommand>();
   const handlers = new Map<string, Function>();
   const notices: string[] = [];
+  const picks: number[] = [];
+  const inputs: Array<string | undefined> = [];
+  const inputCalls: Array<{ title: string; placeholder?: string }> = [];
+  const selectCalls: Array<{ title: string; options: string[] }> = [];
+  const available = [
+    { provider: "openai-codex", id: "gpt-5.6-luna" },
+    { provider: "openai", id: "gpt-5.6-sol" },
+    { provider: "anthropic", id: "claude-sonnet" },
+  ];
   const ctx = {
     model: codexModel,
-    ui: { notify: (message: string) => notices.push(message) },
+    modelRegistry: { getAvailable: () => available },
+    ui: {
+      notify: (message: string) => notices.push(message),
+      select: async (title: string, options: string[]) => {
+        selectCalls.push({ title, options });
+        const index = picks.shift();
+        return index === undefined ? undefined : options[index];
+      },
+      input: async (title: string, placeholder?: string) => {
+        inputCalls.push({ title, placeholder });
+        return inputs.shift();
+      },
+    },
   } as unknown as ExtensionCommandContext;
 
   try {
     hplOpenAiFastMode({
-      registerCommand: (
-        name: string,
-        command: { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> },
-      ) => commands.set(name, command),
+      registerCommand: (name: string, command: FastCommand) => commands.set(name, command),
       on: (event: string, handler: Function) => { handlers.set(event, handler); return () => {}; },
     } as unknown as ExtensionAPI);
 
     const command = commands.get("fast");
     assert.ok(command);
+    assert.deepEqual(command.getArgumentCompletions?.("")?.map(({ value }) => value), [
+      "on", "off", "tier fast", "tier priority", "tier standard", "tier flex",
+    ]);
     await command.handler("on", ctx);
-    assert.match(notices.at(-1) ?? "", /已开启/);
+    await command.handler("off", ctx);
+    assert.equal(Effect.runSync(readFastModeSettingsEffect(join(root, "agent"))).enabled, false);
+
+    picks.push(0);
+    await command.handler("", ctx);
+    assert.match(selectCalls[0].title, /全局 Fast：关闭/);
+    assert.match(selectCalls[0].title, /当前模型：openai-codex\/gpt-5\.6-sol（未命中）/);
+    assert.match(selectCalls[0].title, /模型白名单：（空）/);
+    assert.deepEqual(Effect.runSync(readFastModeSettingsEffect(join(root, "agent"))).models, [
+      "openai-codex/gpt-5.6-sol",
+    ]);
+
+    picks.push(1, 1);
+    await command.handler("", ctx);
+    assert.deepEqual(selectCalls.at(-1)?.options, [
+      "openai-codex/gpt-5.6-luna",
+      "openai/gpt-5.6-sol",
+    ]);
+    assert.deepEqual(Effect.runSync(readFastModeSettingsEffect(join(root, "agent"))).models, [
+      "openai-codex/gpt-5.6-sol",
+      "openai/gpt-5.6-sol",
+    ]);
+
+    const current = Effect.runSync(readFastModeSettingsEffect(join(root, "agent")));
+    Effect.runSync(writeFastModeSettingsEffect(join(root, "agent"), {
+      ...current,
+      models: [...current.models, "gpt-5*"],
+    }));
+    picks.push(3, 2);
+    await command.handler("", ctx);
+    assert.deepEqual(selectCalls.at(-1)?.options, [
+      "openai-codex/gpt-5.6-sol",
+      "openai/gpt-5.6-sol",
+      "gpt-5*",
+    ]);
+    assert.deepEqual(Effect.runSync(readFastModeSettingsEffect(join(root, "agent"))).models, [
+      "openai-codex/gpt-5.6-sol",
+      "openai/gpt-5.6-sol",
+    ]);
+
+    inputs.push(" gpt* ");
+    picks.push(2);
+    await command.handler("", ctx);
+    assert.deepEqual(Effect.runSync(readFastModeSettingsEffect(join(root, "agent"))).models, [
+      "openai-codex/gpt-5.6-sol",
+      "openai/gpt-5.6-sol",
+      "gpt*",
+    ]);
+    assert.match(notices.at(-1) ?? "", /模式 gpt\* 加入白名单/);
+    assert.deepEqual(inputCalls.at(-1), {
+      title: "输入白名单模式（glob）",
+      placeholder: "gpt* 或 openai-codex/gpt*",
+    });
+
+    picks.push(4, 2);
+    await command.handler("", ctx);
+    assert.equal(Effect.runSync(readFastModeSettingsEffect(join(root, "agent"))).serviceTier, "standard");
+    await command.handler("tier fast", ctx);
+
+    picks.push(5);
+    await command.handler("", ctx);
+    assert.equal(Effect.runSync(readFastModeSettingsEffect(join(root, "agent"))).enabled, true);
+
+    const settingsPath = join(root, "agent", "settings.json");
+    for (const response of [undefined, "   "]) {
+      const savedSettings = readFileSync(settingsPath, "utf8");
+      utimesSync(settingsPath, new Date(0), new Date(0));
+      const savedMtime = statSync(settingsPath, { bigint: true }).mtimeNs;
+      const inputCount = inputCalls.length;
+      inputs.push(response);
+      picks.push(2);
+      await command.handler("", ctx);
+      assert.deepEqual(selectCalls.at(-1)?.options[2], "按模式添加（glob）");
+      assert.equal(inputCalls.length, inputCount + 1);
+      assert.equal(readFileSync(settingsPath, "utf8"), savedSettings);
+      assert.equal(statSync(settingsPath, { bigint: true }).mtimeNs, savedMtime);
+    }
+
+    const savedSettings = readFileSync(settingsPath, "utf8");
+    utimesSync(settingsPath, new Date(0), new Date(0));
+    const savedMtime = statSync(settingsPath, { bigint: true }).mtimeNs;
+    picks.push(1);
+    await command.handler("", ctx);
+    assert.equal(selectCalls.at(-1)?.title, "添加 OpenAI 系模型");
+    assert.equal(readFileSync(settingsPath, "utf8"), savedSettings);
+    assert.equal(statSync(settingsPath, { bigint: true }).mtimeNs, savedMtime);
 
     const hook = handlers.get("before_provider_request");
     assert.ok(hook);
@@ -92,9 +218,8 @@ test("registers /fast and applies persisted settings to provider requests", asyn
       model: codexModel.id,
       service_tier: "priority",
     });
-    assert.equal(JSON.parse(readFileSync(join(root, "agent", "settings.json"), "utf8")).hplFastMode.serviceTier, "fast");
-    await command.handler("", ctx);
-    assert.match(notices.at(-1) ?? "", /白名单：命中/);
+    assert.equal(Effect.runSync(readFastModeSettingsEffect(join(root, "agent"))).serviceTier, "fast");
+    assert.ok(notices.length > 0);
   } finally {
     if (previousHome === undefined) delete process.env.HAPILON_HOME;
     else process.env.HAPILON_HOME = previousHome;
