@@ -58,4 +58,6 @@ Same bar, English tells:
 - Use words the business side already says. The name answers "what is this", not "how it works inside". 静默降级 → 出错就跳过; 上下文装配 → 挑相关文件读进来.
 - Say-it-out-loud test: if you wouldn't say the term to a colleague, rename it.
 - One concept, one word. No self-invented compounds (中英混拼, verb-object pastes) — unpack them.
+- Bare English abbreviations in Chinese sentences: say it in Chinese, or give a Chinese name on first use. Engineers say these out loud, so the say-it-out-loud test passes them wrongly — use the week-later reader test: understandable with no explanation?
+- Session-grown code names and internal shorthand are fine mid-conversation but poison deliverables: on first use in a document, expand once for the reader who lacks the context.
 - Before creating a category or tag, reuse what exists; a tag attached to only one item is a drafting failure, not a category.
