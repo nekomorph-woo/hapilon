@@ -29,6 +29,8 @@ const MID_TEXT_SLASH_OPEN_MARKER = "__hapiMidTextSlashOpen";
 const HAPI_SHELL_MARKER = "hapiShell";
 /** 背景重放补丁的 marker（Box/Markdown 全宽底色下的子元素 reset 不再裸奔） */
 const HAPI_BG_REPLAY_MARKER = "hapiBgReplay";
+/** 代码块整行涂底的 marker（补齐空格也涂 mdCodeBlockBg，色带铺满气泡） */
+const HAPI_CODE_FILL_MARKER = "hapiCodeFill";
 /** 后台任务插件包名（hapilon 自身的依赖，不在 pi 包树里） */
 const BACKGROUND_TASKS_PACKAGE = "@nklisch/pi-background-tasks";
 /** Bundle chunk directory; the host file is located by signature, not its hash name. */
@@ -209,6 +211,25 @@ export const PATCH_RULES: readonly PatchRule[] = [
     replace: 'function applyBackgroundToLine(line,width,bgFn){const wrapped=bgFn(line+" ".repeat(Math.max(0,width-visibleWidth(line))));const esc=wrapped.indexOf("\\x1B[");if(esc===-1)return wrapped;const mEnd=wrapped.indexOf("m",esc);if(mEnd===-1)return wrapped;const open=wrapped.slice(0,mEnd+1);let out=wrapped.slice(mEnd+1).split("\\x1B[49m").join("\\x1B[49m"+open).split("\\x1B[0m").join("\\x1B[0m"+open);out.endsWith(open)&&(out=out.slice(0,out.length-open.length));return open+out}/*hapiBgReplay*/',
     occurrences: 1,
     marker: HAPI_BG_REPLAY_MARKER,
+  },
+  // ── 代码块整行涂底：highlightCode/codeBlock 只把底色裹在文本上，行尾补齐与
+  //    前导缩进落在气泡底上，用户气泡里的代码块碎成「贴字的色块」而非通栏色带
+  //    （助手消息靠全宽涂底没有此问题）。补齐空格也走 codeBlock 包裹，色带顶天立地。
+  {
+    package: PI_TUI_PACKAGE,
+    file: "dist/components/markdown.js",
+    find: "                if (this.theme.highlightCode) {\n                    const highlightedLines = this.theme.highlightCode(token.text, token.lang);\n                    for (const hlLine of highlightedLines) {\n                        lines.push(`${indent}${hlLine}`);\n                    }\n                }\n                else {\n                    // Split code by newlines and style each line\n                    const codeLines = token.text.split(\"\\n\");\n                    for (const codeLine of codeLines) {\n                        lines.push(`${indent}${this.theme.codeBlock(codeLine)}`);\n                    }\n                }",
+    replace: "                if (this.theme.highlightCode) {\n                    const highlightedLines = this.theme.highlightCode(token.text, token.lang);\n                    for (const hlLine of highlightedLines) {\n                        // hapilon: hapiCodeFill 缩进与补齐空格都涂代码块底色，色带在气泡内铺满整行\n                        const hapiPad = \" \".repeat(Math.max(0, width - visibleWidth(indent) - visibleWidth(hlLine)));\n                        lines.push(`${this.theme.codeBlock(indent)}${hlLine}${this.theme.codeBlock(hapiPad)}`);\n                    }\n                }\n                else {\n                    // Split code by newlines and style each line\n                    const codeLines = token.text.split(\"\\n\");\n                    for (const codeLine of codeLines) {\n                        const hapiPad = \" \".repeat(Math.max(0, width - visibleWidth(indent) - visibleWidth(codeLine)));\n                        lines.push(`${this.theme.codeBlock(indent + codeLine + hapiPad)}`);\n                    }\n                }",
+    occurrences: 1,
+    marker: HAPI_CODE_FILL_MARKER,
+  },
+  {
+    file: PI_BUNDLE_CHUNKS,
+    signature: "mdCodeBlockBorder",
+    find: "this.theme.highlightCode){let highlightedLines=this.theme.highlightCode(token.text,token.lang);for(let hlLine of highlightedLines)lines.push(`${indent}${hlLine}`)}else{let codeLines=token.text.split(`\n`);for(let codeLine of codeLines)lines.push(`${indent}${this.theme.codeBlock(codeLine)}`)}",
+    replace: "this.theme.highlightCode){let highlightedLines=this.theme.highlightCode(token.text,token.lang);for(let hlLine of highlightedLines)lines.push(`${this.theme.codeBlock(indent)}${hlLine}${this.theme.codeBlock(\" \".repeat(Math.max(0,width-visibleWidth(indent)-visibleWidth(hlLine))))}`)}else{let codeLines=token.text.split(`\n`);for(let codeLine of codeLines)lines.push(`${this.theme.codeBlock(indent+codeLine+\" \".repeat(Math.max(0,width-visibleWidth(indent)-visibleWidth(codeLine))))}`)}/*hapiCodeFill*/",
+    occurrences: 1,
+    marker: HAPI_CODE_FILL_MARKER,
   },
   // ── 中段 slash 补全触发门(hpl-editor-slash):provider 在编辑器触发门之后,
   //    门的行首判定会让中段打字永远不请求补全。给「字母键触发分支」加一个
