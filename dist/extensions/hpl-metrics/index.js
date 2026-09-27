@@ -12,6 +12,7 @@
  *   tools      工具使用分布、失败率
  */
 import { showFloatingPane } from "../../shared/floating-pane/index.js";
+import { argumentCompletions } from "../../shared/argument-completion.js";
 import { loadSamples, hapilonHomes } from "./sessions.js";
 import { groupSamples, renderPonytailLines } from "./ponytail.js";
 const GROUP_BYS = ["ponytail", "model", "day", "project"];
@@ -72,6 +73,18 @@ function notify(ctx, message, type = "info") {
 export default function hplMetrics(pi) {
     pi.registerCommand("hapi-metrics", {
         description: "hapi 内置统计工具（子命令制：ponytail …）",
+        // 参数补全：pi 的 slash 补全由 getArgumentCompletions 提供，内置命令都挂了它；
+        // 不挂则输入子命令时无提示（与 /thinking、/model 的差异所在）。
+        getArgumentCompletions: (query) => 
+        // value 携带子命令前缀：pi 选中候选后整段替换参数文本，
+        // 用户跳过子命令直接敲 flag（如 "--g"）也会被引导到合法路径。
+        argumentCompletions([
+            { value: "ponytail", label: "ponytail", description: "会话级体量与形状对照" },
+            { value: "ponytail --group-by ", label: "--group-by", description: "按档位分组", searchText: "ponytail --group-by 按档位分组" },
+            { value: "ponytail --since ", label: "--since", description: "只看该日期之后的会话", searchText: "ponytail --since 只看日期" },
+            { value: "ponytail --project ", label: "--project", description: "按 cwd 过滤", searchText: "ponytail --project 项目过滤" },
+            { value: "ponytail --json ", label: "--json", description: "输出 JSON", searchText: "ponytail --json 输出 JSON" },
+        ], query),
         handler: async (args, ctx) => {
             const invocation = parseMetricsArgs(args);
             if (invocation.kind === "usage") {

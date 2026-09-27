@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
+import { argumentCompletions } from "../../shared/argument-completion.js";
 import { readModelTiersEffect, saveModelTiersEffect } from "./config.js";
 import { readTierAdaptiveConfig, setTierAdaptiveEnabled, setTierAdaptiveSessionOverride, tierAdaptiveEnabled, planTierSelection } from "./adaptive.js";
 import { readAdaptiveProfile, EVIDENCE_WINDOW_DAYS } from "./adaptive-events.js";
@@ -166,6 +167,7 @@ export default function hplModelTiers(pi) {
     });
     pi.registerCommand("tier-adaptive-mode", {
         description: "查看/切换 tier 自适应选模（写入 settings.json 的 tierAdaptive.enabled）",
+        getArgumentCompletions: (query) => argumentCompletions([{ value: "on", label: "on" }, { value: "off", label: "off" }], query),
         handler: async (args, ctx) => {
             handleTierAdaptiveMode(args, ctx);
         },

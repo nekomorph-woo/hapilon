@@ -6,6 +6,7 @@ import {
   getPendingRoleWizard,
   handlePendingUserMessage,
   handleTeamCommand,
+  TEAM_ACTIONS,
   updateTeamStatus,
 } from "./menu.js";
 import { herdrEnvAvailable } from "./herdr.js";
@@ -13,6 +14,8 @@ import { discardPendingThinkingSwitch, recordModelSwitch, recordOwnCompletedTask
 import { buildTeamSectionsEffect } from "./state.js";
 import { setTeamSections } from "./bridge.js";
 import { parseRoleDefSentinel } from "./role-wizard.js";
+import { getAllRoleDefs } from "./role-registry.js";
+import { argumentCompletions } from "../../shared/argument-completion.js";
 
 /** system-prompt 组装方只消费 setStatus 能力——收窄参数面 */
 type StatusOnlyContext = { ui: { setStatus: (key: string, text: string | undefined) => void } };
@@ -35,9 +38,20 @@ let suppressingRestore = false;
 /** `/new` 前记下的用户选择；进程内 /new 不跨进程，模块级即可 */
 let savedPanePreference: { provider: string; id: string; thinking?: PaneThinking } | undefined;
 
+
+/** role key 候选（内置 + 自定义）；kick/clear 还接受 pane id，自由文本不补。 */
+const roleKeyCompletions = (query: string) =>
+  argumentCompletions(getAllRoleDefs().map((d) => ({ value: d.key, label: d.key, description: d.label })), query);
+
 export default function hplOrchestra(pi: ExtensionAPI): void {
   pi.registerCommand("team", {
     description: "Manage the herdr three-pane team",
+    // handler 按 actionForArgs 匹配中文标签（menu.ts），补全值必须给标签而不是 key
+    getArgumentCompletions: (query) =>
+      argumentCompletions(
+        Object.values(TEAM_ACTIONS).map((label) => ({ value: label, label })),
+        query,
+      ),
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       if (!herdrEnvAvailable()) {
         ctx.ui.notify("/team 仅能在 herdr 面板环境中使用。", "error");
@@ -49,6 +63,7 @@ export default function hplOrchestra(pi: ExtensionAPI): void {
 
   pi.registerCommand("team:open", {
     description: "Open (or revive) a role pane at its default tier, no dialogs",
+    getArgumentCompletions: roleKeyCompletions,
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       if (!herdrEnvAvailable()) {
         ctx.ui.notify("/team:open 仅能在 herdr 面板环境中使用。", "error");
@@ -69,6 +84,7 @@ export default function hplOrchestra(pi: ExtensionAPI): void {
 
   pi.registerCommand("team:kick", {
     description: "Kick a role pane out of the team (role key or pane id), no dialogs",
+    getArgumentCompletions: roleKeyCompletions,
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       if (!herdrEnvAvailable()) {
         ctx.ui.notify("/team:kick 仅能在 herdr 面板环境中使用。", "error");
@@ -85,6 +101,7 @@ export default function hplOrchestra(pi: ExtensionAPI): void {
 
   pi.registerCommand("team:clear", {
     description: "Clear a role pane's context, no dialogs (role key or pane id)",
+    getArgumentCompletions: roleKeyCompletions,
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       if (!herdrEnvAvailable()) {
         ctx.ui.notify("/team:clear 仅能在 herdr 面板环境中使用。", "error");

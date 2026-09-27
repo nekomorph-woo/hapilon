@@ -11,7 +11,8 @@
  */
 import { Effect } from "effect";
 import { state, POP_ICON } from "./shared.js";
-import { improvePanelAppearance, findNewestPanel } from "./panels.js";
+import { improvePanelAppearance, findNewestPanel, navigableExpandables, panelTitle } from "./panels.js";
+import { argumentCompletions } from "../../shared/argument-completion.js";
 import { launchViewer } from "./viewer.js";
 import { attachInputListener } from "./input.js";
 import { loadPopConfigEffect, applyPopConfig } from "./config.js";
@@ -32,6 +33,23 @@ export default function hplPanelViewer(pi) {
     // ── /pop 命令 ─────────────────────────────────────────────────────────
     pi.registerCommand("pop", {
         description: "Open floating viewer for collapsible panels (optional: /pop <pattern>)",
+        // 候选 = 当前 TUI 里的面板标题；TUI 未就绪或含 include/exclude 过滤的边界
+        // 形态下 navigableExpandables 可能读不到 terminal——一律按无补全处理，
+        // 补全回调抛异常会成为 unhandled rejection。
+        getArgumentCompletions: (query) => {
+            const tui = state.activeTui;
+            if (!tui)
+                return null;
+            try {
+                const titles = navigableExpandables(tui)
+                    .map((c) => panelTitle(c, tui.terminal.columns))
+                    .filter((t) => t && t !== "(panel)");
+                return argumentCompletions([...new Set(titles)].map((t) => ({ value: t, label: t })), query);
+            }
+            catch {
+                return null;
+            }
+        },
         handler: async (args, ctx) => {
             const pat = (args ?? "").trim();
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -44,6 +62,7 @@ export default function hplPanelViewer(pi) {
     // ── /pop-config 命令 ─────────────────────────────────────────────────
     pi.registerCommand("pop-config", {
         description: "Configure viewer: show|hide|remove <pattern> · maxlines <n> · list|reset",
+        getArgumentCompletions: (query) => argumentCompletions(["show", "hide", "remove", "maxlines", "list", "reset"].map((action) => ({ value: action, label: action })), query),
         handler: async (args, ctx) => {
             const parts = (args ?? "list").trim().split(/\s+/);
             const action = parts.shift() ?? "list";

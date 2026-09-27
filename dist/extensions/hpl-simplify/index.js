@@ -10,10 +10,15 @@
  *
  * 规则文本内置于 audit.ts（不依赖 ponytail 运行时激活）。
  */
+import { argumentCompletions } from "../../shared/argument-completion.js";
 import { buildAuditPrompt, buildApplyPrompt, parseScope } from "./audit.js";
 export default function hplSimplify(pi) {
     pi.registerCommand("simplify", {
         description: "Post-change cleanup audit (check → human approve → apply). Usage: /simplify [ref | A..B | --staged] or /simplify apply <numbers>",
+        getArgumentCompletions: (query) => argumentCompletions([
+            { value: "--staged", label: "--staged", description: "审暂存区改动" },
+            { value: "apply ", label: "apply", description: "按编号执行已批准的修改", searchText: "apply 按编号执行" },
+        ], query),
         handler: async (args, ctx) => {
             const trimmed = args.trim();
             // ── apply 子命令：受控执行 ──────────────────────────────

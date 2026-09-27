@@ -10,6 +10,7 @@
  * 用法: hapilon 启动时自动加载（discoverExtensions() → -e 注入）
  * 拦截点: pi 的 tool_call 事件（能读到工具入参，也就能放行/改写）
  */
+import { argumentCompletions } from "../../shared/argument-completion.js";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { classifyPath, resolveTarget } from "./classifier.js";
 import { requestConfirm, requestHighRiskConfirm } from "./confirm.js";
@@ -137,6 +138,7 @@ export default function (pi) {
     });
     pi.registerCommand("allow", {
         description: "会话级临时白名单（读写均生效）。用法：/allow <path>... | --list | --clear",
+        getArgumentCompletions: (query) => query.startsWith("--") ? argumentCompletions([{ value: "--list", label: "--list" }, { value: "--clear", label: "--clear" }], query) : null,
         handler: async (argsStr, ctx) => {
             // 非交互上下文（无 UI）时 notify 静默，不抛异常
             const notify = (msg, level = "info") => ctx.ui?.notify(msg, level);

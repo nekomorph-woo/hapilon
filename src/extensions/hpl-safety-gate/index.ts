@@ -16,6 +16,7 @@ import { appendFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
+import { argumentCompletions } from "../../shared/argument-completion.js";
 import { agentDir, hapilonHome } from "../../config/hapilon-home.js";
 import { classifyCommand, classifyWithLabel, hasShellInjection } from "./classifier.js";
 import { checkSandboxWrite, type SandboxTarget } from "./sandbox-allow.js";
@@ -130,6 +131,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand("gate-auto-mode", {
     description: "查看/切换安全门 Auto 判定（写入 settings.json 的 gateAuto.enabled）",
+    getArgumentCompletions: (query) => argumentCompletions([{ value: "on", label: "on" }, { value: "off", label: "off" }], query),
     handler: async (args, ctx) => {
       const arg = args.trim();
       if (gateAutoConfig === undefined) gateAutoConfig = readGateAutoConfig();
