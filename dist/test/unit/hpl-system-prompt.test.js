@@ -118,6 +118,14 @@ describe("buildWorkflowSection", () => {
         assert.ok(result.includes("Verify before calling it done"), "第三步: 交付验证");
         assert.ok(result.includes("Lead with the conclusion"), "第四步: 结论先行");
     });
+    it("开工确认前置段：非 team 拼在段首，team 版完全不出现", () => {
+        const plain = buildWorkflowSection();
+        assert.equal(plain.includes("Confirm before building"), false, "默认（team）不含确认段");
+        const preconfirmed = buildWorkflowSection(true);
+        assert.ok(preconfirmed.includes("Confirm before building"), "非 team 段首含确认段");
+        assert.ok(preconfirmed.indexOf("Confirm before building") < preconfirmed.indexOf("Work in this order"), "确认段在工作流列表之前");
+        assert.ok(preconfirmed.includes("1. Explore before editing"), "四步正文不变");
+    });
     it("正文含反例约束与验证要求（非空泛口号）", () => {
         assert.ok(WORKFLOW_TEXT.includes("never build on an unexplained red"), "失败必查");
         assert.ok(WORKFLOW_TEXT.includes("Never suppress the symptom"), "禁止修症不修因");

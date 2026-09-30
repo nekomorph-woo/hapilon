@@ -13,7 +13,7 @@
 import { collectUpward, readHapilonMd, readRules, } from "../../shared/files.js";
 import { xmlEscape } from "../../shared/format.js";
 import { wrapSystemPrompt } from "./xml.js";
-import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildMcpSectionText, BUILTIN_GUIDELINES, CODE_STYLE_TEXT, COMMIT_DISCIPLINE_TEXT, ROLE_COMMIT_BOUNDARY_TEXT, WORKFLOW_TEXT, WRITING_STYLE_TEXT, } from "./sections.js";
+import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildMcpSectionText, BUILTIN_GUIDELINES, CODE_STYLE_TEXT, COMMIT_DISCIPLINE_TEXT, ROLE_COMMIT_BOUNDARY_TEXT, WORKFLOW_TEXT, CONFIRM_BEFORE_BUILDING_TEXT, WRITING_STYLE_TEXT, } from "./sections.js";
 import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
 import { hapilonHome } from "../../config/hapilon-home.js";
@@ -87,9 +87,11 @@ export function buildRoleCommitBoundarySection() {
     // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
     return `<role_commit_boundary>\n${ROLE_COMMIT_BOUNDARY_TEXT}\n</role_commit_boundary>`;
 }
-export function buildWorkflowSection() {
+/** confirmPre 是否为 true 由调用方按「非 team 会话」判定：见 assembleSystemPrompt */
+export function buildWorkflowSection(preconfirm = false) {
     // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
-    return `<workflow>\n${WORKFLOW_TEXT}\n</workflow>`;
+    const body = preconfirm ? `${CONFIRM_BEFORE_BUILDING_TEXT}\n\n${WORKFLOW_TEXT}` : WORKFLOW_TEXT;
+    return `<workflow>\n${body}\n</workflow>`;
 }
 export function buildWritingStyleSection() {
     // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
@@ -214,7 +216,9 @@ export function assembleSystemPrompt(opts) {
     const codeStyleSection = buildCodeStyleSection();
     const commitDisciplineSection = buildCommitDisciplineSection();
     const roleCommitBoundarySection = buildRoleCommitBoundarySection();
-    const workflowSection = buildWorkflowSection();
+    // 开工确认只给非 team 会话：team 的确认由 owner 写目标门承担，所有 role 的 prompt
+    // 里都不出现这段（含 worker——角色豁免写进正文反而引入「我是哪个角色」的噪音）
+    const workflowSection = buildWorkflowSection(teamSection === "");
     const writingStyleSection = buildWritingStyleSection();
     const piDocSection = buildPiDocSection();
     const hapilonInstructions = buildHapilonInstructions(hapilonMd);

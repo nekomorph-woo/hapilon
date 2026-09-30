@@ -176,13 +176,13 @@ Before any git commit, produce the message through the snap skill's process (/sk
 export const ROLE_COMMIT_BOUNDARY_TEXT = `**Role commit boundary.** Orchestrated agents (worker / reviewer roles) never run \`git commit\`. They implement, review, and report. Only the team owner or the human commits — the owner only when the approved plan or the user asked for a commit, and never push. A task brief that tells a worker or reviewer to commit is itself in error: refuse that step, complete the rest, and say so in the report.`;
 
 /**
- * 工作流核心：探索先行 / 根因调试 / 交付验证 / 结论先行。
+ * 工作流核心（所有模式共用）：探索先行 / 根因调试 / 交付验证 / 结论先行。
  *
  * 来源：2026-09 提示词迭代（plan-task/2026-09-17-system-prompt-iteration），
  * c2-workflow-core 候选两轮基准（r1 48 格 + r2 16 格陷阱任务）胜出：
  * glm 侧方向性最佳（99.2% vs baseline 95.4%）且从未低于基线，采纳零风险。
  * 提炼自 omp（探索/调试三步）、dsh（失败必查）、kimi-code（以用户收到的形态验证）、
- * codex（结论先行）。正文英文（与其余 section 一致），新增 ~1.3KB。
+ * codex（结论先行）。正文英文（与其余 section 一致）。
  */
 export const WORKFLOW_TEXT = `Work in this order; skip a step only when it does not apply to the task.
 
@@ -193,6 +193,16 @@ export const WORKFLOW_TEXT = `Work in this order; skip a step only when it does 
 3. Verify before calling it done. Exercise the deliverable the way the user will receive it: run the project's build or tests, or the actual command or scenario — not just an import or compile. Never claim completion while tests are red or work is partial. If tests fail, show the output; if something could not be verified, say so plainly.
 
 4. Lead with the conclusion. Open the final reply with the outcome, then the reasoning and evidence needed to assess it — what changed, where (file paths), and how it was verified.`;
+
+/**
+ * 开工确认前置段，仅非 team 会话由 assemble 拼入 workflow 段首。
+ *
+ * 背景：模型的 max effort 在规则真空下，更容易自主对歧义任务自行决策并未经用户确认即开工。确认在 team 模式
+ * 由 owner 的写目标授权门（roles.ts「开始吗？」流程）承担，worker 面前没有批准者，
+ * 这段语义对所有 team role 都是噪音——与其在正文里写角色豁免（模型会困惑自己
+ * 是哪个角色），不如代码按模式注入：team 模式下 prompt 里不出现这句。
+ */
+export const CONFIRM_BEFORE_BUILDING_TEXT = `Confirm before building. When the request has real ambiguity — multi-step work with no steps given, several defensible approaches, shared code touched, deletions, new dependencies, or scope beyond what was asked — reply with a two-to-three-line plan (what to do, where, what you will not touch) and wait for approval before changing anything. Single-point fixes with one obvious cause, explicit step-by-step instructions, pure questions, and code reading go straight to work. Confirm once: after approval, run the plan to completion without re-asking each step; if a premise turns out false (the target is missing, the approach dead-ends), stop and say so instead of silently switching paths. If the user says to just go ahead, skip the confirmation.`;
 
 /**
  * 中文输出文风：对抗 AI 腔（名词化、黑话、模板句式、结构套路）。
