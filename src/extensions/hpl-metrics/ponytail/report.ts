@@ -7,7 +7,7 @@
  */
 
 import { visibleWidth } from "@earendil-works/pi-tui";
-import type { SessionSample } from "./sessions.js";
+import type { SessionSample } from "./samples.js";
 
 export type GroupBy = "ponytail" | "model" | "day" | "project";
 

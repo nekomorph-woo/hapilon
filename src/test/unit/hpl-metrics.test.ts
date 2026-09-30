@@ -3,14 +3,13 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { hapilonHomes, listSessionFiles } from "../../extensions/hpl-metrics/sessions.js";
 import {
-  hapilonHomes,
-  listSessionFiles,
   loadSamples,
   parseSession,
   resolvePonytailDefault,
-} from "../../extensions/hpl-metrics/sessions.js";
-import { groupSamples, median, renderPonytailLines } from "../../extensions/hpl-metrics/ponytail.js";
+} from "../../extensions/hpl-metrics/ponytail/samples.js";
+import { groupSamples, median, renderPonytailLines } from "../../extensions/hpl-metrics/ponytail/report.js";
 import { parseMetricsArgs, usageText } from "../../extensions/hpl-metrics/index.js";
 
 /** 造一个会话文件：两条 assistant 消息、一次 ponytail 切档 */
