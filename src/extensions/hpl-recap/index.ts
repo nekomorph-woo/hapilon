@@ -1,4 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { Component, TUI, TuiMouseEvent } from "@earendil-works/pi-tui";
+import { truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { Effect } from "effect";
 import { readRecapConfig, type RecapConfig } from "./config.js";
 import { buildRecapMessages } from "./context.js";
@@ -24,6 +26,13 @@ const RECAP_SYSTEM_PROMPT =
 
 // 空正文时逐级放大预算重试：小预算先走（便宜快），服务端偶发空响应靠放大兜底。
 const RECAP_TOKEN_BUDGETS = [256, 1024, 4096, 4096];
+// 折叠态正文行数上限（头行与提示行不占额度）：recap 是扫一眼的摘要，默认只露开头
+const RECAP_COLLAPSED_BODY_LINES = 2;
+
+// pi 未公开 Theme 类型，按用到的最小面接（fg 的 slot 参数逆变兼容具体 Theme）
+interface FgTheme {
+  fg(slot: string, text: string): string;
+}
 // 只限 progress（「下一步建议」全保留）；行数不限制。
 const RECAP_PROGRESS_MAX_CHARS = 200;
 const RECAP_TRUNCATED_MARK = "...";
@@ -96,22 +105,58 @@ function truncateProgress(progress: string): string {
   return `${progress.slice(0, RECAP_PROGRESS_MAX_CHARS - RECAP_TRUNCATED_MARK.length)}${RECAP_TRUNCATED_MARK}`;
 }
 
-function recapLines(
-  ctx: ExtensionContext,
+/**
+ * recap 展示组件：默认折叠到头行 + 2 行正文 + 提示行，左键点击整块切换展开/折叠。
+ * 仅全屏模式有鼠标路由（regular 模式鼠标归终端，收不到点击）；每次 recap 更新内核都会
+ * 重建组件实例，展开态随之归位折叠——新摘要默认收起。
+ */
+function recapWidgetFactory(
   parts: RecapParts,
   model: RecapModelShape,
   degradedReason?: string,
   now = new Date(),
-): string[] {
-  const timestamp = now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-  const lines = [
-    ctx.ui.theme.fg("muted", `※ recap · ${timestamp} · ${recapModelLabel(model)}`),
-  ];
-  if (degradedReason) lines.push(ctx.ui.theme.fg("muted", degradedReason));
-  if (parts.progress) lines.push(...parts.progress.split(/\r?\n/).map((line) => ctx.ui.theme.fg("muted", line)));
-  // 标签由渲染侧拼，不依赖模型输出它——progress 与建议的切分因此永远干净
-  if (parts.next) lines.push(ctx.ui.theme.fg("muted", `下一步建议：${parts.next}`));
-  return lines;
+): (tui: TUI, theme: FgTheme) => Component {
+  return (tui, theme) => {
+    let expanded = false;
+    let cached: { width: number; lines: string[] } | undefined;
+    const build = (width: number): string[] => {
+      const wrap = (text: string): string[] => wrapTextWithAnsi(theme.fg("muted", text), width);
+      const lines = [
+        theme.fg("muted", `※ recap · ${now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} · ${recapModelLabel(model).toLowerCase()}`),
+        ...(degradedReason ? wrap(degradedReason) : []),
+        ...(parts.progress ? wrap(parts.progress) : []),
+        // 标签由渲染侧拼，不依赖模型输出它——progress 与建议的切分因此永远干净
+        ...(parts.next ? wrap(`下一步建议：${parts.next}`) : []),
+      ];
+      const bodyCount = lines.length - 1;
+      if (bodyCount <= RECAP_COLLAPSED_BODY_LINES) return lines;
+      if (!expanded) {
+        return [
+          ...lines.slice(0, 1 + RECAP_COLLAPSED_BODY_LINES),
+          theme.fg("muted", `▸ 展开 ${bodyCount - RECAP_COLLAPSED_BODY_LINES} 行`),
+        ];
+      }
+      return [...lines, theme.fg("muted", "▾ 折叠")];
+    };
+    return {
+      render(width: number): string[] {
+        if (cached?.width !== width) {
+          cached = { width, lines: build(width).map((line) => truncateToWidth(line, width)) };
+        }
+        return cached.lines;
+      },
+      handleMouse(event: TuiMouseEvent) {
+        if (event.type !== "click" || event.button !== "left") return undefined;
+        expanded = !expanded;
+        cached = undefined;
+        tui.requestRender();
+        return { handled: true };
+      },
+      invalidate(): void {
+        cached = undefined;
+      },
+    };
+  };
 }
 
 function failureLines(ctx: ExtensionContext, reason: string): string[] {
@@ -183,7 +228,7 @@ function runRecapEffect(
       parts = fallbackParts(lastText);
     }
     const rendered: RecapParts = { progress: truncateProgress(parts.progress), next: parts.next };
-    ctx.ui.setWidget(WIDGET_KEY, recapLines(ctx, rendered, choice.model, choice.reason));
+    ctx.ui.setWidget(WIDGET_KEY, recapWidgetFactory(rendered, choice.model, choice.reason));
   }).pipe(
     Effect.catchAllCause((cause) => Effect.sync(() => {
       if (controller.signal.aborted) return;

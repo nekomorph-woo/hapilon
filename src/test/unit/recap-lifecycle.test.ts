@@ -12,7 +12,7 @@ type Handler = (event: unknown, ctx: any) => unknown;
 interface TestContext {
   ctx: any;
   handlers: Map<string, Handler>;
-  widgets: Array<{ key: string; content: string[] | undefined }>;
+  widgets: Array<{ key: string; content: unknown }>;
   getCompleteCount(): number;
   completeOptions: Array<Record<string, unknown> | undefined>;
 }
@@ -22,7 +22,7 @@ function makeExtension(
   texts: string[] = ["已完成：当前状态正常；下一步继续验证。"],
 ): TestContext {
   const handlers = new Map<string, Handler>();
-  const widgets: Array<{ key: string; content: string[] | undefined }> = [];
+  const widgets: Array<{ key: string; content: unknown }> = [];
   const completeOptions: Array<Record<string, unknown> | undefined> = [];
   let completeCount = 0;
   let pending = false;
@@ -34,7 +34,7 @@ function makeExtension(
     model,
     ui: {
       theme: { fg: (slot: string, text: string) => `<${slot}>${text}` },
-      setWidget: (key: string, content: string[] | undefined) => widgets.push({ key, content }),
+      setWidget: (key: string, content: unknown) => widgets.push({ key, content }),
     },
     isIdle: () => true,
     hasPendingMessages: () => pending,
@@ -71,11 +71,21 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// 宽度给足，避免 wrap 干扰按行断言；折叠/展开交互用例另测窄宽不必要。
+function renderWidget(content: unknown): string[] {
+  if (typeof content !== "function") return (content ?? []) as string[];
+  const component = (content as (tui: unknown, theme: unknown) => { render(width: number): string[] }) (
+    { requestRender() {} },
+    { fg: (slot: string, text: string) => `<${slot}>${text}` },
+  );
+  return component.render(500);
+}
+
 // 固定 sleep 会与 60ms idle 阈值竞态（timer 早触发一次即多等一轮），故轮询到 widget 落盘。
 async function waitForWidget(test: TestContext): Promise<string[]> {
   for (let i = 0; i < 200; i++) {
     const content = test.widgets.at(-1)?.content;
-    if (content) return content;
+    if (content) return renderWidget(content);
     await wait(5);
   }
   throw new Error("recap widget 未在 1s 内出现");
@@ -85,9 +95,21 @@ function untheme(line: string): string {
   return line.replace(/^<muted>/, "").replace(/<\/muted>$/, "");
 }
 
-// 去掉头部时间戳/模型标签行，只留正文行。
+// 去掉头部时间戳/模型标签行与 muted 壳，只留正文行。
 function widgetBody(test: TestContext): string[] {
-  return (test.widgets.at(-1)?.content ?? []).slice(1).map(untheme);
+  return renderWidget(test.widgets.at(-1)?.content).slice(1).map(untheme);
+}
+
+// 从最新 widget 的工厂造组件实例（工厂每次调用都出新实例，状态不共享，交互用例须复用同一实例）。
+function makeComponent(content: unknown): {
+  render(width: number): string[];
+  handleMouse(event: { type: string; button: string }): unknown;
+} {
+  assert.equal(typeof content, "function");
+  return (content as (tui: unknown, theme: unknown) => {
+    render(width: number): string[];
+    handleMouse(event: { type: string; button: string }): unknown;
+  })({ requestRender() {} }, { fg: (slot: string, text: string) => `<${slot}>${text}` });
 }
 
 function spyWarn(): { calls: string[]; restore: () => void } {
@@ -133,7 +155,7 @@ describe("hpl-recap session 生命周期", () => {
     fire(test, "message_end", { type: "message_end" });
     await waitForWidget(test);
     assert.equal(test.getCompleteCount(), 1);
-    assert.ok(test.widgets.some((item) => item.key === "hpl-recap" && Array.isArray(item.content)));
+    assert.ok(test.widgets.some((item) => item.key === "hpl-recap" && typeof item.content === "function"));
 
     const widgetCountBeforeInput = test.widgets.length;
     const inputResult = fire(test, "input", { type: "input", text: "新问题", source: "interactive" });
@@ -282,17 +304,32 @@ describe("hpl-recap session 生命周期", () => {
     fire(test, "session_shutdown", { reason: "quit" });
   });
 
-  it("多行 progress 在 200 字内：行数不限，全部保留", async () => {
+  it("多行 progress：默认折叠到 2 行正文 + 提示行，点击展开全保留，再点折叠", async () => {
     const progress = Array.from({ length: 12 }, (_, i) => `第${i + 1}行短内容`).join("\n");
     assert.ok(progress.length < 200);
     const test = makeExtension(undefined, [JSON.stringify({ progress, next: "看完继续。" })]);
     fire(test, "session_start", { reason: "startup" });
     fire(test, "message_end", { type: "message_end" });
     await waitForWidget(test);
-    const body = widgetBody(test);
-    assert.equal(body.length, 13, JSON.stringify(body));
-    assert.equal(body.at(-1), "下一步建议：看完继续。");
-    assert.equal(body.some((line) => line.includes("...")), false);
+
+    const component = makeComponent(test.widgets.at(-1)?.content);
+    const folded = component.render(500).slice(1).map(untheme);
+    assert.equal(folded.length, 3, JSON.stringify(folded));
+    assert.equal(folded[0], "第1行短内容");
+    assert.equal(folded[1], "第2行短内容");
+    assert.equal(folded[2], "▸ 展开 11 行");
+
+    component.handleMouse({ type: "click", button: "left" });
+    const expandedLines = component.render(500).slice(1).map(untheme);
+    assert.equal(expandedLines.length, 14, JSON.stringify(expandedLines));
+    assert.equal(expandedLines.at(-2), "下一步建议：看完继续。");
+    assert.equal(expandedLines.at(-1), "▾ 折叠");
+    assert.equal(expandedLines.some((line) => line.includes("...")), false);
+
+    component.handleMouse({ type: "click", button: "left" });
+    const refolded = component.render(500).slice(1).map(untheme);
+    assert.equal(refolded.length, 3, JSON.stringify(refolded));
+    assert.equal(refolded[2], "▸ 展开 11 行");
     fire(test, "session_shutdown", { reason: "quit" });
   });
 
