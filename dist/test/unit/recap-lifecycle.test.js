@@ -275,17 +275,17 @@ describe("hpl-recap session 生命周期", () => {
         assert.equal(folded.length, 3, JSON.stringify(folded));
         assert.equal(folded[0], "第1行短内容");
         assert.equal(folded[1], "第2行短内容");
-        assert.equal(folded[2], "▸ 展开 11 行");
+        assert.equal(folded[2], "▸ expand (11 lines)");
         component.handleMouse({ type: "click", button: "left" });
         const expandedLines = component.render(500).slice(1).map(untheme);
         assert.equal(expandedLines.length, 14, JSON.stringify(expandedLines));
         assert.equal(expandedLines.at(-2), "下一步建议：看完继续。");
-        assert.equal(expandedLines.at(-1), "▾ 折叠");
+        assert.equal(expandedLines.at(-1), "▾ collapse");
         assert.equal(expandedLines.some((line) => line.includes("...")), false);
         component.handleMouse({ type: "click", button: "left" });
         const refolded = component.render(500).slice(1).map(untheme);
         assert.equal(refolded.length, 3, JSON.stringify(refolded));
-        assert.equal(refolded[2], "▸ 展开 11 行");
+        assert.equal(refolded[2], "▸ expand (11 lines)");
         fire(test, "session_shutdown", { reason: "quit" });
     });
     it("regular 模式：无鼠标路由，回到不折叠的全量渲染", async () => {
@@ -300,7 +300,7 @@ describe("hpl-recap session 生命周期", () => {
             const body = widgetBody(test);
             assert.equal(body.length, 13, JSON.stringify(body));
             assert.equal(body.at(-1), "下一步建议：看完继续。");
-            assert.equal(body.some((line) => line.includes("展开") || line.includes("折叠")), false);
+            assert.equal(body.some((line) => line.includes("expand") || line.includes("collapse")), false);
             fire(test, "session_shutdown", { reason: "quit" });
         }
         finally {

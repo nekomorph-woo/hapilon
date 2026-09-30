@@ -136,10 +136,10 @@ function recapWidgetFactory(
       if (!expanded) {
         return [
           ...lines.slice(0, 1 + RECAP_COLLAPSED_BODY_LINES),
-          theme.fg("muted", `▸ 展开 ${bodyCount - RECAP_COLLAPSED_BODY_LINES} 行`),
+          theme.fg("muted", `▸ expand (${bodyCount - RECAP_COLLAPSED_BODY_LINES} lines)`),
         ];
       }
-      return [...lines, theme.fg("muted", "▾ 折叠")];
+      return [...lines, theme.fg("muted", "▾ collapse")];
     };
     return {
       render(width: number): string[] {
