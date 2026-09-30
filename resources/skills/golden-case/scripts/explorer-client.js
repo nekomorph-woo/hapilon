@@ -768,6 +768,8 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
       const st = v.status === 'PASS' ? '<span class="vd ok">✓ 通过</span>'
         : (v.status === 'FAIL' || v.status === 'ERROR') ? '<span class="vd no">✗ 不符</span>'
           : (v.status ? '<span class="vd na">' + esc(v.status) + '</span>' : '');
+      const basisBits = (v.basis || []).map((b) => '<span class="badge">' + esc(b.id) +
+        (b.statement ? ' · ' + esc(b.statement.length > 24 ? b.statement.slice(0, 24) + '…' : b.statement) : '') + '</span>').join(' ');
       return '<div class="vp' + (v.status === 'FAIL' || v.status === 'ERROR' ? ' fail' : '') + '">' +
         '<div class="vh"><span class="vid">' + esc(v.id) + '</span><span class="vn">' + esc(v.name) + '</span>' +
         (v.severity ? '<span class="badge">' + esc(severityLabel(v.severity)) + '</span>' : '') +
@@ -780,11 +782,31 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
             (v.actual != null ? ' · 实际 <b>' + esc(v.actual) + '</b>' : '') + '</dd>' +
           '<dt>Expected</dt><dd><b>' + esc(v.expected) + '</b>' + (v.unit ? ' ' + esc(v.unit) : '') +
             (v.bad ? ' <span class="first-fail">不可判定</span>' : '') + '</dd>' +
+          '<dt>业务依据</dt><dd>' + (basisBits || '<span class="muted">未记录业务依据</span>') + '</dd>' +
         '</dl>' + (v.message ? '<div class="issue">' + esc(v.message) + '</div>' : '') +
         (v.example ? '<details class="q"><summary>示例查询</summary><div class="sql">' + esc(v.example) +
           '</div></details>' : '') + '</div>';
     }).join('');
-    return head + (vps || '<div class="blk"><p class="muted">该用例没有验证点。</p></div>');
+    const provWarn = (c.prov_issues || []).length
+      ? '<div class="blk warn-h"><h3>业务依据缺口</h3><ul>' +
+        c.prov_issues.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul></div>' : '';
+    const basisDetail = (c.business_basis || []).length
+      ? '<div class="blk"><h3>业务依据登记</h3>' + c.business_basis.map((b) => {
+          const deps = (b.based_on || []).map((d) => esc(d)).join('、');
+          return '<div class="vp"><div class="vh"><span class="vid">' + esc(b.id) + '</span>' +
+            '<span class="badge">' + esc(b.kind_cn || b.kind || '未知类型') + '</span>' +
+            (b.incomplete ? '<span class="first-fail">字段不完整</span>' : '') + '</div>' +
+            '<dl class="qa">' +
+              '<dt>依据</dt><dd>' + (b.statement ? esc(b.statement) : '<span class="muted">—</span>') + '</dd>' +
+              (b.excerpt ? '<dt>原文摘录</dt><dd>' + esc(b.excerpt) + '</dd>' : '') +
+              (b.reference ? '<dt>出处</dt><dd><span class="mono">' + esc(b.reference) + '</span></dd>' : '') +
+              (b.confirmed_by || b.confirmed_on ? '<dt>确认</dt><dd>' + esc([b.confirmed_by, b.confirmed_on].filter(Boolean).join(' · ')) + '</dd>' : '') +
+              (b.kind === 'DERIVATION' ? '<dt>推导式</dt><dd><span class="mono">' + esc(b.expression) + '</span></dd>' +
+                (deps ? '<dt>依赖</dt><dd>' + deps + '</dd>' : '') : '') +
+            '</dl></div>';
+        }).join('') + '</div>'
+      : '';
+    return head + provWarn + (vps || '<div class="blk"><p class="muted">该用例没有验证点。</p></div>') + basisDetail;
   }
   function execTab(c) {
     const rows = [

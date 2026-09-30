@@ -247,6 +247,91 @@ function applyRun(vps, run) {
   }
 }
 
+// ── provenance：basis 登记 + expect 绑定 + 问题清单（语义与 freeze-check 对齐）──
+const BASIS_KIND_CN = { USER_CONFIRMATION: '用户确认', SOURCE: '权威来源', DERIVATION: '机械推导' };
+const BASIS_ID_RE = /^BASIS-\d+$/;
+// 各 kind 冻结时的必填字段；与 freeze-check 同一组可观察语义（非空字符串）
+const BASIS_REQUIRED = {
+  USER_CONFIRMATION: ['statement', 'excerpt', 'confirmed_by', 'confirmed_on'],
+  SOURCE: ['statement', 'reference', 'excerpt', 'confirmed_by', 'confirmed_on'],
+  DERIVATION: ['statement', 'based_on', 'expression', 'confirmed_by', 'confirmed_on'],
+};
+
+function buildProvenance(c) {
+  const issues = [];
+  // 字段存在性与内容分开：声明了但空/类型错是坏 provenance，不是没声明
+  const hasBB = Object.prototype.hasOwnProperty.call(c, 'business_basis');
+  const hasEB = Object.prototype.hasOwnProperty.call(c, 'expect_basis');
+  if (hasBB !== hasEB) issues.push('business_basis / expect_basis 只声明了一边——两字段必须成对登记');
+  if (hasBB && !Array.isArray(c.business_basis)) issues.push('business_basis 不是列表');
+  if (hasEB && (!c.expect_basis || typeof c.expect_basis !== 'object' || Array.isArray(c.expect_basis))) issues.push('expect_basis 不是映射');
+  const rawBasis = hasBB && Array.isArray(c.business_basis) ? c.business_basis : [];
+  const basisList = rawBasis.filter((b) => b && typeof b === 'object' && !Array.isArray(b));
+  if (hasBB && Array.isArray(c.business_basis) && !c.business_basis.length) issues.push('business_basis 是空列表');
+  const nonObj = rawBasis.length - basisList.length;
+  if (nonObj) issues.push(`business_basis 含非对象条目（${nonObj} 条）——来源文件损坏，须人工修复`);
+  const expectBasis = hasEB && c.expect_basis && typeof c.expect_basis === 'object' && !Array.isArray(c.expect_basis) ? c.expect_basis : {};
+  const basisById = new Map();
+  for (const b of basisList) {
+    const id = s(b.id);
+    if (!id || !BASIS_ID_RE.test(id)) { issues.push(`basis id 非法「${id || '空'}」（应为 BASIS-数字）`); continue; }
+    if (basisById.has(id)) issues.push(`basis id 重复：${id}`);
+    basisById.set(id, b);
+    if (!BASIS_KIND_CN[b.kind]) issues.push(`${id}：未知 kind「${s(b.kind)}」`);
+    else if (b.kind === 'DERIVATION' && (!Array.isArray(b.based_on) || !b.based_on.length)) {
+      issues.push(`${id}：DERIVATION 的 based_on 必须是非空数组`);
+    }
+  }
+  // derivation 依赖：未知/自引用/循环/格式非法
+  const state = new Map();
+  const visit = (id, chain) => {
+    const st = state.get(id);
+    if (st === 1) return;
+    if (st === 0) { issues.push(`derivation 依赖成环：${[...chain, id].join(' → ')}`); return; }
+    state.set(id, 0);
+    const b = basisById.get(id);
+    for (const dep of (Array.isArray(b?.based_on) ? b.based_on : [])) {
+      if (typeof dep !== 'string' || !BASIS_ID_RE.test(dep)) { issues.push(`${id}：based_on 里的「${s(dep) || '空'}」不是合法 basis id（BASIS-数字）`); continue; }
+      if (dep === id) { issues.push(`${id}：based_on 自引用`); continue; }
+      if (!basisById.has(dep)) issues.push(`${id}：based_on 引用不存在的 basis「${dep}」`);
+      else visit(dep, [...chain, id]);
+    }
+    state.set(id, 1);
+  };
+  for (const id of basisById.keys()) visit(id, []);
+
+  const boundIds = (point) => (Array.isArray(expectBasis[point]) ? expectBasis[point] : expectBasis[point] ? [expectBasis[point]] : []).map(String);
+  // 按 VP source 关联依据；未知 id 也带回去，让读者看到断链而不是静默丢弃
+  const basisOf = (source) => boundIds(source).map((id) => {
+    const b = basisById.get(id);
+    if (!b) { issues.push(`${source}：引用不存在的 basis「${id}」`); return { id, kind: '', kind_cn: '', statement: '' }; }
+    return { id, kind: s(b.kind), kind_cn: BASIS_KIND_CN[b.kind] ?? s(b.kind), statement: s(b.statement) };
+  });
+
+  const basis = basisList.map((b) => {
+    const id = s(b.id);
+    const validId = BASIS_ID_RE.test(id) && basisById.get(id) === b;
+    const required = BASIS_REQUIRED[b.kind] ?? [];
+    // based_on 是数组字段，由上面的专项检查负责；这里只查非空字符串字段，并给出具体字段名
+    const missing = required.filter((f) => f !== 'based_on' && (typeof b[f] !== 'string' || b[f] === ''));
+    for (const f of missing) issues.push(`${id}：${b.kind || '未知 kind'} 缺必填字段 ${f}（须为非空字符串）`);
+    const badBasedOn = (!b.kind || b.kind === 'DERIVATION') && (!Array.isArray(b.based_on) || !b.based_on.length);
+    return {
+      id, kind: s(b.kind), kind_cn: BASIS_KIND_CN[b.kind] ?? s(b.kind),
+      statement: s(b.statement), reference: s(b.reference), excerpt: s(b.excerpt),
+      confirmed_by: s(b.confirmed_by), confirmed_on: s(b.confirmed_on),
+      based_on: (Array.isArray(b.based_on) ? b.based_on : b.based_on ? [b.based_on] : []).map(String),
+      expression: s(b.expression),
+      incomplete: !validId || !BASIS_KIND_CN[b.kind] || missing.length > 0 || badBasedOn,
+    };
+  });
+  // 映射缺口：每个 expect 键至少要绑一个存在的 basis（DRAFT 可暂缺，这里只报不判死）
+  for (const point of Object.keys(c.expect ?? {})) {
+    if (!boundIds(point).some((x) => basisById.has(x))) issues.push(`${point}：未绑定业务依据`);
+  }
+  return { basis, basisOf, issues };
+}
+
 function buildModel(list) {
   return list.map((c) => {
     const id = s(c.id);
@@ -258,8 +343,22 @@ function buildModel(list) {
     const frozen = frozenMap ? Object.prototype.hasOwnProperty.call(frozenMap, id) : false;
     const given = c.given ?? {};
     const vps = buildVPs(c, narrative, units);
+    const prov = buildProvenance(c);
+    for (const v of vps) v.basis = prov.basisOf(v.source);
     const run = buildRun(c, vps, id);
     applyRun(vps, run);
+    // 与 freeze-check 同口径的形态/配对提示：只判 Explorer 已有数据可判的状态，不做快照内容 diff
+    const hasProv = Object.prototype.hasOwnProperty.call(c, 'business_basis') || Object.prototype.hasOwnProperty.call(c, 'expect_basis');
+    const sn = frozen ? frozenMap[id] : undefined;
+    const snBad = frozen && (!sn || typeof sn !== 'object' || Array.isArray(sn));
+    const snIsV3 = !snBad && !!sn && typeof sn === 'object' && !Array.isArray(sn) && (
+      (sn.expect && typeof sn.expect === 'object' && !Array.isArray(sn.expect)) ||
+      (sn.expect_basis && typeof sn.expect_basis === 'object' && !Array.isArray(sn.expect_basis)) ||
+      Array.isArray(sn.business_basis));
+    // 快照条目形状非法（null/标量/列表）：不构成有效冻结依据，明确警示而不是静默当已封金
+    if (snBad) prov.issues.push('frozen 快照条目形状非法（非映射）——不构成有效冻结依据，按 v3 结构化快照重新冻结');
+    else if (hasProv && sn && !snIsV3) prov.issues.push('快照仍是旧式 expect 映射：业务依据未受保护，须按 v3 结构化快照重新冻结');
+    if (c.lifecycle === 'FROZEN' && !frozen) prov.issues.push('case 声明 lifecycle: FROZEN，但 frozen.md 里没有它的快照——恢复 frozen 条目，或经用户确认后改回真实状态');
     const bad = vps.some((v) => v.bad);
     const version = c.version ?? (changes.length ? changes[changes.length - 1].v : 1);
     const updated = (changes.length ? changes[changes.length - 1].when : null) ?? s(c.created);
@@ -323,9 +422,12 @@ function buildModel(list) {
       run: runObj,
       history: historyRows,
       frozen,
+      business_basis: prov.basis,
+      prov_issues: [...new Set(prov.issues)],
     };
     model.search = [model.id, model.name, model.description, tags.join(' '), model.type, model.lifecycle,
-      model.health, model.priority, model.level? `L${model.level.slice(1)}` : '', model.level].join(' ').toLowerCase();
+      model.health, model.priority, model.level? `L${model.level.slice(1)}` : '', model.level,
+      prov.basis.map((b) => [b.statement, b.excerpt, b.reference].join(' ')).join(' ')].join(' ').toLowerCase();
     return model;
   });
 }

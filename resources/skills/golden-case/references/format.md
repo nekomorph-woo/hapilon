@@ -4,12 +4,14 @@ The YAML file is the **single source of truth**. The HTML review view, the test
 adapters, and the aggregated reports are all generated from it — never edited
 by hand. Users own and review the case file; AI owns the adapters.
 
-Schema version: **v2**. v2 keeps the v1 core (`observe` + `expect` remain the
-authoritative expectation surface that every check reads) and adds the review
-model on top: `lifecycle` / `health`, structured `verification_points`,
-`invariants`, `dependencies`, `tests`, and an optional inlined `latest_run`.
-A v1 file still loads: the missing fields are either left empty or derived by
-the view's fallback rules, never invented (see *v1 → v2 fallback rules*).
+Schema version: **v3**. v3 keeps the v1 core (`observe` + `expect` remain the
+authoritative expectation surface that every check reads), the v2 review
+model (`lifecycle` / `health`, structured `verification_points`,
+`invariants`, `dependencies`, `tests`, optional inlined `latest_run`), and
+adds durable provenance: `business_basis` + `expect_basis`. A v1/v2 file
+still loads: the missing provenance fields are left empty, never invented
+(see *v1/v2 → v3 fallback rules*); legacy files migrate to v3 only when they
+are re-confirmed or frozen.
 
 ## Terminology
 
@@ -104,6 +106,33 @@ cases:
       event_count_P5: 1
       total_charged_for_payment: 74.8
       balance_sum_after: 425.2
+    business_basis:                  # durable provenance (v3): the evidence register
+      - id: BASIS-001
+        kind: USER_CONFIRMATION
+        statement: 同一支付单最多成功一次：只扣一次款、只发一个扣款事件
+        reference: conversation:msg-17
+        excerpt: 同一个 payment_id 重试不能再次扣款，也不能重复发事件
+        confirmed_by: 需求方
+        confirmed_on: 2026-09-27
+      - id: BASIS-002
+        kind: USER_CONFIRMATION
+        statement: 本订单实扣总额为 74.8 元
+        reference: conversation:msg-18
+        excerpt: 这笔订单一共只收 74.8 元
+        confirmed_by: 需求方
+        confirmed_on: 2026-09-27
+      - id: BASIS-003
+        kind: DERIVATION
+        statement: 扣款后余额 = 初始余额 - 实扣总额
+        based_on: [BASIS-002]
+        expression: "500.0 - 74.8 = 425.2"
+        confirmed_by: 需求方
+        confirmed_on: 2026-09-27
+    expect_basis:                    # binds each expect key to one or more basis ids
+      charge_count_P5: [BASIS-001]
+      event_count_P5: [BASIS-001]
+      total_charged_for_payment: [BASIS-002]
+      balance_sum_after: [BASIS-003]
     tests:                           # Case = spec, Test = machine implementation (1→N)
       - {id: T-005A, case_id: CASE-005, type: ACCEPTANCE, framework: node:test, file: fixtures/tests/ShopGoldenCaseTest.java, status: FAIL, last_run: 2026-09-19, failure_reason: "INV-001 幂等被破坏：重放导致双扣（charge=2）"}
     latest_run:                      # optional: inlined last execution (else use runs.json)
@@ -125,6 +154,40 @@ cases:
         stock_BOOK: 本               # "stock_<ITEM>" keys set the unit used in the given-prose
       group: 不变量                   # legacy business category; superseded by `business`
 ```
+
+### Provenance (v3)
+
+Durable business provenance lives on the case itself, not in review packets:
+
+- `business_basis` — the case's register of business bases. Each entry:
+  `id` (`BASIS-\d+`, unique in the case), `kind`, `statement`, plus
+  `confirmed_by` / `confirmed_on` on every kind. Per kind, freezing requires:
+  - `USER_CONFIRMATION` — direct user confirmation: `statement`, `excerpt`
+    (the user's own words), `confirmed_by`, `confirmed_on`; `reference`
+    (stable locator such as `conversation:message-id`) is optional but must
+    be recorded when one exists.
+  - `SOURCE` — a user-endorsed authoritative source: `statement`,
+    `reference`, `excerpt` (key original text, so a dead link still leaves
+    the evidence), `confirmed_by`, `confirmed_on`.
+  - `DERIVATION` — deterministic mechanical derivation: `statement`,
+    non-empty `based_on` (only ids that exist in this same case;
+    self-references, unknown ids and cycles are rejected), `expression`,
+    `confirmed_by`, `confirmed_on`.
+- `expect_basis` — maps each `expect` key to one or more basis ids
+  (`charge_count_P5: [BASIS-001]`). This is the only binding between golden
+  values and their evidence. VP's `source` stays what it was: where the
+  runtime observation is read from — never a business-basis field.
+
+A DRAFT case may leave provenance incomplete; the explorer shows every gap.
+A frozen v3 case must be complete: every `expect` key bound to at least one
+existing basis, all required fields present.
+
+Two quoting/layout rules from the YAML subset matter most here, because this
+is where users paste verbatim text: text containing ` #` must be quoted or
+the parser truncates it at the `#` (a clipped excerpt can then be frozen
+all-green); and a basis entry is either a block map or a single-line flow
+map — a flow map split across lines loses everything after the first line,
+and if the lost field is optional (`reference`) no gate catches it.
 
 ### Identity & review metadata
 
@@ -148,7 +211,9 @@ guessed — a typo must not silently become a different valid state.
 ### Version & change log
 
 `version` is the case's current version — 1 at draft time, +1 for each
-confirmed change (e.g. an anchor correction from review). `changes` records the
+confirmed change (e.g. an anchor correction from review). A frozen v3 case
+declares a positive-integer `version`, and the v3 snapshot must carry the
+same value. `changes` records the
 history, oldest first: `v` (version), `when` (date), `what` (one sentence), plus
 optional `scope` (which block changed) and `by`. The manager view orders cases
 by the newest change's `when`, newest first, falling back to `created` for cases
@@ -248,11 +313,11 @@ narrative is the fallback for v1 files.
 `units` may sit at the case's top level or inside `narrative` — the top level
 wins.
 
-### v1 → v2 fallback rules
+### v1/v2 → v3 fallback rules
 
-A v1 case (only `observe` + `expect`) is loaded without rewriting it:
+A v1 case (only `observe` + `expect`) or v2 case is loaded without rewriting it.
 
-| v2 field | derived when absent | invented? |
+| v2/v3 field | derived when absent | invented? |
 |---|---|---|
 | `verification_points[]` | one `VP-00n` per `expect` key: `name` ← `narrative.where[key]`, `source` = the key, `operator` = `==` | no, equivalent mapping |
 | `lifecycle` | `FROZEN` when a frozen snapshot exists, else `DRAFT` | no — the only lifecycle fact a v1 file implies |
@@ -261,6 +326,7 @@ A v1 case (only `observe` + `expect`) is loaded without rewriting it:
 | `business` | `narrative.group` → `未分类` | no |
 | `description` | `narrative.scene` | no |
 | `type` / `priority` / `verification_level` / `tags` / `invariants` / `dependencies` / `tests` | left empty (UI shows `—` or omits the block) | **no** |
+| `business_basis` / `expect_basis` | left empty: the loader never derives a business basis from prose, receipts or chat | **no** — provenance is never inferred; it exists only when the user confirmed it and it was written into the file |
 
 Derived values are produced by the loader, never read from the file, and a
 derived VP is tagged `derived: true` in the generated model so nothing
@@ -275,11 +341,62 @@ rejected until fixed. Fix it by splitting into concrete observable points.
 
 ## Frozen file
 
-Plain text, comments allowed, one `frozen:` block in the same YAML subset:
+Plain text, comments allowed, one `frozen:` block in the same YAML subset.
+Two shapes coexist:
+
+**v3 structured snapshot** (required for cases carrying `business_basis` /
+`expect_basis`; write it at freeze time, and set the case's `lifecycle` to
+`FROZEN` in the same change). The example below is the real snapshot of the
+`CASE-005` example above — the full `expect` map, every `expect_basis`
+binding, and all three bases, verbatim:
 
 ```
-# Case Freeze 清单 —— CASE-003/005 已于 2026-09-18 由需求方确认
-# 自此 Expected 不得变更；改实现、重构、加日志均可。
+frozen:
+  CASE-005:
+    version: 1
+    expect:
+      charge_count_P5: 1
+      event_count_P5: 1
+      total_charged_for_payment: 74.8
+      balance_sum_after: 425.2
+    expect_basis:
+      charge_count_P5: [BASIS-001]
+      event_count_P5: [BASIS-001]
+      total_charged_for_payment: [BASIS-002]
+      balance_sum_after: [BASIS-003]
+    business_basis:
+      - id: BASIS-001
+        kind: USER_CONFIRMATION
+        statement: 同一支付单最多成功一次：只扣一次款、只发一个扣款事件
+        reference: conversation:msg-17
+        excerpt: 同一个 payment_id 重试不能再次扣款，也不能重复发事件
+        confirmed_by: 需求方
+        confirmed_on: 2026-09-27
+      - id: BASIS-002
+        kind: USER_CONFIRMATION
+        statement: 本订单实扣总额为 74.8 元
+        reference: conversation:msg-18
+        excerpt: 这笔订单一共只收 74.8 元
+        confirmed_by: 需求方
+        confirmed_on: 2026-09-27
+      - id: BASIS-003
+        kind: DERIVATION
+        statement: 扣款后余额 = 初始余额 - 实扣总额
+        based_on: [BASIS-002]
+        expression: "500.0 - 74.8 = 425.2"
+        confirmed_by: 需求方
+        confirmed_on: 2026-09-27
+```
+
+A snapshot that covers only part of the `expect` map or only some of the
+bases is not a freeze — every `expect` key and every basis must be in it.
+
+**Legacy shape** (v1/v2, `CASE -> expect map`) keeps working as before, but a
+case that declares `business_basis` or `expect_basis` while still protected
+only by a legacy snapshot is red-carded `BASIS-NOT-FROZEN` — the basis is
+not actually protected, and that must not read as all-green:
+
+```
 frozen:
   CASE-003:
     checkpoint_a_price: 88.0
@@ -287,15 +404,48 @@ frozen:
     checkpoint_c_total: 74.8
 ```
 
-`freeze-check.mjs` diffs every frozen case against the case file: changed
-values, missing keys, or missing cases are red-carded (exit 1). A frozen id
-with no matching case usually means the cheat — editing Expect to make a test
-pass. A frozen id also forces `lifecycle: FROZEN` when the case does not declare
-one.
+`freeze-check.mjs` diffs every frozen case against the case file. For both
+shapes: changed values, missing keys, or missing cases are red-carded
+(exit 1). For v3 snapshots, additionally: `version` missing / not a positive
+integer / differing from the case's version; `expect_basis` bindings added,
+removed or re-bound (id-list order is irrelevant); any content change in a
+basis's `kind` / `statement` / `reference` / `excerpt` / `confirmed_by` /
+`confirmed_on` / `based_on` / `expression` (object key order, basis list
+order and `based_on` order are irrelevant); incomplete provenance (an
+`expect` key without a bound existing basis, or a basis missing its kind's
+required fields); duplicate basis ids, unknown kinds, and unknown / cyclic
+derivation dependencies. The recovery is always the same: restore the
+snapshot, or — when the change is real — new case version + fresh human
+confirmation + re-freeze. A frozen id with no matching case usually means the
+cheat — editing Expect to make a test pass. A frozen id also forces
+`lifecycle: FROZEN` when the case does not declare one.
 
 Frozen protection is a *human* gate: after freeze, Given/implementation/tests
-may change freely, but Then / Expected / Invariant may only change through a new
-case version plus a fresh human confirmation.
+may change freely, but Then / Expected / Invariant / `business_basis` /
+`expect_basis` may only change through a new case version plus a fresh human
+confirmation, then re-freeze.
+
+**Machine boundary of `freeze-check.mjs`**: it protects exactly two surfaces —
+the `expect` map and the provenance (`business_basis` / `expect_basis`).
+It does **not** diff `then` lines or `invariants`: a silent edit to either
+crosses no machine gate. Those surfaces are guarded by process, not by this
+script — re-freeze requires a review receipt, and the anti-cheat review round
+must diff Then / Invariant between versions. Do not claim the script would
+catch a Then / Invariant edit; if that protection is ever needed, it is a
+schema/snapshot extension, not a wording change.
+
+`frozen.md` itself is the *baseline* the script diffs against — the script
+cannot prove the baseline was not rewritten by the same change, and a case
+side that quietly drops its provenance next to a downgraded snapshot reads
+all-green (`BASIS-NOT-FROZEN` only fires when the case still declares the
+basis). The same holds for deleting an entry whose case does not explicitly
+declare `lifecycle: FROZEN`: with the snapshot gone there is no second
+copy to compare against, so a single `freeze-check` run cannot recover that
+history. Baseline integrity therefore rests on version control (commit
+`frozen.md`), the review receipt / anti-cheat diff, and the rule that
+`frozen.md` is only ever updated on explicit user confirmation. This is not
+a tamper-proof system — write `lifecycle: FROZEN` on every v3 freeze so the
+reverse check (`LIFECYCLE-UNBACKED`) can catch a deleted snapshot.
 
 ## Anchors
 
@@ -334,7 +484,7 @@ require numbers on both sides and otherwise fail closed.
 | script | reads | writes |
 |---|---|---|
 | `yaml-lite.mjs` | — | the shared parser (`parseYaml` / `numEq` / `isUndecidable` / `isDecimal`) |
-| `explorer.mjs` | cases + frozen + runs | `case-explorer.html` — the only consumer of the v2 fields |
+| `explorer.mjs` | cases + frozen + runs | `case-explorer.html` — the only interactive consumer of the v2/v3 fields (provenance included) |
 | `gen-view.mjs` | cases (+ runs) | the six案卷审阅 styles; v1 `observe`/`expect` only |
 | `freeze-check.mjs` | cases + frozen | red-card report, exit 1 on drift |
 | `audit.mjs` | cases + test sources | coverage report (UNOWNED / ORPHAN / LITERAL), exit 1 on findings |
