@@ -1,6 +1,6 @@
 import { describe, it, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -126,6 +126,9 @@ describe("hpl-recap session 生命周期", () => {
   before(() => {
     home = mkdtempSync(join(tmpdir(), "hapilon-recap-lifecycle-"));
     process.env.HAPILON_HOME = home;
+    mkdirSync(join(home, "agent"), { recursive: true });
+    // 全屏才走折叠/点击组件；regular 用例单独改回
+    writeFileSync(join(home, "agent", "settings.json"), JSON.stringify({ tuiMode: "fullscreen" }));
     writeFileSync(join(home, "recap-config.json"), JSON.stringify({ enabled: true, idleMinutes: 0.001, maxContextChars: 8000 }));
     writeFileSync(join(home, "model-tiers-resolved.json"), JSON.stringify({
       opus: [],
@@ -331,6 +334,25 @@ describe("hpl-recap session 生命周期", () => {
     assert.equal(refolded.length, 3, JSON.stringify(refolded));
     assert.equal(refolded[2], "▸ 展开 11 行");
     fire(test, "session_shutdown", { reason: "quit" });
+  });
+
+  it("regular 模式：无鼠标路由，回到不折叠的全量渲染", async () => {
+    const settingsPath = join(home, "agent", "settings.json");
+    writeFileSync(settingsPath, JSON.stringify({ tuiMode: "regular" }));
+    try {
+      const progress = Array.from({ length: 12 }, (_, i) => `第${i + 1}行短内容`).join("\n");
+      const test = makeExtension(undefined, [JSON.stringify({ progress, next: "看完继续。" })]);
+      fire(test, "session_start", { reason: "startup" });
+      fire(test, "message_end", { type: "message_end" });
+      await waitForWidget(test);
+      const body = widgetBody(test);
+      assert.equal(body.length, 13, JSON.stringify(body));
+      assert.equal(body.at(-1), "下一步建议：看完继续。");
+      assert.equal(body.some((line) => line.includes("展开") || line.includes("折叠")), false);
+      fire(test, "session_shutdown", { reason: "quit" });
+    } finally {
+      writeFileSync(settingsPath, JSON.stringify({ tuiMode: "fullscreen" }));
+    }
   });
 
   it("单句无句读纯文本超长：整段作 progress 保头切 200", async () => {

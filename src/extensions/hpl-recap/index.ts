@@ -1,7 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI, TuiMouseEvent } from "@earendil-works/pi-tui";
 import { truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Effect } from "effect";
+import { agentDir } from "../../config/hapilon-home.js";
 import { readRecapConfig, type RecapConfig } from "./config.js";
 import { buildRecapMessages } from "./context.js";
 import { recapModelLabel, selectRecapModel, type RecapModelShape } from "./model.js";
@@ -106,9 +109,9 @@ function truncateProgress(progress: string): string {
 }
 
 /**
- * recap 展示组件：默认折叠到头行 + 2 行正文 + 提示行，左键点击整块切换展开/折叠。
- * 仅全屏模式有鼠标路由（regular 模式鼠标归终端，收不到点击）；每次 recap 更新内核都会
- * 重建组件实例，展开态随之归位折叠——新摘要默认收起。
+ * recap 展示组件（仅全屏模式使用，调用方用 isFullscreenMode() 保证）：默认折叠到
+ * 头行 + 2 行正文 + 提示行，左键点击整块切换展开/折叠。regular 模式鼠标归终端，
+ * 收不到点击；每次 recap 更新内核都会重建组件实例，展开态随之归位折叠——新摘要默认收起。
  */
 function recapWidgetFactory(
   parts: RecapParts,
@@ -157,6 +160,39 @@ function recapWidgetFactory(
       },
     };
   };
+}
+
+/** regular 模式的全量渲染：字符串数组 widget，宽度截断交给内核 Text 组件 */
+function recapStaticLines(
+  ctx: ExtensionContext,
+  parts: RecapParts,
+  model: RecapModelShape,
+  degradedReason?: string,
+  now = new Date(),
+): string[] {
+  const timestamp = now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  const lines = [
+    ctx.ui.theme.fg("muted", `※ recap · ${timestamp} · ${recapModelLabel(model).toLowerCase()}`),
+  ];
+  if (degradedReason) lines.push(ctx.ui.theme.fg("muted", degradedReason));
+  if (parts.progress) lines.push(...parts.progress.split(/\r?\n/).map((line) => ctx.ui.theme.fg("muted", line)));
+  if (parts.next) lines.push(ctx.ui.theme.fg("muted", `下一步建议：${parts.next}`));
+  return lines;
+}
+
+/**
+ * 折叠/点击只在全屏模式有意义（regular 鼠标归终端）。读全局 settings 的 tuiMode；
+ * 文件不存在按 regular（与 pi 缺省一致），存在但读不懂才告警。
+ */
+function isFullscreenMode(): boolean {
+  const path = join(agentDir(), "settings.json");
+  if (!existsSync(path)) return false;
+  try {
+    return (JSON.parse(readFileSync(path, "utf8")) as { tuiMode?: unknown }).tuiMode === "fullscreen";
+  } catch (error) {
+    console.warn(`[hpl-recap] settings.json 读取失败，recap 按 regular 全量渲染：${String(error)}`);
+    return false;
+  }
 }
 
 function failureLines(ctx: ExtensionContext, reason: string): string[] {
@@ -228,7 +264,11 @@ function runRecapEffect(
       parts = fallbackParts(lastText);
     }
     const rendered: RecapParts = { progress: truncateProgress(parts.progress), next: parts.next };
-    ctx.ui.setWidget(WIDGET_KEY, recapWidgetFactory(rendered, choice.model, choice.reason));
+    if (isFullscreenMode()) {
+      ctx.ui.setWidget(WIDGET_KEY, recapWidgetFactory(rendered, choice.model, choice.reason));
+    } else {
+      ctx.ui.setWidget(WIDGET_KEY, recapStaticLines(ctx, rendered, choice.model, choice.reason));
+    }
   }).pipe(
     Effect.catchAllCause((cause) => Effect.sync(() => {
       if (controller.signal.aborted) return;
