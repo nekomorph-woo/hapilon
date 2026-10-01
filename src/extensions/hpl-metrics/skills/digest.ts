@@ -1,9 +1,11 @@
 /**
- * digest.ts — 「干了什么」的离线语义层：raw 原话 → 一句摘要 + purpose 对照。
+ * digest.ts — 器物晚报的文字管线：摘要、头条、固定分析、目标分析、推荐、器物荐语。
  *
- * 时机在报告生成时而非使用瞬间：使用路径零延迟零成本，失败可重跑。
- * 缓存按 hash(skill+tail) 落 skill-digests.jsonl，重跑只补缺失项。
- * 摘要只做展示不进统计数字——计数/热力图的事实层是 raw 原话本身。
+ * 上下文组织是「渐进式 + 工具化」：不把有损摘要一次性塞给模型，而是给它一组
+ * 本插件私有的数据查询（纯内存过滤/聚合，见 executeTool——不是 hapi 的工具体系，
+ * 不注册、不进会话），模型按需多轮拉取，探索够了再产出文字。质量优先，轮次换深度。
+ *
+ * 模型与选模：recap 同款（haiku 优先，非推理）。摘要缓存按 hash 落盘。
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -13,20 +15,28 @@ import { Effect } from "effect";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readResolvedTiersEffect } from "../../hpl-model-tiers/resolved.js";
 import { selectRecapModel } from "../../hpl-recap/model.js";
+import type { AvailableSkill } from "./stats.js";
+import type { SkillUsageEvent } from "./usage.js";
 import { digestsPath } from "./storage.js";
+import {
+  FIXED_ANALYSIS_STYLE,
+  FRONT_PAGE_STYLE,
+  GOAL_ANALYSIS_STYLE,
+  OBSERVER_STYLE,
+  SUGGESTION_STYLE,
+  WARE_NOTE_STYLE,
+} from "./style.js";
 
 export interface DigestEntry {
   key: string;
-  /** ≤30 字：用户想干什么 */
   digest: string;
-  /** purpose 对照：一致/偏移 + 一句说明；无登记用途时缺省 */
   consistency?: string;
 }
 
 export interface DigestItem {
   skill: string;
   tail: string;
-  purpose: string;
+  purpose?: string;
 }
 
 export function digestKey(skill: string, tail: string): string {
@@ -61,69 +71,35 @@ export function saveDigests(entries: readonly DigestEntry[]): void {
   appendFileSync(path, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n", "utf8");
 }
 
-function buildPrompt(items: readonly DigestItem[]): string {
-  const lines = items.map((item, index) => {
-    const purpose = item.purpose ? `\n   [登记用途] ${item.purpose}` : "";
-    return `${index + 1}. skill=${item.skill}${purpose}\n   原话：${item.tail}`;
-  });
-  return (
-    "你是 skill 使用记录分析器。下面是用户在 coding agent 里显式调用 skill 时携带的原始请求，" +
-    "按编号逐条输出：digest ≤30 字概括「用户想干什么」；若该条给了 [登记用途]，再输出 " +
-    "consistency：一句话判断实际用法与登记用途一致还是偏移（无登记用途的条目不要 consistency 字段）。\n" +
-    '只输出 JSON 数组，除此之外一个字都不要：[{"i":1,"digest":"…","consistency":"…"}]\n\n' +
-    lines.join("\n")
-  );
-}
+/* ——— 模型调用 ——— */
 
-/** 容错解析：截取首个 [ 到末个 ]，逐条校验 */
-function parseDigestResponse(text: string, count: number): Map<number, { digest: string; consistency?: string }> {
-  const result = new Map<number, { digest: string; consistency?: string }>();
-  const start = text.indexOf("[");
-  const end = text.lastIndexOf("]");
-  if (start === -1 || end <= start) return result;
-  try {
-    const parsed = JSON.parse(text.slice(start, end + 1)) as unknown;
-    if (!Array.isArray(parsed)) return result;
-    for (const item of parsed) {
-      const entry = item as { i?: unknown; digest?: unknown; consistency?: unknown };
-      const index = typeof entry.i === "number" ? entry.i - 1 : -1;
-      if (index < 0 || index >= count || typeof entry.digest !== "string") continue;
-      result.set(index, {
-        digest: entry.digest.trim().slice(0, 80),
-        ...(typeof entry.consistency === "string" ? { consistency: entry.consistency.trim().slice(0, 120) } : {}),
-      });
-    }
-  } catch {
-    return result;
-  }
-  return result;
-}
-
-const DIGEST_TOKEN_BUDGET = 2048;
-
-import { FIXED_ANALYSIS_STYLE, FRONT_PAGE_STYLE, GOAL_ANALYSIS_STYLE, OBSERVER_STYLE, SUGGESTION_STYLE, WARE_NOTE_STYLE } from "./style.js";
-
-async function completeText(ctx: ExtensionContext, systemPrompt: string, userPrompt: string, maxTokens: number): Promise<string> {
+/** recap 同款选模 + 单次补全，返回纯文本 */
+async function callModel(
+  ctx: ExtensionContext,
+  systemPrompt: string,
+  messages: ReadonlyArray<{ role: "user"; content: string; timestamp: number }>,
+  maxTokens: number,
+): Promise<string> {
   const available = ctx.modelRegistry.getAvailable();
   const resolvedTiers = await Effect.runPromise(readResolvedTiersEffect);
   const choice = selectRecapModel(available, ctx.model, resolvedTiers);
   if (!choice.model) throw new Error(choice.reason ?? "没有可用摘要模型");
   const response = await ctx.modelRegistry.complete(
     choice.model,
-    { systemPrompt, messages: [{ role: "user", content: userPrompt, timestamp: Date.now() }] },
+    { systemPrompt, messages: messages.map((m) => ({ ...m, timestamp: Date.now() })) },
     { maxTokens },
   );
   const content = (response as { content?: unknown })?.content;
   if (!Array.isArray(content)) return "";
   return content
     .map((part) => (part as { text?: unknown })?.text ?? "")
-    .filter((t) => typeof t === "string")
+    .filter((t): t is string => typeof t === "string")
     .join("\n")
     .trim();
 }
 
 /** 容错取 JSON 对象：截取首个 { 到末个 } */
-function parseJsonObject(text: string): Record<string, unknown> | undefined {
+export function parseJsonObject(text: string): Record<string, unknown> | undefined {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start === -1 || end <= start) return undefined;
@@ -135,74 +111,303 @@ function parseJsonObject(text: string): Record<string, unknown> | undefined {
   }
 }
 
+/** 容错取 JSON 数组：截取首个 [ 到末个 ] */
+export function parseJsonArray(text: string): unknown[] | undefined {
+  const start = text.indexOf("[");
+  const end = text.lastIndexOf("]");
+  if (start === -1 || end <= start) return undefined;
+  try {
+    const parsed = JSON.parse(text.slice(start, end + 1)) as unknown;
+    return Array.isArray(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const DIGEST_TOKEN_BUDGET = 2048;
+
+/* ——— 原话摘要（批量、纯格式化，不走探索） ——— */
+
 export interface GeneratedDigests {
   entries: Map<string, DigestEntry>;
-  /** 摘要失败时的说明（报告里提示原文降级）；成功为 undefined */
   error?: string;
 }
 
-/** 批量补缺失摘要：模型不可用或响应无效时返回 error，调用侧降级显示原文 */
-export function generateMissingDigests(
+export async function generateMissingDigests(
   items: readonly DigestItem[],
   ctx: ExtensionContext,
-): Effect.Effect<GeneratedDigests, never> {
-  return Effect.gen(function* () {
-    const digests = loadDigests();
-    const missing = items.filter((item) => item.tail && !digests.has(digestKey(item.skill, item.tail)));
-    if (missing.length === 0) return { entries: digests };
-
-    const available = ctx.modelRegistry.getAvailable();
-    const resolvedTiers = yield* readResolvedTiersEffect;
-    const choice = selectRecapModel(available, ctx.model, resolvedTiers);
-    if (!choice.model) return { entries: digests, error: choice.reason ?? "没有可用摘要模型" };
-
-    const attempted = yield* Effect.either(
-      Effect.tryPromise({
-        try: () =>
-          ctx.modelRegistry.complete(
-            choice.model!,
-            { systemPrompt: "只输出 JSON 数组，其余一个字都不要。", messages: [{ role: "user", content: buildPrompt(missing), timestamp: Date.now() }] },
-            { maxTokens: DIGEST_TOKEN_BUDGET },
-          ),
-        catch: (error) => error,
-      }),
+): Promise<GeneratedDigests> {
+  const digests = loadDigests();
+  const missing = items.filter((item) => item.tail && !digests.has(digestKey(item.skill, item.tail)));
+  if (missing.length === 0) return { entries: digests };
+  try {
+    const list = missing
+      .map((item, index) => `${index + 1}. skill=${item.skill}${item.purpose ? `（登记用途：${item.purpose}）` : ""}\n   原话：${item.tail}`)
+      .join("\n");
+    const text = await callModel(
+      ctx,
+      `${OBSERVER_STYLE}\n只输出 JSON 数组，其余一个字都不要。`,
+      [{ role: "user", content: `任务：逐条给出 digest（≤30 字，概括这条原话想让器物干什么）；若该条给了登记用途，再给 consistency：一句话判断实际用法与登记用途一致还是偏移。无登记用途的条目不要 consistency 字段。\n\n${list}`, timestamp: Date.now() }],
+      DIGEST_TOKEN_BUDGET,
     );
-    if (attempted._tag === "Left") {
-      const cause = attempted.left;
-      const message = cause instanceof Error ? cause.message : String(cause);
-      console.warn(`[hpl-metrics] skill 摘要调用失败：${message.slice(0, 160)}`);
-      return { entries: digests, error: "摘要模型调用失败，相关条目降级显示原文" };
-    }
-    const response = attempted.right;
-
-    const content = (response as { content?: unknown })?.content;
-    const text = Array.isArray(content)
-      ? content.map((part) => (part as { text?: unknown })?.text ?? "").filter((t) => typeof t === "string").join("\n")
-      : "";
-    const parsed = parseDigestResponse(text, missing.length);
-    if (parsed.size === 0) return { entries: digests, error: "摘要响应无法解析，相关条目降级显示原文" };
-
+    const parsed = parseJsonArray(text) ?? [];
     const fresh: DigestEntry[] = [];
-    for (const [index, value] of parsed) {
-      const item = missing[index]!;
-      const entry: DigestEntry = { ...value, key: digestKey(item.skill, item.tail) };
-      digests.set(entry.key, entry);
-      fresh.push(entry);
+    for (const item of parsed) {
+      const entry = item as { i?: unknown; digest?: unknown; consistency?: unknown };
+      const index = typeof entry.i === "number" ? entry.i - 1 : -1;
+      if (index < 0 || index >= missing.length || typeof entry.digest !== "string") continue;
+      const target = missing[index]!;
+      const record: DigestEntry = {
+        key: digestKey(target.skill, target.tail),
+        digest: entry.digest.trim().slice(0, 80),
+        ...(typeof entry.consistency === "string" ? { consistency: entry.consistency.trim().slice(0, 120) } : {}),
+      };
+      digests.set(record.key, record);
+      fresh.push(record);
     }
-    saveDigests(fresh);
+    if (fresh.length > 0) saveDigests(fresh);
     return { entries: digests };
-  });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[hpl-metrics] skill 摘要调用失败：${message.slice(0, 160)}`);
+    return { entries: digests, error: "摘要模型调用失败，相关条目降级显示原文" };
+  }
 }
 
-export async function generateMissingDigestsAsync(items: readonly DigestItem[], ctx: ExtensionContext): Promise<GeneratedDigests> {
-  return Effect.runPromise(generateMissingDigests(items, ctx));
+/* ——— 渐进式数据探索（agent 循环，本插件私有的查询协议） ——— */
+
+export interface DataScope {
+  /** 窗口内全部使用事件（skill + 命令） */
+  events: SkillUsageEvent[];
+  /** 会话名 → 首条用户消息线索 */
+  sessionPreviews: Record<string, string>;
+  /** 已安装器物清单（含描述） */
+  available: AvailableSkill[];
+  window: { start: string; end: string; days: number };
+  /** 可 slash 的全量命令清单（含描述） */
+  commandCatalog: Array<{ name: string; description: string; source: string }>;
 }
 
-/* ——— 目标分析与推荐：读者来信版的模型文字 ——— */
+const DATA_TOOLS_DOC = `数据查询（每轮输出一个 JSON 对象）：
+- {"tool":"list_skills"}                          全量器物与命令排行（含零使用）
+- {"tool":"skill_summary","args":{"name":"…"}}    单件器物全量档案：次数/显式自动/时段/间隔/全部原话/搭档/会话
+- {"tool":"records_query","args":{"skill":"…","source":"explicit|model|command","limit":20}}  筛选使用记录（时间倒序，含原话与会话线索）
+- {"tool":"partners_of","args":{"name":"…"}}      该器物的同会话共现搭档
+- {"tool":"hour_profile","args":{"name":"…"}}     时段直方（全局或某器物）
+- {"tool":"day_counts"}                           按日计数
+- {"tool":"session_preview","args":{"session":"…"}} 某会话的首条用户消息
+- {"answer":"…"}                                  数据已足够，提交最终回答（answer 即最终文字）`;
+
+function executeTool(scope: DataScope, name: string, args: Record<string, unknown>): string {
+  const argString = (key: string): string => (typeof args[key] === "string" ? (args[key] as string).toLowerCase() : "");
+  const argNumber = (key: string, fallback: number): number => (typeof args[key] === "number" ? (args[key] as number) : fallback);
+  const dayLabel = (ts: number): string => {
+    const d = new Date(ts);
+    return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+  const whenLabel = (ts: number): string => {
+    const d = new Date(ts);
+    return `${dayLabel(ts)} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+
+  switch (name) {
+    case "list_skills": {
+      const counts = new Map<string, { total: number; explicit: number; model: number; command: number }>();
+      for (const event of scope.events) {
+        const entry = counts.get(event.skill) ?? { total: 0, explicit: 0, model: 0, command: 0 };
+        entry.total += 1;
+        if (event.source === "explicit") entry.explicit += 1;
+        else if (event.source === "model") entry.model += 1;
+        else entry.command += 1;
+        counts.set(event.skill, entry);
+      }
+      const lines = [...counts.entries()]
+        .sort((a, b) => b[1].total - a[1].total)
+        .map(([skill, c]) => `${skill}: ${c.total} 次（显式 ${c.explicit}/自动 ${c.model}/命令 ${c.command}）`);
+      const installed = scope.available.map((skill) => skill.name).filter((name) => !counts.has(name));
+      return JSON.stringify({ 排行: lines, 零使用: installed });
+    }
+    case "skill_summary": {
+      const name = argString("name");
+      const matched = scope.events.filter((event) => event.skill === name);
+      if (matched.length === 0) return JSON.stringify({ error: `窗口内没有 ${name} 的记录` });
+      const explicit = matched.filter((e) => e.source === "explicit").length;
+      const hours = Array.from({ length: 24 }, () => 0);
+      for (const event of matched) hours[new Date(event.ts).getHours()]!++;
+      const sessions = [...new Set(matched.map((event) => event.session))];
+      const sorted = [...matched].sort((a, b) => a.ts - b.ts);
+      const tails = sorted.filter((e) => e.source === "explicit" && e.args).map((e) => `${whenLabel(e.ts)}「${e.args}」`);
+      const co = new Map<string, number>();
+      for (const event of scope.events) {
+        if (event.skill === name) continue;
+        if (matched.some((m) => m.session === event.session)) co.set(event.skill, (co.get(event.skill) ?? 0) + 1);
+      }
+      const partner = [...co.entries()].sort((a, b) => b[1] - a[1])[0];
+      return JSON.stringify({
+        name,
+        总次数: matched.length,
+        显式: explicit,
+        自动: matched.length - explicit,
+        时段直方: hours,
+        涉及会话: sessions.length,
+        最近: whenLabel(sorted[sorted.length - 1]!.ts),
+        全部原话: tails,
+        最常见搭档: partner ? `${partner[0]}（${partner[1]} 次）` : "无",
+        会话线索样例: sessions.slice(0, 3).map((s) => scope.sessionPreviews[s]).filter(Boolean),
+      });
+    }
+    case "records_query": {
+      const skill = argString("skill");
+      const source = argString("source");
+      const limit = argNumber("limit", 20);
+      const matched = scope.events
+        .filter((event) => (!skill || event.skill === skill) && (!source || event.source === source))
+        .sort((a, b) => b.ts - a.ts)
+        .slice(0, limit);
+      return JSON.stringify(
+        matched.map((event) => ({
+          时间: whenLabel(event.ts),
+          skill: event.skill,
+          来源: event.source,
+          原话: event.args || undefined,
+          会话: event.session.slice(0, 18),
+        })),
+      );
+    }
+    case "partners_of": {
+      const name = argString("name");
+      const sessions = new Set(scope.events.filter((event) => event.skill === name).map((event) => event.session));
+      const co = new Map<string, number>();
+      for (const event of scope.events) {
+        if (event.skill === name || !sessions.has(event.session)) continue;
+        co.set(event.skill, (co.get(event.skill) ?? 0) + 1);
+      }
+      return JSON.stringify(Object.fromEntries([...co.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)));
+    }
+    case "hour_profile": {
+      const name = argString("name");
+      const matched = name ? scope.events.filter((event) => event.skill === name) : scope.events;
+      const hours = Array.from({ length: 24 }, () => 0);
+      for (const event of matched) hours[new Date(event.ts).getHours()]!++;
+      return JSON.stringify(hours);
+    }
+    case "day_counts": {
+      const counts = new Map<string, number>();
+      for (const event of scope.events) {
+        const d = new Date(event.ts);
+        const key = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      return JSON.stringify(Object.fromEntries([...counts.entries()].sort()));
+    }
+    case "session_preview": {
+      const session = argString("session");
+      return JSON.stringify({ session, 线索: scope.sessionPreviews[session] ?? "（无）" });
+    }
+    default:
+      return JSON.stringify({ error: `未知工具 ${name}` });
+  }
+}
+
+export interface AgentResult {
+  answer: string;
+  rounds: number;
+}
+
+const AGENT_MAX_ROUNDS = 30;
+const TOOL_RESULT_MAX = 6000;
+
+export const FIXED_QUESTIONS = [
+  "意图画像 · 它通常被用来干什么",
+  "趋势与节奏 · 用量在升还是在降",
+  "显式/自动与一致性 · 谁在用它",
+  "搭档 · 它常和谁一起出场",
+];
+
+/* ——— 各版块管线：任务文案 + agent 调用 + 解析 ——— */
+
+export interface FixedAnalysis {
+  scope: string;
+  title: string;
+  text: string;
+}
+
+/** 单个 scope 的固定分析四问；不足四条视为失败（调用侧降级数据卡） */
+export async function generateFixedAnalyses(
+  scopeName: string,
+  scope: DataScope,
+  ctx: ExtensionContext,
+  onProgress?: (info: string) => void,
+): Promise<FixedAnalysis[] | undefined> {
+  const result = await runDataAgent(
+    `完成「固定分析目标」四问（范围：${scopeName}）。四条 title 依次为：${FIXED_QUESTIONS.join("、")}。`,
+    `只输出 JSON 数组，恰好 4 条：[{"title":"…","text":"…"}]。每条 60~90 字，结论先行、引用数字。`,
+    scope,
+    ctx,
+    { extraStyle: FIXED_ANALYSIS_STYLE, onProgress },
+  );
+  if (!result) return undefined;
+  const parsed = parseJsonArray(result.answer) ?? [];
+  const analyses = parsed
+    .map((item) => item as { title?: unknown; text?: unknown })
+    .filter((item): item is { title: string; text: string } => typeof item.title === "string" && typeof item.text === "string")
+    .map((item) => ({ scope: scopeName, title: item.title.trim().slice(0, 40), text: item.text.trim().slice(0, 220) }));
+  return analyses.length === FIXED_QUESTIONS.length ? analyses : undefined;
+}
+
+export interface FrontPage {
+  title: string;
+  dek: string;
+  paragraphs: string[];
+}
+
+/** 头条文章；失败返回 undefined（调用侧用确定性模板兜底） */
+export async function generateFrontPage(
+  scope: DataScope,
+  ctx: ExtensionContext,
+  onProgress?: (info: string) => void,
+): Promise<FrontPage | undefined> {
+  const result = await runDataAgent(
+    "为本期《器物晚报》写头版文章。",
+    `只输出 JSON 对象：{"title":"…","dek":"…","paragraphs":["…","…","…"]}。标题对仗或化用诗句、14 字内、数字用汉字；dek 一句话点出榜首与最大反直觉事实；正文恰好三段，第一段以「本报讯」起笔给总量与时段事实，第二段讲榜首器物与显式/自动分工，第三段收在趋势或新变化。每段 60~110 字。`,
+    scope,
+    ctx,
+    { extraStyle: FRONT_PAGE_STYLE, onProgress },
+  );
+  if (!result) return undefined;
+  const parsed = parseJsonObject(result.answer);
+  if (!parsed) return undefined;
+  const paragraphs = Array.isArray(parsed.paragraphs)
+    ? parsed.paragraphs.filter((p): p is string => typeof p === "string" && p.trim().length > 0).slice(0, 3)
+    : [];
+  if (typeof parsed.title !== "string" || paragraphs.length === 0) return undefined;
+  return {
+    title: parsed.title.trim().slice(0, 40),
+    dek: typeof parsed.dek === "string" ? parsed.dek.trim().slice(0, 80) : "",
+    paragraphs,
+  };
+}
 
 export interface GoalAnalysis {
   goal: string;
   analysis: string;
+}
+
+/** 单条分析目标的模型分析；失败返回 undefined */
+export async function generateGoalAnalysis(
+  goal: string,
+  scope: DataScope,
+  ctx: ExtensionContext,
+  onProgress?: (info: string) => void,
+): Promise<string | undefined> {
+  const result = await runDataAgent(
+    `分析读者登记的分析目标：「${goal}」。`,
+    `只输出 JSON 对象：{"analysis":"…"}。120 字以内，结论先行、至少引用两个数字、结尾指出数据局限；数据不足直说「本期数据不足以回答」并说明缺什么。`,
+    scope,
+    ctx,
+    { extraStyle: GOAL_ANALYSIS_STYLE, onProgress },
+  );
+  return result?.answer.slice(0, 400) || undefined;
 }
 
 export interface SuggestedGoal {
@@ -211,261 +416,105 @@ export interface SuggestedGoal {
   dataNeeded: string;
 }
 
-export interface DataSummary {
-  window: string;
-  totals: string;
-  topSkills: string;
-  hourProfile: string;
-  sourceProfile: string;
-  partners: string;
-}
-
-function goalAnalysisPrompt(goal: string, summary: DataSummary): string {
-  return `任务：针对下面这条分析目标，用给定数据写一段分析。
-
-[分析目标] ${goal}
-[统计数据]
-窗口：${summary.window}
-总量：${summary.totals}
-排行：${summary.topSkills}
-时段：${summary.hourProfile}
-来源：${summary.sourceProfile}
-搭档：${summary.partners}
-
-只输出 JSON：{"analysis":"…"}`;
-}
-
-/** 逐条生成目标分析；单条失败即跳过（报告侧降级显示数据卡） */
-export async function generateGoalAnalyses(
-  goals: readonly string[],
-  summary: DataSummary,
-  ctx: ExtensionContext,
-): Promise<GoalAnalysis[]> {
-  const results: GoalAnalysis[] = [];
-  for (const goal of goals) {
-    try {
-      const text = await completeText(
-        ctx,
-        `${OBSERVER_STYLE}\n${GOAL_ANALYSIS_STYLE}\n只输出 JSON 对象：{"analysis":"…"}，其余一个字都不要。`,
-        goalAnalysisPrompt(goal, summary),
-        1024,
-      );
-      const parsed = parseJsonObject(text);
-      const analysis = typeof parsed?.analysis === "string" ? parsed.analysis.trim().slice(0, 300) : "";
-      if (analysis) results.push({ goal, analysis });
-    } catch (error) {
-      console.warn(`[hpl-metrics] 目标分析失败（跳过）：${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  return results;
-}
-
-function suggestionsPrompt(existing: readonly string[], summary: DataSummary): string {
-  return `任务：基于给定统计数据，提出 5 条值得登记的「自定义分析目标」。
-
-[统计数据]
-窗口：${summary.window}
-总量：${summary.totals}
-排行：${summary.topSkills}
-时段：${summary.hourProfile}
-来源：${summary.sourceProfile}
-搭档：${summary.partners}
-已登记目标：${existing.length > 0 ? existing.join("；") : "（无）"}
-
-只输出 JSON 数组：[{"title":"…","why":"…","dataNeeded":"…"}]`;
-}
-
-/** 目标推荐：一次调用出 5 条；解析失败的条目丢弃 */
+/** 目标推荐 5 条（避开已登记）；失败返回空数组 */
 export async function generateSuggestions(
   existingGoals: readonly string[],
-  summary: DataSummary,
+  scope: DataScope,
   ctx: ExtensionContext,
+  onProgress?: (info: string) => void,
 ): Promise<SuggestedGoal[]> {
-  try {
-    const text = await completeText(
-      ctx,
-      `${OBSERVER_STYLE}\n${SUGGESTION_STYLE}\n只输出 JSON 数组：[{"title":"…","why":"…","dataNeeded":"…"}]，其余一个字都不要。`,
-      suggestionsPrompt(existingGoals, summary),
-      DIGEST_TOKEN_BUDGET,
-    );
-    const start = text.indexOf("[");
-    const end = text.lastIndexOf("]");
-    if (start === -1 || end <= start) return [];
-    const parsed = JSON.parse(text.slice(start, end + 1)) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const suggestions: SuggestedGoal[] = [];
-    for (const item of parsed.slice(0, 5)) {
-      const entry = item as { title?: unknown; why?: unknown; dataNeeded?: unknown };
-      if (typeof entry.title !== "string" || typeof entry.why !== "string") continue;
-      suggestions.push({
-        title: entry.title.trim().slice(0, 80),
-        why: entry.why.trim().slice(0, 160),
-        dataNeeded: typeof entry.dataNeeded === "string" ? entry.dataNeeded.trim().slice(0, 80) : "",
-      });
-    }
-    return suggestions;
-  } catch (error) {
-    console.warn(`[hpl-metrics] 目标推荐生成失败：${error instanceof Error ? error.message : String(error)}`);
-    return [];
-  }
+  const existing = existingGoals.length > 0 ? `已登记目标（不要重复）：${existingGoals.join("；")}` : "（尚无登记目标）";
+  const result = await runDataAgent(
+    `基于数据提出 5 条值得登记的分析目标。${existing}`,
+    `只输出 JSON 数组，恰好 5 条：[{"title":"…","why":"…","dataNeeded":"…"}]。目标必须能用窗口内数据回答。`,
+    scope,
+    ctx,
+    { extraStyle: SUGGESTION_STYLE, onProgress },
+  );
+  if (!result) return [];
+  return (parseJsonArray(result.answer) ?? [])
+    .map((item) => item as { title?: unknown; why?: unknown; dataNeeded?: unknown })
+    .filter((item): item is { title: string; why: string; dataNeeded: string } =>
+      typeof item.title === "string" && typeof item.why === "string")
+    .slice(0, 5)
+    .map((item) => ({
+      title: item.title.trim().slice(0, 80),
+      why: item.why.trim().slice(0, 160),
+      dataNeeded: typeof item.dataNeeded === "string" ? item.dataNeeded.trim().slice(0, 80) : "",
+    }));
 }
 
-/** 器物荐语：闲置/低频件的一句话推荐 */
 export interface WareNote {
   name: string;
   recommend: string;
 }
 
-/** 为闲置与低频器物各写一句推荐语（结合读者最近的活儿）；失败返回空表 */
+/** 器物荐语（结合近期场景的一句话推荐）；失败返回空表 */
 export async function generateWareNotes(
-  items: readonly { name: string; tag: string; description: string }[],
-  summary: DataSummary,
+  names: readonly string[],
+  scope: DataScope,
   ctx: ExtensionContext,
+  onProgress?: (info: string) => void,
 ): Promise<Record<string, string>> {
-  if (items.length === 0) return {};
-  try {
-    const text = await completeText(
-      ctx,
-      `${OBSERVER_STYLE}\n${WARE_NOTE_STYLE}\n只输出 JSON 数组：[{"name":"…","recommend":"…"}]，其余一个字都不要。`,
-      `任务：为下面这些「上架未用/用得极少」的器物各写一句推荐语，结合读者近期的工作场景（见统计数据）。
-
-[统计数据]
-${summary.window} · ${summary.totals} · ${summary.topSkills}
-
-[器物清单]
-${items.map((item) => `- ${item.name}（${item.tag}）：${item.description || "（无描述）"}`).join("\n")}
-
-只输出 JSON 数组：[{"name":"…","recommend":"…"}]`,
-      1536,
-    );
-    const start = text.indexOf("[");
-    const end = text.lastIndexOf("]");
-    if (start === -1 || end <= start) return {};
-    const parsed = JSON.parse(text.slice(start, end + 1)) as unknown;
-    const notes: Record<string, string> = {};
-    if (Array.isArray(parsed)) {
-      for (const item of parsed) {
-        const entry = item as { name?: unknown; recommend?: unknown };
-        if (typeof entry.name === "string" && typeof entry.recommend === "string") {
-          notes[entry.name.toLowerCase()] = entry.recommend.trim().slice(0, 100);
-        }
-      }
+  if (names.length === 0) return {};
+  const result = await runDataAgent(
+    `为下列器物各写一句推荐语（40 字内），结合数据里读者的近期场景说明什么时机用得上：${names.join("、")}。`,
+    `只输出 JSON 数组：[{"name":"…","recommend":"…"}]，每件器物一条。`,
+    scope,
+    ctx,
+    { extraStyle: WARE_NOTE_STYLE, onProgress },
+  );
+  if (!result) return {};
+  const notes: Record<string, string> = {};
+  for (const item of parseJsonArray(result.answer) ?? []) {
+    const entry = item as { name?: unknown; recommend?: unknown };
+    if (typeof entry.name === "string" && typeof entry.recommend === "string") {
+      notes[entry.name.toLowerCase()] = entry.recommend.trim().slice(0, 100);
     }
-    return notes;
-  } catch (error) {
-    console.warn(`[hpl-metrics] 器物荐语生成失败：${error instanceof Error ? error.message : String(error)}`);
-    return {};
   }
+  return notes;
 }
 
-/** 固定分析四问：意图画像 / 趋势节奏 / 显式自动一致性 / 搭档 */
-export interface FixedAnalysis {
-  title: string;
-  text: string;
-}
-
-const FIXED_QUESTIONS = [
-  "意图画像 · 它通常被用来干什么",
-  "趋势与节奏 · 用量在升还是在降",
-  "显式/自动与一致性 · 谁在用它",
-  "搭档 · 它常和谁一起出场",
-];
-
-/** 一次调用生成固定分析四问；解析不足四条即视为失败（调用侧降级） */
-export async function generateFixedAnalyses(
-  summary: DataSummary,
-  tailSample: string,
+/**
+ * 渐进式数据探索：模型按需调用查询、代码回传结果，直到模型提交最终回答。
+ * 返回 undefined 表示探索失败（调用方降级）。
+ */
+export async function runDataAgent(
+  task: string,
+  finalFormat: string,
+  scope: DataScope,
   ctx: ExtensionContext,
-): Promise<FixedAnalysis[] | undefined> {
+  opts?: { extraStyle?: string; onProgress?: (info: string) => void },
+): Promise<AgentResult | undefined> {
   try {
-    const text = await completeText(
-      ctx,
-      `${OBSERVER_STYLE}\n${FIXED_ANALYSIS_STYLE}\n只输出 JSON 数组：[{"title":"…","text":"…"}]，恰好 4 条，title 依次为：${FIXED_QUESTIONS.map((q) => `"${q}"`).join("、")}。`,
-      `任务：完成《器物晚报》「固定分析目标」四问。
+    const system = `${OBSERVER_STYLE}${opts?.extraStyle ? `\n${opts.extraStyle}` : ""}\n\n你将渐进式地探索数据来完成任务：不要假设数据，每轮调用一个查询，看结果再决定下一步；数据足够后用 finish 的 answer 提交最终文字。\n\n${DATA_TOOLS_DOC}\n\n最终回答要求：${finalFormat}`;
+    const overview = `基础概览（详细数据用工具查询）：窗口 ${scope.window.start} ~ ${scope.window.end}（${scope.window.days} 天），记录 ${scope.events.length} 条，已安装器物 ${scope.available.length} 件。\n\n[任务]\n${task}`;
+    const messages: Array<{ role: "user"; content: string; timestamp: number }> = [
+      { role: "user", content: overview, timestamp: Date.now() },
+    ];
 
-[统计数据]
-窗口：${summary.window}
-总量：${summary.totals}
-排行：${summary.topSkills}
-时段：${summary.hourProfile}
-来源：${summary.sourceProfile}
-搭档：${summary.partners}
-
-[显式原话样本（意图画像素材）]
-${tailSample || "（无显式原话，意图画像按会话线索与来源分布谨慎归纳）"}`,
-      2048,
-    );
-    const start = text.indexOf("[");
-    const end = text.lastIndexOf("]");
-    if (start === -1 || end <= start) return undefined;
-    const parsed = JSON.parse(text.slice(start, end + 1)) as unknown;
-    if (!Array.isArray(parsed)) return undefined;
-    const result: FixedAnalysis[] = [];
-    for (const item of parsed) {
-      const entry = item as { title?: unknown; text?: unknown };
-      if (typeof entry.title !== "string" || typeof entry.text !== "string") continue;
-      result.push({ title: entry.title.trim().slice(0, 40), text: entry.text.trim().slice(0, 200) });
+    for (let round = 1; round <= AGENT_MAX_ROUNDS; round++) {
+      const text = await callModel(ctx, system, messages, DIGEST_TOKEN_BUDGET);
+      const parsed = parseJsonObject(text);
+      if (!parsed) return undefined;
+      if (typeof parsed.answer === "string" && parsed.answer.trim()) {
+        return { answer: parsed.answer.trim(), rounds: round };
+      }
+      if (typeof parsed.tool !== "string") return undefined;
+      opts?.onProgress?.(`第 ${round} 轮 · 查询 ${parsed.tool}`);
+      const result = executeTool(scope, parsed.tool, (parsed.args ?? {}) as Record<string, unknown>);
+      const clipped = result.length > TOOL_RESULT_MAX ? result.slice(0, TOOL_RESULT_MAX) + "…（截断）" : result;
+      messages.push({ role: "user", content: `[你的上一轮动作]\n${JSON.stringify(parsed)}\n[工具结果 ${parsed.tool}]\n${clipped}`, timestamp: Date.now() });
     }
-    return result.length === FIXED_QUESTIONS.length ? result : undefined;
+
+    // 轮次用尽：强制收尾
+    messages.push({ role: "user", content: "探索轮次已用完。基于已看到的数据直接输出最终回答（finish 的 answer），不再调用工具。", timestamp: Date.now() });
+    const final = await callModel(ctx, system, messages, DIGEST_TOKEN_BUDGET);
+    const parsed = parseJsonObject(final);
+    const answer = parsed && typeof parsed.answer === "string" ? parsed.answer.trim() : final;
+    return answer ? { answer, rounds: AGENT_MAX_ROUNDS + 1 } : undefined;
   } catch (error) {
-    console.warn(`[hpl-metrics] 固定分析生成失败，降级示例：${error instanceof Error ? error.message : String(error)}`);
-    return undefined;
-  }
-}
-
-/* ——— 头条文章：器物晚报的头版 ——— */
-
-export interface FrontPage {
-  title: string;
-  dek: string;
-  paragraphs: string[];
-}
-
-export const FRONT_PAGE_FALLBACK_NOTICE = "（本期头条由资料室按模板整理）";
-
-/** 确定性兜底：模型不可用时按数据拼模板文 */
-export function fallbackFrontPage(summary: DataSummary, topSkill: string, topTotal: number): FrontPage {
-  return {
-    title: `${summary.window} 器物唤起一览`,
-    dek: `${topSkill} 以 ${topTotal} 次登顶；本期各版按报式排定。`,
-    paragraphs: [
-      `本期窗口 ${summary.window}：${summary.totals}。${summary.topSkills}。`,
-      `时段上，${summary.hourProfile}${summary.partners ? `搭档方面，${summary.partners}。` : ""}`,
-      `来源方面，${summary.sourceProfile}。各版明细见下方逐条简讯。`,
-    ],
-  };
-}
-
-/** 头条文章：一次调用生成标题、副题与三段正文 */
-export async function generateFrontPage(summary: DataSummary, ctx: ExtensionContext): Promise<FrontPage | undefined> {
-  try {
-    const text = await completeText(
-      ctx,
-      `${OBSERVER_STYLE}\n${FRONT_PAGE_STYLE}\n只输出 JSON 对象：{"title":"…","dek":"…","paragraphs":["…"]}，其余一个字都不要。`,
-      `任务：为本期《器物晚报》写头版文章。
-
-[统计数据]
-窗口：${summary.window}
-总量：${summary.totals}
-排行：${summary.topSkills}
-时段：${summary.hourProfile}
-来源：${summary.sourceProfile}
-搭档：${summary.partners}`,
-      2048,
-    );
-    const parsed = parseJsonObject(text);
-    if (!parsed) return undefined;
-    const paragraphs = Array.isArray(parsed.paragraphs)
-      ? parsed.paragraphs.filter((p): p is string => typeof p === "string" && p.trim().length > 0).slice(0, 3)
-      : [];
-    if (typeof parsed.title !== "string" || paragraphs.length === 0) return undefined;
-    return {
-      title: parsed.title.trim().slice(0, 40),
-      dek: typeof parsed.dek === "string" ? parsed.dek.trim().slice(0, 80) : "",
-      paragraphs,
-    };
-  } catch (error) {
-    console.warn(`[hpl-metrics] 头条生成失败，用模板兜底：${error instanceof Error ? error.message : String(error)}`);
+    console.warn(`[hpl-metrics] 数据探索失败：${error instanceof Error ? error.message : String(error)}`);
     return undefined;
   }
 }

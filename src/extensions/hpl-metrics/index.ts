@@ -27,15 +27,13 @@ import { localDateKey, listAvailableSkills, originBreakdown, perSkill, idleSkill
 import { appendGoal, readGoals, skillMetricsDir } from "./skills/storage.js";
 import {
   digestKey,
-  generateMissingDigestsAsync,
-  generateFrontPage,
-  fallbackFrontPage,
+  generateMissingDigests,
   generateFixedAnalyses,
-  generateGoalAnalyses,
+  generateFrontPage,
+  generateGoalAnalysis,
   generateSuggestions,
   generateWareNotes,
-  type DataSummary,
-  type FixedAnalysis,
+  type DataScope,
 } from "./skills/digest.js";
 import { renderSkillsReport, type SkillsReportData } from "./skills/report.js";
 
@@ -115,10 +113,11 @@ export function usageText(reason?: string): string {
     "  --project <子串>       按 cwd 过滤",
     "  --json                 输出 JSON（给后续工具/脚本用）",
     "",
-    "skills 选项：",
+    "skills 选项（可组合）：",
     "  --since <YYYY-MM-DD>   统计窗口起点（默认现在 - 7 天）",
-    "  --eli60                生成 HTML 详报（热力图/排行/干了什么）并打开",
+    "  --eli60                生成 HTML 详报（热力图/干了什么）并打开",
     "  --json                 输出聚合 JSON",
+    "  例：skills --eli60 --since 2026-09-15",
     "",
     "不带子命令只打印本用法，不执行任何统计（子命令各自独立，便于扩展与控耗时）。",
   ].join("\n");
@@ -158,10 +157,14 @@ async function runSkillsCommand(
   pi: ExtensionAPI,
   invocation: Extract<MetricsInvocation, { kind: "skills" }>,
 ): Promise<void> {
-  const setStatus = (text: string): void => ctx.ui?.setStatus?.("hapi-metrics", text);
-  const clearStatus = (): void => ctx.ui?.setStatus?.("hapi-metrics", undefined);
-  const digestItemsOf = (list: ReturnType<typeof perSkill>): number =>
-    list.reduce((sum, stat) => sum + stat.tails.length, 0);
+  // 过程播报走 notify：对话区末尾的 dim 状态行，原地更新、持续可见；footer 同步镜像
+  const notifyProgress = (text: string): void => {
+    ctx.ui?.notify?.(text, "info");
+    ctx.ui?.setStatus?.("hapi-metrics", text);
+  };
+  const clearStatus = (): void => {
+    ctx.ui?.setStatus?.("hapi-metrics", undefined);
+  };
   const startMs = invocation.sinceMs ?? Date.now() - SKILLS_WINDOW_MS;
   const endMs = Date.now();
   const startLabel = localDateKey(startMs);
@@ -169,8 +172,8 @@ async function runSkillsCommand(
   const windowDays = Math.max(1, Math.round((endMs - startMs) / 86_400_000));
   const inWindow = (event: { ts: number }): boolean => event.ts >= startMs && event.ts <= endMs;
 
-  setStatus(`扫描会话文件，重放 ${Math.round(windowDays)} 天窗口…`);
-  const usage = loadSkillUsage();
+  notifyProgress(`扫描会话文件，重放 ${windowDays} 天窗口…`);
+  const usage = await loadSkillUsage();
   const events = usage.events.filter(inWindow);
   const excludedEvents = usage.excludedEvents.filter(inWindow);
   const stats = perSkill(events);
@@ -182,13 +185,11 @@ async function runSkillsCommand(
   const modelCount = events.filter((event) => event.source === "model").length;
   const origins = originBreakdown(events);
 
-  // 最忙一天与其主打器物
   const byDay = new Map<string, number>();
   for (const event of events) {
     const key = localDateKey(event.ts);
     byDay.set(key, (byDay.get(key) ?? 0) + 1);
   }
-  // 按日聚合主打器物
   const byDaySkill = new Map<string, Map<string, number>>();
   for (const event of events) {
     const key = localDateKey(event.ts);
@@ -204,9 +205,7 @@ async function runSkillsCommand(
         skill: [...(byDaySkill.get(busyDayEntry[0]) ?? new Map<string, number>()).entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—",
       }
     : undefined;
-  const busyDayTop = busyDay ?? undefined;
 
-  // 榜首器物的固定搭档（同会话共现）
   const partners: Record<string, { partner: string; count: number; sessions: number }> = {};
   if (top) {
     const sessions = new Set(events.filter((event) => event.skill === top.skill).map((event) => event.session));
@@ -227,13 +226,16 @@ async function runSkillsCommand(
   const idleList = idleSkills(available, usedNames);
   const lowFreq = stats.slice(-3).filter((stat) => stat.total <= 3 && stat.total > 0);
 
-  const summary: DataSummary = {
-    window: `${startLabel} ~ ${endLabel}（${windowDays} 天）`,
-    totals: `skill 唤起 ${events.length} 次（显式 ${explicitCount}、自动 ${modelCount}）、命令 ${commandCount} 条，日均 ${((events.length + commandCount) / windowDays).toFixed(1)} 次`,
-    topSkills: stats.slice(0, 5).map((stat) => `${stat.skill} ${stat.total} 次（显式 ${stat.explicit}/自动 ${stat.model}）`).join("、"),
-    hourProfile: `峰值在 ${peakHour} 时（${hours[peakHour] ?? 0} 次），深夜（18–24）占 ${Math.round((hours.slice(18, 24).reduce((a, b) => a + b, 0) / Math.max(1, events.length)) * 100)}%`,
-    sourceProfile: `内置 ${origins.builtin}、外置 ${origins.user}、项目 ${origins.project}`,
-    partners: partnerText,
+  const dataScope: DataScope = {
+    events,
+    sessionPreviews: usage.sessionPreviews,
+    available,
+    window: { start: startLabel, end: endLabel, days: windowDays },
+    commandCatalog: pi.getCommands().map((command) => ({
+      name: command.name,
+      description: command.description ?? "",
+      source: command.source,
+    })),
   };
 
   if (invocation.json) {
@@ -248,10 +250,8 @@ async function runSkillsCommand(
           hours,
           weeks: weeklyBuckets(events),
           skills: stats,
-          commandCatalog: pi.getCommands().map((command) => ({
-            name: command.name,
-            description: command.description ?? "",
-            source: command.source,
+          commandCatalog: dataScope.commandCatalog.map((command) => ({
+            ...command,
             count: commandUsageCount(events, command.name),
           })),
           idle: idleList.map((skill) => skill.name),
@@ -293,40 +293,37 @@ async function runSkillsCommand(
     return;
   }
 
-  // —— --eli60：摘要 → 头条 → 目标分析 → 推荐 → 器物荐语 → 渲染 ——
-  const goals = readGoals();
-  setStatus(`撰写原话摘要（${digestItemsOf(stats)} 条）…`);
-  const digestItems = stats.flatMap((stat) => stat.tails.map((tail) => ({ skill: stat.skill, tail, purpose: "" })));
-  const { entries: digests, error } = await generateMissingDigestsAsync(digestItems, ctx);
-  setStatus("撰写头条文章…");
-  const frontPageModel = await generateFrontPage(summary, ctx);
-  const frontPage = frontPageModel ?? fallbackFrontPage(
-    summary,
-    top?.skill ?? "—",
-    top?.total ?? 0,
+  // —— --eli60：渐进式探索（agent）→ 渲染 ——
+  const digestItems = stats.flatMap((stat) => stat.tails.map((tail) => ({ skill: stat.skill, tail })));
+  notifyProgress(`撰写原话摘要（${digestItems.length} 条）…`);
+  const { entries: digests, error } = await generateMissingDigests(digestItems, ctx);
+
+  notifyProgress("探索数据并撰写头条文章…");
+  const frontPage = (await generateFrontPage(dataScope, ctx, (info) => notifyProgress(`头条 · ${info}`))) ?? {
+    title: `${startLabel.slice(5)} 起的一期`,
+    dek: top ? `${top.skill} 以 ${top.total} 次居首。` : "本期暂无使用记录。",
+    paragraphs: [briefingLine0(events, windowDays, commandCount), briefingLine2(stats), briefingLine6(origins)].filter(Boolean),
+  };
+
+  notifyProgress("完成固定分析四问（模型探索中）…");
+  const fixedAnalyses = await generateFixedAnalyses(
+    "全部器物与命令",
+    dataScope,
+    ctx,
+    (info) => notifyProgress(`固定分析 · ${info}`),
   );
 
-  setStatus(goals.length > 0 ? `生成 ${Math.min(5, goals.length)} 个目标的分析…` : "生成目标推荐…");
-  setStatus("完成固定分析四问…");
-  const tailSample = stats
-    .flatMap((stat) => stat.tails.slice(0, 3).map((tail) => `${stat.skill}：${tail}`))
-    .slice(0, 15)
-    .join("\n");
-  const fixedAnalyses = await generateFixedAnalyses(summary, tailSample, ctx);
-  const goalAnalyses = await generateGoalAnalyses(goals.slice(0, 5), summary, ctx);
-  const goalData = goals.slice(0, 5).map((goal) => {
-    const analysis = goalAnalyses.find((item) => item.goal === goal);
-    return {
-      title: goal,
-      text: analysis ? analysis.analysis : "（本期分析生成失败，数据见简讯栏与各图。）",
-      src: "数据源：窗口统计 + 原话摘要 · 每次出报告重新生成",
-      signedAt: endLabel,
-    };
-  });
-  setStatus("归纳目标建议与器物荐语…");
-  const suggests = await generateSuggestions(goals, summary, ctx);
+  notifyProgress(readGoals().length > 0 ? `分析登记目标…` : "归纳目标建议…");
+  const goals = readGoals();
+  const goalData = [];
+  for (const goal of goals.slice(0, 5)) {
+    const analysis = (await generateGoalAnalysis(goal, dataScope, ctx)) ?? "（本期分析生成失败，数据见简讯栏与各图。）";
+    goalData.push({ title: goal, text: analysis, src: "数据源：按需探索窗口数据 · 每次出报告重新生成", signedAt: endLabel });
+  }
+  const suggests = await generateSuggestions(goals, dataScope, ctx);
 
-  const wareItems: Array<{ name: string; tag: string; origin: string; description: string }> = [
+  notifyProgress("撰写器物荐语…");
+  const wareItems = [
     ...idleList.map((skill) => ({ name: skill.name, tag: "零使用", origin: "内置", description: skill.description })),
     ...lowFreq.map((stat) => ({
       name: stat.skill,
@@ -335,8 +332,7 @@ async function runSkillsCommand(
       description: available.find((skill) => skill.name === stat.skill)?.description ?? "",
     })),
   ].slice(0, 10);
-  const wareNotes = await generateWareNotes(wareItems, summary, ctx);
-  clearStatus();
+  const wareNotes = await generateWareNotes(wareItems.map((ware) => ware.name), dataScope, ctx);
   const wares = wareItems.map((ware) => ({
     name: ware.name,
     tag: ware.tag,
@@ -345,6 +341,7 @@ async function runSkillsCommand(
     recommend: wareNotes[ware.name.toLowerCase()] ?? "结合你最近的活儿看看它是否对得上。",
     how: `唤起：/skill:${ware.name} <主题>`,
   }));
+  clearStatus();
 
   const reportRecords = [...events]
     .sort((a, b) => b.ts - a.ts)
@@ -365,13 +362,12 @@ async function runSkillsCommand(
   const cheng = "零一二三四五六七八九";
   const modelShare = Math.min(9, Math.round((modelCount / Math.max(1, events.length)) * 10));
   const nightShare = Math.round((hours.slice(18, 24).reduce((a, b) => a + b, 0) / Math.max(1, events.length)) * 100);
-  const top3 = stats.slice(0, 3);
   const briefing = [
     `${windowDays} 天共 ${events.length} 次 skill 唤起，另有 ${commandCount} 条命令入账。`,
     top ? `${top.skill} 以 ${top.total} 次登顶${stats[1] ? `，${stats[1].skill}（${stats[1].total}）` : ""}${stats[2] ? `、${stats[2].skill}（${stats[2].total}）` : ""}随后。` : "窗口内暂无使用。",
     `显式 ${explicitCount} 次、自动 ${modelCount} 次——约十之${cheng[modelShare]}由模型自取。`,
     `峰值在 ${peakHour} 时，深夜（18–24）占 ${nightShare}%。`,
-    busyDay ? `最忙的一天是 ${busyDay.day}（${busyDay.count} 次），主打 ${busyDayTop?.skill}。` : "暂无最忙日。",
+    busyDay ? `最忙的一天是 ${busyDay.day}（${busyDay.count} 次），主打 ${busyDay.skill}。` : "暂无最忙日。",
     partnerText !== "未发现固定搭档" ? `搭档方面，${partnerText}。` : "本期未见固定搭档组合。",
     `来源方面，内置 ${origins.builtin}、外置 ${origins.user}、项目 ${origins.project}。`,
     `${idleList.length} 件器物整月未动，末版已备荐语；另有低频 ${lowFreq.length} 件各得按语。`,
@@ -401,13 +397,13 @@ async function runSkillsCommand(
       ["显式 / 自动 / 命令", `${explicitCount} / ${modelCount} / ${commandCount}`, "你点名 / 模型自取 / 敲下"],
       ["居首", `${top?.skill ?? "—"} · ${top?.total ?? 0} 次`, modelCount > explicitCount ? "自动占绝大多数" : "显式为主"],
       ["最热时辰", `${peakHour}:00 前后`, "按时段热力"],
-      ["最忙一天", busyDay ? `${busyDay.day.slice(5)} · ${busyDay.count} 次` : "—", busyDayTop ? `主打 ${busyDayTop.skill}` : undefined],
+      ["最忙一天", busyDay ? `${busyDay.day.slice(5)} · ${busyDay.count} 次` : "—", busyDay ? `主打 ${busyDay.skill}` : undefined],
       ["新到器物", `${wareItems.length} 件`, "末版有荐语"],
     ],
     briefing,
     skills: stats,
     records: reportRecords,
-    ...(fixedAnalyses ? { fixedAnalyses } : {}),
+    fixedAnalyses,
     goals: goalData,
     suggests,
     wares,
@@ -427,7 +423,6 @@ async function runSkillsCommand(
       endLabel,
       renderSkillsReport({
         ...data,
-        window: { ...data.window },
         totals: { ...data.totals, events: excludedEvents.length, skills: excludedStats.length },
         skills: excludedStats,
         records: excludedEvents
@@ -452,6 +447,16 @@ async function runSkillsCommand(
     messages.push(`自动型：${excludedPath}`);
   }
   notify(ctx, messages.join("\n"));
+}
+
+function briefingLine0(events: Array<{ ts: number }>, windowDays: number, commandCount: number): string {
+  return `${windowDays} 天共 ${events.length} 次 skill 唤起，另有 ${commandCount} 条命令入账。`;
+}
+function briefingLine2(stats: Array<{ skill: string; total: number }>): string {
+  return stats[0] ? `${stats[0].skill} 以 ${stats[0].total} 次居首。` : "";
+}
+function briefingLine6(origins: Record<string, number>): string {
+  return `来源方面，内置 ${origins.builtin}、外置 ${origins.user}、项目 ${origins.project}。`;
 }
 
 /** 确定性：窗口全日历（无使用天补空行） */
