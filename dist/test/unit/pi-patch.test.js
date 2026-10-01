@@ -46,6 +46,8 @@ describe("ensurePiPatch()", () => {
         writeFileSync(join(piDir, "package.json"), "{}");
         const hapilonPkgDir = join(base, "node_modules", "@nklisch/pi-background-tasks");
         writeFileSync(join(hapilonPkgDir, "package.json"), "{}");
+        const subagentsPkgDir = join(base, "node_modules", "@tintinweb/pi-subagents");
+        writeFileSync(join(subagentsPkgDir, "package.json"), "{}");
     });
     after(() => rmSync(base, { recursive: true, force: true }));
     it("首跑全部命中:每个锚点替换恰好 occurrences 次,无重复插入", () => {

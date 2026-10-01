@@ -33,6 +33,10 @@ const HAPI_BG_REPLAY_MARKER = "hapiBgReplay";
 const HAPI_CODE_FILL_MARKER = "hapiCodeFill";
 /** 后台任务插件包名（hapilon 自身的依赖，不在 pi 包树里） */
 const BACKGROUND_TASKS_PACKAGE = "@nklisch/pi-background-tasks";
+/** subagent 扩展包名（hapilon 自身的依赖，不在 pi 包树里） */
+const SUBAGENTS_PACKAGE = "@tintinweb/pi-subagents";
+/** SubagentWorkflow 派发模型列表钩子的 marker */
+const HAPI_SUBAGENT_MODELS_MARKER = "__hplSubagentModelsPick";
 /** Bundle chunk directory; the host file is located by signature, not its hash name. */
 const PI_BUNDLE_CHUNKS = "dist/bundle/chunks";
 
@@ -311,6 +315,19 @@ export const PATCH_RULES: readonly PatchRule[] = [
     replace: 'result = await pi.exec!(hapiShell(), ["-c", command], {',
     occurrences: 1,
     marker: HAPI_SHELL_MARKER,
+  },
+  // ── SubagentWorkflow 派发模型列表：workflow 脚本的 agent() 在 host 内部直接解析
+  //    模型，无 tool_call 可拦（hpl-subagent-models 只能覆写 Agent/TaskExecute）。
+  //    给「脚本未点名模型」的派发插一个全局钩子，由扩展注册；钩子缺席（裸 pi）时
+  //    行为与原版一致。frontmatter 让位列表，脚本显式点名仍最优先。
+  {
+    base: "hapilon",
+    package: SUBAGENTS_PACKAGE,
+    file: "dist/workflow/host.js",
+    find: "            if (modelInput !== undefined) {\n                const resolved = resolveModel(modelInput, ctx.modelRegistry);\n                if (typeof resolved === \"string\") {\n                    if (request.model !== undefined)\n                        return { ok: false, error: resolved };\n                }\n                else {\n                    model = resolved;\n                }\n            }",
+    replace: "            if (modelInput !== undefined) {\n                const resolved = resolveModel(modelInput, ctx.modelRegistry);\n                if (typeof resolved === \"string\") {\n                    if (request.model !== undefined)\n                        return { ok: false, error: resolved };\n                }\n                else {\n                    model = resolved;\n                }\n            }\n            // hapilon: hpl-subagent-models 列表（脚本未点名时；钩子缺席则旁路）\n            if (request.model === undefined) {\n                const picked = globalThis.__hplSubagentModelsPick?.(ctx.cwd);\n                if (picked) {\n                    const fromList = resolveModel(`${picked.provider}/${picked.id}`, ctx.modelRegistry);\n                    if (typeof fromList !== \"string\")\n                        model = fromList;\n                }\n            }",
+    occurrences: 1,
+    marker: HAPI_SUBAGENT_MODELS_MARKER,
   },
 ];
 

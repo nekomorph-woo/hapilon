@@ -55,6 +55,8 @@ describe("ensurePiPatch()", () => {
 		writeFileSync(join(piDir, "package.json"), "{}");
 		const hapilonPkgDir = join(base, "node_modules", "@nklisch/pi-background-tasks");
 		writeFileSync(join(hapilonPkgDir, "package.json"), "{}");
+		const subagentsPkgDir = join(base, "node_modules", "@tintinweb/pi-subagents");
+		writeFileSync(join(subagentsPkgDir, "package.json"), "{}");
 	});
 
 	after(() => rmSync(base, { recursive: true, force: true }));

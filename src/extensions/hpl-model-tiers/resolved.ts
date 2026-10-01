@@ -29,7 +29,7 @@ export function splitThinkingSuffix(pattern: string): { pattern: string; thinkin
   return { pattern };
 }
 
-/** 解析后的档位模型条目：recap / safety-gate / orchestra / tier-router 共用的最小形状。 */
+/** 解析后的档位模型条目：recap / safety-gate / orchestra 共用的最小形状。 */
 export interface ResolvedTierModel {
   provider: string;
   id: string;
