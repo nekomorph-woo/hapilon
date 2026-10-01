@@ -264,9 +264,25 @@ async function runSkillsCommand(ctx, pi, invocation) {
         paragraphs: [briefingLine0(events, windowDays, commandCount), briefingLine2(stats), briefingLine6(origins)].filter(Boolean),
     };
     notifyProgress("完成固定分析四问（模型探索中）…");
-    const fixedAnalyses = await generateFixedAnalyses("全部器物与命令", dataScope, ctx, (info) => notifyProgress(`固定分析 · ${info}`));
-    notifyProgress(readGoals().length > 0 ? `分析登记目标…` : "归纳目标建议…");
+    // 固定分析：全部 + 高频器物逐 scope（单 scope 失败不影响其他）
     const goals = readGoals();
+    const fixedScopes = [
+        { scope: "全部器物与命令", events },
+        ...stats
+            .filter((stat) => stat.total >= 2)
+            .slice(0, 7)
+            .map((stat) => ({ scope: stat.skill, events: events.filter((event) => event.skill === stat.skill) })),
+    ];
+    const fixedAnalyses = [];
+    for (const { scope, events: scopeEvents } of fixedScopes) {
+        notifyProgress(`固定分析 · ${scope}…`);
+        const analyses = await generateFixedAnalyses(scope, { ...dataScope, events: scopeEvents }, ctx, (info) => notifyProgress(`${scope} · ${info}`));
+        if (analyses)
+            fixedAnalyses.push(...analyses);
+        else
+            notifyProgress(`${scope} · 固定分析生成失败，报告中将以数据卡展示`);
+    }
+    notifyProgress(goals.length > 0 ? `分析 ${Math.min(5, goals.length)} 个登记目标…` : "归纳目标建议…");
     const goalData = [];
     for (const goal of goals.slice(0, 5)) {
         const analysis = (await generateGoalAnalysis(goal, dataScope, ctx)) ?? "（本期分析生成失败，数据见简讯栏与各图。）";

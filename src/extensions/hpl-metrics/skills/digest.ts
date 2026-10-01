@@ -489,27 +489,30 @@ export async function runDataAgent(
   try {
     const system = `${OBSERVER_STYLE}${opts?.extraStyle ? `\n${opts.extraStyle}` : ""}\n\n你将渐进式地探索数据来完成任务：不要假设数据，每轮调用一个查询，看结果再决定下一步；数据足够后用 finish 的 answer 提交最终文字。\n\n${DATA_TOOLS_DOC}\n\n最终回答要求：${finalFormat}`;
     const overview = `基础概览（详细数据用工具查询）：窗口 ${scope.window.start} ~ ${scope.window.end}（${scope.window.days} 天），记录 ${scope.events.length} 条，已安装器物 ${scope.available.length} 件。\n\n[任务]\n${task}`;
-    const messages: Array<{ role: "user"; content: string; timestamp: number }> = [
-      { role: "user", content: overview, timestamp: Date.now() },
+    // 探索历史合并进单条 user 消息：部分模型/网关拒绝连续 user 消息，一拒全灭
+    const transcript: string[] = [];
+    const messages = (): Array<{ role: "user"; content: string; timestamp: number }> => [
+      { role: "user", content: [overview, ...transcript].join("\n\n"), timestamp: Date.now() },
     ];
 
     for (let round = 1; round <= AGENT_MAX_ROUNDS; round++) {
-      const text = await callModel(ctx, system, messages, DIGEST_TOKEN_BUDGET);
+      const text = await callModel(ctx, system, messages(), DIGEST_TOKEN_BUDGET);
       const parsed = parseJsonObject(text);
       if (!parsed) return undefined;
       if (typeof parsed.answer === "string" && parsed.answer.trim()) {
         return { answer: parsed.answer.trim(), rounds: round };
       }
       if (typeof parsed.tool !== "string") return undefined;
-      opts?.onProgress?.(`第 ${round} 轮 · 查询 ${parsed.tool}`);
+      const argsDigest = JSON.stringify(parsed.args ?? {});
+      opts?.onProgress?.(`第 ${round} 轮 · ${parsed.tool} ${argsDigest.slice(1, 60)}`);
       const result = executeTool(scope, parsed.tool, (parsed.args ?? {}) as Record<string, unknown>);
       const clipped = result.length > TOOL_RESULT_MAX ? result.slice(0, TOOL_RESULT_MAX) + "…（截断）" : result;
-      messages.push({ role: "user", content: `[你的上一轮动作]\n${JSON.stringify(parsed)}\n[工具结果 ${parsed.tool}]\n${clipped}`, timestamp: Date.now() });
+      transcript.push(`[第 ${round} 轮] 你调用了 ${parsed.tool}（${argsDigest}），结果：\n${clipped}`);
     }
 
     // 轮次用尽：强制收尾
-    messages.push({ role: "user", content: "探索轮次已用完。基于已看到的数据直接输出最终回答（finish 的 answer），不再调用工具。", timestamp: Date.now() });
-    const final = await callModel(ctx, system, messages, DIGEST_TOKEN_BUDGET);
+    transcript.push("探索轮次已用完，不再提供查询。");
+    const final = await callModel(ctx, system, messages(), DIGEST_TOKEN_BUDGET);
     const parsed = parseJsonObject(final);
     const answer = parsed && typeof parsed.answer === "string" ? parsed.answer.trim() : final;
     return answer ? { answer, rounds: AGENT_MAX_ROUNDS + 1 } : undefined;
