@@ -2,8 +2,8 @@
  * digest.ts — 器物晚报的文字管线：摘要、头条、固定分析、目标分析、推荐、器物荐语。
  *
  * 上下文组织是「渐进式 + 工具化」：不把有损摘要一次性塞给模型，而是给它一组
- * 本插件私有的数据查询（纯内存过滤/聚合，见 executeTool——不是 hapi 的工具体系，
- * 不注册、不进会话），模型按需多轮拉取，探索够了再产出文字。质量优先，轮次换深度。
+ * 本插件私有的数据查询（标准 pi Tool 协议，见 DATA_TOOLS——插件私有，不注册进
+ * hapi 工具体系），模型按需多轮拉取，探索够了再产出文字。质量优先，轮次换深度。
  *
  * 模型与选模：recap 同款（haiku 优先，非推理）。摘要缓存按 hash 落盘。
  */
@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import { Effect } from "effect";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { Message, Tool } from "@earendil-works/pi-ai";
 import { readResolvedTiersEffect } from "../../hpl-model-tiers/resolved.js";
 import { selectRecapModel } from "../../hpl-recap/model.js";
 import type { AvailableSkill } from "./stats.js";
@@ -26,6 +27,8 @@ import {
   SUGGESTION_STYLE,
   WARE_NOTE_STYLE,
 } from "./style.js";
+
+/* ——— 原话摘要缓存 ——— */
 
 export interface DigestEntry {
   key: string;
@@ -72,6 +75,8 @@ export function saveDigests(entries: readonly DigestEntry[]): void {
 }
 
 /* ——— 模型调用 ——— */
+
+const DIGEST_TOKEN_BUDGET = 2048;
 
 /** recap 同款选模 + 单次补全，返回纯文本 */
 async function callModel(
@@ -124,8 +129,6 @@ export function parseJsonArray(text: string): unknown[] | undefined {
   }
 }
 
-const DIGEST_TOKEN_BUDGET = 2048;
-
 /* ——— 原话摘要（批量、纯格式化，不走探索） ——— */
 
 export interface GeneratedDigests {
@@ -174,7 +177,7 @@ export async function generateMissingDigests(
   }
 }
 
-/* ——— 渐进式数据探索（agent 循环，本插件私有的查询协议） ——— */
+/* ——— 渐进式数据探索（标准 tool-use agent 循环） ——— */
 
 export interface DataScope {
   /** 窗口内全部使用事件（skill + 命令） */
@@ -188,27 +191,18 @@ export interface DataScope {
   commandCatalog: Array<{ name: string; description: string; source: string }>;
 }
 
-const DATA_TOOLS_DOC = `数据查询（每轮输出一个 JSON 对象）：
-- {"tool":"list_skills"}                          全量器物与命令排行（含零使用）
-- {"tool":"skill_summary","args":{"name":"…"}}    单件器物全量档案：次数/显式自动/时段/间隔/全部原话/搭档/会话
-- {"tool":"records_query","args":{"skill":"…","source":"explicit|model|command","limit":20}}  筛选使用记录（时间倒序，含原话与会话线索）
-- {"tool":"partners_of","args":{"name":"…"}}      该器物的同会话共现搭档
-- {"tool":"hour_profile","args":{"name":"…"}}     时段直方（全局或某器物）
-- {"tool":"day_counts"}                           按日计数
-- {"tool":"session_preview","args":{"session":"…"}} 某会话的首条用户消息
-- {"answer":"…"}                                  数据已足够，提交最终回答（answer 即最终文字）`;
+const dayLabelOf = (ts: number): string => {
+  const d = new Date(ts);
+  return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const whenLabelOf = (ts: number): string => {
+  const d = new Date(ts);
+  return `${dayLabelOf(ts)} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
 
 function executeTool(scope: DataScope, name: string, args: Record<string, unknown>): string {
   const argString = (key: string): string => (typeof args[key] === "string" ? (args[key] as string).toLowerCase() : "");
   const argNumber = (key: string, fallback: number): number => (typeof args[key] === "number" ? (args[key] as number) : fallback);
-  const dayLabel = (ts: number): string => {
-    const d = new Date(ts);
-    return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  };
-  const whenLabel = (ts: number): string => {
-    const d = new Date(ts);
-    return `${dayLabel(ts)} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  };
 
   switch (name) {
     case "list_skills": {
@@ -231,12 +225,14 @@ function executeTool(scope: DataScope, name: string, args: Record<string, unknow
       const name = argString("name");
       const matched = scope.events.filter((event) => event.skill === name);
       if (matched.length === 0) return JSON.stringify({ error: `窗口内没有 ${name} 的记录` });
-      const explicit = matched.filter((e) => e.source === "explicit").length;
+      const explicit = matched.filter((event) => event.source === "explicit").length;
       const hours = Array.from({ length: 24 }, () => 0);
       for (const event of matched) hours[new Date(event.ts).getHours()]!++;
       const sessions = [...new Set(matched.map((event) => event.session))];
       const sorted = [...matched].sort((a, b) => a.ts - b.ts);
-      const tails = sorted.filter((e) => e.source === "explicit" && e.args).map((e) => `${whenLabel(e.ts)}「${e.args}」`);
+      const tails = sorted
+        .filter((event) => event.source === "explicit" && event.args)
+        .map((event) => `${whenLabelOf(event.ts)}「${event.args}」`);
       const co = new Map<string, number>();
       for (const event of scope.events) {
         if (event.skill === name) continue;
@@ -250,7 +246,7 @@ function executeTool(scope: DataScope, name: string, args: Record<string, unknow
         自动: matched.length - explicit,
         时段直方: hours,
         涉及会话: sessions.length,
-        最近: whenLabel(sorted[sorted.length - 1]!.ts),
+        最近: whenLabelOf(sorted[sorted.length - 1]!.ts),
         全部原话: tails,
         最常见搭档: partner ? `${partner[0]}（${partner[1]} 次）` : "无",
         会话线索样例: sessions.slice(0, 3).map((s) => scope.sessionPreviews[s]).filter(Boolean),
@@ -266,7 +262,7 @@ function executeTool(scope: DataScope, name: string, args: Record<string, unknow
         .slice(0, limit);
       return JSON.stringify(
         matched.map((event) => ({
-          时间: whenLabel(event.ts),
+          时间: whenLabelOf(event.ts),
           skill: event.skill,
           来源: event.source,
           原话: event.args || undefined,
@@ -294,8 +290,7 @@ function executeTool(scope: DataScope, name: string, args: Record<string, unknow
     case "day_counts": {
       const counts = new Map<string, number>();
       for (const event of scope.events) {
-        const d = new Date(event.ts);
-        const key = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        const key = dayLabelOf(event.ts);
         counts.set(key, (counts.get(key) ?? 0) + 1);
       }
       return JSON.stringify(Object.fromEntries([...counts.entries()].sort()));
@@ -309,13 +304,70 @@ function executeTool(scope: DataScope, name: string, args: Record<string, unknow
   }
 }
 
-export interface AgentResult {
-  answer: string;
-  rounds: number;
-}
+const prop = (description: string) => ({ type: "string", description });
+const obj = (
+  properties: Record<string, { type: string; description: string }>,
+  required: string[] = [],
+): { type: string; properties: Record<string, { type: string; description: string }>; required: string[] } => ({
+  type: "object",
+  properties,
+  required,
+});
 
-const AGENT_MAX_ROUNDS = 30;
-const TOOL_RESULT_MAX = 6000;
+/** 探索用数据查询：pi 原生 Tool 声明 + 执行器一体（本插件私有，不注册进 hapi 工具体系） */
+export const DATA_TOOLS: Array<{
+  name: string;
+  description: string;
+  parameters: { type: string; properties: Record<string, { type: string; description: string }>; required: string[] };
+  execute: (scope: DataScope, args: Record<string, unknown>) => string;
+}> = [
+  {
+    name: "list_skills",
+    description: "全量器物与命令排行（含零使用与命令拆分）",
+    parameters: obj({}, []),
+    execute: (scope) => executeTool(scope, "list_skills", {}),
+  },
+  {
+    name: "skill_summary",
+    description: "单件器物全量档案：次数/显式自动/时段/间隔/全部原话/搭档/会话",
+    parameters: obj({ name: prop("器物名") }, ["name"]),
+    execute: (scope, args) => executeTool(scope, "skill_summary", args),
+  },
+  {
+    name: "records_query",
+    description: "筛选使用记录（时间倒序，含原话与会话线索）",
+    parameters: obj({
+      skill: prop("按器物名筛选（可选）"),
+      source: prop("explicit | model | command（可选）"),
+      limit: { type: "number", description: "返回条数上限（默认 20）" },
+    }),
+    execute: (scope, args) => executeTool(scope, "records_query", args),
+  },
+  {
+    name: "partners_of",
+    description: "该器物的同会话共现搭档",
+    parameters: obj({ name: prop("器物名") }, ["name"]),
+    execute: (scope, args) => executeTool(scope, "partners_of", args),
+  },
+  {
+    name: "hour_profile",
+    description: "时段直方（全局或某器物）",
+    parameters: obj({ name: { type: "string", description: "器物名（可选）" } }, []),
+    execute: (scope, args) => executeTool(scope, "hour_profile", args),
+  },
+  {
+    name: "day_counts",
+    description: "按日计数",
+    parameters: obj({}, []),
+    execute: (scope, args) => executeTool(scope, "day_counts", args),
+  },
+  {
+    name: "session_preview",
+    description: "某会话的首条用户消息",
+    parameters: obj({ session: prop("会话名") }, ["session"]),
+    execute: (scope, args) => executeTool(scope, "session_preview", args),
+  },
+];
 
 export const FIXED_QUESTIONS = [
   "意图画像 · 它通常被用来干什么",
@@ -324,6 +376,90 @@ export const FIXED_QUESTIONS = [
   "搭档 · 它常和谁一起出场",
 ];
 
+export const AGENT_MAX_ROUNDS = 30;
+
+export interface AgentResult {
+  answer: string;
+  rounds: number;
+}
+
+async function resolveAgentModel(ctx: ExtensionContext) {
+  const available = ctx.modelRegistry.getAvailable();
+  const resolvedTiers = await Effect.runPromise(readResolvedTiersEffect);
+  const choice = selectRecapModel(available, ctx.model, resolvedTiers);
+  if (!choice.model) throw new Error(choice.reason ?? "没有可用摘要模型");
+  return choice.model;
+}
+
+/** 标准 tool-use agent 循环：assistant(toolCalls) → toolResult → … → 最终文本 */
+export async function runDataAgent(
+  task: string,
+  finalFormat: string,
+  scope: DataScope,
+  ctx: ExtensionContext,
+  opts?: { extraStyle?: string; onProgress?: (info: string) => void },
+): Promise<AgentResult | undefined> {
+  try {
+    const system = `${OBSERVER_STYLE}${opts?.extraStyle ? `\n${opts.extraStyle}` : ""}\n\n你将渐进式地探索数据来完成任务：不要假设数据，每轮调用一个查询，看结果再决定下一步；数据足够后直接用中文给出最终回答，不再调用工具。\n\n最终回答要求：${finalFormat}`;
+    const tools: Tool[] = DATA_TOOLS.map(({ name, description, parameters }) => ({ name, description, parameters }));
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: `基础概览：窗口 ${scope.window.start} ~ ${scope.window.end}（${scope.window.days} 天），记录 ${scope.events.length} 条，已安装器物 ${scope.available.length} 件。\n\n[任务]\n${task}`,
+        timestamp: Date.now(),
+      },
+    ];
+    const model = await resolveAgentModel(ctx);
+    const asUser = (content: string): Message => ({ role: "user", content, timestamp: Date.now() });
+
+    for (let round = 1; round <= AGENT_MAX_ROUNDS; round++) {
+      const response = await ctx.modelRegistry.complete(
+        model,
+        { systemPrompt: system, tools, messages },
+        { maxTokens: DIGEST_TOKEN_BUDGET },
+      );
+      const parts = (response.content ?? []) as Array<{ type?: string; id?: string; name?: string; arguments?: Record<string, unknown>; text?: string }>;
+      const toolCalls = parts.filter((part): part is { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> } => part?.type === "toolCall");
+      const text = parts.filter((part) => part?.type === "text").map((part) => part.text ?? "").join("");
+
+      if (toolCalls.length === 0) {
+        return text.trim() ? { answer: text.trim(), rounds: round } : undefined;
+      }
+
+      // assistant 消息（含 toolCalls）原样进历史，工具结果以 toolResult 回传
+      messages.push(response);
+      for (const call of toolCalls) {
+        opts?.onProgress?.(`第 ${round} 轮 · ${call.name} ${JSON.stringify(call.arguments ?? {}).slice(0, 60)}`);
+        const output = DATA_TOOLS.find((tool) => tool.name === call.name)?.execute(scope, call.arguments ?? {})
+          ?? JSON.stringify({ error: `未知工具 ${call.name}` });
+        messages.push({
+          role: "toolResult",
+          toolCallId: call.id,
+          toolName: call.name,
+          content: [{ type: "text", text: output }],
+          isError: false,
+          timestamp: Date.now(),
+        });
+      }
+    }
+
+    // 轮次用尽：不带工具再要一次最终回答
+    const final = await ctx.modelRegistry.complete(
+      await resolveAgentModel(ctx),
+      { systemPrompt: `${system}\n\n探索轮次已用完。基于已看到的数据直接用中文给出最终回答。`, messages },
+      { maxTokens: DIGEST_TOKEN_BUDGET },
+    );
+    const finalText = ((final.content ?? []) as Array<{ type?: string; text?: string }>)
+      .filter((part) => part?.type === "text")
+      .map((part) => part.text ?? "")
+      .join("")
+      .trim();
+    return finalText ? { answer: finalText, rounds: AGENT_MAX_ROUNDS + 1 } : undefined;
+  } catch (error) {
+    console.warn(`[hpl-metrics] 数据探索失败：${error instanceof Error ? error.message : String(error)}`);
+    return undefined;
+  }
+}
 /* ——— 各版块管线：任务文案 + agent 调用 + 解析 ——— */
 
 export interface FixedAnalysis {
@@ -462,7 +598,7 @@ export async function generateWareNotes(
     `只输出 JSON 数组：[{"name":"…","recommend":"…"}]，每件器物一条。`,
     scope,
     ctx,
-    { extraStyle: WARE_NOTE_STYLE, onProgress },
+    { extraStyle: WARE_NOTE_STYLE },
   );
   if (!result) return {};
   const notes: Record<string, string> = {};
@@ -473,51 +609,4 @@ export async function generateWareNotes(
     }
   }
   return notes;
-}
-
-/**
- * 渐进式数据探索：模型按需调用查询、代码回传结果，直到模型提交最终回答。
- * 返回 undefined 表示探索失败（调用方降级）。
- */
-export async function runDataAgent(
-  task: string,
-  finalFormat: string,
-  scope: DataScope,
-  ctx: ExtensionContext,
-  opts?: { extraStyle?: string; onProgress?: (info: string) => void },
-): Promise<AgentResult | undefined> {
-  try {
-    const system = `${OBSERVER_STYLE}${opts?.extraStyle ? `\n${opts.extraStyle}` : ""}\n\n你将渐进式地探索数据来完成任务：不要假设数据，每轮调用一个查询，看结果再决定下一步；数据足够后用 finish 的 answer 提交最终文字。\n\n${DATA_TOOLS_DOC}\n\n最终回答要求：${finalFormat}`;
-    const overview = `基础概览（详细数据用工具查询）：窗口 ${scope.window.start} ~ ${scope.window.end}（${scope.window.days} 天），记录 ${scope.events.length} 条，已安装器物 ${scope.available.length} 件。\n\n[任务]\n${task}`;
-    // 探索历史合并进单条 user 消息：部分模型/网关拒绝连续 user 消息，一拒全灭
-    const transcript: string[] = [];
-    const messages = (): Array<{ role: "user"; content: string; timestamp: number }> => [
-      { role: "user", content: [overview, ...transcript].join("\n\n"), timestamp: Date.now() },
-    ];
-
-    for (let round = 1; round <= AGENT_MAX_ROUNDS; round++) {
-      const text = await callModel(ctx, system, messages(), DIGEST_TOKEN_BUDGET);
-      const parsed = parseJsonObject(text);
-      if (!parsed) return undefined;
-      if (typeof parsed.answer === "string" && parsed.answer.trim()) {
-        return { answer: parsed.answer.trim(), rounds: round };
-      }
-      if (typeof parsed.tool !== "string") return undefined;
-      const argsDigest = JSON.stringify(parsed.args ?? {});
-      opts?.onProgress?.(`第 ${round} 轮 · ${parsed.tool} ${argsDigest.slice(1, 60)}`);
-      const result = executeTool(scope, parsed.tool, (parsed.args ?? {}) as Record<string, unknown>);
-      const clipped = result.length > TOOL_RESULT_MAX ? result.slice(0, TOOL_RESULT_MAX) + "…（截断）" : result;
-      transcript.push(`[第 ${round} 轮] 你调用了 ${parsed.tool}（${argsDigest}），结果：\n${clipped}`);
-    }
-
-    // 轮次用尽：强制收尾
-    transcript.push("探索轮次已用完，不再提供查询。");
-    const final = await callModel(ctx, system, messages(), DIGEST_TOKEN_BUDGET);
-    const parsed = parseJsonObject(final);
-    const answer = parsed && typeof parsed.answer === "string" ? parsed.answer.trim() : final;
-    return answer ? { answer, rounds: AGENT_MAX_ROUNDS + 1 } : undefined;
-  } catch (error) {
-    console.warn(`[hpl-metrics] 数据探索失败：${error instanceof Error ? error.message : String(error)}`);
-    return undefined;
-  }
 }
