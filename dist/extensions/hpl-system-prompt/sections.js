@@ -176,7 +176,7 @@ export const WORKFLOW_TEXT = `Work in this order; skip a step only when it does 
 /**
  * 开工确认前置段，仅非 team 会话由 assemble 拼入 workflow 段首。
  *
- * 背景：glm-5.3 max effort 在规则真空下对歧义任务未经确认即开工。确认在 team 模式
+ * 背景：模型的 max effort 在规则真空下，更容易自主对歧义任务自行决策并未经用户确认即开工。确认在 team 模式
  * 由 owner 的写目标授权门（roles.ts「开始吗？」流程）承担，worker 面前没有批准者，
  * 这段语义对所有 team role 都是噪音——与其在正文里写角色豁免（模型会困惑自己
  * 是哪个角色），不如代码按模式注入：team 模式下 prompt 里不出现这句。
