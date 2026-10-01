@@ -162,9 +162,6 @@ async function runSkillsCommand(
     ctx.ui?.notify?.(text, "info");
     ctx.ui?.setStatus?.("hapi-metrics", text);
   };
-  const clearStatus = (): void => {
-    ctx.ui?.setStatus?.("hapi-metrics", undefined);
-  };
   const startMs = invocation.sinceMs ?? Date.now() - SKILLS_WINDOW_MS;
   const endMs = Date.now();
   const startLabel = localDateKey(startMs);
@@ -239,7 +236,6 @@ async function runSkillsCommand(
   };
 
   if (invocation.json) {
-    clearStatus();
     notify(
       ctx,
       JSON.stringify(
@@ -265,7 +261,6 @@ async function runSkillsCommand(
   }
 
   if (!invocation.eli60) {
-    clearStatus();
     const header = ["skill/命令", "次数", "显式", "自动", "来源", "最近"];
     const rows = stats.map((stat) => [
       stat.skill,
@@ -341,7 +336,6 @@ async function runSkillsCommand(
     recommend: wareNotes[ware.name.toLowerCase()] ?? "结合你最近的活儿看看它是否对得上。",
     how: `唤起：/skill:${ware.name} <主题>`,
   }));
-  clearStatus();
 
   const reportRecords = [...events]
     .sort((a, b) => b.ts - a.ts)
