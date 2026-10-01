@@ -38,8 +38,8 @@ import {
 import { renderSkillsReport, type SkillsReportData } from "./skills/report.js";
 
 const GROUP_BYS: readonly GroupBy[] = ["ponytail", "model", "day", "project"];
-/** skills 统计默认滚动窗口：30 天（不按自然月） */
-const SKILLS_WINDOW_MS = 30 * 86_400_000;
+/** skills 统计默认滚动窗口：7 天（不按自然周/月） */
+const SKILLS_WINDOW_MS = 7 * 86_400_000;
 
 export type MetricsInvocation =
   | { kind: "usage"; reason?: string }
@@ -114,7 +114,7 @@ export function usageText(reason?: string): string {
     "  --json                 输出 JSON（给后续工具/脚本用）",
     "",
     "skills 选项：",
-    "  --since <YYYY-MM-DD>   统计窗口起点（默认现在 - 30 天）",
+    "  --since <YYYY-MM-DD>   统计窗口起点（默认现在 - 7 天）",
     "  --eli60                生成 HTML 详报（热力图/排行/干了什么）并打开",
     "  --json                 输出聚合 JSON",
     "",
@@ -156,6 +156,10 @@ async function runSkillsCommand(
   pi: ExtensionAPI,
   invocation: Extract<MetricsInvocation, { kind: "skills" }>,
 ): Promise<void> {
+  const setStatus = (text: string): void => ctx.ui?.setStatus?.("hapi-metrics", text);
+  const clearStatus = (): void => ctx.ui?.setStatus?.("hapi-metrics", undefined);
+  const digestItemsOf = (list: ReturnType<typeof perSkill>): number =>
+    list.reduce((sum, stat) => sum + stat.tails.length, 0);
   const startMs = invocation.sinceMs ?? Date.now() - SKILLS_WINDOW_MS;
   const endMs = Date.now();
   const startLabel = localDateKey(startMs);
@@ -163,6 +167,7 @@ async function runSkillsCommand(
   const windowDays = Math.max(1, Math.round((endMs - startMs) / 86_400_000));
   const inWindow = (event: { ts: number }): boolean => event.ts >= startMs && event.ts <= endMs;
 
+  setStatus(`扫描会话文件，重放 ${Math.round(windowDays)} 天窗口…`);
   const usage = loadSkillUsage();
   const events = usage.events.filter(inWindow);
   const excludedEvents = usage.excludedEvents.filter(inWindow);
@@ -230,6 +235,7 @@ async function runSkillsCommand(
   };
 
   if (invocation.json) {
+    clearStatus();
     notify(
       ctx,
       JSON.stringify(
@@ -257,6 +263,7 @@ async function runSkillsCommand(
   }
 
   if (!invocation.eli60) {
+    clearStatus();
     const header = ["skill/命令", "次数", "显式", "自动", "来源", "最近"];
     const rows = stats.map((stat) => [
       stat.skill,
@@ -286,8 +293,10 @@ async function runSkillsCommand(
 
   // —— --eli60：摘要 → 头条 → 目标分析 → 推荐 → 器物荐语 → 渲染 ——
   const goals = readGoals();
+  setStatus(`撰写原话摘要（${digestItemsOf(stats)} 条）…`);
   const digestItems = stats.flatMap((stat) => stat.tails.map((tail) => ({ skill: stat.skill, tail, purpose: "" })));
   const { entries: digests, error } = await generateMissingDigestsAsync(digestItems, ctx);
+  setStatus("撰写头条文章…");
   const frontPageModel = await generateFrontPage(summary, ctx);
   const frontPage = frontPageModel ?? fallbackFrontPage(
     summary,
@@ -295,6 +304,7 @@ async function runSkillsCommand(
     top?.total ?? 0,
   );
 
+  setStatus(goals.length > 0 ? `生成 ${Math.min(5, goals.length)} 个目标的分析…` : "生成目标推荐…");
   const goalAnalyses = await generateGoalAnalyses(goals.slice(0, 5), summary, ctx);
   const goalData = goals.slice(0, 5).map((goal) => {
     const analysis = goalAnalyses.find((item) => item.goal === goal);
@@ -305,6 +315,7 @@ async function runSkillsCommand(
       signedAt: endLabel,
     };
   });
+  setStatus("归纳目标建议与器物荐语…");
   const suggests = await generateSuggestions(goals, summary, ctx);
 
   const wareItems: Array<{ name: string; tag: string; origin: string; description: string }> = [
@@ -317,6 +328,7 @@ async function runSkillsCommand(
     })),
   ].slice(0, 10);
   const wareNotes = await generateWareNotes(wareItems, summary, ctx);
+  clearStatus();
   const wares = wareItems.map((ware) => ({
     name: ware.name,
     tag: ware.tag,
@@ -479,7 +491,7 @@ export default function hplMetrics(pi: ExtensionAPI): void {
           { value: "skills", label: "skills", description: "skill 使用统计（面板）" },
           { value: "skills --eli60 ", label: "skills --eli60", description: "HTML 详报（热力图/干了什么）" },
           { value: "skills --json ", label: "skills --json", description: "导出聚合 JSON" },
-          { value: "skills --since ", label: "--since", description: "窗口起点（默认 30 天前）", searchText: "skills since 日期窗口" },
+          { value: "skills --since ", label: "--since", description: "窗口起点（默认 7 天前）", searchText: "skills since 日期窗口" },
           { value: "purpose ", label: "purpose", description: "登记 skill 的用途描述" },
           { value: "ponytail --group-by ", label: "--group-by", description: "按档位分组", searchText: "ponytail --group-by 按档位分组" },
           { value: "ponytail --since ", label: "--since", description: "只看该日期之后的会话", searchText: "ponytail --since 只看日期" },
