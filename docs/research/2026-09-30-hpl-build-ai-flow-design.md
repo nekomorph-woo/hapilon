@@ -363,3 +363,92 @@ Gate 机械检查：未过 —— frame.md 缺失
 - 与 Gate Debt 分离：debt 是「当时知道没过、人决定继续」；stale 是「以前可能对，上游变了，当前有效性待确认」；status 分行展示
 - force 越 stale：允许，缺口进 Gate Debt，stale 随前移
 - revisit/skip 不设 stale；已知限制：revisit 后手改上游产物不会自动 stale 下游（无内容 diff 追踪）
+
+## 16. Capability Integration（2026-02-05：artifact-assist 与 golden-case 纳入主线）
+
+### 16.1 定位：Stage 与 Capability 的分工
+
+Stage 回答「现在在解决什么认知问题」，拥有 stage index 与状态机推进；Capability 回答「这个阶段是否需要额外专业方法帮助」，不占 index、不建第二状态机、不改 S0–S9 顺序、可跨阶段发挥作用、可有自己的 artifact 与生命周期。启用由用户决定（`/build-ai-flow cap <id> <enable|decline> [说明]`），AI 只有推荐权。Flow 负责：何时建议、调用结果如何成为当前 Stage 的上下文；技能自身的机制（golden-case 的六审三回执、artifact-assist 的七步推理）永远留在技能内，Flow 不复刻。
+
+第一批只有两个真实能力，抽象止于此，不建通用 plugin framework：
+
+| 能力 | 形态 | 激活 | 持久状态 |
+|---|---|---|---|
+| golden-case | 跨阶段生命周期能力（业务真值 + 独立验证） | S3 主工作点（真值定义）、S6/S7 主工作点（观察与验证），S1/S4/S5/S8/S9 辅助 | `state.capabilities`（唯一需要持久化的） |
+| artifact-assist | 阶段局部调用（skills 列表承载） | S5 主（stages.ts 既有）、S4/S6/S7 辅助（S4 本轮补入 skills） | 无——刻意不对称，不强行统一 |
+
+### 16.2 golden-case 生命周期 ↔ S0–S9 映射
+
+golden-case 自身是五阶段工作流（Draft → View/review → Freeze 封金 → Adapter → Report/audit），本设计按真实现状校正用户原始 spec 的措辞（"Draft→Review→Freeze" 实为 Draft→View/review→Freeze，封金由 Draft+View 回执把门）。逐阶段：
+
+- **S0 Dump**：不主动启用。用户已有的业务 case、验收样例、已知正确输入输出、业务规则文档、事故案例，作为原始材料记入 dump.md 即可。
+- **S1 Explore**（已启用时注入指引）：可读真实 codebase、API、domain model、persistence、observation surface、现有 tests，理解 case 所处的系统环境。边界：了解 implementation facts ≠ 从 implementation 输出推导业务真值。
+- **S2 Frame**：推荐决策点。prompt 注入推荐条款与信号表（明确业务结果；正确性无法仅靠编译/单测判断；存在金额/状态/权限/流程/库存/持久化等业务真值；实现可能内部自洽但业务错误；用户能确认「什么叫对」；重构需保护既有行为）。模型命中多数信号 → 输出推荐（为什么适合/增加什么工作/保护什么风险）+ 决策命令，等用户 cap enable|decline。**机械防骚扰**：未决定 → 仅 S2/S3 出现推荐条款；已拒绝 → 全程静默；已启用 → 换成阶段指引。重新推荐只在出现实质新证据时由模型判断，机制上不再自动弹出。
+- **S3 Define**：第一主工作点。按技能自身 Draft→View/review→Freeze 完成 implementation-independent 的 frozen business truth（`.hapilon/go-case/cases.yaml` + `frozen.md`）。Expected 合法来源仅三种：用户明确确认、权威业务文档、基于已确认规则的机械推导。**Gate 交互（刻意从轻）**：不做「所有 case 必须完美才能离开 S3」的粗暴规定；机械代理检查只有一条——启用 且 cases.yaml 存在 且 frozen.md 不存在 → 缺口（强推转 debt）。一个 case 都没起草不拦（启用后不起草是用户拍板，机械层不越权）；「哪些是核心 case」是语义判断，归人。未确定场景记 Unknown/Proposal，是否带着推进由用户在 Gate 决定。
+- **S4 Design**：frozen cases 是权威约束——任何技术方案下已确认业务真值必须成立；Design 不得修改 expected；Frozen truth 与新证据冲突 → 走上游前提检查（§15 Part A），报告等用户。
+- **S5 Visual**：golden-case 不拥有 S5（artifact-assist 主导）。frozen case 场景可作图示输入（sequence/state/failure path）；视觉表达不改 case truth，case 不决定视觉形式。两能力正交：diagram 不是 case truth，case 不决定视觉。
+- **S6 Prototype**：第二主工作点开始（Implementation Observation）。样例选择优先验证高风险 case、撞击 Design 最大不确定性的 vertical slice；实现出现后走技能 Adapter 阶段——adapter 写进**项目真实测试目录**并登记 manifest.json（技能铁律，.hapilon/ 下不放可执行物），implementation → observation → actual 与 frozen expected 独立比较。
+- **S7 Inspect**：主验证阶段。除 Flow 六轴 Reviewer 外，运行技能自身完整 verification（report/audit 脚本 + Adapter 回执评审）。区分两问：A. implementation 是否满足 frozen case？B. case 是否足以证明关键业务行为？A 过 B 仍可 Concern/Fail；B 失败不得自动改 expected——记 Proposal/Unknown 交用户。术语两套并行不互译：Flow 轴用 Pass/Concern/Fail/Not verified，golden-case 用 PASS/FAIL/UNKNOWN，self-review.md 引用时保持原词。
+- **S8 Scale**：Scenario Expansion & Drift Protection。同类数据差异 → 沿用现有 frozen cases/pattern；真正新业务场景 → 先定真值（new scenario → 确认 → 封金 → 实现 → adapter 验证），禁止 implementation first 再照输出补 case。新场景冲击核心定义/已有真值/Design 假设 → 命中 §14-5 升级规则，停下报告等用户。
+- **S9 Freeze**：spec.md/start-prompt.md 记录**位置与规则，不复制内容**——启用状态、`.hapilon/go-case/` 各文件角色（cases.yaml/frozen.md/manifest.json/runs.json）、未关闭 case 事项、后续改业务行为的重审路径（重新确认 → 新版本封金；adapter 全绿不等于业务对）、重放会话应先读哪些 case 资产。runs.json 不入版本控制。
+
+### 16.3 Anti-Fitting Boundary（单列核心规则）
+
+**禁止路径**：implementation → observed output → 修改 expected 以匹配 implementation。技能铁律 6（golden values 永远来自人，不来自实现快照）与铁律 4（封金后只有用户能改 Expected）在 Flow 侧的同一表述。S6 指引写明典型形态：观察到 actual=72 后「看来 expected 也该是 72」——禁止。
+
+**允许路径**：implementation → verification → 发现 Case 不充分 → Proposal/Unknown → 回到业务依据 → 人/权威重确认 → 新 Frozen truth（新版本封金）→ 再验证 implementation。实现后可以挑战 case 的充分性，不能让实现成为 case 正确性的来源。
+
+### 16.4 Capability 与既有机制的接口
+
+- **Context Policy**：能力上下文独立于主线上下文分层（`CONTEXT`），按阶段注入且存在性降级：S3 cases.yaml（relevant）；S4 frozen.md（authoritative）+ cases.yaml（relevant）；S5 cases.yaml（relevant）；S6 frozen.md（authoritative）+ manifest/runs（relevant）；S7 frozen+runs（authoritative）+ manifest（relevant）；S8 frozen（authoritative）；S9 frozen+manifest（relevant）。目标是约束不是 token 洪水——未启用零注入。
+- **Gate Debt**：只有 S3 代理检查命中且用户强推才生成 debt（走既有 force 机制，无新债务类型）。「27 个未来可能补的边缘 case」不进 Flow debt——capability 内部状态由 capability 自己管理，Flow debt 只记影响主线可靠性的未解决事项。
+- **Upstream Assumption Check**：§15 Part A 段落补一句「能力暴露上游问题同此办理」——golden-case 发现 Frozen truth 冲突、artifact-assist 发现 Frame/Design 问题，统一走建议权通道：指出/给证据/说影响/建议回退阶段/等用户。能力可以发现上游问题，没有上游修改权。
+- **artifact-assist authority**：高视觉提案权、高反馈翻译权；无 Frame/Definition 修改权、无业务拍板权、无推进权——即 stages.ts 既有的 S5 autonomy（拍板权在用户）+ §15 Part A，无新增条款。
+
+### 16.5 state schema
+
+```jsonc
+// FlowState 新增（旧 state 缺省补 {}，version 仍 1，向后兼容）
+"capabilities": {
+  "golden-case": { "status": "enabled", "enabledAtStage": 2, "reason": "订单状态与金额" }
+  // 或 { "status": "declined", "reason": "纯视觉任务" }
+}
+```
+
+解析 fail closed：未知能力 id、非法 status、enabledAtStage 越界 → FlowStateError。历史 kind 新增 `cap-enable` / `cap-decline`（to = 决定时所在阶段）。翻转是真实用户决策：单条目覆盖 + history 留痕。
+
+### 16.6 示例：为订单退款增加幂等处理（编码任务全流程）
+
+| 阶段 | golden-case 参与方式 |
+|---|---|
+| S0 | 用户需求 + 一次重复退款事故材料入 dump.md（原始材料，无 case 动作） |
+| S1 | 读退款调用链、DB schema、现有 tests——了解 observation surface 在哪（订单表/流水表）；不从现有输出推 expected |
+| S2 | 命中信号（金额+状态+持久化真值）→ 模型输出推荐 → 用户 `cap golden-case enable 退款金额与状态是业务真值` |
+| S3 | 起草 CASE-001 正常退款 / 002 重复同 request id / 003 首次成功后网络超时重发 / 004 DB 成功但响应失败；expected 由用户逐条确认（依据：退款规则文档+用户口径）→ View/review → 封金 |
+| S4 | 幂等策略设计（request id 去重表 vs 状态机拦截）以四条 frozen case 为硬约束；发现 CASE-004 与新证据冲突 → 上游前提检查报告，等用户 |
+| S5 | CASE-003 场景映射为 sequence diagram（artifact-assist 画，图不是 truth） |
+| S6 | vertical slice 选 CASE-002（最高风险）；实现后写 adapter 进项目测试目录 + manifest 登记；actual 与 frozen expected 独立比较——观察到 actual=72 不得回写 expected=72 |
+| S7 | 跑 report/audit + Adapter 回执评审；A（实现满足 case）全绿 + B（case 足以证明幂等行为）附证据记入 self-review.md；B 有 Concern（未覆盖并发窗口）→ Proposal 交用户 |
+| S8 | 扩其他退款入口（同类差异，沿用 pattern）；发现「部分退款」新场景 → 先定真值再实现，禁止照实现补 case |
+| S9 | spec.md 记录 case 资产位置与重审路径；case + adapter 成为 drift guard，保护后续重构 |
+
+### 16.7 十二问自答（Integration Spec 完成判据）
+
+1. **Stage vs Capability？** Stage 拥有 index 与推进语义，回答认知问题；Capability 是可选专业方法，不占 index、不推进、跨阶段服务。
+2. **artifact-assist 为什么不是 Stage？** 视觉定调已是 S5；它是该阶段（及 S4/S6/S7 辅助）的方法供应商，无生命周期状态需要状态机管理。
+3. **golden-case 为什么不是 S3.5/S10？** 它横跨 S1–S9（S3 定义真值、S6 观察、S7 验证、S8 防漂移、S9 资产化），切成单点阶段会切断「编码前定义/编码后验证」的同一真值链。
+4. **为什么编码前后都出现？** correctness 的定义在编码前冻结（约束），验证在编码后独立执行（验收）——同一业务真值的两次使用，不是两个能力。
+5. **什么必须在 observation 前 Freeze？** 被选作本轮约束的核心 case 的 expected 及其 business basis（Draft+View 回执 + 用户确认 + frozen.md 快照）。
+6. **编码后发现 case 不充分？** 走允许路径（16.3）：Proposal/Unknown → 业务依据 → 人重确认 → 新版本封金 → 再验证。
+7. **谁能改 expected？** 封金后只有用户（技能铁律 4）；AI 起草、评审、建议，不拍板。
+8. **AI 能否自行启用？** 不能。推荐输出后等 `cap` 命令；未决定/已拒绝流程照常。
+9. **能力暴露上游错误谁决定 regress？** 用户。能力与 AI 都只有建议权（§15 Part A + 能力同此办理条款）。
+10. **产物如何进 Context Policy？** 16.4 的阶段化 tier 表，未启用零注入，文件不存在降级不列。
+11. **未完成何时成 Gate Debt？** 仅 S3 代理检查命中且强推；边缘 case 缺口留在能力内部，不进 Flow debt。
+12. **Freeze 后如何成为长期约束？** S9 记录资产位置与重审规则；重放/新任务读 frozen.md；改业务行为须重新确认+新版本封金；adapter 全绿不等于业务对。
+
+### 16.8 实现清单与刻意不做
+
+实现：`capabilities.ts`（推荐条款/阶段指引/上下文分层单一事实源）、`machine.ts`（capabilities 字段 + setCapabilityEffect + Gate 代理检查）、`prompts.ts`（能力区块注入 + freeze note 能力行）、`index.ts`（cap 子命令）、`completions.ts`（cap 候选）、`render.ts`（status 能力行）、`stages.ts`（S4 skills += artifact-assist）、本文档、单测。
+
+刻意不做：不改 golden-case / artifact-assist 任何文件；无动态阶段/DAG/plugin framework；无 AI 自动 enable/regress；无 observed→expected 回写；不强制所有编码任务启用；不把能力产物塞进所有 prompt。已知边界：S3 机械检查只认默认路径 `.hapilon/go-case/`（用户搬迁根目录则静默跳过，不误伤）；「核心 case」的选取是语义判断归人。
