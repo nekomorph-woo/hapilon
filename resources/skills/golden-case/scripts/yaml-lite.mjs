@@ -1,7 +1,20 @@
 // yaml-lite —— case 文件用的零依赖 YAML 子集解析器（node:fs 之外无任何依赖）。
 // 只支持 references/format.md 规定的子集：block/flow 的 map 与 seq、行内注释、
-// 整数/小数/bool/字符串标量。锚点、多文档、多行标量、值内 # 均不支持。
-// 小数字面量保留原始文本（"74.8"），以便视图渲染单位、freeze-check 做数值比较。
+// 整数/小数/bool/字符串标量。小数字面量保留原始文本（"74.8"），以便视图渲染单位、
+// freeze-check 做数值比较。
+// 解析语义是 lossless-or-fail：解析不了就抛 YamlLiteError（带原始行号），
+// 绝不「能解析多少算多少」——静默吞掉一段输入等于让坏 case 源混进执行链。
+export class YamlLiteError extends Error {
+  constructor(message, line) {
+    super(line == null ? message : `${message}（第 ${line} 行）`);
+    this.name = 'YamlLiteError';
+    this.line = line ?? null;
+  }
+}
+
+function fail(message, line) {
+  throw new YamlLiteError(message, line);
+}
 
 // 剥离注释：整行 # 或值后的 " #"（引号内的 # 不算）
 function stripComment(line) {
@@ -19,17 +32,50 @@ function stripComment(line) {
   return line;
 }
 
+// flow 值整体校验：引号配平、括号配平、闭合后不得再有残余内容。
+// 未校验时 slice(1,-1) 会把未闭合的 "[1, 2" 当 "[1, 2]" 静默接受。
+function assertFlow(s, line) {
+  const pairs = { '}': '{', ']': '[', ')': '(' };
+  const stack = [];
+  let quote = null;
+  let closedAt = -1;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quote) {
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === '{' || c === '[' || c === '(') stack.push(c);
+    else if (c === '}' || c === ']' || c === ')') {
+      if (stack.pop() !== pairs[c]) fail(`括号错配「${c}」`, line);
+      if (stack.length === 0) closedAt = i;
+    } else if (stack.length === 0 && closedAt >= 0 && !/\s/.test(c)) {
+      fail(`flow 值闭合后还有残余内容「${s.slice(closedAt + 1).trim()}」`, line);
+    }
+  }
+  if (quote) fail(`引号未闭合`, line);
+  if (stack.length) {
+    const missing = stack.map((c) => ({ '{': '}', '[': ']', '(': ')' })[c]).join('');
+    fail(`集合未闭合（缺 ${missing}）`, line);
+  }
+}
+
 // 标量解析；小数按子集约定保留文本
-export function parseScalar(raw) {
+export function parseScalar(raw, line = null) {
   const s = raw.trim();
   if (s === '' || s === 'null' || s === '~') return null;
   if (s === 'true') return true;
   if (s === 'false') return false;
   if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-    return s.slice(1, -1);
+    if (s.length >= 2) return s.slice(1, -1);
   }
-  if (s.startsWith('{')) return parseFlowMap(s);
-  if (s.startsWith('[')) return parseFlowSeq(s);
+  if (s.startsWith('"') || s.startsWith("'")) fail(`引号未闭合`, line);
+  if (/^[&*!]/.test(s)) fail(`不支持的 YAML 构造「${s.slice(0, 1)}…」（锚点/别名/标签不在子集内）`, line);
+  if (s.startsWith('{') || s.startsWith('[')) {
+    assertFlow(s, line);
+    return s.startsWith('{') ? parseFlowMap(s, line) : parseFlowSeq(s, line);
+  }
   if (/^[+-]?\d+$/.test(s)) return Number(s);
   return s; // 小数与其余一律原样保留
 }
@@ -58,22 +104,24 @@ function splitTop(s) {
 }
 
 // flow map：{k: v, k2: v2}
-function parseFlowMap(s) {
+function parseFlowMap(s, line) {
   const inner = s.trim().slice(1, -1);
   const out = {};
   if (inner.trim() === '') return out;
   for (const part of splitTop(inner)) {
     const i = part.indexOf(':');
-    if (i < 0) continue;
-    out[part.slice(0, i).trim()] = parseScalar(part.slice(i + 1));
+    if (i < 0) fail(`flow map 项缺「键: 值」结构：「${part.trim()}」`, line);
+    const key = part.slice(0, i).trim();
+    if (key in out) fail(`重复键「${key}」`, line);
+    out[key] = parseScalar(part.slice(i + 1), line);
   }
   return out;
 }
 
-function parseFlowSeq(s) {
+function parseFlowSeq(s, line) {
   const inner = s.trim().slice(1, -1);
   if (inner.trim() === '') return [];
-  return splitTop(inner).map((p) => parseScalar(p));
+  return splitTop(inner).map((p) => parseScalar(p, line));
 }
 
 // 行是否含「键:」结构（引号外第一个 ": " 或行尾 ":"）
@@ -95,28 +143,38 @@ function splitKey(text) {
   return null;
 }
 
+// 子集外的值形态：块标量与文档标记直接点名拒绝，不给「猜」的机会
+function rejectUnsupportedValue(val, line) {
+  if (/^[|>][+-]?$/.test(val)) fail(`不支持块标量「${val}」（多行标量不在子集内，压成一行或写成列表）`, line);
+  if (/^[&*!]/.test(val)) fail(`不支持的 YAML 构造「${val.slice(0, 1)}…」（锚点/别名/标签不在子集内）`, line);
+}
+
 function parseMap(lines, i, indent) {
   const out = {};
   while (i < lines.length) {
-    const { indent: ind, text } = lines[i];
+    const { indent: ind, text, no } = lines[i];
     if (ind !== indent || text.startsWith('- ')) break;
+    if (/^[?][\s]/.test(text)) fail(`不支持复杂键「? 」`, no);
     const kv = splitKey(text);
-    if (!kv) break; // 非法行，交给上层终止
-    const [, rawVal] = kv;
-    const val = rawVal.trim();
+    if (!kv) fail(`无法识别的行「${text}」（既不是「键: 值」也不是列表项）`, no);
+    const key = kv[0].trim();
+    if (/^[&*!]/.test(key)) fail(`不支持的键「${key}」（锚点/别名/标签不在子集内）`, no);
+    if (key in out) fail(`重复键「${key}」`, no);
+    const val = kv[1].trim();
     if (val === '') {
       const next = lines[i + 1];
       if (next && next.indent > indent) {
         const [v, ni] = parseBlock(lines, i + 1, next.indent);
-        out[kv[0].trim()] = v;
+        out[key] = v;
         i = ni;
         continue;
       }
-      out[kv[0].trim()] = null;
+      out[key] = null;
       i++;
       continue;
     }
-    out[kv[0].trim()] = parseScalar(val);
+    rejectUnsupportedValue(val, no);
+    out[key] = parseScalar(val, no);
     i++;
   }
   return [out, i];
@@ -125,7 +183,7 @@ function parseMap(lines, i, indent) {
 function parseSeq(lines, i, indent) {
   const out = [];
   while (i < lines.length) {
-    const { indent: ind, text } = lines[i];
+    const { indent: ind, text, no } = lines[i];
     if (ind !== indent || !text.startsWith('- ')) break;
     const rest = text.slice(2).trim();
     if (rest === '') {
@@ -134,16 +192,17 @@ function parseSeq(lines, i, indent) {
       out.push(v);
       i = ni;
     } else if (/^[{[]/.test(rest)) {
-      out.push(parseScalar(rest));
+      out.push(parseScalar(rest, no));
       i++;
     } else if (splitKey(rest)) {
       // 紧凑写法「- k: v」："- " 等价两级缩进，按 map 继续消化后续同级键
-      lines[i] = { indent: ind + 2, text: rest };
+      lines[i] = { indent: ind + 2, text: rest, no };
       const [v, ni] = parseMap(lines, i, ind + 2);
       out.push(v);
       i = ni;
     } else {
-      out.push(parseScalar(rest));
+      rejectUnsupportedValue(rest, no);
+      out.push(parseScalar(rest, no));
       i++;
     }
   }
@@ -151,19 +210,36 @@ function parseSeq(lines, i, indent) {
 }
 
 function parseBlock(lines, i, indent) {
-  return lines[i] && lines[i].text.startsWith('- ')
+  const first = lines[i];
+  if (!first) return [null, i];
+  // 块值位置的单行 flow（`when:` 换行后整行 {…}）：整体作为一个 flow 标量消费，
+  // 跨行延续属于未闭合输入，由 assertFlow 拒绝
+  if (first.text.startsWith('{') || first.text.startsWith('[')) {
+    return [parseScalar(first.text, first.no), i + 1];
+  }
+  return first.text.startsWith('- ')
     ? parseSeq(lines, i, indent)
     : parseMap(lines, i, indent);
 }
 
 export function parseYaml(text) {
-  const lines = text
-    .split('\n')
-    .map(stripComment)
-    .filter((l) => l.trim() !== '')
-    .map((l) => ({ indent: l.length - l.trimStart().length, text: l.trim() }));
-  if (lines.length === 0) return null;
-  const [value] = parseBlock(lines, 0, lines[0].indent);
+  const lines = [];
+  text.split('\n').forEach((raw, idx) => {
+    const no = idx + 1;
+    const stripped = stripComment(raw);
+    if (stripped.trim() === '') return;
+    const leading = stripped.slice(0, stripped.length - stripped.trimStart().length);
+    if (leading.includes('\t')) fail(`缩进里有制表符（子集只接受空格缩进）`, no);
+    const t = stripped.trim();
+    if (t === '---' || t === '...' || t.startsWith('--- ')) fail(`不支持多文档标记「${t}」`, no);
+    if (t.startsWith('%')) fail(`不支持指令行「${t}」`, no);
+    lines.push({ indent: leading.length, text: t, no });
+  });
+  if (lines.length === 0) fail('空输入：没有可解析的内容', null);
+  const [value, consumed] = parseBlock(lines, 0, lines[0].indent);
+  if (consumed < lines.length) {
+    fail(`解析提前结束，输入未被完整消费（缩进或结构不一致）`, lines[consumed].no);
+  }
   return value;
 }
 

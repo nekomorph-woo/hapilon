@@ -461,16 +461,34 @@ and the run result.
 ### 5. Report / audit
 
 ```
-node <skill>/scripts/report.mjs --cases .hapilon/go-case/cases.yaml <test-output.txt> ...
+node <skill>/scripts/report.mjs --cases .hapilon/go-case/cases.yaml [--meta run-meta.json] [--json] <test-output.txt> ...
 node <skill>/scripts/audit.mjs  --cases .hapilon/go-case/cases.yaml --tests src/test/java,tests
 ```
 
 `report.mjs` eats the adapters' run output (console text or JUnit XML — see the
 input contract in `references/format.md`), groups it by case from the anchors in
 the test names, and puts the first failing verification point at the top of each
-case block (exit 1 unless every case is green and no orphan anchor appears).
-Fail-closed on coverage: an expected observation point missing from the output
-is **undetermined, not passing** — the case goes ⚠️ non-green. To verify a
+case block. Its aggregation is **fail-closed: GREEN means verified, not merely
+non-failed** — only an explicit `PASSED` contributes a pass. `SKIPPED`,
+`ABORTED`, `ERROR`, `XFAIL`, `XPASS`, unrecognized statuses (`UNKNOWN`, raw
+preserved for debugging), observation points missing from the output
+(`MISSING` — the required set is the case source's `expect` keys, never what
+the runner happened to report), anchors the case never declared
+(`UNEXPECTED`), and the same anchor reported with conflicting states
+(`AMBIGUOUS`) are all NON-GREEN: case verdict `FAIL` > `INVALID` >
+`UNVERIFIED` > `PASS`, and only a suite where every case is `PASS` (and no
+orphan anchor, no malformed input) exits 0. Case verdicts read `PASS ✓ /
+FAIL ✗ / UNVERIFIED ○ / INVALID !`; a run that is not fully verified is never
+worded 全绿/verified. Verification level and dependency mode are part of the
+verdict: a case declaring `verification_level: L2`+ or a `REAL` dependency is
+NON-GREEN unless `--meta` proves the run's level/mode (`VERIFICATION_LEVEL_MISMATCH`
+/ `DEPENDENCY_MODE_MISMATCH` on downgrade, `LEVEL-UNPROVEN` / `MODE-UNPROVEN`
+when no proof is offered — a mock pass never satisfies a REAL requirement).
+`--meta` carries the run identity (`run_id`, `when`, `commit_sha`, `frozen_sha`,
+`runner`, `environment`, `verification_level`, `dependency_mode(s)`) so two
+PASSes can name the code, case version and world they were earned in;
+`--json` emits the normalized per-VP result model (status, raw_status, verdict,
+details, where) for agent consumption. To verify a
 subset on purpose, declare it upfront with `--only CASE-001,CASE-002`: the
 report and the exit code then answer only for the declared cases, and anchors
 outside the scope are ignored (not orphan-flagged). The report author only
@@ -508,8 +526,8 @@ hapilon repo, the skills directory when installed).
 
 | Script | Purpose |
 |---|---|
-| `scripts/yaml-lite.mjs` | Library, not a CLI. The case-file YAML subset parser plus `numEq` / `isUndecidable` / `isDecimal`, shared by the others. |
-| `scripts/cases-source.mjs` | Library, not a CLI. Resolves `--cases` (single file, a directory of `*.yaml` merged in filename order, or a comma-separated list); parsing still belongs to `yaml-lite.mjs`. |
+| `scripts/yaml-lite.mjs` | Library, not a CLI. The case-file YAML subset parser plus `numEq` / `isUndecidable` / `isDecimal`, shared by the others. Lossless-or-fail: anything outside the subset throws `YamlLiteError` with a line number — tabs, anchors/aliases, multi-document, block scalars, duplicate keys, unclosed flow/quotes, unconsumed input. |
+| `scripts/cases-source.mjs` | Library, not a CLI. Resolves `--cases` (single file, a directory of `*.yaml` merged in filename order, or a comma-separated list) and validates identity: duplicate case id (`DUPLICATE_CASE_ID`), duplicate observation point / VP id, malformed id / level / dependency mode (`INVALID_CASE`) all throw before anything executes; parsing still belongs to `yaml-lite.mjs`. |
 | `scripts/gen-view.mjs` | Static review views, one file per style. |
 | `scripts/explorer.mjs` | The interactive explorer: one self-contained HTML, data and client code inlined. |
 | `scripts/freeze-check.mjs` | Expected-vs-frozen diff. |
@@ -536,16 +554,25 @@ freeze-check.mjs --cases <yaml|dir>[,<yaml|dir>...] --frozen <md>
 
 audit.mjs        --cases <yaml|dir> --tests <dir|file>[,<dir|file>...]
 
-report.mjs       --cases <yaml|dir> <test-output.txt> [...]
+report.mjs       --cases <yaml|dir> [--only <ids>] [--meta <run-meta.json>] [--json] <test-output.txt> [...]
+                 # --meta 声明本次执行的身份与档位（run_id/when/commit_sha/
+                 # verification_level/dependency_mode(s)）；L2+ 或 REAL 依赖的
+                 # case 没有匹配证明不判绿。--json 输出归一化结果模型
 ```
 
 `--cases` on every script accepts one `.yaml`, a directory (all `*.yaml`
-merged in filename order, later ids winning), or a comma-separated list.
+merged in filename order), or a comma-separated list. A case id appearing
+twice — across files or within one — is a hard `DUPLICATE_CASE_ID` error
+(exit 3): the case id is golden-asset identity, not a map key with a
+load-order winner.
 
 Exit codes: `explorer.mjs` and `gen-view.mjs` exit 2 on a missing required
 argument; `freeze-check.mjs` exits 1 on any red card (2 on missing arguments);
 `audit.mjs` exits 1 when it finds anything; `report.mjs` exits 1 unless every
-case is green and no orphan anchor showed up. So each script is usable as a CI
+case is `PASS` (only explicit `PASSED` counts — see stage 5) with no orphan
+anchor and no malformed input. All of them exit 3 on a source error
+(`DUPLICATE_CASE_ID`, `INVALID_CASE`, `YamlLiteError`): execution never
+starts from an invalid or ambiguous source. So each script is usable as a CI
 gate as-is.
 
 The case-file schema itself — every key, the controlled vocabularies, the
@@ -579,6 +606,10 @@ before writing or editing a case; do not invent keys.
   or `--only`-ing the failure out of the report. Every one of these without
   the user's explicit record is the cheat the anti-cheat round hunts.
 
+- **Treating non-failure as pass.** `SKIPPED`, missing results, unrecognized
+  runner statuses, or "the runner reported only what passed" — none of these
+  is a pass. Only an explicit `PASSED` on every required verification point
+  makes green; a partial run is `INCOMPLETE`/`UNVERIFIED`, never 全绿.
 - **Unit tests.** Not this skill's job, not its coverage metric, not its
   business (law 3). Do not add cases to raise a unit-test number.
 - **A KPI dashboard.** The views are working tools: high density, flat, few

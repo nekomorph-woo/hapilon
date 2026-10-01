@@ -6,7 +6,7 @@
 // 命中即 exit 1。恢复办法只有一种：恢复快照原值；确需改动则新版本 + 用户重新确认 + 再冻结。
 import { readFileSync } from 'node:fs';
 import { parseYaml, numEq } from './yaml-lite.mjs';
-import { loadCases } from './cases-source.mjs';
+import { loadCasesOrExit, parseYamlOrExit } from './cases-source.mjs';
 
 function arg(name) {
   const i = process.argv.indexOf(`--${name}`);
@@ -18,7 +18,7 @@ function loadYaml(path, what) {
     console.error(`freeze-check: 缺少 --${what}`);
     process.exit(2);
   }
-  return parseYaml(readFileSync(path, 'utf8'));
+  return parseYamlOrExit(readFileSync(path, 'utf8'), 'freeze-check');
 }
 
 // ── provenance（business_basis / expect_basis）的共享语义 ──
@@ -120,7 +120,7 @@ const frozenPath = arg('frozen');
 const frozen = loadYaml(frozenPath, 'frozen').frozen ?? {};
 
 // 多个 case 来源合并；重复 id 后者覆盖（拆文件管理的场景）
-const cases = new Map(loadCases(arg('cases')).map((c) => [c.id, c]));
+const cases = new Map(loadCasesOrExit(arg('cases'), 'freeze-check').map((c) => [c.id, c]));
 
 const cards = [];
 const push = (id, point, kind, msg, frozenV, caseV) => cards.push({ id, point, kind, msg, frozenV, caseV });

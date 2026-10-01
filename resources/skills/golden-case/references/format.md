@@ -48,12 +48,21 @@ Scripts ship with a zero-dependency parser that accepts this subset only:
   quote-aware)
 - scalars: integers, decimals, `true`/`false`, bare or quoted strings
 - a flow value must stay on **one line** — the parser is line-based, and a
-  continuation line is silently dropped rather than reported; a very long
-  `{…}` or `[…]` is normal, showing it as one line
+  multi-line flow is an unclosed-collection error, not a best-effort guess
 
-Not supported: anchors/aliases, multi-document, multiline scalars, tabs for
-indentation. A decimal (`74.8`) is preserved as text so the view can render
-units and freeze-check can compare numerically.
+Parsing is **lossless-or-fail**: anything the subset cannot fully and
+unambiguously consume throws `YamlLiteError` with the offending line —
+tabs in indentation, document markers (`---` / `...`), anchors/aliases/tags
+(`&x` / `*x` / `!x`), block scalars (`|` / `>`), duplicate keys, unclosed
+quotes or collections, trailing junk after a flow value, lines that are
+neither `key: value` nor a list item, and input left unconsumed when the
+parse ends early. A flow value on its own line under a `key:` (e.g. the
+`when:` action map) parses as that single-line flow. "Parse what we
+understand, ignore the rest" is exactly the behaviour the parser exists to
+prevent: a silently dropped line is a silently changed case.
+
+A decimal (`74.8`) is preserved as text so the view can render units and
+freeze-check can compare numerically.
 
 ## Case schema
 
@@ -136,7 +145,7 @@ cases:
     tests:                           # Case = spec, Test = machine implementation (1→N)
       - {id: T-005A, case_id: CASE-005, type: ACCEPTANCE, framework: node:test, file: fixtures/tests/ShopGoldenCaseTest.java, status: FAIL, last_run: 2026-09-19, failure_reason: "INV-001 幂等被破坏：重放导致双扣（charge=2）"}
     latest_run:                      # optional: inlined last execution (else use runs.json)
-      status: FAIL                   # NOT_RUN | RUNNING | PASS | FAIL | ERROR | SKIPPED
+      status: FAIL                   # NOT_RUN | RUNNING | PASS | FAIL | ERROR | SKIPPED（explorer 现算的判定多一个 INCOMPLETE：部分 VP 未跑且无 FAIL）
       started_at: 2026-09-19 01:51
       duration_ms: 812
       environment: local
@@ -471,13 +480,13 @@ by `gen-view` variants that render results) when a case has no inlined
 ```
 
 An anchor missing from the file leaves its VP `NOT_RUN`; the case verdict is
-`FAIL` if any VP fails, `PASS` if at least one ran and none failed, `NOT_RUN`
-otherwise. An anchor missing from the file leaves its VP `NOT_RUN`; the case
-verdict is `FAIL` if any VP fails, `PASS` if at least one ran and none failed,
-`NOT_RUN` otherwise. Each value is judged by its VP's `operator` (see
+`FAIL` if any VP fails, `INCOMPLETE` if some VPs ran and others did not, `PASS`
+only when every judgeable VP was judged and none failed, `NOT_RUN`
+otherwise. Each value is judged by its VP's `operator` (see
 *Operators*): `==` / `!=` use numeric equivalence, so the text-preserved decimal
 `74.8` compares numerically against a JSON number, while the ordered comparisons
-require numbers on both sides and otherwise fail closed.
+require numbers on both sides and otherwise fail closed. A partial run is
+never a pass: `INCOMPLETE` means *not fully verified*, not *mostly fine*.
 
 ## Tooling
 
@@ -645,3 +654,25 @@ JUnit XML (the universal exit when a stack has no line-per-test text output:
 vitest/jest `--reporter=junit`, pytest `--junitxml`, go via `gotestsum`,
 cargo2junit, …): each `<testcase>` whose `name`/`classname` carries the anchor;
 `<failure>`/`<error>` body (first lines) becomes the failure detail.
+
+Statuses are normalized before aggregation: runner raw states map onto a
+closed set (`PASSED` `FAILED` `SKIPPED` `ABORTED` `ERROR` `XFAIL` `XPASS`,
+plus report-internal `UNKNOWN` `MISSING` `UNEXPECTED` `AMBIGUOUS` `MALFORMED`).
+A line carrying an anchor plus an unrecognized status word (`CUSTOM_SKIP`,
+`PENDING`, …) is recorded as `UNKNOWN` with the raw status preserved — never
+as a pass. Only `PASSED` contributes a pass; everything else (including a
+required observation point absent from the output) is NON-GREEN and the
+process exits non-zero.
+
+`--meta run-meta.json` declares the execution's identity and tier — `run_id`,
+`when`, `commit_sha`, `frozen_sha`, `runner`, `environment`,
+`verification_level` (`L1`-`L4`), `dependency_mode` (single) or
+`dependency_modes` (per-dependency map). A case declaring `verification_level`
+`L2`+ or a `REAL` dependency is NON-GREEN without a matching proof:
+`VERIFICATION_LEVEL_MISMATCH` / `DEPENDENCY_MODE_MISMATCH` on a downgrade,
+`LEVEL-UNPROVEN` / `MODE-UNPROVEN` when `--meta` is absent. A mock-world pass
+never satisfies a REAL requirement.
+
+`--json` prints the normalized result model (run identity, suite verdict,
+per-VP `status` / `raw_status` / `verdict` / details / source location)
+instead of the human table, with the same exit code.

@@ -24,7 +24,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSy
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseYaml, numEq, isUndecidable, isDecimal } from './yaml-lite.mjs';
-import { loadCases } from './cases-source.mjs';
+import { loadCasesOrExit, parseYamlOrExit } from './cases-source.mjs';
 
 // ── CLI ──
 function arg(name, fallback) {
@@ -37,7 +37,7 @@ function fail(msg) {
 }
 function loadYaml(path, what) {
   if (!path) fail(`缺少 --${what}`);
-  return parseYaml(readFileSync(path, 'utf8'));
+  return parseYamlOrExit(readFileSync(path, 'utf8'), 'explorer');
 }
 
 const casesPath = arg('cases');
@@ -51,7 +51,7 @@ const outPath = arg('out');
 if (!casesPath) fail('缺少 --cases');
 if (!outPath) fail('缺少 --out');
 
-const cases = loadCases(casesPath);
+const cases = loadCasesOrExit(casesPath, 'explorer');
 if (!Array.isArray(cases) || cases.length === 0) fail('cases 文件中没有 case');
 const frozenMap = frozenPath ? (loadYaml(frozenPath, 'frozen').frozen ?? {}) : null;
 const runs = runsPath ? JSON.parse(readFileSync(runsPath, 'utf8')) : null;
@@ -222,10 +222,12 @@ function buildRun(c, vps, id) {
       vp_id: v.id, source: v.source, expected: v.expected, actual, status: verdict.status, message: verdict.message,
     };
   });
-  const ran = results.filter((r) => r.status === 'PASS' || r.status === 'FAIL').length;
   const fail = results.filter((r) => r.status === 'FAIL');
+  const notRun = results.filter((r) => r.status === 'NOT_RUN').length;
+  const ran = results.length - notRun;
   return {
-    status: !ran ? 'NOT_RUN' : fail.length ? 'FAIL' : 'PASS',
+    // fail-closed：PASS 要求全部可判定 VP 都明确判定；部分判定 = INCOMPLETE，一条没判 = NOT_RUN
+    status: fail.length ? 'FAIL' : ran && notRun ? 'INCOMPLETE' : ran ? 'PASS' : 'NOT_RUN',
     started_at: s(runs._meta?.captured),
     duration_ms: null,
     environment: s(runs._meta?.source),

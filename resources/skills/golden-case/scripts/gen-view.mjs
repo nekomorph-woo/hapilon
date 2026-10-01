@@ -20,7 +20,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { parseYaml, numEq, isUndecidable, isDecimal } from './yaml-lite.mjs';
-import { loadCases } from './cases-source.mjs';
+import { loadCasesOrExit, parseYamlOrExit } from './cases-source.mjs';
 
 // ── CLI ──
 function arg(name, fallback) {
@@ -30,7 +30,7 @@ function arg(name, fallback) {
 
 function loadYaml(path, what) {
   if (!path) fail(`缺少 --${what}`);
-  return parseYaml(readFileSync(path, 'utf8'));
+  return parseYamlOrExit(readFileSync(path, 'utf8'), 'gen-view');
 }
 
 function fail(msg) {
@@ -130,14 +130,15 @@ function judge(m, r, runs) {
   return { chip: numEq(r.value, actual) ? '✓' : '✗', actual };
 }
 
-// 整案判定（不可判定期望不进统计）：{ok, fail[点], ran}
+// 整案判定（不可判定期望不进统计）：{ok, fail[点], missed[点], ran}——missed 是没跑到、不是不符，两者不得混报
 function caseRun(m, runs) {
   if (!runs) return null;
-  const out = { ok: 0, fail: [], ran: false };
+  const out = { ok: 0, fail: [], missed: [], ran: false };
   for (const r of m.rows) {
     if (r.bad) continue;
     const j = judge(m, r, runs);
     if (!j) continue;
+    if (j.chip === '未跑') { out.missed.push(r.key); continue; }
     out.ran = true;
     if (j.chip === '✓') out.ok++;
     else out.fail.push(r.key);
@@ -253,7 +254,9 @@ function renderWorkbench(model, title, runs) {
       ? '<p class="verdict"><span class="chip na">未跑</span>最近一次运行没有这个用例的记录</p>'
       : run.fail.length
         ? `<p class="verdict"><span class="chip no">✗ ${run.fail.length} 项不符</span>与期望不符：${run.fail.map(esc).join('、')}</p>`
-        : `<p class="verdict"><span class="chip ok">✓ ${run.ok} 项全过</span>最近一次运行全部符合期望</p>`;
+        : run.missed.length
+          ? `<p class="verdict"><span class="chip na">○ ${run.missed.length} 项未跑</span>部分未验证：${run.missed.map(esc).join('、')}没有实际值，不构成全过</p>`
+          : `<p class="verdict"><span class="chip ok">✓ ${run.ok} 项全过</span>最近一次运行全部符合期望</p>`;
     return `<section class="case dpanel${m === model[0] ? ' on' : ''}${m.bad ? ' bad' : ''}" id="p-${m.id}">
 <h2>${m.id} · ${m.name}${frozenBadge(m)}</h2>
 <p class="scene">${m.scene ?? ''}</p>
@@ -392,9 +395,11 @@ function dossierCard(m, runs) {
     ? '<span class="chip na">待审</span>尚无最近一次运行记录。'
     : run.fail.length
       ? `<span class="chip no">✗ ${run.fail.length} 项不符</span>${m.frozenCase ? '<em class="vio">违背封金！期望值被实现打破——要么修实现，要么由需求方重开冻结。</em>' : `不符点：${run.fail.map(esc).join('、')}`}`
-      : run.ran
-        ? `<span class="chip ok">✓ ${run.ok} 项全过</span>本轮运行全部符合证据清单。`
-        : '<span class="chip na">未跑</span>最近一次运行没有这个案号的记录。';
+      : run.missed.length
+        ? `<span class="chip na">○ ${run.missed.length} 项未跑</span>部分未验证：${run.missed.map(esc).join('、')}没有实际值，不构成全过。`
+        : run.ran
+          ? `<span class="chip ok">✓ ${run.ok} 项全过</span>本轮运行全部符合证据清单。`
+          : '<span class="chip na">未跑</span>最近一次运行没有这个案号的记录。';
   const timeline = m.changes.length
     ? `<div class="changelog"><span class="clt">变更记录</span>${m.changes.map((ch) =>
       `<div class="clrow"><span class="clv">v${esc(ch.v ?? '')}</span><span class="clw">${esc(ch.when ?? '')}</span><span class="cla">${esc(ch.what ?? '')}</span></div>`).join('')}</div>`
@@ -446,7 +451,9 @@ function renderIndex(model, title, runs) {
     if (!run.ran) return '<span class="vd na">未跑</span>';
     return run.fail.length
       ? `<span class="vd no">✗ ${run.fail.length}</span>`
-      : `<span class="vd ok">✓ ${run.ok}</span>`;
+      : run.missed.length
+        ? `<span class="vd na">○ ${run.ok}/${run.ok + run.missed.length}</span>`
+        : `<span class="vd ok">✓ ${run.ok}</span>`;
   };
   const ihead = '<div class="ihead"><span>案号</span><span>案件</span><span>状态</span><span class="r">最近判定</span></div>';
   const rows = model.map((m) =>
@@ -543,7 +550,9 @@ function renderManager(model, title, runs) {
     if (!run.ran) return '<span class="vd na">未跑</span>';
     return run.fail.length
       ? `<span class="vd no">✗ ${run.fail.length}</span>`
-      : `<span class="vd ok">✓ ${run.ok}</span>`;
+      : run.missed.length
+        ? `<span class="vd na">○ ${run.ok}/${run.ok + run.missed.length}</span>`
+        : `<span class="vd ok">✓ ${run.ok}</span>`;
   };
   const changeCell = (m) => {
     const last = m.changes.at(-1);
@@ -644,7 +653,7 @@ const style = arg('style') ?? arg('layout', 'manager');
 const runsPath = arg('runs');
 const variantsDir = arg('variants');
 
-const cases = loadCases(casesPath);
+const cases = loadCasesOrExit(casesPath, 'gen-view');
 if (!Array.isArray(cases) || cases.length === 0) fail('cases 文件中没有 case');
 const frozenMap = frozenPath ? (loadYaml(frozenPath, 'frozen').frozen ?? {}) : null;
 const model = buildModel(cases, frozenMap);
