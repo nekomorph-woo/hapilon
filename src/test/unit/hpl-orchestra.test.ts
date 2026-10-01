@@ -127,6 +127,12 @@ function makeSpawn(options: {
   gonePanes?: string[];
   /** herdr 整体不可用（瞬时错误，区别于 pane_not_found） */
   herdrDown?: boolean;
+  /** agent_status 队列耗尽后的默认值（默认 idle） */
+  defaultAgentStatus?: string;
+  /** `pane read` 回放的视口文本（队列耗尽后停在最后一个）；缺省 "{}" */
+  paneScreens?: string[];
+  /** 提交落地失败：`agent prompt` 拒绝（触发回退）+ `pane run` 也失败 */
+  clearSubmitFails?: boolean;
   /** pane 的 herdr 标签（`herdr pane rename` 设的），键为 pane id */
   paneLabels?: Record<string, string>;
   /** `pane layout` 返回的各 pane 宽度（split 布局决策用）；缺省给 100 */
@@ -137,6 +143,9 @@ function makeSpawn(options: {
   const statuses = [...(options.agentStatuses ?? [])];
   const corpse = new Set(options.corpsePanes ?? []);
   const gone = new Set(options.gonePanes ?? []);
+  const seqs = new Map<string, number>();
+  const screens = [...(options.paneScreens ?? [])];
+  let lastScreen = screens.at(0) ?? "{}";
   const spawn: SpawnFn = (bin, args) => {
     calls.push({ bin, args });
     if (args[0] === "pane" && args[1] === "get") {
@@ -170,11 +179,30 @@ function makeSpawn(options: {
     if (args[0] === "pane" && args[1] === "split") {
       return { status: 0, stdout: JSON.stringify({ result: { pane: { pane_id: paneId } } }) };
     }
+    if (args[0] === "pane" && args[1] === "read") {
+      if (screens.length > 0) lastScreen = screens.shift()!;
+      return { status: 0, stdout: lastScreen };
+    }
+    if (args[0] === "agent" && args[1] === "prompt") {
+      return options.clearSubmitFails
+        ? { status: 1, stderr: JSON.stringify({ error: { code: "agent_not_ready" } }) }
+        : { status: 0, stdout: JSON.stringify({ result: {} }) };
+    }
+    if (args[0] === "pane" && args[1] === "run") {
+      return { status: options.clearSubmitFails ? 1 : 0, stdout: JSON.stringify({ result: {} }) };
+    }
     if (args[0] === "agent" && args[1] === "get") {
       if (options.failReady) return { status: 0, stdout: "{}" };
+      const id = args[2];
+      const nextSeq = (seqs.get(id) ?? 0) + 1;
+      seqs.set(id, nextSeq);
       return {
         status: 0,
-        stdout: JSON.stringify({ result: { agent: { agent_status: statuses.shift() ?? "idle", pane_id: paneId } } }),
+        stdout: JSON.stringify({ result: { agent: {
+          agent_status: statuses.shift() ?? options.defaultAgentStatus ?? "idle",
+          pane_id: id,
+          state_change_seq: nextSeq,
+        } } }),
       };
     }
     if (args[0] === "pane" && args[1] === "close") {
@@ -741,19 +769,38 @@ describe("hpl-orchestra pane actions", { concurrency: false }, () => {
     assert.equal(existsSync(statePath()), false);
   });
 
-  it("清空面板：working 拒绝，idle 使用逐字符 send-keys 并轮询复查", async () => {
+  it("清空面板：working 拒绝，idle 走 agent 级有序提交并确认状态变过", async () => {
     saveState();
     const working = makeSpawn({ agentStatuses: ["working"] });
     const workingCtx = makeContext(["Worker"]);
     await handleTeamCommand(makePi().pi, "清空面板上下文", workingCtx.ctx, working.spawn);
     assert.ok(workingCtx.notices.some(({ message }) => message.includes("Worker 正在工作中，等它完成后重试")));
+    assert.equal(working.calls.some((call) => call.args[0] === "agent" && call.args[1] === "prompt"), false);
     assert.equal(working.calls.some((call) => call.args[1] === "send-keys"), false);
 
-    const idle = makeSpawn({ agentStatuses: ["idle", "done"] });
+    // 判定成功看屏幕：提交前视口无标记，提交后视口出现新会话横幅
+    const idle = makeSpawn({ agentStatuses: ["idle"], paneScreens: ["idle prompt, no dialogs", "✓ New session started"] });
     const idleCtx = makeContext(["Worker"]);
     await handleTeamCommand(makePi().pi, "清空面板上下文", idleCtx.ctx, idle.spawn);
-    const clear = idle.calls.find((call) => call.args[1] === "send-keys");
-    assert.deepEqual(clear?.args, ["pane", "send-keys", "w1:p8", "/", "n", "e", "w", "enter"]);
+    const submit = idle.calls.find((call) => call.args[0] === "agent" && call.args[1] === "prompt");
+    assert.deepEqual(submit?.args, ["agent", "prompt", "w1:p8", "/new"]);
+    assert.equal(idle.calls.some((call) => call.args[1] === "send-keys"), false, "不再逐键注入 /new");
+    const cleared = readTeamState(statePath()) as TeamState;
+    assert.equal(cleared.roles[0]!.instances[0]!.clearPending, undefined, "提交成功不留 clear?");
+  });
+
+  it("清空提交失败才写 clear?，派发被命令级拒绝", async () => {
+    saveState();
+    const { spawn } = makeSpawn({ agentStatuses: ["idle"], clearSubmitFails: true });
+    const result = await handleTeamCommand(makePi().pi, "清空角色 worker", makeContext().ctx, spawn);
+    assert.equal(result?.ok, false);
+    assert.match(result?.line ?? "", /提交失败/);
+    assert.match(result?.line ?? "", /已标记 clear\?/);
+    assert.equal((readTeamState(statePath()) as TeamState).roles[0]!.instances[0]!.clearPending, true);
+
+    const dispatchCtx = makeContext();
+    await handleTeamCommand(makePi().pi, "派发给 Worker", dispatchCtx.ctx, spawn);
+    assert.ok(dispatchCtx.notices.some(({ message }) => message.includes("处于 clear?")), "派发必须被拦下");
   });
 
   it("/team:clear 复用忙守卫：working 拒绝并回一行原因，idle 才清空", async () => {
@@ -770,11 +817,12 @@ describe("hpl-orchestra pane actions", { concurrency: false }, () => {
     assert.match(refused?.line ?? "", /正在工作中/);
     assert.equal(working.calls.some((call) => call.args[1] === "send-keys"), false, "拒绝时不得按 /new");
 
-    const idle = makeSpawn({ paneId: "w1:p9", agentStatuses: ["idle", "done"] });
+    const idle = makeSpawn({ paneId: "w1:p9", agentStatuses: ["idle"], paneScreens: ["idle prompt, no dialogs", "✓ New session started"] });
     const cleared = await handleTeamCommand(makePi().pi, "清空角色 reviewer", makeContext().ctx, idle.spawn);
     assert.equal(cleared?.ok, true);
-    const keys = idle.calls.find((call) => call.args[1] === "send-keys");
-    assert.deepEqual(keys?.args, ["pane", "send-keys", "w1:p9", "/", "n", "e", "w", "enter"]);
+    const submit = idle.calls.find((call) => call.args[0] === "agent" && call.args[1] === "prompt");
+    assert.deepEqual(submit?.args, ["agent", "prompt", "w1:p9", "/new"]);
+    assert.equal(idle.calls.some((call) => call.args[1] === "send-keys"), false);
   });
 
   it("/team:clear 认不出目标时明说没有匹配，不动任何 pane", async () => {

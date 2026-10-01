@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { agentPrompt, defaultSpawn, paneAgentAlive, type SpawnFn } from "./herdr.js";
-import { allInstances, findTeamStateForPane, isTeamOwner, readTeamState, teamTasksPathFor } from "./state.js";
+import { allInstances, findTeamStateForPane, isTeamOwner, readTeamState, teamTasksPathFor, type RoleInstance } from "./state.js";
 import { sampleAgentStateEffect } from "./agent-state.js";
 import { briefDirOf, readTaskStoreEffect, taskLabel, taskUpdatedAt, type StoredTask } from "./team-tasks.js";
 
@@ -61,8 +61,14 @@ function readStore(path: string): { tasks: StoredTask[]; error?: string } {
   return { tasks: result.right?.tasks ?? [] };
 }
 
-function paneLines(key: string, paneId: string, nickname: string | undefined, spawn: SpawnFn): string[] {
-  const who = `${key} ${paneId}${nickname ? ` ${nickname}` : ""}`;
+/** team-status 的 pane 行首：clear? 让 owner 一眼看到「清空提交失败、上下文可能还是旧的」。 */
+export function paneHeaderLine(who: string, state: string, clearPending: boolean, report: string): string {
+  return `- ${who} · ${state}${clearPending ? " · clear?" : ""} · report ${report}`;
+}
+
+function paneLines(key: string, instance: RoleInstance, spawn: SpawnFn): string[] {
+  const paneId = instance.paneId;
+  const who = `${key} ${paneId}${instance.nickname ? ` ${instance.nickname}` : ""}`;
   const { tasks, error } = readStore(teamTasksPathFor(paneId));
   const reportFile = REPORT_FILES[key];
   const current = currentTaskOf(tasks);
@@ -78,7 +84,7 @@ function paneLines(key: string, paneId: string, nickname: string | undefined, sp
   const report = reportPath === undefined
     ? "n/a"
     : existsSync(reportPath) ? `exists (${reportPath})` : `missing (${reportPath})`;
-  const header = `- ${who} · ${state} · report ${report}`;
+  const header = paneHeaderLine(who, state, instance.clearPending === true, report);
 
   if (error) return [header, `  tasks: 不可读 — ${error}`];
   if (tasks.length === 0) return [header, "  tasks: 空（该 pane 还没建过任务）"];
@@ -114,7 +120,7 @@ export function runTeamStatusCommand(_args: string[], spawn: SpawnFn = defaultSp
   }
   for (const entry of state.roles) {
     for (const instance of entry.instances) {
-      for (const line of paneLines(entry.key, instance.paneId, instance.nickname, spawn)) console.log(line);
+      for (const line of paneLines(entry.key, instance, spawn)) console.log(line);
     }
   }
   return TEAM_STATUS_EXIT.ok;

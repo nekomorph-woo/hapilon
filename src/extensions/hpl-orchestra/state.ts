@@ -14,6 +14,8 @@ export interface RoleInstance {
   transient?: boolean;
   /** 拟人名（阿岚/阿澈/…）：只用来给人看 pane 标签，保证一个团队内不重名 */
   nickname?: string;
+  /** 清空提交失败：该 pane 的上下文可能仍是旧的，派发前必须先补清空。 */
+  clearPending?: boolean;
 }
 
 export interface RoleEntry {
@@ -85,7 +87,8 @@ const isRoleInstance = (value: unknown): value is RoleInstance => {
   return typeof instance.paneId === "string"
     && (typeof instance.model === "string" || instance.model === null)
     && (instance.transient === undefined || typeof instance.transient === "boolean")
-    && (instance.nickname === undefined || typeof instance.nickname === "string");
+    && (instance.nickname === undefined || typeof instance.nickname === "string")
+    && (instance.clearPending === undefined || typeof instance.clearPending === "boolean");
 };
 
 const isRoleEntry = (value: unknown, defs: readonly TeamRoleDef[]): value is RoleEntry => {
@@ -291,6 +294,24 @@ export function findTeamStateForPane(
   return Effect.runSync(findTeamStateForPaneEffect(paneId, defs));
 }
 
+/**
+ * 标记/解除某 pane 的「清空提交失败」。按 pane 找到所属团队后写回；pane 已不在任何
+ * 团队则静默跳过。解除时删键——旧存档没有这个键，读写都不必迁移。
+ */
+export const setPaneClearPendingEffect = (
+  paneId: string,
+  pending: boolean,
+): Effect.Effect<boolean, never> =>
+  Effect.gen(function* () {
+    const entry = yield* findTeamStateEntryForPaneEffect(paneId);
+    if (!entry) return false;
+    const instance = allInstances(entry.state).find((candidate) => candidate.paneId === paneId);
+    if (!instance || (instance.clearPending === true) === pending) return false;
+    if (pending) instance.clearPending = true;
+    else delete instance.clearPending;
+    return yield* writeTeamStateEffect(entry.state, entry.path);
+  });
+
 export const writeTeamStateEffect = (
   state: TeamState,
   path?: string,
@@ -399,7 +420,7 @@ export const buildTeamSectionsEffect = (): Effect.Effect<TeamSections, never> =>
       // pane 派发，只会拿到 herdr 报错（review-r3 N7）。
       return instances
         .filter((instance) => presenceOf(instance.paneId).status === "alive")
-        .map((instance) => ({ key, paneId: instance.paneId }));
+        .map((instance) => ({ key, paneId: instance.paneId, clearPending: instance.clearPending === true }));
     }).concat(
       // 全部实例已死的角色保留一行 not open，而不是从 crew 消失
       keys

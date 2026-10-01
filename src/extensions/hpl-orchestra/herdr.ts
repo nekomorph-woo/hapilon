@@ -59,10 +59,16 @@ function parseJson(text: string): unknown | undefined {
   }
 }
 
-function isHerdrNotFound(error: unknown): boolean {
-  // herdr CLI 对不存在的 pane/agent 报 exit 1，stderr 是 {"error":{"code":"pane_not_found"}} 形 JSON
+/** herdr 拒绝的 stderr 是 {"error":{"code":...}}；无结构时 undefined。 */
+function herdrErrorCode(error: unknown): string | undefined {
   const parsed = parseJson(error instanceof Error ? error.message : String(error));
   const code = (parsed as { error?: { code?: unknown } } | null)?.error?.code;
+  return typeof code === "string" ? code : undefined;
+}
+
+function isHerdrNotFound(error: unknown): boolean {
+  // herdr CLI 对不存在的 pane/agent 报 exit 1，stderr 是 {"error":{"code":"pane_not_found"}} 形 JSON
+  const code = herdrErrorCode(error);
   return code === "pane_not_found" || code === "agent_not_found";
 }
 
@@ -340,16 +346,37 @@ export function paneRead(
   return runTextEffect(args, spawn, SPAWN_TIMEOUT_MS);
 }
 
+/** `herdr agent prompt` 的结果：只有 submitted 算提交成功。 */
+export type PromptOutcome = "submitted" | "blocked" | "not-ready" | "stalled" | "failed";
+
+/** herdr agent prompt 错误码 → 结果。纯函数，便于单测注入。 */
+export function promptOutcomeFromErrorCode(code: string | undefined): PromptOutcome {
+  if (code === "agent_blocked") return "blocked";
+  if (code === "agent_not_ready" || code === "agent_not_found") return "not-ready";
+  if (code === "agent_prompt_stalled") return "stalled";
+  return "failed";
+}
+
 /**
- * 向 pane 注入按键。走 pane 级 CLI：自定义 agent 类型（如 hapi）下
- * `herdr agent send-keys` 会以 agent_not_ready 拒绝，pane 级始终可用。
+ * `herdr agent prompt <pane> <text>`：文本 + 编码回车一次有序提交，尊重
+ * bracketed-paste，阻塞态在发送前就拒绝。清空不再逐键注入 `/new`——五键会被
+ * pi 的 slash 补全菜单改写。对自定义 agent（hapi）这条恒回 agent_not_ready，
+ * 因此清空的实际主路径是调用方的 pane 级写入，这条是探测性尝试。
  */
-export function agentSendKeys(
+export function agentSubmitPrompt(
   paneId: string,
-  keys: readonly string[],
+  text: string,
   spawn: SpawnFn = defaultSpawn,
-): Effect.Effect<boolean, never> {
-  return runCommandEffect(["pane", "send-keys", paneId, ...keys], spawn);
+): Effect.Effect<PromptOutcome, never> {
+  return Effect.matchEffect(runTextRaw(["agent", "prompt", paneId, text], spawn, SPAWN_TIMEOUT_MS), {
+    onSuccess: () => Effect.succeed<PromptOutcome>("submitted"),
+    onFailure: (error) => Effect.sync(() => {
+      const outcome = promptOutcomeFromErrorCode(herdrErrorCode(error));
+      // not-ready/blocked/stalled 是调用方要处理的正常拒绝，只有真正失败才值得刷日志
+      if (outcome === "failed") warnHerdrFailure(["agent", "prompt", paneId], error);
+      return outcome;
+    }),
+  });
 }
 
 /**

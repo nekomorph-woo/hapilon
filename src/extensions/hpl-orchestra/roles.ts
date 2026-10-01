@@ -117,6 +117,12 @@ Dispatch discipline (a "new task" includes fix rounds from review):
    working or blocked; that refusal is the point, and a hand-written \`/new\`
    bypasses it. If it refuses, hold the work instead of clearing (Hold
    discipline above). After a successful clear, re-check that the state is idle.
+   A pane the crew table marks \`[clear?]\` had its clear submission fail — its
+   context may still be the old one. Re-run \`/team:clear\` until the mark is gone,
+   and never dispatch while it is set; if it keeps failing, report to the user.
+   When the clear reply says no new-session marker was seen, read that pane's
+   viewport (\`herdr pane read <id> --source visible\`) before dispatching — the
+   old context may still be loaded.
 2. Dispatch (pane run 一次写入文本+回车——send-text + send-keys 两段式的
    enter 会被 bracketed-paste 吞掉;agent prompt 对自定义 agent 类型以
    agent_not_ready 拒绝):
@@ -237,15 +243,18 @@ const REVIEWER_NOT_OPEN_LINE = "- reviewer not open — pick the tier from the t
   + " and dispatch 简审; multi-file, behavior change, or you are unsure →"
   + " 深审. Never skip review for a non-trivial change.";
 
-function crewLine(key: string, paneId: string): string {
-  if (key === "worker" && paneId !== "not open") return `- worker ${paneId}: all code changes happen there`;
-  if (key === "reviewer" && paneId !== "not open") return `- reviewer ${paneId}: code review — route it by the review tiers`;
+function crewLine(key: string, paneId: string, clearPending: boolean): string {
+  const mark = clearPending ? " [clear?]" : "";
+  if (key === "worker" && paneId !== "not open") return `- worker ${paneId}: all code changes happen there${mark}`;
+  if (key === "reviewer" && paneId !== "not open") return `- reviewer ${paneId}: code review — route it by the review tiers${mark}`;
   if (key === "reviewer") return REVIEWER_NOT_OPEN_LINE;
-  return paneId === "not open" ? selfOpenLine(key) : `- ${key} ${paneId}`;
+  return paneId === "not open" ? selfOpenLine(key) : `- ${key} ${paneId}${mark}`;
 }
 
-export function fillOrchestratorSection(roles: Array<{ key: string; paneId: string }>): string {
-  const crew = roles.map(({ key, paneId }) => crewLine(key, paneId));
+export function fillOrchestratorSection(
+  roles: Array<{ key: string; paneId: string; clearPending?: boolean }>,
+): string {
+  const crew = roles.map(({ key, paneId, clearPending }) => crewLine(key, paneId, clearPending === true));
   if (!roles.some(({ key }) => key === "reviewer")) {
     crew.push(REVIEWER_NOT_OPEN_LINE);
   }

@@ -55,8 +55,13 @@ function readStore(path) {
         return { tasks: [], error: result.left.message };
     return { tasks: result.right?.tasks ?? [] };
 }
-function paneLines(key, paneId, nickname, spawn) {
-    const who = `${key} ${paneId}${nickname ? ` ${nickname}` : ""}`;
+/** team-status 的 pane 行首：clear? 让 owner 一眼看到「清空提交失败、上下文可能还是旧的」。 */
+export function paneHeaderLine(who, state, clearPending, report) {
+    return `- ${who} · ${state}${clearPending ? " · clear?" : ""} · report ${report}`;
+}
+function paneLines(key, instance, spawn) {
+    const paneId = instance.paneId;
+    const who = `${key} ${paneId}${instance.nickname ? ` ${instance.nickname}` : ""}`;
     const { tasks, error } = readStore(teamTasksPathFor(paneId));
     const reportFile = REPORT_FILES[key];
     const current = currentTaskOf(tasks);
@@ -72,7 +77,7 @@ function paneLines(key, paneId, nickname, spawn) {
     const report = reportPath === undefined
         ? "n/a"
         : existsSync(reportPath) ? `exists (${reportPath})` : `missing (${reportPath})`;
-    const header = `- ${who} · ${state} · report ${report}`;
+    const header = paneHeaderLine(who, state, instance.clearPending === true, report);
     if (error)
         return [header, `  tasks: 不可读 — ${error}`];
     if (tasks.length === 0)
@@ -107,7 +112,7 @@ export function runTeamStatusCommand(_args, spawn = defaultSpawn) {
     }
     for (const entry of state.roles) {
         for (const instance of entry.instances) {
-            for (const line of paneLines(entry.key, instance.paneId, instance.nickname, spawn))
+            for (const line of paneLines(entry.key, instance, spawn))
                 console.log(line);
         }
     }

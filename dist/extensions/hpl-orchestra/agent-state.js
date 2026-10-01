@@ -23,11 +23,17 @@ function matchesDialog(text) {
     return DIALOG_MARKERS.some((marker) => text.includes(marker));
 }
 /** 连续两次采样都命中弹窗标记才算确认：单个半帧片段不足以判定等待输入。 */
-function dialogConfirmed(samples) {
+export function screenAwaitingInput(samples) {
     if (!samples || samples.length < 2)
         return false;
     return samples.slice(-2).every(matchesDialog);
 }
+/** 采样两帧屏幕，判断 pane 是不是停在交互 UI（弹窗/确认框）。 */
+export const paneAwaitingInputEffect = (paneId, spawn = defaultSpawn) => Effect.gen(function* () {
+    const first = yield* paneRead(paneId, spawn);
+    const second = yield* paneRead(paneId, spawn);
+    return screenAwaitingInput([first, second].filter((sample) => sample !== undefined));
+});
 /**
  * 判定优先级：dead（无 pane）→ waiting-input（两次采样确认弹窗）→ done（herdr 已停
  * 且回执在）→ stale（herdr 已停、在办任务超阈且回执缺席）→ idle（活着、当前无 turn）
@@ -37,7 +43,7 @@ function dialogConfirmed(samples) {
 export function resolveAgentState(signals) {
     if (!signals.paneAlive)
         return "dead";
-    if (dialogConfirmed(signals.paneSamples))
+    if (screenAwaitingInput(signals.paneSamples))
         return "waiting-input";
     const { herdrStatus, reportExists } = signals;
     if (idleLike(herdrStatus) && reportExists)
@@ -55,6 +61,29 @@ export function resolveAgentState(signals) {
     if (herdrStatus === "working")
         return "working";
     return "unknown";
+}
+/** pi 新会话启动时打印的横幅（清空成功的证词） */
+export const NEW_SESSION_MARKER = "✓ New session started";
+/** 文本里出现标记的次数；读不到按 0 记。 */
+function markerCount(text) {
+    return text === undefined ? 0 : text.split(NEW_SESSION_MARKER).length - 1;
+}
+/**
+ * 清空是否落地：近期输出里新会话标记的**条数增加**。
+ *
+ * 判据故意与 herdr 的 agent_status / state_change_seq 词表无关：`/new` 对 herdr 而言只是
+ * release + 同值重报，seq 不动、状态停在 done，靠状态猜必然误判。只认屏幕证据。
+ *
+ * 只看视口（调用方的 pane read 用 `visible`）：会话一旦开工，启动横幅会被顶出视口，
+ * 因此视口里的横幅基本等价于「刚开过新会话」，滚动缓冲里的旧横幅不会误伤。
+ *
+ * 判定用条数增量而不是「这一屏变了」：屏变了并不等于新横幅出来了——输入框里有半截文本
+ * 时，`/new` 会被当正文提交，这一屏确实多了一行消息，但那是提交失败的证据。
+ * 基线本来就停在会话起点（1 → 1）时退化成「未见新会话标记」提醒——旧上下文本就是空的，
+ * 误报无害。
+ */
+export function newSessionMarkerSeen(baseline, current) {
+    return markerCount(current) > markerCount(baseline);
 }
 /**
  * 生产侧采样：pane 存活 + herdr 状态 + 两次屏文本 + 回执存在性。

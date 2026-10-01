@@ -3,11 +3,12 @@ import { Effect } from "effect";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import {
   agentGet,
-  agentSendKeys,
+  agentSubmitPrompt,
   buildPaneRunCommand,
   defaultSpawn,
   paneAgentAlive,
   paneGet,
+  paneRead,
   paneRename,
   paneRun,
   paneSplit,
@@ -16,7 +17,7 @@ import {
   resolveDiscussantModel,
   resolveRoleModel,
   resolveTierModelByTier,
-  type AgentStatus,
+  type PromptOutcome,
   type SpawnFn,
 } from "./herdr.js";
 import {
@@ -38,6 +39,7 @@ import {
   readTeamStateEffect,
   resolveSessionStatePath,
   rolePromptPathFor,
+  setPaneClearPendingEffect,
   teamStateError,
   teamTasksPathFor,
   teamsDir,
@@ -48,7 +50,7 @@ import {
   type TeamOwner,
   type TeamState,
 } from "./state.js";
-import { sampleAgentStateEffect } from "./agent-state.js";
+import { newSessionMarkerSeen, paneAwaitingInputEffect, sampleAgentStateEffect } from "./agent-state.js";
 import { fillLearnedThinking, planTierSelection, resolveExplicitModel } from "../hpl-model-tiers/adaptive.js";
 import { appendAdaptiveEvent } from "../hpl-model-tiers/adaptive-events.js";
 import { readResolvedTiersEffect, splitThinkingSuffix } from "../hpl-model-tiers/resolved.js";
@@ -756,6 +758,53 @@ async function viewDivision(ctx: ExtensionCommandContext, spawn: SpawnFn): Promi
   notify(ctx, ["当前面板分工：", ...roleLines, `主面板：${state.owner.paneId}（只调度）`].join("\n"));
 }
 
+/** 清空确认窗口：够一次 /new 重建会话并让状态变过，又不至于把 owner 的 turn 挂太久。 */
+const CLEAR_CONFIRM_TIMEOUT_MS = 10_000;
+const CLEAR_CONFIRM_INTERVAL_MS = 1_000;
+
+export interface ClearConfirmation {
+  confirmed: boolean;
+}
+
+/** 清空确认的取证窗口：pane read 用的是视口文本，行数与 poll 上限保持一致 */
+const CLEAR_READ_LINES = 40;
+
+/**
+ * 提交清空。逐键 send-keys 会被 pi 的 slash 补全菜单改写（残片与误提交由此来）。
+ * 主路径是 pane 级一次写入文本+回车；agent 级只是先探一下——自定义 agent（hapi）
+ * 上它恒返 agent_not_ready，被拒就落回 pane 级。写入前复核交互 UI，有弹窗不盲投。
+ */
+export async function submitClear(paneId: string, spawn: SpawnFn): Promise<PromptOutcome> {
+  const viaAgent = Effect.runSync(agentSubmitPrompt(paneId, "/new", spawn));
+  if (viaAgent !== "not-ready") return viaAgent;
+  // pane 级写入才是主路径：agent 级对自定义 agent 恒 agent_not_ready。写之前复核窗口
+  // 内有没有交互 UI——守卫采样到这里之间开着窗口，弹窗时这段文本会落到别处。
+  if (Effect.runSync(paneAwaitingInputEffect(paneId, spawn))) return "blocked";
+  return Effect.runSync(paneRun(paneId, "/new", spawn)) ? "submitted" : "failed";
+}
+
+/** 清空提交前的视口快照，用来区分「新弹出来的会话横幅」与本来就停在会话起点的旧横幅。 */
+export function readClearBaseline(paneId: string, spawn: SpawnFn): string | undefined {
+  return Effect.runSync(paneRead(paneId, spawn, { source: "visible", lines: CLEAR_READ_LINES }));
+}
+
+/** 轮询视口，等新会话标记出现；判据与 herdr 的状态词表无关，见 newSessionMarkerSeen。 */
+export async function confirmCleared(
+  paneId: string,
+  baselineRead: string | undefined,
+  spawn: SpawnFn,
+  options: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<ClearConfirmation> {
+  const deadline = Date.now() + (options.timeoutMs ?? CLEAR_CONFIRM_TIMEOUT_MS);
+  const intervalMs = options.intervalMs ?? CLEAR_CONFIRM_INTERVAL_MS;
+  for (;;) {
+    await sleep(intervalMs);
+    const read = Effect.runSync(paneRead(paneId, spawn, { source: "visible", lines: CLEAR_READ_LINES }));
+    if (newSessionMarkerSeen(baselineRead, read)) return { confirmed: true };
+    if (Date.now() >= deadline) return { confirmed: false };
+  }
+}
+
 async function clearOne(
   ctx: ExtensionCommandContext,
   key: string,
@@ -773,6 +822,7 @@ async function clearOne(
   if (instances.length === 0) {
     return fail(`${label} 面板尚未打开。`);
   }
+  const unconfirmed: string[] = [];
   for (const instance of instances) {
     const before = Effect.runSync(agentGet(instance.paneId, spawn));
     if (before === "working") {
@@ -781,21 +831,28 @@ async function clearOne(
     if (before === "blocked" || before === "unknown") {
       return fail(`${label} 状态为 ${before}，暂不清空。`);
     }
-    if (!Effect.runSync(agentSendKeys(instance.paneId, ["/", "n", "e", "w", "enter"], spawn))) {
-      return fail(`${label} 清空失败，请检查 herdr。`, "error");
+    const baselineRead = readClearBaseline(instance.paneId, spawn);
+    const submitted = await submitClear(instance.paneId, spawn);
+    if (submitted === "blocked") {
+      return fail(`${label} 正在等待输入，先处理它的提问再清空。`);
     }
-    let after: AgentStatus = "unknown";
-    for (let i = 0; i < 5; i++) {
-      await sleep(1_000);
-      after = Effect.runSync(agentGet(instance.paneId, spawn));
-      if (after === "idle" || after === "done") break;
+    if (submitted !== "submitted") {
+      // 只有提交没落地才真危险：上下文可能还是旧的。标记写没写进去如实回执——
+      // pane 已不属于任何团队时状态层会静默不写，不能让 owner 去等一个不存在的标记。
+      const marked = Effect.runSync(setPaneClearPendingEffect(instance.paneId, true));
+      return fail(marked
+        ? `${label} 清空提交失败（${submitted}）；已标记 clear?，处理后再派发。`
+        : `${label} 清空提交失败（${submitted}）；clear? 标记未落盘，请手动核对后再派发。`, "error");
     }
-    if (after !== "idle" && after !== "done") {
-      return fail(`${label} 清空已发送但未确认（当前状态 ${after}），请稍后检查。`);
-    }
+    // 提交成功即认定清空已发起：确认只是取证，超时不再标记、不再阻断派发。
+    Effect.runSync(setPaneClearPendingEffect(instance.paneId, false));
+    const confirmed = await confirmCleared(instance.paneId, baselineRead, spawn);
+    if (!confirmed.confirmed) unconfirmed.push(instance.paneId);
   }
-  const line = `${label} 面板上下文已清空。`;
-  notify(ctx, line);
+  const line = unconfirmed.length === 0
+    ? `${label} 面板上下文已清空。`
+    : `${label} 清空已提交；${unconfirmed.join(" ")} 未见新会话标记，请手动核对。`;
+  notify(ctx, line, unconfirmed.length === 0 ? "info" : "warning");
   return { ok: true, line };
 }
 
@@ -888,6 +945,13 @@ async function dispatch(ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise
   const worker = state ? firstInstance(state, "worker") : undefined;
   if (!state || !isTeamOwner(state, defs) || !worker) {
     notify(ctx, "Worker 面板尚未就绪。", "warning");
+    return;
+  }
+  // 清空提交失败的 pane 不能派发：它的上下文可能仍是旧的，先补清空再收任务。
+  // 全角色拦，不只 worker——命令级拒绝不该只盖住一半花名册。
+  const pending = allInstances(state).filter((instance) => instance.clearPending === true);
+  if (pending.length > 0) {
+    notify(ctx, `${pending.map((instance) => instance.paneId).join(" ")} 处于 clear?（清空提交失败），先 /team:clear 再派发。`, "warning");
     return;
   }
   pi.sendUserMessage(`当前 Worker ${worker.paneId} 已待命，请把需要写码的任务告诉我。`);
@@ -1395,7 +1459,7 @@ export async function updateTeamStatus(ctx: ExtensionCommandContext, spawn: Spaw
   const liveRoles = await liveRoleEntries(state, spawn);
   const segments = liveRoles
     .map((entry) => `${entryLabel(entry, defs)} ${entry.instances.map((instance) =>
-      `${instance.paneId} ${probePaneLive(instance.paneId, spawn) ? "✓" : "✗"}`).join(" ")}`);
+      `${instance.paneId}${instance.clearPending === true ? " clear?" : ""} ${probePaneLive(instance.paneId, spawn) ? "✓" : "✗"}`).join(" ")}`);
   const text = `Team mode on${segments.length > 0 ? ` · ${segments.join(" · ")}` : ""}`;
   const columns = process.stdout.columns ?? 80;
   const { truncateToWidth } = await import("@earendil-works/pi-tui");

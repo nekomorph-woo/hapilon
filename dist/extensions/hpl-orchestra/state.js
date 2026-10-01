@@ -40,7 +40,8 @@ const isRoleInstance = (value) => {
     return typeof instance.paneId === "string"
         && (typeof instance.model === "string" || instance.model === null)
         && (instance.transient === undefined || typeof instance.transient === "boolean")
-        && (instance.nickname === undefined || typeof instance.nickname === "string");
+        && (instance.nickname === undefined || typeof instance.nickname === "string")
+        && (instance.clearPending === undefined || typeof instance.clearPending === "boolean");
 };
 const isRoleEntry = (value, defs) => {
     if (!value || typeof value !== "object")
@@ -230,6 +231,23 @@ export const updatePaneModelEffect = (paneId, model) => Effect.gen(function* () 
 export function findTeamStateForPane(paneId, defs = getAllRoleDefs()) {
     return Effect.runSync(findTeamStateForPaneEffect(paneId, defs));
 }
+/**
+ * 标记/解除某 pane 的「清空提交失败」。按 pane 找到所属团队后写回；pane 已不在任何
+ * 团队则静默跳过。解除时删键——旧存档没有这个键，读写都不必迁移。
+ */
+export const setPaneClearPendingEffect = (paneId, pending) => Effect.gen(function* () {
+    const entry = yield* findTeamStateEntryForPaneEffect(paneId);
+    if (!entry)
+        return false;
+    const instance = allInstances(entry.state).find((candidate) => candidate.paneId === paneId);
+    if (!instance || (instance.clearPending === true) === pending)
+        return false;
+    if (pending)
+        instance.clearPending = true;
+    else
+        delete instance.clearPending;
+    return yield* writeTeamStateEffect(entry.state, entry.path);
+});
 export const writeTeamStateEffect = (state, path) => Effect.try({
     try: () => {
         const statePath = path ?? resolveSessionStatePath();
@@ -330,7 +348,7 @@ export const buildTeamSectionsEffect = () => Effect.try({
             // pane 派发，只会拿到 herdr 报错（review-r3 N7）。
             return instances
                 .filter((instance) => presenceOf(instance.paneId).status === "alive")
-                .map((instance) => ({ key, paneId: instance.paneId }));
+                .map((instance) => ({ key, paneId: instance.paneId, clearPending: instance.clearPending === true }));
         }).concat(
         // 全部实例已死的角色保留一行 not open，而不是从 crew 消失
         keys
