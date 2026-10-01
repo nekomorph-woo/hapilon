@@ -29,9 +29,29 @@ export function statePath(cwd, slug) {
 export function activePath(cwd) {
     return join(aiFlowRoot(cwd), "active.json");
 }
-/** slug 只做最低限度清洗（去路径分隔符与空白），不做过度转写，中文名可用 */
-export function slugify(raw) {
-    return raw.trim().replace(/[/\\]+/g, "-").replace(/\s+/g, "-").slice(0, 64);
+// ─── pending start（slug 提炼前的目标暂存，单槽位，重复 start 以最后一次为准） ──────
+export function pendingPath(cwd) {
+    return join(aiFlowRoot(cwd), ".pending-start.json");
+}
+export function savePendingGoal(cwd, goal) {
+    mkdirSync(aiFlowRoot(cwd), { recursive: true });
+    writeFileSync(pendingPath(cwd), JSON.stringify({ goal }), "utf-8");
+}
+/** 取走暂存目标（读后即删）；无暂存返回 null，文件损坏则抛错不吞 */
+export function takePendingGoal(cwd) {
+    const path = pendingPath(cwd);
+    if (!existsSync(path))
+        return null;
+    const raw = JSON.parse(readFileSync(path, "utf-8"));
+    rmSync(path, { force: true });
+    return typeof raw.goal === "string" && raw.goal !== "" ? raw.goal : null;
+}
+/** base 撞已有 flow 时加 -2/-3 序号；不覆盖旧盘 */
+export function uniqueSlug(cwd, base) {
+    let slug = base;
+    for (let n = 2; existsSync(statePath(cwd, slug)); n++)
+        slug = `${base}-${n}`;
+    return slug;
 }
 // ─── 读写 ────────────────────────────────────────────────────────────
 function parseState(raw, path) {

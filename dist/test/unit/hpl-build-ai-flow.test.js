@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { LAST_STAGE, STAGES } from "../../extensions/hpl-build-ai-flow/stages.js";
-import { advanceFlowEffect, evaluateGate, flowDir, forceAdvanceEffect, freezeFlowEffect, gotoStageEffect, KNOWN_CAPABILITIES, loadFlowEffect, openDebts, readActiveEffect, resolveDebtEffect, setCapabilityEffect, startFlowEffect, statePath, writeFileAtomic, } from "../../extensions/hpl-build-ai-flow/machine.js";
+import { advanceFlowEffect, evaluateGate, flowDir, forceAdvanceEffect, freezeFlowEffect, gotoStageEffect, KNOWN_CAPABILITIES, loadFlowEffect, openDebts, readActiveEffect, resolveDebtEffect, savePendingGoal, setCapabilityEffect, startFlowEffect, statePath, takePendingGoal, uniqueSlug, writeFileAtomic, } from "../../extensions/hpl-build-ai-flow/machine.js";
 import { parseDecisionLog } from "../../extensions/hpl-build-ai-flow/decision-log.js";
 import { buildFreezeNote, buildStagePrompt, stageMark } from "../../extensions/hpl-build-ai-flow/prompts.js";
 import { capabilityBlock, capabilityStatusLine } from "../../extensions/hpl-build-ai-flow/capabilities.js";
@@ -65,11 +65,15 @@ function writeFilledStageArtifacts(slug, upTo) {
 // ─── mock pi / ctx ──────────────────────────────────────────────────
 function makeMockPi() {
     const commands = new Map();
+    // deno-lint-ignore no-explicit-any
+    const tools = new Map();
     const sent = [];
     const toolCallHandlers = [];
     return {
         pi: {
             registerCommand: (name, def) => commands.set(name, def),
+            // deno-lint-ignore no-explicit-any
+            registerTool: (tool) => tools.set(tool.name, tool),
             sendUserMessage: (content) => sent.push(content),
             on: (event, handler) => {
                 if (event === "tool_call")
@@ -77,9 +81,23 @@ function makeMockPi() {
             },
         },
         commands,
+        tools,
         sent,
         toolCallHandlers,
     };
+}
+/** start 两段式的第二段：模拟模型调 create_flow 提交提炼的 slug（错误分支以 throw 表达，同 pi 运行时） */
+async function submitSlug(mock, ctx, slug) {
+    const tool = mock.tools.get("create_flow");
+    if (!tool)
+        throw new Error("create_flow 未注册");
+    try {
+        const res = (await tool.execute("t1", { slug }, undefined, undefined, ctx));
+        return { text: res.content[0].text, isError: false };
+    }
+    catch (error) {
+        return { text: error instanceof Error ? error.message : String(error), isError: true };
+    }
 }
 function makeMockCtx(opts) {
     const notifies = [];
@@ -133,6 +151,15 @@ describe("状态机与 Gate", () => {
         const state = runOk(startFlowEffect(cwd, "demo", "演示", "做个演示"));
         assert.equal(state.stage, 0);
         assert.equal(runOk(readActiveEffect(cwd)), "demo");
+    });
+    it("pending 目标：存取即删，无暂存返回 null；uniqueSlug 撞名加序号", () => {
+        assert.equal(takePendingGoal(cwd), null);
+        savePendingGoal(cwd, "多行目标\n第二行");
+        assert.equal(takePendingGoal(cwd), "多行目标\n第二行");
+        assert.equal(takePendingGoal(cwd), null); // 读后即删
+        runOk(startFlowEffect(cwd, "报告", "报告", ""));
+        assert.equal(uniqueSlug(cwd, "报告"), "报告-2");
+        assert.equal(uniqueSlug(cwd, "别的"), "别的");
     });
     it("start 已存在：报错（单会话设计）", () => {
         runOk(startFlowEffect(cwd, "demo", "演示", ""));
@@ -581,10 +608,9 @@ describe("补全分派", () => {
         const fwd = buildCompletions("goto 8 ", cwd);
         assert.ok(fwd.some((c) => (c.description ?? "").includes("前跳")));
     });
-    it("start 前缀列已有 slug；无关词无补全", () => {
+    it("start 前缀无补全（目标是自由文本）；无关词无补全", () => {
         runOk(startFlowEffect(cwd, "demo", "演示", ""));
-        const cands = buildCompletions("start ", cwd);
-        assert.ok(cands.some((c) => c.value === "start demo "));
+        assert.equal(buildCompletions("start ", cwd), null);
         assert.equal(buildCompletions("status ", cwd), null);
     });
 });
@@ -724,7 +750,8 @@ describe("S9 freeze 两阶段提交", () => {
     /** S9 就绪：产物齐（含 decision-log） */
     async function readyAtS9(mock) {
         const setup = makeSeqCtx({});
-        await mock.commands.get("build-ai-flow").handler("start demo 目标", setup.ctx);
+        await mock.commands.get("build-ai-flow").handler("start demo", setup.ctx);
+        await submitSlug(mock, setup.ctx, "demo");
         runOk(gotoStageEffect(cwd, "demo", 9, "直奔收口测试"));
         writeFilledStageArtifacts("demo", 9);
     }
@@ -779,7 +806,8 @@ describe("S9 freeze 两阶段提交", () => {
         const mock = makeMockPi();
         hplBuildAiFlow(mock.pi);
         const setup = makeSeqCtx({});
-        await mock.commands.get("build-ai-flow").handler("start demo 目标", setup.ctx);
+        await mock.commands.get("build-ai-flow").handler("start demo", setup.ctx);
+        await submitSlug(mock, setup.ctx, "demo");
         runOk(gotoStageEffect(cwd, "demo", 9, "收口但产物未齐"));
         // 只写 decision-log，不写 spec/start-prompt → S9 gate 不过
         writeArtifact("demo", "decision-log.md", "D-001｜active｜分母只算计划内用例｜2026-09-30");
@@ -818,7 +846,7 @@ describe("S9 freeze 两阶段提交", () => {
 // ─── 命令 handler ───────────────────────────────────────────────────
 describe("命令 handler", () => {
     beforeEach(() => freshCwd());
-    it("注册命令；start 派发 S0；bare 无活跃给引导", async () => {
+    it("注册命令；start 派发提炼任务，create_flow 后才派发 S0；bare 无活跃给引导", async () => {
         const mock = makeMockPi();
         hplBuildAiFlow(mock.pi);
         const def = mock.commands.get("build-ai-flow");
@@ -826,27 +854,64 @@ describe("命令 handler", () => {
         const ctx = makeMockCtx();
         await def.handler("", ctx.ctx);
         assert.ok(mock.sent.at(-1).includes("没有活跃的 build-ai-flow"));
-        await def.handler("start demo 给领导看的应用测试月报", ctx.ctx);
+        await def.handler("start 给领导看的应用测试月报", ctx.ctx);
+        assert.ok(mock.sent.at(-1).includes("a-b-c")); // 提炼规则在派发 prompt 里
+        assert.ok(ctx.notifies.some((n) => n.msg.includes("已暂存")));
+        const r = await submitSlug(mock, ctx.ctx, "app-test-monthly");
+        assert.ok(!r.isError);
         assert.ok(mock.sent.at(-1).includes("阶段 0/9 dump"));
-        assert.ok(ctx.notifies.some((n) => n.msg.includes("已创建")));
+        assert.ok(existsSync(join(flowDir(cwd, "app-test-monthly"), "state.json")));
     });
-    it("start 撞已有 slug 报错（提示磁盘状态可续走，不依赖会话）", async () => {
+    it("start 目标可多行，全文进提炼任务，create_flow 后 goal 全量入档", async () => {
         const mock = makeMockPi();
         hplBuildAiFlow(mock.pi);
         const def = mock.commands.get("build-ai-flow");
         const ctx = makeMockCtx();
-        await def.handler("start demo 目标", ctx.ctx);
-        await def.handler("start demo 目标", ctx.ctx);
-        const err = ctx.notifies.find((n) => n.msg.includes("已存在"));
-        assert.ok(err.msg.includes("不依赖会话"));
-        assert.ok(err.msg.includes("goto"));
+        const goal = "拆支付模块\n\n现状：渠道耦合在一个文件里\n- 改一个渠道全量回归\n- 无法按渠道独立发布\n目标：按渠道拆成独立目录";
+        await def.handler(`start ${goal}`, ctx.ctx);
+        assert.ok(mock.sent.at(-1).includes("按渠道拆成独立目录")); // 提炼任务带全文
+        await submitSlug(mock, ctx.ctx, "pay-split");
+        const state = runOk(loadFlowEffect(cwd, "pay-split"));
+        assert.equal(state.name, "拆支付模块");
+        assert.ok(state.goal.includes("按渠道拆成独立目录"));
+    });
+    it("create_flow：无暂存拒建；不合格 slug 拒回并放回暂存可重试", async () => {
+        const mock = makeMockPi();
+        hplBuildAiFlow(mock.pi);
+        const def = mock.commands.get("build-ai-flow");
+        const ctx = makeMockCtx();
+        await def.handler("start", ctx.ctx);
+        assert.ok(ctx.notifies.some((n) => n.msg.includes("用法") && n.msg.includes("多行")));
+        const none = await submitSlug(mock, ctx.ctx, "demo");
+        assert.ok(none.isError && none.text.includes("没有待创建"));
+        await def.handler("start 把支付拆掉", ctx.ctx);
+        const bad = await submitSlug(mock, ctx.ctx, "Demo");
+        assert.ok(bad.isError && bad.text.includes("不合格式"));
+        const good = await submitSlug(mock, ctx.ctx, "pay-split");
+        assert.ok(!good.isError);
+        assert.ok(existsSync(join(flowDir(cwd, "pay-split"), "state.json")));
+    });
+    it("create_flow 撞已有 flow：slug 加序号建新盘（不覆盖旧盘）", async () => {
+        const mock = makeMockPi();
+        hplBuildAiFlow(mock.pi);
+        const def = mock.commands.get("build-ai-flow");
+        const ctx = makeMockCtx();
+        runOk(startFlowEffect(cwd, "demo", "演示", "旧任务"));
+        await def.handler("start 新一轮演示", ctx.ctx);
+        const r = await submitSlug(mock, ctx.ctx, "demo");
+        assert.ok(!r.isError);
+        assert.ok(existsSync(join(flowDir(cwd, "demo-2"), "state.json")));
+        const fresh = runOk(loadFlowEffect(cwd, "demo-2"));
+        assert.equal(fresh.goal, "新一轮演示");
+        assert.equal(runOk(loadFlowEffect(cwd, "demo")).goal, "旧任务");
     });
     it("debt 子命令：列表与显式 resolve", async () => {
         const mock = makeMockPi();
         hplBuildAiFlow(mock.pi);
         const def = mock.commands.get("build-ai-flow");
         const ctx = makeMockCtx({ confirm: true });
-        await def.handler("start demo 目标", ctx.ctx);
+        await def.handler("start demo", ctx.ctx);
+        await submitSlug(mock, ctx.ctx, "demo");
         await def.handler("next", ctx.ctx); // gate 不过 → confirm true → 强推，产生 G-001
         ctx.notifies.length = 0;
         await def.handler("debt", ctx.ctx);
@@ -861,7 +926,8 @@ describe("命令 handler", () => {
         const mock = makeMockPi();
         hplBuildAiFlow(mock.pi);
         const yes = makeMockCtx({ confirm: true });
-        await mock.commands.get("build-ai-flow").handler("start demo 目标", yes.ctx);
+        await mock.commands.get("build-ai-flow").handler("start demo", yes.ctx);
+        await submitSlug(mock, yes.ctx, "demo");
         await mock.commands.get("build-ai-flow").handler("next", yes.ctx); // 强推 → G-001 open
         runOk(gotoStageEffect(cwd, "demo", 9, "直奔收口"));
         writeFilledStageArtifacts("demo", 9);
@@ -877,7 +943,8 @@ describe("命令 handler", () => {
         hplBuildAiFlow(mock.pi);
         const def = mock.commands.get("build-ai-flow");
         const no = makeMockCtx({ confirm: false });
-        await def.handler("start demo 目标", no.ctx);
+        await def.handler("start demo", no.ctx);
+        await submitSlug(mock, no.ctx, "demo");
         await def.handler("next", no.ctx);
         const stateAfterNo = runOk(loadFlowEffect(cwd, "demo"));
         assert.equal(stateAfterNo.stage, 0);
@@ -893,7 +960,8 @@ describe("命令 handler", () => {
         hplBuildAiFlow(mock.pi);
         const def = mock.commands.get("build-ai-flow");
         const ctx = makeMockCtx();
-        await def.handler("start demo 目标", ctx.ctx);
+        await def.handler("start demo", ctx.ctx);
+        await submitSlug(mock, ctx.ctx, "demo");
         await def.handler("goto 3", ctx.ctx);
         assert.ok(ctx.notifies.some((n) => n.msg.includes("原因")));
         await def.handler("goto 3 口径冲突回炉", ctx.ctx);
@@ -904,7 +972,8 @@ describe("命令 handler", () => {
         hplBuildAiFlow(mock.pi);
         const def = mock.commands.get("build-ai-flow");
         const ctx = makeMockCtx();
-        await def.handler("start demo 目标", ctx.ctx);
+        await def.handler("start demo", ctx.ctx);
+        await submitSlug(mock, ctx.ctx, "demo");
         await def.handler("status", ctx.ctx);
         const status = ctx.notifies.find((n) => n.msg.includes("●dump"));
         assert.ok(status);
@@ -915,7 +984,8 @@ describe("命令 handler", () => {
         hplBuildAiFlow(mock.pi);
         const def = mock.commands.get("build-ai-flow");
         const ctx = makeMockCtx();
-        await def.handler("start demo 目标", ctx.ctx);
+        await def.handler("start demo", ctx.ctx);
+        await submitSlug(mock, ctx.ctx, "demo");
         ctx.notifies.length = 0;
         await def.handler("list", ctx.ctx);
         assert.ok(ctx.notifies.some((n) => n.msg.includes("demo")));

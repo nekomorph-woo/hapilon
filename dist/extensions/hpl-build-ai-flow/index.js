@@ -7,9 +7,9 @@
  * 扩展是闸门机械。工作区 .hapilon/ai-flow/<slug>/，单会话设计。
  */
 import { Effect } from "effect";
-import { advanceFlowEffect, forceAdvanceEffect, freezeFlowEffect, gotoStageEffect, listFlowsEffect, loadFlowEffect, openDebts, readActiveEffect, resolveDebtEffect, setCapabilityEffect, slugify, startFlowEffect, } from "./machine.js";
+import { advanceFlowEffect, forceAdvanceEffect, freezeFlowEffect, gotoStageEffect, listFlowsEffect, loadFlowEffect, openDebts, readActiveEffect, resolveDebtEffect, savePendingGoal, setCapabilityEffect, startFlowEffect, takePendingGoal, uniqueSlug, } from "./machine.js";
 import { LAST_STAGE, stageByIndex } from "./stages.js";
-import { buildFreezeNote, buildStagePrompt, buildStartGuide } from "./prompts.js";
+import { buildFreezeNote, buildSlugDistillPrompt, buildStagePrompt, buildStartGuide } from "./prompts.js";
 import { renderStatus } from "./render.js";
 import { buildCompletions } from "./completions.js";
 import { appendAuditRecord, auditDecisionLog, AUDIT_MODEL_SPEC, readDecisionLog } from "./decision-audit.js";
@@ -29,23 +29,22 @@ function activeFlow(cwd) {
 }
 export default function hplBuildAiFlow(pi) {
     pi.registerCommand("build-ai-flow", {
-        description: "十阶段复杂任务流程（dump→…→freeze，Gate 管控）。用法：/build-ai-flow start <slug> [目标] | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit",
+        description: "十阶段复杂任务流程（dump→…→freeze，Gate 管控）。用法：/build-ai-flow start <目标> | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit",
         getArgumentCompletions: (query) => buildCompletions(query, process.cwd()),
         handler: async (args, ctx) => {
             const cwd = ctx.cwd ?? process.cwd();
             const trimmed = args.trim();
-            // ── start：新建 flow（已存在报错，单会话设计） ──────────────
-            const startMatch = trimmed.match(/^start\s+(\S+)(?:\s+(.+))?$/);
+            // ── start：两段式。目标暂存盘上 → 派发提炼任务 → 模型调 create_flow 建 flow（单会话设计） ──
+            const startMatch = trimmed.match(/^start(?:\s+([\s\S]+))?$/);
             if (startMatch) {
-                const slug = slugify(startMatch[1]);
-                const goal = startMatch[2]?.trim() ?? "";
-                const created = runEither(startFlowEffect(cwd, slug, startMatch[1], goal));
-                if (created._tag === "Left") {
-                    ctx.ui?.notify?.(created.left.message, "error");
+                const goal = startMatch[1]?.trim() ?? "";
+                if (goal === "") {
+                    ctx.ui?.notify?.("用法：/build-ai-flow start <目标>（目标可多行；slug 由模型通读后提炼）", "error");
                     return;
                 }
-                pi.sendUserMessage(buildStagePrompt({ state: created.right, cwd }));
-                ctx.ui?.notify?.(`flow「${slug}」已创建（S0 dump）。产物写 .hapilon/ai-flow/${slug}/，完成后 /build-ai-flow next`, "info");
+                savePendingGoal(cwd, goal);
+                pi.sendUserMessage(buildSlugDistillPrompt(goal));
+                ctx.ui?.notify?.("目标已暂存；等模型提炼 slug 并调 create_flow 后自动建 flow 进入 S0", "info");
                 return;
             }
             // ── goto：跳前/回退/重开（原因必填） ────────────────────────
@@ -55,7 +54,7 @@ export default function hplBuildAiFlow(pi) {
                 const reason = gotoMatch[2].trim();
                 const active = activeFlow(cwd);
                 if ("none" in active || "error" in active) {
-                    ctx.ui?.notify?.("没有活跃 flow。先 /build-ai-flow start <slug> [目标]", "error");
+                    ctx.ui?.notify?.("没有活跃 flow。先 /build-ai-flow start <目标>", "error");
                     return;
                 }
                 const moved = runEither(gotoStageEffect(cwd, active.state.slug, target, reason));
@@ -148,7 +147,7 @@ export default function hplBuildAiFlow(pi) {
                     return;
                 }
                 if (flows.right.length === 0) {
-                    ctx.ui?.notify?.("没有已存在的 flow。/build-ai-flow start <slug> [目标] 开始", "info");
+                    ctx.ui?.notify?.("没有已存在的 flow。/build-ai-flow start <目标> 开始", "info");
                     return;
                 }
                 const lines = flows.right.map((f) => `S${f.stage} ${f.status.padEnd(6)} ${f.slug}${f.goal ? " — " + f.goal : ""}（${f.updatedAt.slice(0, 10)}）`);
@@ -160,7 +159,7 @@ export default function hplBuildAiFlow(pi) {
             if (debtResolveMatch) {
                 const active = activeFlow(cwd);
                 if ("none" in active || "error" in active) {
-                    ctx.ui?.notify?.("没有活跃 flow。先 /build-ai-flow start <slug> [目标]", "error");
+                    ctx.ui?.notify?.("没有活跃 flow。先 /build-ai-flow start <目标>", "error");
                     return;
                 }
                 const resolved = runEither(resolveDebtEffect(cwd, active.state.slug, debtResolveMatch[1], debtResolveMatch[2]));
@@ -174,7 +173,7 @@ export default function hplBuildAiFlow(pi) {
             if (/^debt\b/.test(trimmed)) {
                 const active = activeFlow(cwd);
                 if ("none" in active || "error" in active) {
-                    ctx.ui?.notify?.("没有活跃 flow。先 /build-ai-flow start <slug> [目标]", "error");
+                    ctx.ui?.notify?.("没有活跃 flow。先 /build-ai-flow start <目标>", "error");
                     return;
                 }
                 const debts = active.state.debts;
@@ -197,7 +196,7 @@ export default function hplBuildAiFlow(pi) {
             if (capMatch) {
                 const active = activeFlow(cwd);
                 if ("none" in active || "error" in active) {
-                    ctx.ui?.notify?.("没有活跃 flow。先 /build-ai-flow start <slug> [目标]", "error");
+                    ctx.ui?.notify?.("没有活跃 flow。先 /build-ai-flow start <目标>", "error");
                     return;
                 }
                 const set = runEither(setCapabilityEffect(cwd, active.state.slug, capMatch[1], capMatch[2] === "enable" ? "enabled" : "declined", capMatch[3] ?? ""));
@@ -214,7 +213,7 @@ export default function hplBuildAiFlow(pi) {
             if (/^cap\b/.test(trimmed)) {
                 const active = activeFlow(cwd);
                 if ("none" in active || "error" in active) {
-                    ctx.ui?.notify?.("没有活跃 flow。先 /build-ai-flow start <slug> [目标]", "error");
+                    ctx.ui?.notify?.("没有活跃 flow。先 /build-ai-flow start <目标>", "error");
                     return;
                 }
                 const line = capabilityStatusLine(active.state);
@@ -225,7 +224,44 @@ export default function hplBuildAiFlow(pi) {
                 await runAudit(pi, ctx, cwd);
                 return;
             }
-            ctx.ui?.notify?.("用法：/build-ai-flow [start <slug> [目标] | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit]", "error");
+            ctx.ui?.notify?.("用法：/build-ai-flow [start <目标> | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit]", "error");
+        },
+    });
+    // create_flow：start 两段式第二段——承接模型提炼的 slug 建 flow，并派发 S0
+    pi.registerTool({
+        name: "create_flow",
+        label: "Create Flow",
+        description: "提交为 build-ai-flow 提炼的 slug 并创建流程（仅在 /build-ai-flow start 派发的提炼任务中调用）。" +
+            "slug 规则：小写英文与数字、连字符分隔（a-b-c），2-5 词，≤48 字符；不合格式会被拒，请重新提炼再提交。",
+        parameters: {
+            type: "object",
+            properties: {
+                slug: { type: "string", description: "提炼的英文 kebab-case slug，如 bd2-beginner-guide" },
+            },
+            required: ["slug"],
+        },
+        execute: async (_toolCallId, params, _signal, _onUpdate, toolCtx) => {
+            const cwd = toolCtx.cwd;
+            const goal = takePendingGoal(cwd);
+            if (goal === null) {
+                throw new Error("没有待创建的 flow。请用户先执行 /build-ai-flow start <目标>");
+            }
+            const raw = String(params.slug ?? "").trim();
+            if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(raw) || raw.length > 48) {
+                savePendingGoal(cwd, goal); // 放回暂存，允许修正后重试
+                throw new Error(`slug「${raw}」不合格式：小写英文与数字、连字符分隔（a-b-c），2-5 词且 ≤48 字符。重新提炼后再调 create_flow`);
+            }
+            const slug = uniqueSlug(cwd, raw);
+            const name = goal.split("\n", 1)[0].trim().slice(0, 40);
+            const created = runEither(startFlowEffect(cwd, slug, name, goal));
+            if (created._tag === "Left") {
+                throw new Error(created.left.message);
+            }
+            void pi.sendUserMessage(buildStagePrompt({ state: created.right, cwd }), { deliverAs: "followUp" });
+            return {
+                content: [{ type: "text", text: `flow「${slug}」已创建（目标已入档），S0 阶段任务已派发，请按 S0 prompt 开始工作` }],
+                details: { slug },
+            };
         },
     });
     registerGuard(pi);

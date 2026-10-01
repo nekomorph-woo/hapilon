@@ -112,13 +112,33 @@ export function buildFreezeNote(state: FlowState): string {
   ].join("\n");
 }
 
+/** start 两段式第一段：模型通读完整目标，提炼英文 kebab-case slug 后调 create_flow 提交 */
+export function buildSlugDistillPrompt(goal: string): string {
+  return [
+    "【build-ai-flow：新建任务】",
+    "",
+    "以下是任务目标全文。先通读全文理解任务本质，再提炼一个流程 slug：",
+    "",
+    "─── 目标全文 ───",
+    goal,
+    "─────────────────",
+    "",
+    "slug 规则：",
+    "- 小写英文与数字，连字符分隔（a-b-c 格式），2-5 个词，≤48 字符",
+    "- 表达任务本质或最终交付物，不要复述第一句话，不要用「了解/研究/帮我」这类过程词开头",
+    "- 例：了解棕色尘埃2这个游戏并出入坑指南 → bd2-beginner-guide",
+    "",
+    "提炼好后调用 create_flow 工具提交 slug，流程会自动创建并进入 S0。在 create_flow 成功之前不要开始任何阶段工作。",
+  ].join("\n");
+}
+
 /** 无活跃 flow 时 bare 命令的引导（含 GPT 六句话术的首句精神） */
 export function buildStartGuide(): string {
   return [
     "当前没有活跃的 build-ai-flow。",
     "",
-    "开始：/build-ai-flow start <slug> [目标一句话]",
-    "例：/build-ai-flow start 月度质量报告 给领导看的应用测试月报",
+    "开始：/build-ai-flow start <目标>（可多行；模型通读后提炼英文 slug 自动建流程）",
+    "例：/build-ai-flow start 给领导看的应用测试月报，现状与数据源如下：…",
     "",
     "适用：开始时说不清、最后要交付的难任务（报告/看板/审核台/方案）。",
     "先倒出来再搞清楚——第一步只整理材料，不急着做成品。",

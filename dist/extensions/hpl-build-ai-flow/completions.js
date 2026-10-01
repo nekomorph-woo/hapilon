@@ -7,7 +7,7 @@
  */
 import { Effect } from "effect";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
-import { evaluateGate, KNOWN_CAPABILITIES, listFlowsEffect, readActiveEffect, loadFlowEffect } from "./machine.js";
+import { evaluateGate, KNOWN_CAPABILITIES, readActiveEffect, loadFlowEffect } from "./machine.js";
 import { STAGES } from "./stages.js";
 function filter(candidates, query) {
     const hits = fuzzyFilter([...candidates], query, (c) => `${c.value} ${c.searchText ?? c.description ?? ""}`);
@@ -37,7 +37,7 @@ export function buildCompletions(query, cwd) {
                 : "推进（当前 Gate 未过，将列缺口可强推）"
             : "推进到下一阶段";
         return filter([
-            { value: "start ", label: "start", description: "新建 flow：start <slug> [目标一句话]", searchText: "start 新建 开始" },
+            { value: "start ", label: "start", description: "新建 flow：start <目标>（可多行；模型提炼英文 slug 后自动建）", searchText: "start 新建 开始" },
             { value: "next", label: "next", description: gateHint, searchText: "next 推进 下一阶段" },
             { value: "status", label: "status", description: "ASCII 状态轨 + 当前状态 + 建议下一步", searchText: "status 状态 查看进度" },
             { value: "list", label: "list", description: "列出全部 flow", searchText: "list 列表 全部" },
@@ -65,24 +65,6 @@ export function buildCompletions(query, cwd) {
             candidates.push({ value: `cap ${id} enable `, label: `enable`, description: `${state}——启用${id}`, searchText: `cap ${id} enable 启用` }, { value: `cap ${id} decline `, label: `decline`, description: `${state}——拒绝（不再重复推荐）`, searchText: `cap ${id} decline 拒绝` });
         }
         return filter(candidates, trimmed);
-    }
-    if (/^start\b/.test(trimmed)) {
-        let flows = [];
-        try {
-            const res = Effect.runSync(Effect.either(listFlowsEffect(cwd)));
-            if (res._tag === "Right")
-                flows = res.right;
-        }
-        catch {
-            /* 补全静默回落 */
-        }
-        const candidates = flows.map((f) => ({
-            value: `start ${f.slug} `,
-            label: f.slug,
-            description: `已存在（${f.status}，S${f.stage}）——同名会报错，此候选仅提示可 goto 续走`,
-            searchText: `start ${f.slug} 已存在`,
-        }));
-        return candidates.length > 0 ? filter(candidates, trimmed) : null;
     }
     if (/^goto\b/.test(trimmed)) {
         const current = flow?.status === "active" || flow?.status === "frozen" ? flow.stage : null;
