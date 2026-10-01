@@ -339,6 +339,11 @@ async function runSkillsCommand(ctx, pi, invocation) {
             ? `读者来信版现有 ${goals.length} 个登记目标，附代拟建议 ${suggests.length} 条。`
             : "读者来信版尚无登记目标，末版附代拟建议 5 条。",
     ];
+    const trend = buildTrend(events, startMs, endMs);
+    const trendTitle = trend.grain === "hour" ? "时段走势（按小时）"
+        : trend.grain === "day" ? `${windowDays} 天走势（按天）`
+            : trend.grain === "week" ? `${windowDays} 天走势（按周）`
+                : "长期走势（按月）";
     const data = {
         window: { start: startLabel, end: endLabel, days: windowDays },
         totals: {
@@ -353,6 +358,8 @@ async function runSkillsCommand(ctx, pi, invocation) {
         hours,
         days: fullCalendarDays(events, startMs, endMs),
         weeks: weeklyBuckets(events),
+        trend,
+        trendTitle,
         peakHour,
         frontPage,
         frontBullets: [
@@ -413,6 +420,66 @@ function briefingLine2(stats) {
 }
 function briefingLine6(origins) {
     return `来源方面，内置 ${origins.builtin}、外置 ${origins.user}、项目 ${origins.project}。`;
+}
+/** 走势图自适应粒度：≤2 天按小时、≤31 天按天、≤120 天按周、更长按月 */
+function buildTrend(events, startMs, endMs) {
+    const DAY = 86_400_000;
+    const hourBucket = new Map();
+    const dayBucket = new Map();
+    for (const event of events) {
+        const d = new Date(event.ts);
+        const dayKey = `${String(d.getFullYear()).padStart(4, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        const hourKey = Math.floor(event.ts / 3_600_000);
+        dayBucket.set(dayKey, (dayBucket.get(dayKey) ?? 0) + 1);
+        hourBucket.set(hourKey, (hourBucket.get(hourKey) ?? 0) + 1);
+    }
+    const monthKey = (ts) => {
+        const d = new Date(ts);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    };
+    // 周一为界
+    const weekKey = (ts) => {
+        const d = new Date(ts);
+        d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+        return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    };
+    const windowMs = endMs - startMs;
+    if (windowMs <= 2 * DAY) {
+        const points = [];
+        for (let ts = Math.floor(startMs / 3_600_000) * 3_600_000; ts <= endMs; ts += 3_600_000) {
+            const d = new Date(ts);
+            points.push({
+                label: `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}时`,
+                count: hourBucket.get(Math.floor(ts / 3_600_000)) ?? 0,
+            });
+        }
+        return { grain: "hour", points };
+    }
+    if (windowMs <= 31 * DAY) {
+        const points = [];
+        for (let ts = startMs; ts <= endMs; ts += DAY) {
+            const d = new Date(ts);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+            points.push({ label: key.slice(5), count: dayBucket.get(key) ?? 0 });
+        }
+        return { grain: "day", points };
+    }
+    if (windowMs <= 120 * DAY) {
+        const buckets = new Map();
+        for (const event of events) {
+            const key = weekKey(event.ts);
+            buckets.set(key, (buckets.get(key) ?? 0) + 1);
+        }
+        const points = [...buckets.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([label, count]) => ({ label, count }));
+        return { grain: "week", points };
+    }
+    const buckets = new Map();
+    for (const event of events) {
+        const key = monthKey(event.ts);
+        buckets.set(key, (buckets.get(key) ?? 0) + 1);
+    }
+    const points = [...buckets.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([label, count]) => ({ label, count }));
+    return { grain: "month", points };
 }
 /** 确定性：窗口全日历（无使用天补空行） */
 function fullCalendarDays(events, startMs, endMs) {
