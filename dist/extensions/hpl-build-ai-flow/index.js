@@ -252,7 +252,10 @@ export default function hplBuildAiFlow(pi) {
                 throw new Error(`slug「${raw}」不合格式：小写英文与数字、连字符分隔（a-b-c），2-5 词且 ≤48 字符。重新提炼后再调 create_flow`);
             }
             const slug = uniqueSlug(cwd, raw);
-            const name = goal.split("\n", 1)[0].trim().slice(0, 40);
+            const name = slug
+                .split("-")
+                .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+                .join(" ");
             const created = runEither(startFlowEffect(cwd, slug, name, goal));
             if (created._tag === "Left") {
                 throw new Error(created.left.message);

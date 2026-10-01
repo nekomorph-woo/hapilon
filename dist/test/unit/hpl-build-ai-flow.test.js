@@ -872,7 +872,7 @@ describe("命令 handler", () => {
         assert.ok(mock.sent.at(-1).includes("按渠道拆成独立目录")); // 提炼任务带全文
         await submitSlug(mock, ctx.ctx, "pay-split");
         const state = runOk(loadFlowEffect(cwd, "pay-split"));
-        assert.equal(state.name, "拆支付模块");
+        assert.equal(state.name, "Pay Split");
         assert.ok(state.goal.includes("按渠道拆成独立目录"));
     });
     it("create_flow：无暂存拒建；不合格 slug 拒回并放回暂存可重试", async () => {
