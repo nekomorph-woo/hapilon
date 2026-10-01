@@ -148,8 +148,10 @@ const JUDGE_SYSTEM_PROMPT = `你是 hapilon 安全门的命令判定助手，对
 - block：不可逆且作用域越出沙箱与仓库（删根目录/home、格式化磁盘、清空生产数据、强推主干等）。
 - unsure：目标无法静态解析、影响面拿不准、或需要人工确认。拿不准时一律 unsure。
 只输出一行 JSON：{"verdict":"allow|block|unsure","reason":"不超过 60 字的理由"}`;
-/** `tier:<name>[<index>]` 查 resolved 档位表取可用模型；其余按 glob/具体 id 直接匹配 */
-export function resolveAutoModel(spec, available, resolvedTiers) {
+/** `tier:<name>[<index>]` 查 resolved 档位表取可用模型；其余按 glob/具体 id 直接匹配。
+ *  tier 指代解析与 hpl-model-tiers 的 parseTierReference 重复，有意保留：
+ *  判定层自含解析不做跨扩展依赖；新代码解析 tier 指代请直接用 parseTierReference。 */
+function resolveAutoModel(spec, available, resolvedTiers) {
     const wanted = spec.trim();
     const ref = /^tier:(opus|sonnet|haiku)(?:\[(\d+)\])?$/.exec(wanted);
     if (ref) {
