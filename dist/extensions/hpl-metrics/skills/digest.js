@@ -83,6 +83,18 @@ export function parseJsonObject(text) {
         return undefined;
     }
 }
+/** JSON 壳提取：模型把最终文字包进 JSON 时，取其中的长文本字段 */
+function unwrapAnswer(text) {
+    const parsed = parseJsonObject(text);
+    if (parsed) {
+        for (const key of ["answer", "analysis", "text", "content", "result"]) {
+            const value = parsed[key];
+            if (typeof value === "string" && value.trim().length > 20)
+                return value.trim();
+        }
+    }
+    return text;
+}
 /** 容错取 JSON 数组：截取首个 [ 到末个 ] */
 export function parseJsonArray(text) {
     const start = text.indexOf("[");
@@ -340,7 +352,8 @@ export async function runDataAgent(task, finalFormat, scope, ctx, opts) {
             const toolCalls = parts.filter((part) => part?.type === "toolCall");
             const text = parts.filter((part) => part?.type === "text").map((part) => part.text ?? "").join("");
             if (toolCalls.length === 0) {
-                return text.trim() ? { answer: text.trim(), rounds: round } : undefined;
+                const answer = text.trim() ? unwrapAnswer(text.trim()) : "";
+                return answer ? { answer, rounds: round } : undefined;
             }
             // assistant 消息（含 toolCalls）原样进历史，工具结果以 toolResult 回传
             messages.push(response);
@@ -360,12 +373,13 @@ export async function runDataAgent(task, finalFormat, scope, ctx, opts) {
         }
         // 轮次用尽：不带工具再要一次最终回答
         const final = await ctx.modelRegistry.complete(await resolveAgentModel(ctx), { systemPrompt: `${system}\n\n探索轮次已用完。基于已看到的数据直接用中文给出最终回答。`, messages }, { maxTokens: DIGEST_TOKEN_BUDGET });
-        const finalText = (final.content ?? [])
+        const finalRaw = (final.content ?? [])
             .filter((part) => part?.type === "text")
             .map((part) => part.text ?? "")
             .join("")
             .trim();
-        return finalText ? { answer: finalText, rounds: AGENT_MAX_ROUNDS + 1 } : undefined;
+        const finalAnswer = finalRaw ? unwrapAnswer(finalRaw) : "";
+        return finalAnswer ? { answer: finalAnswer, rounds: AGENT_MAX_ROUNDS + 1 } : undefined;
     }
     catch (error) {
         console.warn(`[hpl-metrics] 数据探索失败：${error instanceof Error ? error.message : String(error)}`);
@@ -393,7 +407,10 @@ export async function generateFrontPage(scope, ctx, onProgress) {
     if (!parsed)
         return undefined;
     const paragraphs = Array.isArray(parsed.paragraphs)
-        ? parsed.paragraphs.filter((p) => typeof p === "string" && p.trim().length > 0).slice(0, 3)
+        ? parsed.paragraphs
+            .filter((p) => typeof p === "string" && p.trim().length > 0)
+            .slice(0, 3)
+            .map((p) => p.trim().replace(/^本报讯[：,，\s]*/, ""))
         : [];
     if (typeof parsed.title !== "string" || paragraphs.length === 0)
         return undefined;
@@ -405,8 +422,8 @@ export async function generateFrontPage(scope, ctx, onProgress) {
 }
 /** 单条分析目标的模型分析；失败返回 undefined */
 export async function generateGoalAnalysis(goal, scope, ctx, onProgress) {
-    const result = await runDataAgent(`分析读者登记的分析目标：「${goal}」。`, `只输出 JSON 对象：{"analysis":"…"}。120 字以内，结论先行、至少引用两个数字、结尾指出数据局限；数据不足直说「本期数据不足以回答」并说明缺什么。`, scope, ctx, { extraStyle: GOAL_ANALYSIS_STYLE, onProgress });
-    return result?.answer.slice(0, 400) || undefined;
+    const result = await runDataAgent(`分析读者登记的分析目标：「${goal}」。`, `200 字以内，写足分析与证据；结论先行、至少引用两个数字、结尾指出数据局限；数据不足直说「本期数据不足以回答」并说明缺什么。`, scope, ctx, { extraStyle: GOAL_ANALYSIS_STYLE, onProgress });
+    return result ? unwrapAnswer(result.answer).slice(0, 500) || undefined : undefined;
 }
 /** 目标推荐 5 条（避开已登记）；失败返回空数组 */
 export async function generateSuggestions(existingGoals, scope, ctx, onProgress) {
@@ -424,19 +441,29 @@ export async function generateSuggestions(existingGoals, scope, ctx, onProgress)
         dataNeeded: typeof item.dataNeeded === "string" ? item.dataNeeded.trim().slice(0, 80) : "",
     }));
 }
-/** 器物荐语（结合近期场景的一句话推荐）；失败返回空表 */
-export async function generateWareNotes(names, scope, ctx, onProgress) {
-    if (names.length === 0)
-        return {};
-    const result = await runDataAgent(`为下列器物各写一句推荐语（40 字内），结合数据里读者的近期场景说明什么时机用得上：${names.join("、")}。`, `只输出 JSON 数组：[{"name":"…","recommend":"…"}]，每件器物一条。`, scope, ctx, { extraStyle: WARE_NOTE_STYLE });
-    if (!result)
+/** 器物荐语：中文介绍 + 结合近期场景的推荐；失败降级英文原文 + 固定句 */
+export async function generateWareNotes(items, recentContext, scope, ctx) {
+    if (items.length === 0)
         return {};
     const notes = {};
-    for (const item of parseJsonArray(result.answer) ?? []) {
-        const entry = item;
-        if (typeof entry.name === "string" && typeof entry.recommend === "string") {
-            notes[entry.name.toLowerCase()] = entry.recommend.trim().slice(0, 100);
+    try {
+        const list = items
+            .map((item) => `- ${item.name}（${item.tag}）：${item.description || "（无描述）"}`)
+            .join("\n");
+        const text = await callModel(ctx, `${OBSERVER_STYLE}\n${WARE_NOTE_STYLE}\n只输出 JSON 数组：[{"name":"…","intro":"…","recommend":"…"}]，每件器物一条，其余一个字都不要。`, [{ role: "user", content: `任务：为下面这些「架上蒙尘」的器物各写两句——intro 用中文讲清它解决什么问题（不要英文直译腔）；recommend 结合读者近期的工作场景说清什么时机用得上。\n\n[读者近期在忙]\n${recentContext}\n\n[器物清单]\n${list}`, timestamp: Date.now() }], DIGEST_TOKEN_BUDGET);
+        const parsed = parseJsonArray(text) ?? [];
+        for (const item of parsed) {
+            const entry = item;
+            if (typeof entry.name !== "string" || typeof entry.intro !== "string")
+                continue;
+            notes[entry.name.toLowerCase()] = {
+                intro: entry.intro.trim().slice(0, 120),
+                recommend: typeof entry.recommend === "string" ? entry.recommend.trim().slice(0, 140) : "",
+            };
         }
+    }
+    catch (error) {
+        console.warn(`[hpl-metrics] 器物荐语生成失败，降级原文：${error instanceof Error ? error.message : String(error)}`);
     }
     return notes;
 }

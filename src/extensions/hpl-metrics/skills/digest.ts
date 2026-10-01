@@ -116,6 +116,18 @@ export function parseJsonObject(text: string): Record<string, unknown> | undefin
   }
 }
 
+/** JSON 壳提取：模型把最终文字包进 JSON 时，取其中的长文本字段 */
+function unwrapAnswer(text: string): string {
+  const parsed = parseJsonObject(text);
+  if (parsed) {
+    for (const key of ["answer", "analysis", "text", "content", "result"]) {
+      const value = parsed[key];
+      if (typeof value === "string" && value.trim().length > 20) return value.trim();
+    }
+  }
+  return text;
+}
+
 /** 容错取 JSON 数组：截取首个 [ 到末个 ] */
 export function parseJsonArray(text: string): unknown[] | undefined {
   const start = text.indexOf("[");
@@ -423,7 +435,8 @@ export async function runDataAgent(
       const text = parts.filter((part) => part?.type === "text").map((part) => part.text ?? "").join("");
 
       if (toolCalls.length === 0) {
-        return text.trim() ? { answer: text.trim(), rounds: round } : undefined;
+        const answer = text.trim() ? unwrapAnswer(text.trim()) : "";
+        return answer ? { answer, rounds: round } : undefined;
       }
 
       // assistant 消息（含 toolCalls）原样进历史，工具结果以 toolResult 回传
@@ -449,12 +462,13 @@ export async function runDataAgent(
       { systemPrompt: `${system}\n\n探索轮次已用完。基于已看到的数据直接用中文给出最终回答。`, messages },
       { maxTokens: DIGEST_TOKEN_BUDGET },
     );
-    const finalText = ((final.content ?? []) as Array<{ type?: string; text?: string }>)
+    const finalRaw = ((final.content ?? []) as Array<{ type?: string; text?: string }>)
       .filter((part) => part?.type === "text")
       .map((part) => part.text ?? "")
       .join("")
       .trim();
-    return finalText ? { answer: finalText, rounds: AGENT_MAX_ROUNDS + 1 } : undefined;
+    const finalAnswer = finalRaw ? unwrapAnswer(finalRaw) : "";
+    return finalAnswer ? { answer: finalAnswer, rounds: AGENT_MAX_ROUNDS + 1 } : undefined;
   } catch (error) {
     console.warn(`[hpl-metrics] 数据探索失败：${error instanceof Error ? error.message : String(error)}`);
     return undefined;
@@ -514,7 +528,10 @@ export async function generateFrontPage(
   const parsed = parseJsonObject(result.answer);
   if (!parsed) return undefined;
   const paragraphs = Array.isArray(parsed.paragraphs)
-    ? parsed.paragraphs.filter((p): p is string => typeof p === "string" && p.trim().length > 0).slice(0, 3)
+    ? parsed.paragraphs
+        .filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+        .slice(0, 3)
+        .map((p) => p.trim().replace(/^本报讯[：,，\s]*/, ""))
     : [];
   if (typeof parsed.title !== "string" || paragraphs.length === 0) return undefined;
   return {
@@ -538,12 +555,12 @@ export async function generateGoalAnalysis(
 ): Promise<string | undefined> {
   const result = await runDataAgent(
     `分析读者登记的分析目标：「${goal}」。`,
-    `只输出 JSON 对象：{"analysis":"…"}。120 字以内，结论先行、至少引用两个数字、结尾指出数据局限；数据不足直说「本期数据不足以回答」并说明缺什么。`,
+    `200 字以内，写足分析与证据；结论先行、至少引用两个数字、结尾指出数据局限；数据不足直说「本期数据不足以回答」并说明缺什么。`,
     scope,
     ctx,
     { extraStyle: GOAL_ANALYSIS_STYLE, onProgress },
   );
-  return result?.answer.slice(0, 400) || undefined;
+  return result ? unwrapAnswer(result.answer).slice(0, 500) || undefined : undefined;
 }
 
 export interface SuggestedGoal {
@@ -586,27 +603,51 @@ export interface WareNote {
 }
 
 /** 器物荐语（结合近期场景的一句话推荐）；失败返回空表 */
+export interface WareItem {
+  name: string;
+  tag: string;
+  /** SKILL.md 的英文原始描述（管线负责转成中文介绍） */
+  description: string;
+}
+
+export interface WareNote {
+  name: string;
+  /** 中文功能介绍（非英文直译） */
+  intro: string;
+  /** 结合读者近期场景的推荐 */
+  recommend: string;
+}
+
+/** 器物荐语：中文介绍 + 结合近期场景的推荐；失败降级英文原文 + 固定句 */
 export async function generateWareNotes(
-  names: readonly string[],
+  items: readonly WareItem[],
+  recentContext: string,
   scope: DataScope,
   ctx: ExtensionContext,
-  onProgress?: (info: string) => void,
-): Promise<Record<string, string>> {
-  if (names.length === 0) return {};
-  const result = await runDataAgent(
-    `为下列器物各写一句推荐语（40 字内），结合数据里读者的近期场景说明什么时机用得上：${names.join("、")}。`,
-    `只输出 JSON 数组：[{"name":"…","recommend":"…"}]，每件器物一条。`,
-    scope,
-    ctx,
-    { extraStyle: WARE_NOTE_STYLE },
-  );
-  if (!result) return {};
-  const notes: Record<string, string> = {};
-  for (const item of parseJsonArray(result.answer) ?? []) {
-    const entry = item as { name?: unknown; recommend?: unknown };
-    if (typeof entry.name === "string" && typeof entry.recommend === "string") {
-      notes[entry.name.toLowerCase()] = entry.recommend.trim().slice(0, 100);
+): Promise<Record<string, { intro: string; recommend: string }>> {
+  if (items.length === 0) return {};
+  const notes: Record<string, { intro: string; recommend: string }> = {};
+  try {
+    const list = items
+      .map((item) => `- ${item.name}（${item.tag}）：${item.description || "（无描述）"}`)
+      .join("\n");
+    const text = await callModel(
+      ctx,
+      `${OBSERVER_STYLE}\n${WARE_NOTE_STYLE}\n只输出 JSON 数组：[{"name":"…","intro":"…","recommend":"…"}]，每件器物一条，其余一个字都不要。`,
+      [{ role: "user", content: `任务：为下面这些「架上蒙尘」的器物各写两句——intro 用中文讲清它解决什么问题（不要英文直译腔）；recommend 结合读者近期的工作场景说清什么时机用得上。\n\n[读者近期在忙]\n${recentContext}\n\n[器物清单]\n${list}`, timestamp: Date.now() }],
+      DIGEST_TOKEN_BUDGET,
+    );
+    const parsed = parseJsonArray(text) ?? [];
+    for (const item of parsed) {
+      const entry = item as { name?: unknown; intro?: unknown; recommend?: unknown };
+      if (typeof entry.name !== "string" || typeof entry.intro !== "string") continue;
+      notes[entry.name.toLowerCase()] = {
+        intro: entry.intro.trim().slice(0, 120),
+        recommend: typeof entry.recommend === "string" ? entry.recommend.trim().slice(0, 140) : "",
+      };
     }
+  } catch (error) {
+    console.warn(`[hpl-metrics] 器物荐语生成失败，降级原文：${error instanceof Error ? error.message : String(error)}`);
   }
   return notes;
 }
