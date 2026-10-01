@@ -30,10 +30,12 @@ import {
   generateMissingDigestsAsync,
   generateFrontPage,
   fallbackFrontPage,
+  generateFixedAnalyses,
   generateGoalAnalyses,
   generateSuggestions,
   generateWareNotes,
   type DataSummary,
+  type FixedAnalysis,
 } from "./skills/digest.js";
 import { renderSkillsReport, type SkillsReportData } from "./skills/report.js";
 
@@ -305,6 +307,12 @@ async function runSkillsCommand(
   );
 
   setStatus(goals.length > 0 ? `生成 ${Math.min(5, goals.length)} 个目标的分析…` : "生成目标推荐…");
+  setStatus("完成固定分析四问…");
+  const tailSample = stats
+    .flatMap((stat) => stat.tails.slice(0, 3).map((tail) => `${stat.skill}：${tail}`))
+    .slice(0, 15)
+    .join("\n");
+  const fixedAnalyses = await generateFixedAnalyses(summary, tailSample, ctx);
   const goalAnalyses = await generateGoalAnalyses(goals.slice(0, 5), summary, ctx);
   const goalData = goals.slice(0, 5).map((goal) => {
     const analysis = goalAnalyses.find((item) => item.goal === goal);
@@ -399,6 +407,7 @@ async function runSkillsCommand(
     briefing,
     skills: stats,
     records: reportRecords,
+    ...(fixedAnalyses ? { fixedAnalyses } : {}),
     goals: goalData,
     suggests,
     wares,

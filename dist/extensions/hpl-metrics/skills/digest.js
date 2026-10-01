@@ -86,7 +86,7 @@ function parseDigestResponse(text, count) {
     return result;
 }
 const DIGEST_TOKEN_BUDGET = 2048;
-import { FRONT_PAGE_STYLE, GOAL_ANALYSIS_STYLE, OBSERVER_STYLE, SUGGESTION_STYLE, WARE_NOTE_STYLE } from "./style.js";
+import { FIXED_ANALYSIS_STYLE, FRONT_PAGE_STYLE, GOAL_ANALYSIS_STYLE, OBSERVER_STYLE, SUGGESTION_STYLE, WARE_NOTE_STYLE } from "./style.js";
 async function completeText(ctx, systemPrompt, userPrompt, maxTokens) {
     const available = ctx.modelRegistry.getAvailable();
     const resolvedTiers = await Effect.runPromise(readResolvedTiersEffect);
@@ -268,6 +268,48 @@ ${items.map((item) => `- ${item.name}（${item.tag}）：${item.description || "
     catch (error) {
         console.warn(`[hpl-metrics] 器物荐语生成失败：${error instanceof Error ? error.message : String(error)}`);
         return {};
+    }
+}
+const FIXED_QUESTIONS = [
+    "意图画像 · 它通常被用来干什么",
+    "趋势与节奏 · 用量在升还是在降",
+    "显式/自动与一致性 · 谁在用它",
+    "搭档 · 它常和谁一起出场",
+];
+/** 一次调用生成固定分析四问；解析不足四条即视为失败（调用侧降级） */
+export async function generateFixedAnalyses(summary, tailSample, ctx) {
+    try {
+        const text = await completeText(ctx, `${OBSERVER_STYLE}\n${FIXED_ANALYSIS_STYLE}\n只输出 JSON 数组：[{"title":"…","text":"…"}]，恰好 4 条，title 依次为：${FIXED_QUESTIONS.map((q) => `"${q}"`).join("、")}。`, `任务：完成《器物晚报》「固定分析目标」四问。
+
+[统计数据]
+窗口：${summary.window}
+总量：${summary.totals}
+排行：${summary.topSkills}
+时段：${summary.hourProfile}
+来源：${summary.sourceProfile}
+搭档：${summary.partners}
+
+[显式原话样本（意图画像素材）]
+${tailSample || "（无显式原话，意图画像按会话线索与来源分布谨慎归纳）"}`, 2048);
+        const start = text.indexOf("[");
+        const end = text.lastIndexOf("]");
+        if (start === -1 || end <= start)
+            return undefined;
+        const parsed = JSON.parse(text.slice(start, end + 1));
+        if (!Array.isArray(parsed))
+            return undefined;
+        const result = [];
+        for (const item of parsed) {
+            const entry = item;
+            if (typeof entry.title !== "string" || typeof entry.text !== "string")
+                continue;
+            result.push({ title: entry.title.trim().slice(0, 40), text: entry.text.trim().slice(0, 200) });
+        }
+        return result.length === FIXED_QUESTIONS.length ? result : undefined;
+    }
+    catch (error) {
+        console.warn(`[hpl-metrics] 固定分析生成失败，降级示例：${error instanceof Error ? error.message : String(error)}`);
+        return undefined;
     }
 }
 export const FRONT_PAGE_FALLBACK_NOTICE = "（本期头条由资料室按模板整理）";

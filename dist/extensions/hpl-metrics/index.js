@@ -23,7 +23,7 @@ import { groupSamples, renderPonytailLines } from "./ponytail/report.js";
 import { loadSkillUsage } from "./skills/usage.js";
 import { localDateKey, listAvailableSkills, originBreakdown, perSkill, idleSkills, weeklyBuckets, heatmap, hourlyHistogram } from "./skills/stats.js";
 import { appendGoal, readGoals, skillMetricsDir } from "./skills/storage.js";
-import { digestKey, generateMissingDigestsAsync, generateFrontPage, fallbackFrontPage, generateGoalAnalyses, generateSuggestions, generateWareNotes, } from "./skills/digest.js";
+import { digestKey, generateMissingDigestsAsync, generateFrontPage, fallbackFrontPage, generateFixedAnalyses, generateGoalAnalyses, generateSuggestions, generateWareNotes, } from "./skills/digest.js";
 import { renderSkillsReport } from "./skills/report.js";
 const GROUP_BYS = ["ponytail", "model", "day", "project"];
 /** skills 统计默认滚动窗口：7 天（不按自然周/月） */
@@ -264,6 +264,12 @@ async function runSkillsCommand(ctx, pi, invocation) {
     const frontPageModel = await generateFrontPage(summary, ctx);
     const frontPage = frontPageModel ?? fallbackFrontPage(summary, top?.skill ?? "—", top?.total ?? 0);
     setStatus(goals.length > 0 ? `生成 ${Math.min(5, goals.length)} 个目标的分析…` : "生成目标推荐…");
+    setStatus("完成固定分析四问…");
+    const tailSample = stats
+        .flatMap((stat) => stat.tails.slice(0, 3).map((tail) => `${stat.skill}：${tail}`))
+        .slice(0, 15)
+        .join("\n");
+    const fixedAnalyses = await generateFixedAnalyses(summary, tailSample, ctx);
     const goalAnalyses = await generateGoalAnalyses(goals.slice(0, 5), summary, ctx);
     const goalData = goals.slice(0, 5).map((goal) => {
         const analysis = goalAnalyses.find((item) => item.goal === goal);
@@ -354,6 +360,7 @@ async function runSkillsCommand(ctx, pi, invocation) {
         briefing,
         skills: stats,
         records: reportRecords,
+        ...(fixedAnalyses ? { fixedAnalyses } : {}),
         goals: goalData,
         suggests,
         wares,
