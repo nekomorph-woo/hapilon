@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { STAGES, stageByIndex } from "./stages.js";
 import { evaluateGate, flowDir, openDebts, type FlowState } from "./machine.js";
+import { capabilityStatusLine } from "./capabilities.js";
 import { stageMark } from "./prompts.js";
 
 const LOOPS = [
@@ -37,7 +38,7 @@ export function nextStepAdvice(cwd: string, state: FlowState): string {
     return "已冻结。重放：新会话贴 start-prompt.md；审查：/build-ai-flow audit；重开：goto <0-9> <原因>";
   }
   const def = stageByIndex(state.stage);
-  const gate = evaluateGate(cwd, state.slug, state.stage, state.stale);
+  const gate = evaluateGate(cwd, state.slug, state.stage, state.stale, state.capabilities);
   if (gate.passed) return "Gate 已过，可执行 /build-ai-flow next 推进到下一阶段";
   return `完成本阶段产物 ${def.artifacts.join("、")} 后执行 /build-ai-flow next（当前缺口：${gate.failures[0] ?? "—"}）`;
 }
@@ -69,6 +70,8 @@ export function renderStatus(cwd: string, state: FlowState): string {
   lines.push(`Gate 机械检查：${gate.passed ? "已过" : `未过 —— ${gate.failures.join("；")}`}`);
   lines.push(`Gate 语义项（你卡）：${def.gateNote}`);
   lines.push(`Gate 缺口欠账（debt）：${debts.length} 个未关闭${debts.length > 0 ? ` —— ${debtsLine}` : ""}`);
+  const capLine = capabilityStatusLine(state);
+  if (capLine) lines.push(`能力（capability）：${capLine}`);
   if (state.stale) {
     lines.push(`上游回退（stale）：S${state.stale.from}–S9 产物待基于新上游重新确认（存在 ≠ 当前有效）`);
   }

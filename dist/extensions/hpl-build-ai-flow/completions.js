@@ -7,7 +7,7 @@
  */
 import { Effect } from "effect";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
-import { evaluateGate, listFlowsEffect, readActiveEffect, loadFlowEffect } from "./machine.js";
+import { evaluateGate, KNOWN_CAPABILITIES, listFlowsEffect, readActiveEffect, loadFlowEffect } from "./machine.js";
 import { STAGES } from "./stages.js";
 function filter(candidates, query) {
     const hits = fuzzyFilter([...candidates], query, (c) => `${c.value} ${c.searchText ?? c.description ?? ""}`);
@@ -30,7 +30,7 @@ export function buildCompletions(query, cwd) {
     const trimmed = query.trimStart();
     const flow = activeFlowSync(cwd);
     // 子命令位
-    if (!/^(start|goto|next|status|list|audit|debt)\b/.test(trimmed)) {
+    if (!/^(start|goto|next|status|list|audit|debt|cap)\b/.test(trimmed)) {
         const gateHint = flow && flow.status === "active"
             ? evaluateGate(cwd, flow.slug, flow.stage, flow.stale).passed
                 ? "推进（当前 Gate 已过）"
@@ -45,7 +45,26 @@ export function buildCompletions(query, cwd) {
             { value: "audit", label: "audit", description: "决策冲突审查（tier:sonnet 读 decision-log 找矛盾）", searchText: "audit 审查 冲突 决策" },
             { value: "debt", label: "debt", description: "查看 Gate 缺口欠账", searchText: "debt 欠账 缺口 查看" },
             { value: "debt resolve ", label: "debt resolve", description: "关闭欠账：debt resolve <G-00x> <说明>", searchText: "debt resolve 关闭 欠账" },
+            ...KNOWN_CAPABILITIES.map((id) => {
+                const cap = flow?.capabilities?.[id];
+                const state = cap?.status === "enabled" ? "已启用" : cap?.status === "declined" ? "已拒绝（可重新启用）" : "未决定（S2/S3 会提示是否推荐）";
+                return {
+                    value: `cap ${id} `,
+                    label: `cap ${id}`,
+                    description: `能力：${id}（${state}）——enable|decline [说明]`,
+                    searchText: `cap capability 能力 ${id} 启用 拒绝`,
+                };
+            }),
         ], trimmed);
+    }
+    if (/^cap\b/.test(trimmed)) {
+        const candidates = [];
+        for (const id of KNOWN_CAPABILITIES) {
+            const cap = flow?.capabilities?.[id];
+            const state = cap?.status === "enabled" ? "当前已启用" : cap?.status === "declined" ? "当前已拒绝" : "当前未决定";
+            candidates.push({ value: `cap ${id} enable `, label: `enable`, description: `${state}——启用${id}`, searchText: `cap ${id} enable 启用` }, { value: `cap ${id} decline `, label: `decline`, description: `${state}——拒绝（不再重复推荐）`, searchText: `cap ${id} decline 拒绝` });
+        }
+        return filter(candidates, trimmed);
     }
     if (/^start\b/.test(trimmed)) {
         let flows = [];

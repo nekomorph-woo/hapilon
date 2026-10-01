@@ -101,7 +101,7 @@ export const STAGES = [
         artifactNote: "信息架构 / wireframe 级结构（Markdown 即可），含主阅读顺序、层级、各状态的展示约定。不写代码。",
         gateNote: "顺着结构能完成主要判断；实现结构没绑架业务结构",
         stopCondition: "写完 design.md 即停，不写代码，不做页面。",
-        skills: ["design-before-code", "artifact-diagramming"],
+        skills: ["design-before-code", "artifact-diagramming", "artifact-assist"],
     },
     {
         index: 5,

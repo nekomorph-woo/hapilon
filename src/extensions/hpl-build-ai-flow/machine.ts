@@ -27,7 +27,9 @@ export type TransitionKind =
   | "revisit"
   | "freeze"
   | "reopen"
-  | "debt-resolve";
+  | "debt-resolve"
+  | "cap-enable"
+  | "cap-decline";
 
 export interface HistoryEntry {
   kind: TransitionKind;
@@ -54,6 +56,17 @@ export interface StaleMark {
   at: string;
 }
 
+/** 能力启用状态：启用由用户决定（cap 命令），AI 只有推荐权；当前仅 golden-case 跨阶段生命周期需要持久化 */
+export interface CapabilityStatus {
+  status: "enabled" | "declined";
+  enabledAtStage?: number;
+  reason?: string;
+}
+
+/** 已知能力 id（不建通用插件框架，抽象止于真实能力） */
+export const KNOWN_CAPABILITIES = ["golden-case"] as const;
+export type CapabilityId = (typeof KNOWN_CAPABILITIES)[number];
+
 export interface FlowState {
   version: 1;
   slug: string;
@@ -64,10 +77,12 @@ export interface FlowState {
   createdAt: string;
   updatedAt: string;
   history: HistoryEntry[];
-  /** 旧 state 无此字段，解析时补 []（版本仍为 1，向后兼容） */
+  /** 旧 state 无此字段，解析时补 {}（版本仍为 1，向后兼容） */
   debts: GateDebt[];
   /** 上游回退后的待重确认起点；null = 无回退影响。旧 state 缺省补 null */
   stale: StaleMark | null;
+  /** Stage-aware Optional Capability 状态；旧 state 缺省补 {}。artifact-assist 是阶段局部调用，不占此字段 */
+  capabilities: Record<string, CapabilityStatus>;
 }
 
 export function openDebts(state: FlowState): GateDebt[] {
@@ -172,6 +187,36 @@ function parseState(raw: string, path: string): FlowState {
     stale = { from: t.from, at: t.at };
   }
 
+  const capabilities: Record<string, CapabilityStatus> = {};
+  if (s.capabilities !== undefined) {
+    if (typeof s.capabilities !== "object" || s.capabilities === null || Array.isArray(s.capabilities)) {
+      throw new FlowStateError({ message: `${path} 的 capabilities 非法（应为对象），请人工检查` });
+    }
+    for (const [id, v] of Object.entries(s.capabilities as Record<string, unknown>)) {
+      if (!(KNOWN_CAPABILITIES as readonly string[]).includes(id)) {
+        throw new FlowStateError({ message: `${path} 含未知能力 id「${id}」（已知：${KNOWN_CAPABILITIES.join("、")}）` });
+      }
+      if (typeof v !== "object" || v === null) {
+        throw new FlowStateError({ message: `${path} 的 capabilities.${id} 非法，请人工检查` });
+      }
+      const r = v as Record<string, unknown>;
+      if (r.status !== "enabled" && r.status !== "declined") {
+        throw new FlowStateError({ message: `${path} 的 capabilities.${id}.status 非法："${String(r.status)}"（合法 enabled | declined）` });
+      }
+      if (
+        r.enabledAtStage !== undefined &&
+        (typeof r.enabledAtStage !== "number" || !Number.isInteger(r.enabledAtStage) || r.enabledAtStage < 0 || r.enabledAtStage > LAST_STAGE)
+      ) {
+        throw new FlowStateError({ message: `${path} 的 capabilities.${id}.enabledAtStage 非法：${String(r.enabledAtStage)}` });
+      }
+      capabilities[id] = {
+        status: r.status,
+        ...(typeof r.enabledAtStage === "number" ? { enabledAtStage: r.enabledAtStage } : {}),
+        ...(typeof r.reason === "string" ? { reason: r.reason } : {}),
+      };
+    }
+  }
+
   return {
     version: 1,
     slug: s.slug,
@@ -184,6 +229,7 @@ function parseState(raw: string, path: string): FlowState {
     history: s.history as HistoryEntry[],
     debts,
     stale,
+    capabilities,
   };
 }
 
@@ -295,6 +341,7 @@ export const startFlowEffect = (
       history: [{ kind: "start", to: 0, at: now }],
       debts: [],
       stale: null,
+      capabilities: {},
     };
     writeFlow(cwd, state);
     writeActive(cwd, slug);
@@ -316,7 +363,7 @@ export const advanceFlowEffect = (cwd: string, slug: string): Effect.Effect<Adva
   Effect.gen(function* () {
     let state = yield* loadFlowEffect(cwd, slug);
     if (state.status === "frozen") return { kind: "frozen", state };
-    const gate = evaluateGate(cwd, slug, state.stage, state.stale);
+    const gate = evaluateGate(cwd, slug, state.stage, state.stale, state.capabilities);
     if (!gate.passed) return { kind: "needs-confirm", state, gaps: gate.failures };
     if (state.stage === LAST_STAGE) {
       // 两阶段提交：这里只报「可冻结」，不写盘——审查/确认后的提交在 freezeFlowEffect
@@ -367,6 +414,39 @@ export const forceAdvanceEffect = (
     state = advanceStale(state, from);
     writeFlow(cwd, state);
     return { kind: "advanced", state };
+  });
+
+/** 能力启用/拒绝：唯一写入口，只由 cap 命令（人）触发；翻转是真实用户决策，单条目覆盖 + history 留痕 */
+export const setCapabilityEffect = (
+  cwd: string,
+  slug: string,
+  id: string,
+  status: "enabled" | "declined",
+  reason: string,
+): Effect.Effect<FlowState, FlowStateError> =>
+  Effect.gen(function* () {
+    if (!(KNOWN_CAPABILITIES as readonly string[]).includes(id)) {
+      return yield* new FlowStateError({ message: `未知能力「${id}」（已知：${KNOWN_CAPABILITIES.join("、")}）` });
+    }
+    let state = yield* loadFlowEffect(cwd, slug);
+    const now = new Date().toISOString();
+    const entry: CapabilityStatus = {
+      status,
+      ...(status === "enabled" ? { enabledAtStage: state.stage } : {}),
+      ...(reason.trim() !== "" ? { reason: reason.trim() } : {}),
+    };
+    state = {
+      ...state,
+      capabilities: { ...state.capabilities, [id]: entry },
+    };
+    state = append(state, {
+      kind: status === "enabled" ? "cap-enable" : "cap-decline",
+      to: state.stage,
+      reason: reason.trim() !== "" ? reason.trim() : `${id} ${status === "enabled" ? "启用" : "拒绝"}`,
+      at: now,
+    });
+    writeFlow(cwd, state);
+    return state;
   });
 
 /** 显式关闭 debt：不自动猜测，人确认补齐后才调用 */
@@ -472,8 +552,16 @@ function readFileOrNull(path: string): string | null {
  * 机械 Gate（设计 §5）：存在性 + 最小内容 + frame 填空句 + D- 条目 + 结构标记 + stale 重确认。
  * stale：stage ≥ stale.from 时，产物必须在回退时刻之后重新落盘过（存在 ≠ 当前有效）；
  * decision-log 豁免（追加式持久认知，不整体失效）。语义质量仍归人。
+ * golden-case 启用时的 S3 代理检查（设计 §16）：有草稿但无封金快照 → 缺口；
+ * 一个 case 都没起草不拦（启用后不起草是用户拍板，机械层不越权）。
  */
-export function evaluateGate(cwd: string, slug: string, stage: number, stale?: StaleMark | null): GateResult {
+export function evaluateGate(
+  cwd: string,
+  slug: string,
+  stage: number,
+  stale?: StaleMark | null,
+  capabilities?: Record<string, CapabilityStatus>,
+): GateResult {
   const dir = flowDir(cwd, slug);
   const def = stageByIndex(stage);
   const failures: string[] = [];
@@ -513,6 +601,17 @@ export function evaluateGate(cwd: string, slug: string, stage: number, stale?: S
     if (content === null) continue; // 缺文件已由存在性检查报告
     for (const marker of markers) {
       if (!content.includes(marker)) failures.push(`${file} 缺关键结构标记「${marker}」`);
+    }
+  }
+
+  // golden-case S3 代理检查：只在默认根目录存在时生效（用户搬迁 case 根则静默跳过，不误伤）
+  if (stage === 3 && capabilities?.["golden-case"]?.status === "enabled") {
+    const casesYaml = join(cwd, ".hapilon", "go-case", "cases.yaml");
+    const frozenMd = join(cwd, ".hapilon", "go-case", "frozen.md");
+    if (existsSync(casesYaml) && !existsSync(frozenMd)) {
+      failures.push(
+        "golden-case 已启用且已有 case 草稿（cases.yaml），但尚无封金快照（frozen.md）——本轮核心 case 需完成 business truth freeze；仍要推进可强推（缺口转 debt）",
+      );
     }
   }
 

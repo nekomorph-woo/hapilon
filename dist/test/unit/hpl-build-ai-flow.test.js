@@ -11,9 +11,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { LAST_STAGE, STAGES } from "../../extensions/hpl-build-ai-flow/stages.js";
-import { advanceFlowEffect, evaluateGate, flowDir, forceAdvanceEffect, freezeFlowEffect, gotoStageEffect, loadFlowEffect, openDebts, readActiveEffect, resolveDebtEffect, startFlowEffect, statePath, writeFileAtomic, } from "../../extensions/hpl-build-ai-flow/machine.js";
+import { advanceFlowEffect, evaluateGate, flowDir, forceAdvanceEffect, freezeFlowEffect, gotoStageEffect, KNOWN_CAPABILITIES, loadFlowEffect, openDebts, readActiveEffect, resolveDebtEffect, setCapabilityEffect, startFlowEffect, statePath, writeFileAtomic, } from "../../extensions/hpl-build-ai-flow/machine.js";
 import { parseDecisionLog } from "../../extensions/hpl-build-ai-flow/decision-log.js";
-import { buildStagePrompt, stageMark } from "../../extensions/hpl-build-ai-flow/prompts.js";
+import { buildFreezeNote, buildStagePrompt, stageMark } from "../../extensions/hpl-build-ai-flow/prompts.js";
+import { capabilityBlock, capabilityStatusLine } from "../../extensions/hpl-build-ai-flow/capabilities.js";
 import { nextStepAdvice, renderStatus } from "../../extensions/hpl-build-ai-flow/render.js";
 import { buildCompletions } from "../../extensions/hpl-build-ai-flow/completions.js";
 import { auditDecisionLog, parseAuditOutput, resolveAuditModel } from "../../extensions/hpl-build-ai-flow/decision-audit.js";
@@ -566,11 +567,11 @@ describe("prompt 拼装与渲染", () => {
 // ─── 补全 ───────────────────────────────────────────────────────────
 describe("补全分派", () => {
     beforeEach(() => freshCwd());
-    it("空 query 给八个子命令；goto 给十档候选并标注相对位置", () => {
+    it("空 query 给九个子命令；goto 给十档候选并标注相对位置", () => {
         runOk(startFlowEffect(cwd, "demo", "演示", ""));
         runOk(gotoStageEffect(cwd, "demo", 6, "进入实现阶段"));
         const subs = buildCompletions("", cwd);
-        assert.equal(subs.length, 8);
+        assert.equal(subs.length, 9);
         const gotoCands = buildCompletions("goto ", cwd);
         assert.equal(gotoCands.length, 10);
         const current = gotoCands.find((c) => (c.description ?? "").includes("当前"));
@@ -918,5 +919,204 @@ describe("命令 handler", () => {
         ctx.notifies.length = 0;
         await def.handler("list", ctx.ctx);
         assert.ok(ctx.notifies.some((n) => n.msg.includes("demo")));
+    });
+});
+// ─── Capability 集成（golden-case，设计 §16）────────────────────────
+describe("Capability：状态与迁移", () => {
+    beforeEach(() => freshCwd());
+    it("enable 写状态 + history 留痕", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        const state = runOk(setCapabilityEffect(cwd, "demo", "golden-case", "enabled", "金额与状态是真值"));
+        assert.equal(state.capabilities["golden-case"]?.status, "enabled");
+        assert.equal(state.capabilities["golden-case"]?.enabledAtStage, 0);
+        assert.equal(state.history.at(-1)?.kind, "cap-enable");
+        const reloaded = runOk(loadFlowEffect(cwd, "demo"));
+        assert.equal(reloaded.capabilities["golden-case"]?.reason, "金额与状态是真值");
+    });
+    it("未知能力 id 报错", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        const err = runErr(setCapabilityEffect(cwd, "demo", "artifact", "enabled", ""));
+        assert.match(err.message, /未知能力/);
+        assert.deepEqual(KNOWN_CAPABILITIES, ["golden-case"]);
+    });
+    it("enable→decline 翻转：单条目覆盖，history 双留痕", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        runOk(setCapabilityEffect(cwd, "demo", "golden-case", "enabled", ""));
+        const state = runOk(setCapabilityEffect(cwd, "demo", "golden-case", "declined", "其实是纯视觉任务"));
+        assert.equal(state.capabilities["golden-case"]?.status, "declined");
+        assert.equal(state.capabilities["golden-case"]?.enabledAtStage, undefined);
+        const kinds = state.history.slice(-2).map((h) => h.kind);
+        assert.deepEqual(kinds, ["cap-enable", "cap-decline"]);
+    });
+    it("parseState fail closed：未知 id / 非法 status / 越界 enabledAtStage", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        const base = JSON.parse(readFileSync(statePath(cwd, "demo"), "utf-8"));
+        for (const bad of [
+            { "some-plugin": { status: "enabled" } },
+            { "golden-case": { status: "maybe" } },
+            { "golden-case": { status: "enabled", enabledAtStage: 42 } },
+        ]) {
+            writeFileSync(statePath(cwd, "demo"), JSON.stringify({ ...base, capabilities: bad }), "utf-8");
+            const err = runErr(loadFlowEffect(cwd, "demo"));
+            assert.match(err.message, /capabilities|能力/, JSON.stringify(bad));
+        }
+    });
+    it("旧 state（无 capabilities 字段）向后兼容：补 {} 且推进正常", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        const base = JSON.parse(readFileSync(statePath(cwd, "demo"), "utf-8"));
+        delete base.capabilities;
+        writeFileSync(statePath(cwd, "demo"), JSON.stringify(base), "utf-8");
+        const state = runOk(loadFlowEffect(cwd, "demo"));
+        assert.deepEqual(state.capabilities, {});
+        writeFilledStageArtifacts("demo", 0);
+        const outcome = runOk(advanceFlowEffect(cwd, "demo"));
+        assert.equal(outcome.kind, "advanced");
+    });
+});
+describe("Capability：S3 Gate 代理检查", () => {
+    beforeEach(() => freshCwd());
+    const CAPS_ON = { "golden-case": { status: "enabled", enabledAtStage: 2 } };
+    it("未启用：有草稿无封金也不拦", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        writeFilledStageArtifacts("demo", 3);
+        mkdirSync(join(cwd, ".hapilon", "go-case"), { recursive: true });
+        writeFileSync(join(cwd, ".hapilon", "go-case", "cases.yaml"), "cases: []", "utf-8");
+        assert.ok(evaluateGate(cwd, "demo", 3, null).passed);
+        assert.ok(evaluateGate(cwd, "demo", 3, null, {}).passed);
+    });
+    it("已启用但无 go-case 目录：不拦（不起草是用户拍板）", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        writeFilledStageArtifacts("demo", 3);
+        assert.ok(evaluateGate(cwd, "demo", 3, null, CAPS_ON).passed);
+    });
+    it("已启用 + 有草稿 + 无封金快照 → 缺口", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        writeFilledStageArtifacts("demo", 3);
+        mkdirSync(join(cwd, ".hapilon", "go-case"), { recursive: true });
+        writeFileSync(join(cwd, ".hapilon", "go-case", "cases.yaml"), "cases: []", "utf-8");
+        const gate = evaluateGate(cwd, "demo", 3, null, CAPS_ON);
+        assert.ok(!gate.passed);
+        assert.match(gate.failures.join("\n"), /封金/);
+    });
+    it("已启用 + 草稿 + 封金快照 → 过；declined 同未启用", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        writeFilledStageArtifacts("demo", 3);
+        mkdirSync(join(cwd, ".hapilon", "go-case"), { recursive: true });
+        writeFileSync(join(cwd, ".hapilon", "go-case", "cases.yaml"), "cases: []", "utf-8");
+        writeFileSync(join(cwd, ".hapilon", "go-case", "frozen.md"), "v3 快照", "utf-8");
+        assert.ok(evaluateGate(cwd, "demo", 3, null, CAPS_ON).passed);
+        assert.ok(evaluateGate(cwd, "demo", 3, null, { "golden-case": { status: "declined" } }).passed);
+    });
+});
+describe("Capability：prompt 注入与防骚扰", () => {
+    beforeEach(() => freshCwd());
+    function atStage(slug, target) {
+        runOk(gotoStageEffect(cwd, slug, target, "测试定位"));
+    }
+    it("未决定：S2/S3 出现推荐条款，S4 起静默", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        atStage("demo", 2);
+        assert.match(buildStagePrompt({ state: runOk(loadFlowEffect(cwd, "demo")), cwd }), /能力推荐（golden-case/);
+        atStage("demo", 3);
+        assert.match(buildStagePrompt({ state: runOk(loadFlowEffect(cwd, "demo")), cwd }), /能力推荐（golden-case/);
+        atStage("demo", 4);
+        assert.doesNotMatch(buildStagePrompt({ state: runOk(loadFlowEffect(cwd, "demo")), cwd }), /能力推荐|能力上下文/);
+    });
+    it("已拒绝：全程静默（S2 也不出现推荐）", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        atStage("demo", 2);
+        runOk(setCapabilityEffect(cwd, "demo", "golden-case", "declined", "纯视觉"));
+        const state = runOk(loadFlowEffect(cwd, "demo"));
+        assert.deepEqual(capabilityBlock(cwd, state), []);
+        assert.doesNotMatch(buildStagePrompt({ state, cwd }), /golden-case/);
+    });
+    it("已启用 S3：主工作点指引 + 上下文存在性降级", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        atStage("demo", 3);
+        runOk(setCapabilityEffect(cwd, "demo", "golden-case", "enabled", ""));
+        let prompt = buildStagePrompt({ state: runOk(loadFlowEffect(cwd, "demo")), cwd });
+        assert.match(prompt, /主工作点/);
+        assert.doesNotMatch(prompt, /能力上下文/); // 无 go-case 文件 → 降级不列
+        mkdirSync(join(cwd, ".hapilon", "go-case"), { recursive: true });
+        writeFileSync(join(cwd, ".hapilon", "go-case", "cases.yaml"), "cases: []", "utf-8");
+        writeFileSync(join(cwd, ".hapilon", "go-case", "frozen.md"), "v3", "utf-8");
+        prompt = buildStagePrompt({ state: runOk(loadFlowEffect(cwd, "demo")), cwd });
+        assert.match(prompt, /能力上下文（golden-case·需要时参考）：\.hapilon\/go-case\/cases\.yaml/);
+    });
+    it("已启用 S6：观察指引 + 禁止路径 + manifest 上下文", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        atStage("demo", 6);
+        runOk(setCapabilityEffect(cwd, "demo", "golden-case", "enabled", ""));
+        mkdirSync(join(cwd, ".hapilon", "go-case"), { recursive: true });
+        writeFileSync(join(cwd, ".hapilon", "go-case", "frozen.md"), "v3", "utf-8");
+        writeFileSync(join(cwd, ".hapilon", "go-case", "manifest.json"), "{}", "utf-8");
+        const prompt = buildStagePrompt({ state: runOk(loadFlowEffect(cwd, "demo")), cwd });
+        assert.match(prompt, /Implementation Observation/);
+        assert.match(prompt, /禁止路径/);
+        assert.match(prompt, /能力上下文（golden-case·必读）：\.hapilon\/go-case\/frozen\.md/);
+        assert.match(prompt, /需要时参考）：.*manifest\.json/);
+    });
+    it("已启用 S4：frozen 权威 + 上游检查含能力条款；S7 两问；S9 记位置", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        atStage("demo", 4);
+        runOk(setCapabilityEffect(cwd, "demo", "golden-case", "enabled", ""));
+        mkdirSync(join(cwd, ".hapilon", "go-case"), { recursive: true });
+        writeFileSync(join(cwd, ".hapilon", "go-case", "frozen.md"), "v3", "utf-8");
+        let prompt = buildStagePrompt({ state: runOk(loadFlowEffect(cwd, "demo")), cwd });
+        assert.match(prompt, /权威约束/);
+        assert.match(prompt, /能力可以发现问题，没有上游修改权/);
+        for (const stage of [7, 9]) {
+            runOk(gotoStageEffect(cwd, "demo", stage, "定位"));
+            prompt = buildStagePrompt({ state: runOk(loadFlowEffect(cwd, "demo")), cwd });
+            assert.match(prompt, stage === 7 ? /A\. implementation 是否满足 frozen case/ : /不复制内容/);
+        }
+    });
+    it("status 与 freeze note 的能力行", () => {
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        runOk(setCapabilityEffect(cwd, "demo", "golden-case", "enabled", "金额真值"));
+        const state = runOk(loadFlowEffect(cwd, "demo"));
+        assert.match(renderStatus(cwd, state), /golden-case 已启用（S0 起：金额真值）/, capabilityStatusLine(state));
+        assert.match(buildFreezeNote(state), /case 资产在 \.hapilon\/go-case\//);
+        runOk(setCapabilityEffect(cwd, "demo", "golden-case", "declined", ""));
+        assert.match(capabilityStatusLine(runOk(loadFlowEffect(cwd, "demo"))), /已拒绝/);
+    });
+    it("S4 skills 含 artifact-assist（次激活）", () => {
+        assert.ok(STAGES[4].skills.includes("artifact-assist"));
+    });
+});
+describe("Capability：cap 命令与补全", () => {
+    beforeEach(() => freshCwd());
+    it("cap enable / decline / 裸 cap / 未知 id", async () => {
+        const { pi, commands } = makeMockPi();
+        hplBuildAiFlow(pi);
+        const handler = commands.get("build-ai-flow").handler;
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        let { ctx, notifies } = makeMockCtx();
+        await handler("cap golden-case enable 金额真值", ctx);
+        assert.ok(notifies.some((n) => n.msg.includes("已启用") && n.kind === "info"));
+        assert.equal(runOk(loadFlowEffect(cwd, "demo")).capabilities["golden-case"]?.status, "enabled");
+        ({ ctx, notifies } = makeMockCtx());
+        await handler("cap nope enable", ctx);
+        assert.ok(notifies.some((n) => n.msg.includes("未知能力")));
+        ({ ctx, notifies } = makeMockCtx());
+        await handler("cap", ctx);
+        assert.ok(notifies.some((n) => n.msg.includes("已启用")));
+        ({ ctx, notifies } = makeMockCtx());
+        await handler("cap golden-case decline 换思路", ctx);
+        assert.ok(notifies.some((n) => n.msg.includes("已拒绝")));
+    });
+    it("无活跃 flow 时 cap 报错；补全含 cap 候选", async () => {
+        const { pi, commands } = makeMockPi();
+        hplBuildAiFlow(pi);
+        const { ctx, notifies } = makeMockCtx();
+        await commands.get("build-ai-flow").handler("cap golden-case enable", ctx);
+        assert.ok(notifies.some((n) => n.msg.includes("没有活跃 flow")));
+        runOk(startFlowEffect(cwd, "demo", "演示", ""));
+        runOk(setCapabilityEffect(cwd, "demo", "golden-case", "enabled", ""));
+        const subs = buildCompletions("", cwd);
+        assert.ok(subs.some((c) => c.value === "cap golden-case "));
+        const ops = buildCompletions("cap golden-case", cwd);
+        assert.ok(ops.some((c) => c.value === "cap golden-case enable "));
+        assert.ok(ops.some((c) => c.value === "cap golden-case decline "));
     });
 });

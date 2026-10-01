@@ -3,6 +3,7 @@
  */
 import { STAGES, stageByIndex, CONTEXT } from "./stages.js";
 import { listArtifacts, openDebts } from "./machine.js";
+import { capabilityBlock, capabilityStatusLine } from "./capabilities.js";
 export function buildStagePrompt(opts) {
     const { state, cwd } = opts;
     const def = stageByIndex(state.stage);
@@ -21,9 +22,12 @@ export function buildStagePrompt(opts) {
     lines.push("");
     // 上游前提检查（仅 S4–S9）：AI 有回退建议权，没有回退执行权
     if (state.stage >= 4) {
-        lines.push("上游前提检查：若发现无法可靠继续的原因来自已确认的上游结论（Frame / Definition / Decision / Design 等）——不自行修改上游，不为了完成本阶段硬做；指出哪个前提可能失效、给出新证据、说明对当前工作的影响、建议回退到哪个阶段，然后停下等用户决定 goto。你有回退建议权，没有回退执行权。");
+        lines.push("上游前提检查：若发现无法可靠继续的原因来自已确认的上游结论（Frame / Definition / Decision / Design 等）——不自行修改上游，不为了完成本阶段硬做；指出哪个前提可能失效、给出新证据、说明对当前工作的影响、建议回退到哪个阶段，然后停下等用户决定 goto。你有回退建议权，没有回退执行权。能力（如 golden-case）暴露上游问题同此办理：能力可以发现问题，没有上游修改权。");
         lines.push("");
     }
+    // 能力区块（golden-case 推荐/指引/上下文；已拒绝全静默，未决定仅 S2/S3 出现推荐）
+    for (const line of capabilityBlock(cwd, state))
+        lines.push(line);
     for (const [label, files] of tiers) {
         const present = files.filter((f) => existing.has(f));
         if (present.length > 0)
@@ -70,10 +74,18 @@ export function buildStagePrompt(opts) {
 }
 /** freeze 收尾说明（不再派发阶段 prompt，只给重放/收口指引） */
 export function buildFreezeNote(state) {
+    const capLine = capabilityStatusLine(state);
+    const capGuidance = state.capabilities["golden-case"]?.status === "enabled"
+        ? [
+            "能力：golden-case 已启用——case 资产在 .hapilon/go-case/（frozen.md 权威）；重放与新任务沿用；改业务行为须重新确认 → 新版本封金，adapter 全绿不等于业务对。",
+        ]
+        : [];
     return [
         `【build-ai-flow：${state.name}】已冻结（frozen）。`,
         "",
         "收口产物：spec.md、start-prompt.md、decision-log.md（.hapilon/ai-flow/" + state.slug + "/）。",
+        ...(capLine ? [`能力：${capLine}`] : []),
+        ...capGuidance,
         "重放方式：新会话把 start-prompt.md 内容发给模型即可按固化流程继续。",
         "决策冲突审查：/build-ai-flow audit（冻结前后都可跑）。",
         "要重开：/build-ai-flow goto <0-9> <原因>。",
