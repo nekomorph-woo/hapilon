@@ -158,11 +158,8 @@ async function runSkillsCommand(
   pi: ExtensionAPI,
   invocation: Extract<MetricsInvocation, { kind: "skills" }>,
 ): Promise<void> {
-  // 过程播报走 notify：对话区末尾的 dim 状态行，原地更新、持续可见；footer 同步镜像
-  const notifyProgress = (text: string): void => {
-    ctx.ui?.notify?.(text, "info");
-    ctx.ui?.setStatus?.("hapi-metrics", text);
-  };
+  // 过程播报走 notify：对话区末尾的 dim 状态行，原地更新、持续可见
+  const notifyProgress = (text: string): void => ctx.ui?.notify?.(text, "info");
   const startMs = invocation.sinceMs ?? Date.now() - SKILLS_WINDOW_MS;
   const endMs = Date.now();
   const startLabel = localDateKey(startMs);
@@ -341,16 +338,22 @@ async function runSkillsCommand(
       origin: stat.origin,
       description: available.find((skill) => skill.name === stat.skill)?.description ?? "",
     })),
-  ].slice(0, 10);
-  const wareNotes = await generateWareNotes(wareItems.map((ware) => ware.name), dataScope, ctx);
-  const wares = wareItems.map((ware) => ({
-    name: ware.name,
-    tag: ware.tag,
-    origin: ORIGIN_LABEL[ware.origin] ?? ware.origin,
-    intro: ware.description || "（暂无描述）",
-    recommend: wareNotes[ware.name.toLowerCase()] ?? "结合你最近的活儿看看它是否对得上。",
-    how: `唤起：/skill:${ware.name} <主题>`,
-  }));
+  ].slice(0, 12);
+  const topNames = stats.slice(0, 3).map((stat) => `${stat.skill}（${stat.total} 次）`).join("、");
+  const nightPct = Math.round((hours.slice(18, 24).reduce((a, b) => a + b, 0) / Math.max(1, events.length)) * 100);
+  const recentContext = `近 ${windowDays} 天高频器物：${topNames}；最忙的一天主打 ${busyDay?.skill ?? "—"}；深夜（18–24）占 ${nightPct}%。`;
+  const wareNotes = await generateWareNotes(wareItems, recentContext, dataScope, ctx);
+  const wares = wareItems.map((ware) => {
+    const note = wareNotes[ware.name.toLowerCase()];
+    return {
+      name: ware.name,
+      tag: ware.tag,
+      origin: ORIGIN_LABEL[ware.origin] ?? ware.origin,
+      intro: note?.intro || ware.description || "（暂无描述）",
+      recommend: note?.recommend || "结合你最近的活儿看看它是否对得上。",
+      how: `唤起：/skill:${ware.name} <主题>`,
+    };
+  });
 
   const reportRecords = [...events]
     .sort((a, b) => b.ts - a.ts)
