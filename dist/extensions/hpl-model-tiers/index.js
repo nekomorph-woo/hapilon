@@ -181,8 +181,8 @@ export default function hplModelTiers(pi) {
             console.warn(`[hpl-model-tiers] 读取可用模型失败，按空档位继续：${String(error)}`);
             return emptyResult();
         }))));
-        // resume/fork/reload 时档位照常装配，但汇总行只在新会话打——不重复复述
-        if (event.reason !== "startup" && event.reason !== "new")
+        // 汇总行只在进程启动打一次；/new、resume、fork、reload 时档位静默装配——team mode 下 /new 频繁，重打纯噪音
+        if (event.reason !== "startup")
             return;
         const reloadHint = result.settingsChanged ? "，已写入 Pi settings；请执行 /reload" : "";
         console.log(`[hpl-model-tiers] opus=${result.tiers.opus.length} sonnet=${result.tiers.sonnet.length} haiku=${result.tiers.haiku.length}${reloadHint}`);
