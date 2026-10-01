@@ -13,6 +13,14 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 - `npm run test:unit` 全量单测；改 extensions/prompt 后先跑相关文件再跑全量。
 - TypeScript 走 Effect 风格：typed errors（Data.TaggedError）、Effect.gen，见 effect-typescript 技能。
 
+## Effect TS（写代码前先读这段）
+
+- 新代码默认 Effect：`Effect.gen` + typed errors（`Data.TaggedError`），错误进类型签名（`Effect<Success, Error>`）；不裸 throw、不用 try/catch 吞错。
+- Promise 边界用 `Effect.tryPromise({ try, catch })` 包装，catch 把 unknown 归一为带 message 的 typed error。
+- catch 之后禁止静默降级：要么进错误通道，要么 `console.warn` + 明确命名的降级值——不许当无事发生。
+- 例外（允许普通 async/await 或裸 throw）：纯同步小工具函数、已定型不再改动的 async 遗留代码、及其测试。
+- 动手前先读 effect-typescript 技能；拿不准某处该不该用 Effect 时，用。
+
 ## 提交纪律
 
 - Conventional commits：type/scope 英文，描述与正文简体中文（覆盖 snap 按历史提交推断语言的默认优先级——历史是英文，新提交仍走中文）；业务高度（用户视角，一行一个想法，禁止罗列文件/版本号）；正文 ≤3 行只讲 why——即 snap skill 的标准。
@@ -28,6 +36,8 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 - 文档落盘：调研/决策笔记 → `docs/research/`；用户明示留存的交付物 → `docs/artifacts/`；临时产物 → `.hapilon/<skill>/` 或 OS temp；领域词汇表（ubiquitous language）→ `.hapilon/CONTEXT.md`。
 
 ## 已知坑
+
+- Effect 风格是高频失守点：连写过 Effect 的人也会在赶活时退回裸 throw/async——review 与自检时优先看这条。
 
 - dev 模式 `devhapi` 的 HAPILON_HOME 是 `~/.hapilon-dev`（配置、sessions、模型档位都在那边，别查错家目录）。
 - model-tiers 双层配置：全局 `~/.hapilon*/model-tiers.json` + 项目 `.hapilon/model-tiers.json`，项目按档覆盖全局。
