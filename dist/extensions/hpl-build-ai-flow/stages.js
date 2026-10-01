@@ -32,7 +32,7 @@ export const STAGES = [
         slug: "explore",
         zh: "探索事实",
         coreQuestion: "客观世界现在是什么样？",
-        autonomy: "高提问权低决策权：可自由调查并标记推断；不可把建议混成事实，不可替用户拍板口径。",
+        autonomy: "高提问权低决策权：可自由调查并标记推断；不可把建议混成事实，不可替用户拍板口径。重调查默认委派 subagent：读仓库、搜外部资料、跑数据探查这类会产生大量中间输出的调查，派子代理执行，主会话只收结论与出处；明确只需读一两个文件的小调查可直接做，不为委派而委派。",
         checklist: [
             "数据源清单及各自可信度（哪个是权威源、哪个是历史遗留）",
             "字段 / 文件 / 仓库分别代表什么",
@@ -127,7 +127,7 @@ export const STAGES = [
         slug: "prototype",
         zh: "极端原型",
         coreQuestion: "最肥最瘦两个案例都成立吗？",
-        autonomy: "高执行权低需求修改权：可自由实现两个样例；不可改已拍板的口径与视觉方向。",
+        autonomy: "高执行权低需求修改权：可自由实现两个样例；不可改已拍板的口径与视觉方向。实现与验证默认委派 subagent：把 design.md、visual-direction.md 与两个样例的要求交给子代理搭建并跑通，主会话只收报告、抽查关键文件、向用户汇报；发现结构撑不住时建议回退（goto 建议），不自行改设计。例外仅限改动个位数文件的小修补。",
         checklist: [
             "一肥：选数据最多 / 最复杂 / 信息密度最高的案例",
             "一瘦：选数据最少 / 缺口最大 / 异常最明显的案例",
@@ -145,7 +145,7 @@ export const STAGES = [
         slug: "inspect",
         zh: "反向验收",
         coreQuestion: "它最可能怎样误导我？",
-        autonomy: "切换成 Reviewer：高质疑权，零粉饰权——只挑问题，不夸自己。",
+        autonomy: "审查由未参与实现的 subagent 执行：派发时只给产物文件、frame 与验收清单，不给实现过程的对话上下文——审查者的价值在陌生眼睛。主会话负责汇总裁决（Fail 修复、Concern 列单）与执行修复。高质疑权，零粉饰权——只挑问题，不夸自己。",
         checklist: [
             "实际打开 / 运行产物，从用户视角走一遍",
             "0 有没有被隐藏；Unknown 有没有被包装成结论",
@@ -165,7 +165,7 @@ export const STAGES = [
         slug: "scale",
         zh: "扩全量",
         coreQuestion: "是在复制已验证模式，还是重新发明系统？",
-        autonomy: "高执行权低需求修改权：只扩数据不改结构；要改规则先出 Proposal 追加 decision-log——推翻旧口径时用 supersedes 事件行，不许偷改。",
+        autonomy: "高执行权低需求修改权：只扩数据不改结构；要改规则先出 Proposal 追加 decision-log——推翻旧口径时用 supersedes 事件行，不许偷改。扩全量的批量实现默认委派 subagent：子代理按 prototype/self-review 确认过的模式复制执行，主会话收进度与结果、裁决偏差；规则级改动仍由主会话出 Proposal 留痕。",
         checklist: [
             "只扩数据，不动已确认的信息架构与视觉身份",
             "新情况先标 Unknown / Proposal，不偷偷改口径",
