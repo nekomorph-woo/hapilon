@@ -115,7 +115,7 @@ function expandSkill(command: string): string {
 }
 ```
 
-- For a visual UI, layout, state comparison, or concept too dense for Mermaid, write one focused HTML file — a diagram, an infographic, or a short slide deck, whichever fits the point. Match the product's colors, type, spacing, and components; use real labels and data; support desktop and mobile. Then self-check it (no `SLOT` markers or placeholder text left; every table-of-contents anchor points at a section id that exists; one file, zero external resources), save it to `.hapilon/show-me/<slug>.html`, and open it for the user:
+- For a visual UI, layout, state comparison, or concept too dense for Mermaid, write one focused HTML file — a diagram, an infographic, or a short slide deck, whichever fits the point. Read the **artifact** skill's `references/design.md` first and hold to its non-negotiables. One visual answers one question: name what is primary and what is secondary before writing, and give them visibly different weight — differences in depth along one axis (tiers, levels, degrees) are a scale, not equal-weight cards. Match the product's colors, type, spacing, and components; use real labels and data; support desktop and mobile. Then self-check it (no `SLOT` markers or placeholder text left; every table-of-contents anchor points at a section id that exists; one file, zero external resources), save it to `.hapilon/show-me/<slug>.html`, and open it for the user:
 
 ```
 Bash(open .hapilon/show-me/<slug>.html)

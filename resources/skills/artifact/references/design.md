@@ -38,6 +38,10 @@ Fundamentals below apply to everything. The editorial process after that runs on
 
 **Structure is information** Structural devices, numbering, eyebrows, dividers, labels, should encode something true about the content, not decorate it. Many generic designs use numbered markers (01 / 02 / 03), but that's only appropriate if the content actually is a sequence — like a real process or a typed timeline where order carries information the reader needs. Question if choices like numbered markers actually make sense before incorporating them.
 
+**Answer the brought question first.** Before writing markup, name the one question the reader arrives with; the opening (or first screen) answers it directly — a one-line thesis plus the single visual that carries it. Order what follows by the reader's likely follow-up questions, not by the source material's order.
+
+**Name the hierarchy.** Before writing markup, label what is primary, what is secondary, and what is background, and spend visual weight accordingly — at least two tiers, visibly different. Items that differ only in depth along one axis (tiers, levels, degrees) are a scale or gradient, never equal-weight cards.
+
 **When it's a UI, not a document** A dashboard or tool is scanned and operated, not read top-to-bottom, so the craft shifts from typography to information design. Surface the summary before the detail; encode state in form as well as number — a pill, a chip, a severity stripe — so what needs attention reads at a glance. Semantic color (good / warning / critical) is separate from the accent hue and doesn't count as your accent. Give sparklines and charts the same care as type: an area fill, a faint grid, an emphasized endpoint. What's interactive should look interactive.
 
 ## Numeric system (shared across all output)
