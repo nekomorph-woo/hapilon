@@ -1,0 +1,528 @@
+/**
+ * machine.ts — 状态机：state.json 读写、迁移、Gate 机械评估
+ *
+ * 单会话假设（设计 §5）：流程设计为一次会话内从 S0 走到 freeze，
+ * 不设跨会话恢复迁移；意外中断后文件仍在，goto 可手工续走。
+ */
+
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { Data, Effect } from "effect";
+import { GATE_MARKERS, LAST_STAGE, stageByIndex, STALE_EXEMPT, STAGES } from "./stages.js";
+
+// ─── typed errors ────────────────────────────────────────────────────
+
+export class FlowStateError extends Data.TaggedError("FlowStateError")<{
+  message: string;
+}> {}
+
+// ─── 类型 ────────────────────────────────────────────────────────────
+
+export type TransitionKind =
+  | "start"
+  | "advance"
+  | "force"
+  | "skip"
+  | "regress"
+  | "revisit"
+  | "freeze"
+  | "reopen"
+  | "debt-resolve";
+
+export interface HistoryEntry {
+  kind: TransitionKind;
+  from?: number;
+  to: number;
+  reason?: string;
+  gaps?: string[];
+  at: string;
+}
+
+/** Gate 缺口欠账：force 强推留下，显式 resolve 才关闭，不自动猜测 */
+export interface GateDebt {
+  id: string;
+  stage: number;
+  gaps: string[];
+  createdAt: string;
+  resolvedAt?: string;
+  resolution?: string;
+}
+
+/** 上游回退标记：from 起的阶段产物有效性待重新确认（存在 ≠ 当前有效） */
+export interface StaleMark {
+  from: number;
+  at: string;
+}
+
+export interface FlowState {
+  version: 1;
+  slug: string;
+  name: string;
+  goal: string;
+  status: "active" | "frozen";
+  stage: number;
+  createdAt: string;
+  updatedAt: string;
+  history: HistoryEntry[];
+  /** 旧 state 无此字段，解析时补 []（版本仍为 1，向后兼容） */
+  debts: GateDebt[];
+  /** 上游回退后的待重确认起点；null = 无回退影响。旧 state 缺省补 null */
+  stale: StaleMark | null;
+}
+
+export function openDebts(state: FlowState): GateDebt[] {
+  return state.debts.filter((d) => !d.resolvedAt);
+}
+
+export interface GateResult {
+  passed: boolean;
+  failures: string[];
+}
+
+// ─── 路径 ────────────────────────────────────────────────────────────
+
+export function aiFlowRoot(cwd: string): string {
+  return join(cwd, ".hapilon", "ai-flow");
+}
+
+export function flowDir(cwd: string, slug: string): string {
+  return join(aiFlowRoot(cwd), slug);
+}
+
+export function statePath(cwd: string, slug: string): string {
+  return join(flowDir(cwd, slug), "state.json");
+}
+
+export function activePath(cwd: string): string {
+  return join(aiFlowRoot(cwd), "active.json");
+}
+
+/** slug 只做最低限度清洗（去路径分隔符与空白），不做过度转写，中文名可用 */
+export function slugify(raw: string): string {
+  return raw.trim().replace(/[/\\]+/g, "-").replace(/\s+/g, "-").slice(0, 64);
+}
+
+// ─── 读写 ────────────────────────────────────────────────────────────
+
+function parseState(raw: string, path: string): FlowState {
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(raw);
+  } catch (error) {
+    throw new FlowStateError({
+      message: `${path} 不是合法 JSON（${error instanceof Error ? error.message : String(error)}）。若文件被截断，可参考同目录产物手工修复`,
+    });
+  }
+  if (typeof parsedJson !== "object" || parsedJson === null) {
+    throw new FlowStateError({ message: `${path} 顶层不是对象，请人工检查` });
+  }
+  const s = parsedJson as Record<string, unknown>;
+
+  // 机器控制字段 fail closed；展示字段（name/goal/时间戳）fail soft
+  if (s.version !== undefined && s.version !== 1) {
+    throw new FlowStateError({ message: `${path} 的 state version ${String(s.version)} 不受支持（当前支持 1）——可能由更新版本的 hapilon 写入` });
+  }
+  if (typeof s.slug !== "string" || s.slug === "") {
+    throw new FlowStateError({ message: `${path} 缺 slug 字段，请人工检查` });
+  }
+  if (typeof s.stage !== "number" || !Number.isInteger(s.stage) || s.stage < 0 || s.stage > LAST_STAGE) {
+    throw new FlowStateError({ message: `${path} 的 stage 非法：${String(s.stage)}（合法 0..${LAST_STAGE}）` });
+  }
+  if (s.status !== "active" && s.status !== "frozen") {
+    throw new FlowStateError({
+      message: `${path} 的 status 非法："${String(s.status)}"（合法 active | frozen）。请手工修正后重试`,
+    });
+  }
+  if (!Array.isArray(s.history)) {
+    throw new FlowStateError({ message: `${path} 的 history 不是数组——状态审计数据损坏，请人工检查` });
+  }
+  for (const [i, h] of s.history.entries()) {
+    if (typeof h !== "object" || h === null || typeof (h as { kind?: unknown }).kind !== "string") {
+      throw new FlowStateError({ message: `${path} 的 history[${i}] 缺 kind 字段，请人工检查` });
+    }
+  }
+  const debts: GateDebt[] = Array.isArray(s.debts)
+    ? s.debts.flatMap((d) => {
+        if (typeof d !== "object" || d === null) return [];
+        const r = d as Record<string, unknown>;
+        if (typeof r.id !== "string" || typeof r.stage !== "number" || !Array.isArray(r.gaps)) return [];
+        return [{
+          id: r.id,
+          stage: r.stage,
+          gaps: r.gaps.map(String),
+          createdAt: typeof r.createdAt === "string" ? r.createdAt : "",
+          ...(typeof r.resolvedAt === "string" ? { resolvedAt: r.resolvedAt } : {}),
+          ...(typeof r.resolution === "string" ? { resolution: r.resolution } : {}),
+        }];
+      })
+    : [];
+
+  let stale: StaleMark | null = null;
+  if (s.stale !== undefined && s.stale !== null) {
+    const t = s.stale as Record<string, unknown>;
+    if (
+      typeof t.from !== "number" ||
+      !Number.isInteger(t.from) ||
+      t.from < 0 ||
+      t.from > LAST_STAGE ||
+      typeof t.at !== "string"
+    ) {
+      throw new FlowStateError({ message: `${path} 的 stale 字段非法（应为 {from: 0..${LAST_STAGE}, at} 或 null），请人工检查` });
+    }
+    stale = { from: t.from, at: t.at };
+  }
+
+  return {
+    version: 1,
+    slug: s.slug,
+    name: typeof s.name === "string" ? s.name : s.slug,
+    goal: typeof s.goal === "string" ? s.goal : "",
+    status: s.status,
+    stage: s.stage,
+    createdAt: typeof s.createdAt === "string" ? s.createdAt : "",
+    updatedAt: typeof s.updatedAt === "string" ? s.updatedAt : "",
+    history: s.history as HistoryEntry[],
+    debts,
+    stale,
+  };
+}
+
+export const loadFlowEffect = (cwd: string, slug: string): Effect.Effect<FlowState, FlowStateError> =>
+  Effect.try({
+    try: () => parseState(readFileSync(statePath(cwd, slug), "utf-8"), statePath(cwd, slug)),
+    catch: (error) => new FlowStateError({ message: `读取 ${statePath(cwd, slug)} 失败：${String(error)}` }),
+  });
+
+/** 控制面原子写：同目录临时文件 → rename。失败清理 temp，原文件不被半截 JSON 替换 */
+export function writeFileAtomic(path: string, content: string): void {
+  const tmp = `${path}.tmp`;
+  try {
+    writeFileSync(tmp, content, "utf-8");
+    renameSync(tmp, path);
+  } catch (error) {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      /* 清理尽力而为 */
+    }
+    throw error;
+  }
+}
+
+function writeFlow(cwd: string, state: FlowState): void {
+  const dir = flowDir(cwd, state.slug);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileAtomic(statePath(cwd, state.slug), `${JSON.stringify(state, null, 2)}\n`);
+}
+
+export const readActiveEffect = (cwd: string): Effect.Effect<string | null, FlowStateError> =>
+  Effect.try({
+    try: () => {
+      const path = activePath(cwd);
+      if (!existsSync(path)) return null;
+      const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+      const slug = (parsed as { slug?: unknown }).slug;
+      return typeof slug === "string" && slug !== "" ? slug : null;
+    },
+    catch: (error) => new FlowStateError({ message: `读取 ${activePath(cwd)} 失败：${String(error)}` }),
+  });
+
+export function writeActive(cwd: string, slug: string): void {
+  const root = aiFlowRoot(cwd);
+  if (!existsSync(root)) mkdirSync(root, { recursive: true });
+  writeFileAtomic(activePath(cwd), `${JSON.stringify({ slug }, null, 2)}\n`);
+}
+
+/** 列出磁盘上全部 flow（不含 state.json 损坏的目录，坏目录单独标出） */
+export interface FlowSummary {
+  slug: string;
+  stage: number;
+  status: "active" | "frozen";
+  goal: string;
+  updatedAt: string;
+}
+
+export const listFlowsEffect = (cwd: string): Effect.Effect<FlowSummary[], FlowStateError> =>
+  Effect.gen(function* () {
+    const root = aiFlowRoot(cwd);
+    if (!existsSync(root)) return [];
+    const out: FlowSummary[] = [];
+    for (const entry of readdirSync(root, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!entry.isDirectory()) continue;
+      const state = yield* loadFlowEffect(cwd, entry.name).pipe(
+        Effect.catchAll(() => Effect.succeed<FlowState | null>(null)),
+      );
+      if (!state) continue;
+      out.push({ slug: state.slug, stage: state.stage, status: state.status, goal: state.goal, updatedAt: state.updatedAt });
+    }
+    return out;
+  });
+
+// ─── 迁移 ────────────────────────────────────────────────────────────
+
+function append(state: FlowState, entry: HistoryEntry): FlowState {
+  return {
+    ...state,
+    stage: entry.to,
+    updatedAt: new Date().toISOString(),
+    history: [...state.history, entry],
+  };
+}
+
+export const startFlowEffect = (
+  cwd: string,
+  slug: string,
+  name: string,
+  goal: string,
+): Effect.Effect<FlowState, FlowStateError> =>
+  Effect.gen(function* () {
+    if (slug === "") return yield* new FlowStateError({ message: "slug 不能为空" });
+    if (existsSync(statePath(cwd, slug))) {
+      return yield* new FlowStateError({
+        message: `flow「${slug}」已存在。机器状态与产物全在磁盘，不依赖会话：续走用 /build-ai-flow goto <阶段> <原因>，或 hapi 会话 resume 恢复对话上下文；开新任务请换名`,
+      });
+    }
+    const now = new Date().toISOString();
+    const state: FlowState = {
+      version: 1,
+      slug,
+      name: name || slug,
+      goal,
+      status: "active",
+      stage: 0,
+      createdAt: now,
+      updatedAt: now,
+      history: [{ kind: "start", to: 0, at: now }],
+      debts: [],
+      stale: null,
+    };
+    writeFlow(cwd, state);
+    writeActive(cwd, slug);
+    return state;
+  });
+
+export type AdvanceOutcome =
+  | { kind: "advanced"; state: FlowState }
+  | { kind: "needs-confirm"; state: FlowState; gaps: string[] }
+  /** S9 Gate 已过但未落盘——审查与用户确认后才由 freezeFlowEffect 提交 */
+  | { kind: "ready-to-freeze"; state: FlowState }
+  | { kind: "frozen"; state: FlowState };
+
+/**
+ * next 的推进逻辑：gate 过 → advance（S9 过 → freeze）；gate 不过 → needs-confirm，
+ * 由命令层 confirm 后调 forceAdvance。人不点头不推进。
+ */
+export const advanceFlowEffect = (cwd: string, slug: string): Effect.Effect<AdvanceOutcome, FlowStateError> =>
+  Effect.gen(function* () {
+    let state = yield* loadFlowEffect(cwd, slug);
+    if (state.status === "frozen") return { kind: "frozen", state };
+    const gate = evaluateGate(cwd, slug, state.stage, state.stale);
+    if (!gate.passed) return { kind: "needs-confirm", state, gaps: gate.failures };
+    if (state.stage === LAST_STAGE) {
+      // 两阶段提交：这里只报「可冻结」，不写盘——审查/确认后的提交在 freezeFlowEffect
+      return { kind: "ready-to-freeze", state };
+    }
+    state = append(state, { kind: "advance", from: state.stage, to: state.stage + 1, at: new Date().toISOString() });
+    state = advanceStale(state, state.stage - 1);
+    writeFlow(cwd, state);
+    return { kind: "advanced", state };
+  });
+
+function nextDebtId(state: FlowState): string {
+  const max = state.debts.reduce((m, d) => Math.max(m, Number.parseInt(d.id.replace(/^G-/, ""), 10) || 0), 0);
+  return `G-${String(max + 1).padStart(3, "0")}`;
+}
+
+function addDebt(state: FlowState, stage: number, gaps: string[], now: string): FlowState {
+  return { ...state, debts: [...state.debts, { id: nextDebtId(state), stage, gaps, createdAt: now }] };
+}
+
+/** 刚通过 passedStage 的 Gate 后滚动 stale 起点；越过末尾清除。保留原 at——重存时间只需晚于原始回退时刻 */
+function advanceStale(state: FlowState, passedStage: number): FlowState {
+  if (!state.stale || state.stale.from > passedStage) return state;
+  const from = passedStage + 1;
+  return from > LAST_STAGE ? { ...state, stale: null } : { ...state, stale: { ...state.stale, from } };
+}
+
+export interface ForceOutcome {
+  kind: "advanced" | "ready-to-freeze";
+  state: FlowState;
+  /** S9 强推时的 Gate 缺口：随 freeze 提交进 debt（统一表示，不做第二套） */
+  gaps?: string[];
+}
+
+export const forceAdvanceEffect = (
+  cwd: string,
+  slug: string,
+  gaps: string[],
+): Effect.Effect<ForceOutcome, FlowStateError> =>
+  Effect.gen(function* () {
+    let state = yield* loadFlowEffect(cwd, slug);
+    if (state.status === "frozen") return { kind: "advanced", state };
+    if (state.stage === LAST_STAGE) return { kind: "ready-to-freeze", state, gaps };
+    const now = new Date().toISOString();
+    const from = state.stage;
+    state = append(state, { kind: "force", from, to: from + 1, gaps, at: now });
+    state = addDebt(state, from, gaps, now);
+    state = advanceStale(state, from);
+    writeFlow(cwd, state);
+    return { kind: "advanced", state };
+  });
+
+/** 显式关闭 debt：不自动猜测，人确认补齐后才调用 */
+export const resolveDebtEffect = (
+  cwd: string,
+  slug: string,
+  id: string,
+  resolution: string,
+): Effect.Effect<FlowState, FlowStateError> =>
+  Effect.gen(function* () {
+    if (resolution.trim() === "") {
+      return yield* new FlowStateError({ message: "resolve 必须带说明：/build-ai-flow debt resolve <id> <说明>" });
+    }
+    let state = yield* loadFlowEffect(cwd, slug);
+    const debt = openDebts(state).find((d) => d.id === id.trim());
+    if (!debt) {
+      const open = openDebts(state).map((d) => d.id).join("、") || "无";
+      return yield* new FlowStateError({ message: `未找到未关闭的 debt ${id}（当前未关闭：${open}）` });
+    }
+    const now = new Date().toISOString();
+    state = {
+      ...state,
+      debts: state.debts.map((d) =>
+        d.id === debt.id ? { ...d, resolvedAt: now, resolution: resolution.trim() } : d,
+      ),
+    };
+    state = append(state, { kind: "debt-resolve", to: state.stage, reason: `${debt.id} 已关闭：${resolution.trim()}`, at: now });
+    writeFlow(cwd, state);
+    return state;
+  });
+
+/** freeze 的唯一提交点：append freeze history + status=frozen + 落盘。幂等。S9 强推缺口统一入 debt。 */
+export const freezeFlowEffect = (
+  cwd: string,
+  slug: string,
+  forceGaps?: string[],
+): Effect.Effect<FlowState, FlowStateError> =>
+  Effect.gen(function* () {
+    let state = yield* loadFlowEffect(cwd, slug);
+    if (state.status === "frozen") return state;
+    const now = new Date().toISOString();
+    state = append(state, { kind: "freeze", from: LAST_STAGE, to: LAST_STAGE, at: now });
+    if (forceGaps && forceGaps.length > 0) state = addDebt(state, LAST_STAGE, forceGaps, now);
+    state = advanceStale(state, LAST_STAGE);
+    state = { ...state, status: "frozen" };
+    writeFlow(cwd, state);
+    return state;
+  });
+
+export const gotoStageEffect = (
+  cwd: string,
+  slug: string,
+  target: number,
+  reason: string,
+): Effect.Effect<FlowState, FlowStateError> =>
+  Effect.gen(function* () {
+    if (reason.trim() === "") {
+      return yield* new FlowStateError({ message: "goto 必须带原因：/build-ai-flow goto <0-9> <原因>（回炉/跳过都要留痕）" });
+    }
+    if (target < 0 || target > LAST_STAGE) {
+      return yield* new FlowStateError({ message: `阶段号 ${target} 越界（0..${LAST_STAGE}）` });
+    }
+    let state = yield* loadFlowEffect(cwd, slug);
+    const wasFrozen = state.status === "frozen";
+    const kind: TransitionKind = wasFrozen
+      ? "reopen"
+      : target > state.stage
+        ? "skip"
+        : target < state.stage
+          ? "regress"
+          : "revisit";
+    state = append(state, { kind, from: state.stage, to: target, reason: reason.trim(), at: new Date().toISOString() });
+    if (wasFrozen) state = { ...state, status: "active" };
+    // 回退（regress，或 frozen reopen 到更早阶段）→ 目标之后的阶段产物进入待重确认（stale）；保留更早的标记点
+    const wentBack = kind === "regress" || (wasFrozen && target < LAST_STAGE);
+    if (wentBack && target + 1 <= LAST_STAGE) {
+      state = {
+        ...state,
+        stale: state.stale
+          ? { from: Math.min(state.stale.from, target + 1), at: new Date().toISOString() }
+          : { from: target + 1, at: new Date().toISOString() },
+      };
+    }
+    writeFlow(cwd, state);
+    writeActive(cwd, slug);
+    return state;
+  });
+
+// ─── Gate 机械评估 ──────────────────────────────────────────────────
+
+const MIN_CHARS = 30;
+
+function readFileOrNull(path: string): string | null {
+  if (!existsSync(path)) return null;
+  try {
+    return readFileSync(path, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 机械 Gate（设计 §5）：存在性 + 最小内容 + frame 填空句 + D- 条目 + 结构标记 + stale 重确认。
+ * stale：stage ≥ stale.from 时，产物必须在回退时刻之后重新落盘过（存在 ≠ 当前有效）；
+ * decision-log 豁免（追加式持久认知，不整体失效）。语义质量仍归人。
+ */
+export function evaluateGate(cwd: string, slug: string, stage: number, stale?: StaleMark | null): GateResult {
+  const dir = flowDir(cwd, slug);
+  const def = stageByIndex(stage);
+  const failures: string[] = [];
+  const staleAt = stale && stage >= stale.from ? Date.parse(stale.at) : 0;
+
+  for (const artifact of def.artifacts) {
+    const content = readFileOrNull(join(dir, artifact));
+    if (content === null) {
+      failures.push(`${artifact} 不存在`);
+      continue;
+    }
+    if (content.trim().length < MIN_CHARS) {
+      failures.push(`${artifact} 内容不足（<${MIN_CHARS} 字符）`);
+    }
+    if (staleAt > 0 && !STALE_EXEMPT.has(artifact)) {
+      const mtime = statSync(join(dir, artifact)).mtimeMs;
+      if (mtime <= staleAt) {
+        failures.push(`${artifact} 是上游回退（S${stale!.from - 1}→）之前的旧版本，需基于新上游重新验证/重写后保存（确认仍有效也重新落盘）`);
+      }
+    }
+  }
+
+  if (stage === 2) {
+    const frame = readFileOrNull(join(dir, "frame.md")) ?? "";
+    if (!frame.includes("用来判断")) failures.push("frame.md 缺定位句关键词「用来判断」");
+    if (frame.includes("___")) failures.push("frame.md 定位句还有 ___ 没填");
+  }
+
+  if (stage === 3) {
+    const log = readFileOrNull(join(dir, "decision-log.md")) ?? "";
+    if (!/^D-\d+/m.test(log)) failures.push("decision-log.md 没有 D- 编号条目（格式：D-001｜active｜内容｜日期）");
+  }
+
+  // 结构标记（stages.ts 的 GATE_MARKERS）：机械判"明显步骤有没有做"，不判内容好坏
+  for (const [file, markers] of Object.entries(GATE_MARKERS[def.slug] ?? {})) {
+    const content = readFileOrNull(join(dir, file));
+    if (content === null) continue; // 缺文件已由存在性检查报告
+    for (const marker of markers) {
+      if (!content.includes(marker)) failures.push(`${file} 缺关键结构标记「${marker}」`);
+    }
+  }
+
+  return { passed: failures.length === 0, failures };
+}
+
+/** 全部阶段产物（供渲染/派发引用） */
+export function listArtifacts(cwd: string, slug: string): { name: string; exists: boolean }[] {
+  const dir = flowDir(cwd, slug);
+  const names = new Set<string>();
+  for (const def of STAGES) for (const a of def.artifacts) names.add(a);
+  return [...names].map((name) => ({ name, exists: existsSync(join(dir, name)) }));
+}
