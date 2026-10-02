@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import {
   hapilonLogo,
   isLogoLine,
+  paintLogoLine,
   drawBox,
   layoutColumns,
   parseExtensionsEnv,
@@ -17,7 +18,65 @@ import {
   createStartupHeader,
   shortenWorkspacePath,
   type HeaderData,
+  type LogoPaint,
 } from "../../extensions/hpl-startup-header/content.js";
+
+describe("paintLogoLine()", () => {
+  // mock：fg(token, text) → [token]text，直接断言分段结果
+  const mockTheme = {
+    fg: (token: string, text: string) => `[${token}]${text}`,
+  } as unknown as Parameters<typeof paintLogoLine>[3];
+
+  it("猫身 accent，命中区间换槽位", () => {
+    const line = "⠀⠀⠀⠀⠀⠀⠀⠀⢲⣦"; // 1 号猫 row0，月亮在 char 8-9
+    const paint: LogoPaint = [[0, 8, 10, "warning"]];
+    assert.strictEqual(
+      paintLogoLine(line, paint, 0, mockTheme),
+      "[accent]⠀⠀⠀⠀⠀⠀⠀⠀[warning]⢲⣦",
+    );
+  });
+
+  it("行含外框与居中 pad 时区间仍对齐盲文首字符", () => {
+    const line = "│   ⠀⠀⠀⠀⠀⠀⠀⠀⢲⣦";
+    const paint: LogoPaint = [[0, 8, 10, "warning"]];
+    assert.strictEqual(
+      paintLogoLine(line, paint, 0, mockTheme),
+      "[accent]│   ⠀⠀⠀⠀⠀⠀⠀⠀[warning]⢲⣦",
+    );
+  });
+
+  it("非本行区间不生效，整行 accent", () => {
+    const line = "⠀⠀⠀⠀⠀⠀⠀⠀⢲⣦";
+    const paint: LogoPaint = [[1, 8, 10, "warning"]];
+    assert.strictEqual(
+      paintLogoLine(line, paint, 0, mockTheme),
+      "[accent]⠀⠀⠀⠀⠀⠀⠀⠀⢲⣦",
+    );
+  });
+
+  it("区间越出行尾时安全截断", () => {
+    const line = "⣿⣿"; // 2 字符，区间切到 char 8
+    const paint: LogoPaint = [[6, 0, 8, "dim"]];
+    assert.strictEqual(paintLogoLine(line, paint, 6, mockTheme), "[dim]⣿⣿");
+  });
+
+  it("多区间同行依次切段，段间回 accent", () => {
+    const line = "⣤⡄⠀⠀⠀⢲⣦"; // 构造：尾尖在 0-1、月在 5-6
+    const paint: LogoPaint = [[6, 0, 2, "error"], [6, 5, 7, "warning"]];
+    assert.strictEqual(
+      paintLogoLine(line, paint, 6, mockTheme),
+      "[error]⣤⡄[accent]⠀⠀⠀[warning]⢲⣦",
+    );
+  });
+
+  it("纯文本行（无盲文/方块字符）整行 accent", () => {
+    const paint: LogoPaint = [[0, 0, 5, "warning"]];
+    assert.strictEqual(
+      paintLogoLine("hello world", paint, 0, mockTheme),
+      "[accent]hello world",
+    );
+  });
+});
 
 describe("hapilonLogo()", () => {
   it("返回 8 行盲文点阵 logo", () => {

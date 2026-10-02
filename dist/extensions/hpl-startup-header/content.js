@@ -101,6 +101,51 @@ const LOGOS = [
 ];
 // 模块加载时定一只：resize / 重绘复用同一只，不会闪跳。
 const LOGO_INDEX = Math.floor(Math.random() * LOGOS.length);
+// 与 LOGOS 一一对应；区间 [start, end) 按 LOGOS 行的盲文字符下标。
+const LOGO_PAINTS = [
+    // 0 坐姿：左侧翘尾 + 地面阴影线
+    [[5, 0, 3, "error"], [6, 0, 3, "error"], [7, 0, 9, "dim"]],
+    // 1 坐姿+月：右上月牙 + 尾尖 + 地面
+    [[0, 8, 10, "warning"], [1, 8, 10, "warning"], [6, 7, 9, "error"], [7, 0, 9, "dim"]],
+    // 2 窗边：右侧小窗框 + 底部台面线
+    [[5, 6, 8, "warning"], [6, 0, 9, "dim"]],
+    // 3 窗前：左侧竖尾 + 右侧窗沿
+    [[3, 0, 1, "error"], [4, 0, 2, "error"], [5, 0, 2, "error"], [3, 8, 10, "warning"], [4, 9, 10, "warning"]],
+    // 4 蜷猫：左上小尾巴 + 蜷卧地面线
+    [[3, 1, 4, "error"], [6, 1, 9, "dim"]],
+    // 5 瘦高：右下整条垂尾
+    [[5, 6, 9, "error"], [6, 5, 9, "error"], [7, 4, 7, "error"]],
+    // 6 窗台：猫爪两侧的窗台横线
+    [[5, 0, 2, "dim"], [5, 6, 10, "dim"]],
+    // 7 草地+蝶：右上蝴蝶 + 左侧翘尾 + 草叶与草地
+    [[1, 8, 10, "warning"], [2, 8, 10, "warning"], [4, 1, 3, "error"], [5, 1, 3, "error"], [5, 8, 10, "dim"], [6, 0, 10, "dim"]],
+];
+/**
+ * 给一行 logo 上色：默认 accent，命中区间的字符段换各自槽位。
+ * line 可能带外框边框与居中 pad，区间相对盲文首字符，定位不受影响；
+ * 区间越出行尾时安全截断。同一行的区间须互不重叠且按起点升序（数据保证）。
+ */
+export function paintLogoLine(line, paint, row, theme) {
+    const logoStart = line.search(/[\u2580-\u259F\u2800-\u28FF]/);
+    if (logoStart < 0)
+        return theme.fg("accent", line);
+    const hits = paint
+        .filter(([r]) => r === row)
+        .map(([, s, e, token]) => ({ from: logoStart + s, to: logoStart + e, token }));
+    let out = "";
+    let cursor = 0;
+    for (const h of hits) {
+        if (h.from >= line.length)
+            break;
+        if (h.from > cursor)
+            out += theme.fg("accent", line.slice(cursor, h.from));
+        const end = Math.min(h.to, line.length);
+        out += theme.fg(h.token, line.slice(h.from, end));
+        cursor = end;
+    }
+    out += cursor < line.length ? theme.fg("accent", line.slice(cursor)) : "";
+    return out;
+}
 export function hapilonLogo() {
     return [...LOGOS[LOGO_INDEX]];
 }
@@ -395,6 +440,8 @@ export function createStartupHeader(ctx, _tui, theme, state) {
             const boxed = drawBox(columns, width, title);
             // Apply visual hierarchy
             const hasLinks = getCapabilities().hyperlinks;
+            // logo 行按出现顺序编号（与 LOGOS 行号对应），供撞色区间取行。
+            let logoRow = 0;
             return boxed.map((line, idx) => {
                 if (idx === 0 || idx === boxed.length - 1) {
                     return theme.fg("border", line);
@@ -403,7 +450,7 @@ export function createStartupHeader(ctx, _tui, theme, state) {
                     return line;
                 let colored = line;
                 if (isLogoLine(colored)) {
-                    return theme.fg("accent", colored);
+                    return paintLogoLine(colored, LOGO_PAINTS[LOGO_INDEX], logoRow++, theme);
                 }
                 // Hyperlink: replace raw URL with clickable link (includes its own dim)
                 if (hasLinks && colored.includes("pi.dev/changelog")) {
@@ -413,7 +460,7 @@ export function createStartupHeader(ctx, _tui, theme, state) {
                 const columnSeparator = colored.indexOf(" │ ");
                 if (columnSeparator >= 1 &&
                     isLogoLine(colored.slice(1, columnSeparator))) {
-                    const logoPart = theme.fg("accent", colored.slice(0, columnSeparator));
+                    const logoPart = paintLogoLine(colored.slice(0, columnSeparator), LOGO_PAINTS[LOGO_INDEX], logoRow++, theme);
                     const rightPart = colored.slice(columnSeparator);
                     return logoPart + (isExtensionListLine(colored, data.extensions)
                         ? theme.fg("muted", rightPart)
