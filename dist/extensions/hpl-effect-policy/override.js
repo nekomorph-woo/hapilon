@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -18,7 +19,7 @@ const readOverrideFileEffect = (filePath) => Effect.sync(() => {
         // 不存在是正常态；其余读取/JSON 错误需要让用户知道，但不阻断裁决链。
         if (err?.code === "ENOENT")
             return undefined;
-        console.warn(`Warning: 无法读取 Effect policy override（${filePath}）：${err instanceof Error ? err.message : String(err)}`);
+        notify(`Warning: 无法读取 Effect policy override（${filePath}）：${err instanceof Error ? err.message : String(err)}`);
         return undefined;
     }
     const value = raw && typeof raw === "object" && !Array.isArray(raw)
@@ -26,7 +27,7 @@ const readOverrideFileEffect = (filePath) => Effect.sync(() => {
         : undefined;
     if (isEffectMode(value))
         return value;
-    console.warn(`Warning: Effect policy override 无效（${filePath}）：mode=${JSON.stringify(value)}，跳过该级`);
+    notify(`Warning: Effect policy override 无效（${filePath}）：mode=${JSON.stringify(value)}，跳过该级`);
     return undefined;
 });
 /** 项目级优先，其次全局级；非法项目级不会阻断全局级。 */
@@ -41,7 +42,7 @@ export const readPolicyOverrideEffect = (projectCwd) => Effect.sync(() => {
         return Effect.runSync(readOverrideFileEffect(globalPath));
     }
     catch (err) {
-        console.warn(`Warning: 无法读取 Effect policy override：${err instanceof Error ? err.message : String(err)}`);
+        notify(`Warning: 无法读取 Effect policy override：${err instanceof Error ? err.message : String(err)}`);
         return undefined;
     }
 });

@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { Data, Effect } from "effect";
@@ -35,7 +36,7 @@ const readEconSettingsSync = (agentDirPath) => {
         };
     }
     catch (err) {
-        console.warn(`[hpl-econ] econ-config.json 解析失败，使用默认参数：${err instanceof Error ? err.message : String(err)}`);
+        notify(`[hpl-econ] econ-config.json 解析失败，使用默认参数：${err instanceof Error ? err.message : String(err)}`);
         return { ...ECON_DEFAULTS };
     }
 };

@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -66,6 +67,6 @@ export const readResolvedTiersEffect = Effect.try({
     },
     catch: (error) => error,
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-recap] resolved tiers 读取失败，按空档降级：${String(error)}`);
+    notify(`[hpl-recap] resolved tiers 读取失败，按空档降级：${String(error)}`);
     return { ...EMPTY_RESOLVED };
 })));

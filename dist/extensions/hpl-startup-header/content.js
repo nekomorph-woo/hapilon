@@ -3,6 +3,7 @@
  *
  * 数据与渲染分离，所有业务逻辑无副作用可单测。
  */
+import { notify } from "../notify.js";
 import { hyperlink, getCapabilities } from "@earendil-works/pi-tui";
 import { homedir } from "node:os";
 // ─── Logo ─────────────────────────────────────────────────────────────
@@ -281,7 +282,7 @@ export function parseExtensionsEnv(raw) {
     catch {
         // fall through
     }
-    console.warn("[hpl-startup-header] Invalid HAPILON_EXTENSIONS env, ignoring");
+    notify("[hpl-startup-header] Invalid HAPILON_EXTENSIONS env, ignoring");
     return undefined;
 }
 // ─── Content Builders ─────────────────────────────────────────────────

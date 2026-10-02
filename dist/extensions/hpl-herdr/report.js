@@ -1,3 +1,11 @@
+/**
+ * hpl-herdr 的报告逻辑：把 pi 生命周期事件翻译成 herdr 的 pane report-agent 调用。
+ *
+ * 依据 herdr 官方《Integrate your own agent》:pane 内进程继承 HERDR_ENV /
+ * HERDR_PANE_ID / HERDR_BIN_PATH,用 CLI 上报语义状态即可成为自己的 agent 类型,
+ * 不需要 herdr 原生支持(OMP 是同一先例)。纯函数 + 注入 spawn/env,便于单测。
+ */
+import { notify } from "../notify.js";
 /** 源必须稳定且唯一——herdr 用它区分同一 pane 上的不同上报方 */
 export const HERDR_SOURCE = "custom:hapilon";
 /** 上报的 agent 标识：herdr 界面/agent list 里显示的名字 */
@@ -37,7 +45,7 @@ const REPORT_TIMEOUT_MS = 3000;
  */
 export function createHerdrReporter(deps) {
     const enabled = reporterEnabled(deps.env);
-    const onError = deps.onError ?? ((message) => console.warn(message));
+    const onError = deps.onError ?? ((message) => notify(message));
     // herdr 对每个 (pane, source) 记住已接受的最大 seq，凡 seq <= 它的上报一律「接受但丢弃」
     // （退出码 0、无错误输出），而本扩展每次 /new 或进程重启都会重建、计数从 0 重来，
     // 于是收编/换会话后整个 pane 的上报会静默失效到计数追平旧值为止。

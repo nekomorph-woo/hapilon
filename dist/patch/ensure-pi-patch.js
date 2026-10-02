@@ -35,6 +35,8 @@ const BACKGROUND_TASKS_PACKAGE = "@nklisch/pi-background-tasks";
 const SUBAGENTS_PACKAGE = "@tintinweb/pi-subagents";
 /** SubagentWorkflow 派发模型列表钩子的 marker */
 const HAPI_SUBAGENT_MODELS_MARKER = "__hplSubagentModelsPick";
+/** 状态行追加不覆盖的 marker（showStatus 连续状态不再互相替换） */
+const HAPI_STATUS_STACK_MARKER = "hapiStatusStack";
 /** Bundle chunk directory; the host file is located by signature, not its hash name. */
 const PI_BUNDLE_CHUNKS = "dist/bundle/chunks";
 /**
@@ -301,6 +303,24 @@ export const PATCH_RULES = [
         replace: "            if (modelInput !== undefined) {\n                const resolved = resolveModel(modelInput, ctx.modelRegistry);\n                if (typeof resolved === \"string\") {\n                    if (request.model !== undefined)\n                        return { ok: false, error: resolved };\n                }\n                else {\n                    model = resolved;\n                }\n            }\n            // hapilon: hpl-subagent-models 列表（脚本未点名时；钩子缺席则旁路）\n            if (request.model === undefined) {\n                const picked = globalThis.__hplSubagentModelsPick?.(ctx.cwd);\n                if (picked) {\n                    const fromList = resolveModel(`${picked.provider}/${picked.id}`, ctx.modelRegistry);\n                    if (typeof fromList !== \"string\")\n                        model = fromList;\n                }\n            }",
         occurrences: 1,
         marker: HAPI_SUBAGENT_MODELS_MARKER,
+    },
+    // ── 状态行追加不覆盖：pi 的 showStatus 对连续状态就地替换（防刷屏），扩展经
+    //    ctx.ui.notify 发的多条提示会互相顶掉。去掉替换分支后每条通知各占一行；
+    //    pi 自身的状态提示（Switched to… 等）同样改为追加。
+    {
+        file: "dist/modes/interactive/interactive-mode.js",
+        find: '        if (last && secondLast && last === this.lastStatusText && secondLast === this.lastStatusSpacer) {\n            this.lastStatusText.setText(theme.fg("dim", message));\n            this.ui.requestRender();\n            return;\n        }\n',
+        replace: "        // hapilon: 状态行追加不覆盖（hapiStatusStack）\n",
+        occurrences: 1,
+        marker: HAPI_STATUS_STACK_MARKER,
+    },
+    {
+        file: PI_BUNDLE_CHUNKS,
+        signature: "mdCodeBlockBorder",
+        find: 'if(last&&secondLast&&last===this.lastStatusText&&secondLast===this.lastStatusSpacer){this.lastStatusText.setText(theme.fg("dim",message)),this.ui.requestRender();return}',
+        replace: "/*hapilon:状态行追加不覆盖(hapiStatusStack)*/",
+        occurrences: 1,
+        marker: HAPI_STATUS_STACK_MARKER,
     },
 ];
 /**

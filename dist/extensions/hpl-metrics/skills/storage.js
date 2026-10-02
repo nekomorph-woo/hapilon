@@ -4,6 +4,7 @@
  * 统一目录 <hapilonHome>/agent/skill-metrics/。usage 本身不落盘（每次从会话
  * 文件重放，与 ponytail 同构）；只有计算昂贵或用户编辑的数据才存这里。
  */
+import { notify } from "../../notify.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { agentDir } from "../../../config/hapilon-home.js";
@@ -38,7 +39,7 @@ export function readExcludedSkills() {
         }
     }
     catch (error) {
-        console.warn(`[hpl-metrics] 排除名单读取失败，仅用内置名单：${String(error)}`);
+        notify(`[hpl-metrics] 排除名单读取失败，仅用内置名单：${String(error)}`);
     }
     return excluded;
 }
@@ -54,7 +55,7 @@ export function readGoals() {
         return parsed.filter((item) => typeof item === "string" && item.trim().length > 0);
     }
     catch (error) {
-        console.warn(`[hpl-metrics] 分析目标读取失败，按空表处理：${String(error)}`);
+        notify(`[hpl-metrics] 分析目标读取失败，按空表处理：${String(error)}`);
         return [];
     }
 }

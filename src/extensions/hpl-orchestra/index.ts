@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { Effect } from "effect";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
@@ -172,7 +173,7 @@ export default function hplOrchestra(pi: ExtensionAPI): void {
     if (!saved || !process.env.HAPI_ORCH_ROLE || !process.env.HERDR_PANE_ID) return;
     const model = ctx.modelRegistry.find(saved.provider, saved.id);
     if (!model) {
-      console.warn(`[hpl-orchestra] 恢复用户切模失败：${saved.provider}/${saved.id} 不在模型注册表`);
+      notify(`[hpl-orchestra] 恢复用户切模失败：${saved.provider}/${saved.id} 不在模型注册表`);
       return;
     }
     suppressingRestore = true;

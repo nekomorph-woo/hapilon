@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -68,7 +69,7 @@ function resolveAvailable(tiers: TierModels, available: AvailableModel[]): Recor
       const { thinking } = splitThinkingSuffix(entry);
       const matches = available.filter((model) => matchesModelPattern(entry, model));
       if (matches.length === 0 && !warned.has(entry)) {
-        console.warn(`[hpl-model-tiers] ${tier} pattern 无可用模型匹配，暂保留：${entry}`);
+        notify(`[hpl-model-tiers] ${tier} pattern 无可用模型匹配，暂保留：${entry}`);
         warned.add(entry);
       }
       for (const model of matches) {
@@ -103,11 +104,11 @@ function readSettings(path: string): SettingsObject | undefined {
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
-    console.warn(`[hpl-model-tiers] 无法读取 settings.json，跳过写入：${error instanceof Error ? error.message : String(error)}`);
+    notify(`[hpl-model-tiers] 无法读取 settings.json，跳过写入：${error instanceof Error ? error.message : String(error)}`);
     return undefined;
   }
   if (!isObject(parsed)) {
-    console.warn("[hpl-model-tiers] settings.json 不是对象，跳过写入。");
+    notify("[hpl-model-tiers] settings.json 不是对象，跳过写入。");
     return undefined;
   }
   return parsed;
@@ -135,7 +136,7 @@ const writeResolvedTiersEffect = (
   catch: (error) => error,
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-model-tiers] resolved tiers 写入失败，继续启动：${String(error)}`);
+    notify(`[hpl-model-tiers] resolved tiers 写入失败，继续启动：${String(error)}`);
   })),
 );
 
@@ -199,7 +200,7 @@ export const applyModelTiersEffect = (
   return { ...baseResult, settingsChanged };
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-model-tiers] 加载失败，按空档位继续：${String(error)}`);
+    notify(`[hpl-model-tiers] 加载失败，按空档位继续：${String(error)}`);
     return emptyResult();
   })),
 );
@@ -228,7 +229,7 @@ export default function hplModelTiers(pi: ExtensionAPI): void {
     }).pipe(
       Effect.flatMap((available) => applyModelTiersEffect(ctx.cwd, available)),
       Effect.catchAll((error) => Effect.sync(() => {
-        console.warn(`[hpl-model-tiers] 读取可用模型失败，按空档位继续：${String(error)}`);
+        notify(`[hpl-model-tiers] 读取可用模型失败，按空档位继续：${String(error)}`);
         return emptyResult();
       })),
     ));

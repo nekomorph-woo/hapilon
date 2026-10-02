@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { Effect } from "effect";
 import { assistantMessageText, completePendingRole, getPendingRoleWizard, handlePendingUserMessage, handleTeamCommand, TEAM_ACTIONS, updateTeamStatus, } from "./menu.js";
 import { herdrEnvAvailable } from "./herdr.js";
@@ -138,7 +139,7 @@ export default function hplOrchestra(pi) {
             return;
         const model = ctx.modelRegistry.find(saved.provider, saved.id);
         if (!model) {
-            console.warn(`[hpl-orchestra] 恢复用户切模失败：${saved.provider}/${saved.id} 不在模型注册表`);
+            notify(`[hpl-orchestra] 恢复用户切模失败：${saved.provider}/${saved.id} 不在模型注册表`);
             return;
         }
         suppressingRestore = true;

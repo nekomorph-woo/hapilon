@@ -10,6 +10,7 @@
  * 列表未配置 / 关闭 / 全部配额紧张（≥90% 窗口）时不改写，回落父 agent 的模型。
  * thinking 条目只对 Agent 工具生效（TaskExecute 与 workflow 派发无此参数直通车）。
  */
+import { notify, setNotifySink } from "../notify.js";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { Effect } from "effect";
 import { readQuotaSnapshots } from "../hpl-quota-usage/cache.js";
@@ -28,7 +29,7 @@ function pickEntry(cwd) {
         return undefined;
     const pick = pickSubagentModel(entries, hotProviders());
     if (pick.kind === "all-hot") {
-        console.warn(`${PREFIX} 列表全部 provider 配额紧张（≥90%），不改写，回落父 agent 的模型`);
+        notify(`${PREFIX} 列表全部 provider 配额紧张（≥90%），不改写，回落父 agent 的模型`);
         return undefined;
     }
     return pick.kind === "entry" ? pick.entry : undefined;
@@ -46,10 +47,16 @@ export default function (pi) {
     globalThis.__hplSubagentModelsPick = (cwd) => {
         const entry = pickEntry(cwd);
         if (entry) {
-            console.warn(`${PREFIX} workflow 派发改写 → ${entry.provider}/${entry.id}`);
+            notify(`${PREFIX} workflow 派发改写 → ${entry.provider}/${entry.id}`);
         }
         return entry;
     };
+    // 通知出口注册：首条 prompt 前拿到 UI 就把 runtime 提示切到 TUI 状态行；
+    // 更早的通知（启动期配置告警）留在 notify.ts 的 console.warn 回落。
+    pi.on("before_agent_start", async (_event, ctx) => {
+        if (ctx.hasUI)
+            setNotifySink(ctx.ui);
+    });
     pi.on("tool_call", async (event, ctx) => {
         const isAgent = isToolCallEventType("Agent", event);
         const isTaskExecute = !isAgent && isToolCallEventType("TaskExecute", event);
@@ -65,7 +72,7 @@ export default function (pi) {
             if (slash > 0) {
                 const provider = explicit.slice(0, slash);
                 if (hotProviders().has(quotaNamespace(provider))) {
-                    console.warn(`${PREFIX} 显式模型 ${explicit} 的 provider ${provider} 配额紧张（≥90%），仍按点名使用`);
+                    notify(`${PREFIX} 显式模型 ${explicit} 的 provider ${provider} 配额紧张（≥90%），仍按点名使用`);
                 }
             }
             return;
@@ -77,6 +84,6 @@ export default function (pi) {
         if (isAgent && entry.thinking) {
             input.thinking = entry.thinking;
         }
-        console.warn(`${PREFIX} ${event.toolName} 派发改写 → ${input.model}${withThinking(entry)}`);
+        notify(`${PREFIX} ${event.toolName} 派发改写 → ${input.model}${withThinking(entry)}`);
     });
 }

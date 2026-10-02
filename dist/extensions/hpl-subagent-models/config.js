@@ -7,6 +7,7 @@
  *
  * 条目格式与 tiers 模型串一致："provider/id[:thinking]"。
  */
+import { notify } from "../notify.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Effect } from "effect";
@@ -30,26 +31,26 @@ const readLayerEffect = (path) => Effect.try({
             parsed = JSON.parse(readFileSync(path, "utf8"));
         }
         catch (error) {
-            console.warn(`${PREFIX} ${path} 不是合法 JSON，该级忽略：${error instanceof Error ? error.message : String(error)}`);
+            notify(`${PREFIX} ${path} 不是合法 JSON，该级忽略：${error instanceof Error ? error.message : String(error)}`);
             return undefined;
         }
         if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-            console.warn(`${PREFIX} ${path} 顶层必须是对象，该级忽略。`);
+            notify(`${PREFIX} ${path} 顶层必须是对象，该级忽略。`);
             return undefined;
         }
         const raw = parsed;
         const enabled = raw["enabled"] === undefined ? true : raw["enabled"] === true;
         if (raw["enabled"] !== undefined && typeof raw["enabled"] !== "boolean") {
-            console.warn(`${PREFIX} ${path} 的 enabled 非布尔值，按 true 处理。`);
+            notify(`${PREFIX} ${path} 的 enabled 非布尔值，按 true 处理。`);
         }
         const models = Array.isArray(raw["models"]) && raw["models"].every((m) => typeof m === "string")
             ? raw["models"]
-            : (console.warn(`${PREFIX} ${path} 的 models 非法（需要 string[]），按空列表处理。`), []);
+            : (notify(`${PREFIX} ${path} 的 models 非法（需要 string[]），按空列表处理。`), []);
         return { enabled, models };
     },
     catch: (error) => error,
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`${PREFIX} 读取 ${path} 失败，该级忽略：${String(error)}`);
+    notify(`${PREFIX} 读取 ${path} 失败，该级忽略：${String(error)}`);
     return undefined;
 })));
 /** 条目解析：非法条目告警后跳过，不让一个坏条目拖垮整张列表。 */
@@ -57,7 +58,7 @@ export function parseModelEntry(raw, path) {
     const { pattern, thinking } = splitThinkingSuffix(raw.trim());
     const slash = pattern.indexOf("/");
     if (slash <= 0 || slash === pattern.length - 1) {
-        console.warn(`${PREFIX} ${path} 条目 "${raw}" 非法（应为 provider/id[:thinking]），跳过。`);
+        notify(`${PREFIX} ${path} 条目 "${raw}" 非法（应为 provider/id[:thinking]），跳过。`);
         return undefined;
     }
     return {
@@ -80,7 +81,7 @@ export const readSubagentModelsEffect = (cwd) => Effect.gen(function* () {
     });
     return { enabled: layer.enabled, entries };
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`${PREFIX} 配置加载失败，扩展不介入：${String(error)}`);
+    notify(`${PREFIX} 配置加载失败，扩展不介入：${String(error)}`);
     return INERT;
 })));
 /** 编辑器用：两层原始内容（缺文件为 undefined）。 */
@@ -97,6 +98,6 @@ export const saveSubagentModelsLayerEffect = (path, layer) => Effect.try({
     },
     catch: (error) => error,
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`${PREFIX} 保存 ${path} 失败：${String(error)}`);
+    notify(`${PREFIX} 保存 ${path} 失败：${String(error)}`);
     return false;
 })));

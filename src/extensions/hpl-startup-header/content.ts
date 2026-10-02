@@ -4,6 +4,7 @@
  * 数据与渲染分离，所有业务逻辑无副作用可单测。
  */
 
+import { notify } from "../notify.js";
 import type { TUI } from "@earendil-works/pi-tui";
 import { hyperlink, getCapabilities } from "@earendil-works/pi-tui";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
@@ -361,7 +362,7 @@ export function parseExtensionsEnv(
   } catch {
     // fall through
   }
-  console.warn(
+  notify(
     "[hpl-startup-header] Invalid HAPILON_EXTENSIONS env, ignoring",
   );
   return undefined;

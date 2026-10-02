@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { hapilonHome } from "../../config/hapilon-home.js";
@@ -149,7 +150,7 @@ function validRoleKey(value) {
     return typeof value === "string" && ROLE_KEY_PATTERN.test(value);
 }
 function warning(path, reason) {
-    console.warn(`[hpl-orchestra] 自定义角色 ${path} 已跳过：${reason}`);
+    notify(`[hpl-orchestra] 自定义角色 ${path} 已跳过：${reason}`);
 }
 function parseRoleDef(path, value) {
     if (!isObject(value)) {
@@ -249,7 +250,7 @@ export function saveCustomRoleDef(role) {
         return true;
     }
     catch (error) {
-        console.warn(`[hpl-orchestra] 自定义角色保存失败：${error instanceof Error ? error.message : String(error)}`);
+        notify(`[hpl-orchestra] 自定义角色保存失败：${error instanceof Error ? error.message : String(error)}`);
         return false;
     }
 }
@@ -265,7 +266,7 @@ export function deleteCustomRoleDef(key) {
         return true;
     }
     catch (error) {
-        console.warn(`[hpl-orchestra] 自定义角色删除失败：${error instanceof Error ? error.message : String(error)}`);
+        notify(`[hpl-orchestra] 自定义角色删除失败：${error instanceof Error ? error.message : String(error)}`);
         return false;
     }
 }

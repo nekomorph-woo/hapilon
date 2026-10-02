@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -32,7 +33,7 @@ function logEvent(entry) {
         appendFileSync(join(dir, "econ.jsonl"), JSON.stringify({ ts: new Date().toISOString(), session: sessionMark, ...entry }) + "\n", "utf8");
     }).pipe(Effect.catchAll(() => Effect.sync(() => {
         // 统计日志失败不阻断主流程，但也不静默——warn 可见（Make It Observable）
-        console.warn("[hpl-econ] 压缩统计写入失败（继续运行）");
+        notify("[hpl-econ] 压缩统计写入失败（继续运行）");
     }))));
 }
 function logCompact(result, ref) {

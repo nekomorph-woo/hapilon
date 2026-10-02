@@ -8,6 +8,7 @@ const INTERNAL_EXTENSION_MODULES = new Set([
     "ensure-configs.js",
     "loader.js",
     "npm-extensions.js",
+    "notify.js",
 ]);
 /**
  * 扫描扩展目录，返回所有扩展入口文件的绝对路径。

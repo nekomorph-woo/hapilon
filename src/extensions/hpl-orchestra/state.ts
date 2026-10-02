@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Data, Effect } from "effect";
@@ -203,7 +204,7 @@ export const readTeamStateEffect = (
   }),
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-orchestra] 状态文件读取失败，按未启用处理：${error.message}`);
+    notify(`[hpl-orchestra] 状态文件读取失败，按未启用处理：${error.message}`);
     return disabledState();
   })),
 );
@@ -259,7 +260,7 @@ export const findTeamStateEntryForPaneEffect = (
   }),
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-orchestra] 按 pane 查找状态失败：${error.message}`);
+    notify(`[hpl-orchestra] 按 pane 查找状态失败：${error.message}`);
     return undefined;
   })),
 );
@@ -334,7 +335,7 @@ export const writeTeamStateEffect = (
   }),
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-orchestra] 状态文件写入失败：${error.message}`);
+    notify(`[hpl-orchestra] 状态文件写入失败：${error.message}`);
     return false;
   })),
 );
@@ -351,7 +352,7 @@ export const deleteTeamStateEffect = (path?: string): Effect.Effect<boolean, nev
   }),
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-orchestra] 状态文件删除失败：${error.message}`);
+    notify(`[hpl-orchestra] 状态文件删除失败：${error.message}`);
     return false;
   })),
 );
@@ -409,7 +410,7 @@ export const buildTeamSectionsEffect = (): Effect.Effect<TeamSections, never> =>
       state.roles = state.roles.filter((entry) => entry.instances.length > 0 || isTeamRole(entry.key, defs));
       Effect.runSync(writeTeamStateEffect(state));
       // 剪枝已持久化，下一轮不再看到该实例 → 本通知天然只发一次
-      console.warn(`[hpl-orchestra] ${
+      notify(`[hpl-orchestra] ${
         pruned.map(({ key, paneId }) => `${key} 的成员 pane ${paneId} 已关闭，自动移出 team`).join("；")
       }`);
     }
@@ -438,7 +439,7 @@ export const buildTeamSectionsEffect = (): Effect.Effect<TeamSections, never> =>
   }),
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-orchestra] team section 读取失败，跳过注入：${error instanceof Error ? error.message : String(error)}`);
+    notify(`[hpl-orchestra] team section 读取失败，跳过注入：${error instanceof Error ? error.message : String(error)}`);
     return {};
   })),
 );

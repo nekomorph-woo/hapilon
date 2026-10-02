@@ -9,6 +9,7 @@
  *   Deny            — 拒绝本次
  */
 
+import { notify } from "../notify.js";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export type ConfirmResult =
@@ -70,7 +71,7 @@ export async function requestConfirm(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn("安全确认对话框异常:", message);
+    notify(`安全确认对话框异常: ${message}`);
     return { status: "error", message };
   }
 }
@@ -93,7 +94,7 @@ export async function requestHighRiskConfirm(
     return choice === "Allow this Session";
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn("高危路径确认对话框异常:", message);
+    notify(`高危路径确认对话框异常: ${message}`);
     return false; // 对话框异常 → 拒绝
   }
 }

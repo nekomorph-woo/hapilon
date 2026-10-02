@@ -11,6 +11,7 @@
  *   quality    reviewer P0/P1、verify 通过率、返工次数
  *   tools      工具使用分布、失败率
  */
+import { notify as notifyRuntime } from "../notify.js";
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -130,7 +131,7 @@ function writeAndOpenReport(name, startLabel, endLabel, html) {
         spawn(command, args, { detached: true, stdio: "ignore" }).unref();
     }
     catch (error) {
-        console.warn(`[hpl-metrics] 报告打开失败（文件已生成）：${String(error)}`);
+        notifyRuntime(`[hpl-metrics] 报告打开失败（文件已生成）：${String(error)}`);
     }
     return path;
 }

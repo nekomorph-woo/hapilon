@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Data, Effect, Schema } from "effect";
@@ -41,7 +42,7 @@ export const readFastModeSettingsEffect = (agentDirPath) => Effect.try({
     },
     catch: (error) => new FastModeSettingsError({ message: errorMessage(error) }),
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-openai-fast-mode] settings.json 读取失败，Fast 模式关闭：${error.message}`);
+    notify(`[hpl-openai-fast-mode] settings.json 读取失败，Fast 模式关闭：${error.message}`);
     return { ...DEFAULT_FAST_MODE_SETTINGS, models: [...DEFAULT_FAST_MODE_SETTINGS.models] };
 })));
 export const writeFastModeSettingsEffect = (agentDirPath, settings) => Effect.try({
@@ -54,7 +55,7 @@ export const writeFastModeSettingsEffect = (agentDirPath, settings) => Effect.tr
     },
     catch: (error) => new FastModeSettingsError({ message: errorMessage(error) }),
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-openai-fast-mode] settings.json 写入失败：${error.message}`);
+    notify(`[hpl-openai-fast-mode] settings.json 写入失败：${error.message}`);
     return false;
 })));
 export function matchesFastModeModel(settings, model) {

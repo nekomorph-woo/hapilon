@@ -7,6 +7,7 @@
  *
  * 模型与选模：recap 同款（haiku 优先，非推理）。摘要缓存按 hash 落盘。
  */
+import { notify } from "../../notify.js";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname } from "node:path";
@@ -39,7 +40,7 @@ export function loadDigests() {
         }
     }
     catch (error) {
-        console.warn(`[hpl-metrics] digest 缓存读取失败，按空缓存处理：${String(error)}`);
+        notify(`[hpl-metrics] digest 缓存读取失败，按空缓存处理：${String(error)}`);
     }
     return digests;
 }
@@ -141,7 +142,7 @@ export async function generateMissingDigests(items, ctx) {
     }
     catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        console.warn(`[hpl-metrics] skill 摘要调用失败：${message.slice(0, 160)}`);
+        notify(`[hpl-metrics] skill 摘要调用失败：${message.slice(0, 160)}`);
         return { entries: digests, error: "摘要模型调用失败，相关条目降级显示原文" };
     }
 }
@@ -382,7 +383,7 @@ export async function runDataAgent(task, finalFormat, scope, ctx, opts) {
         return finalAnswer ? { answer: finalAnswer, rounds: AGENT_MAX_ROUNDS + 1 } : undefined;
     }
     catch (error) {
-        console.warn(`[hpl-metrics] 数据探索失败：${error instanceof Error ? error.message : String(error)}`);
+        notify(`[hpl-metrics] 数据探索失败：${error instanceof Error ? error.message : String(error)}`);
         return undefined;
     }
 }
@@ -463,7 +464,7 @@ export async function generateWareNotes(items, recentContext, scope, ctx) {
         }
     }
     catch (error) {
-        console.warn(`[hpl-metrics] 器物荐语生成失败，降级原文：${error instanceof Error ? error.message : String(error)}`);
+        notify(`[hpl-metrics] 器物荐语生成失败，降级原文：${error instanceof Error ? error.message : String(error)}`);
     }
     return notes;
 }

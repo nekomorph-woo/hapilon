@@ -9,6 +9,7 @@
  * 配合 cli.ts 的 quietStartup + PI_SKIP_VERSION_CHECK + 环境变量传递。
  */
 
+import { notify } from "../notify.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { VERSION } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
@@ -40,7 +41,7 @@ export default function hplStartupHeader(pi: ExtensionAPI): void {
             try {
               tui.requestRender();
             } catch (err) {
-              console.warn("[hpl-startup-header] requestRender failed:", err);
+              notify(`[hpl-startup-header] requestRender failed: ${String(err)}`);
             }
           }
         });

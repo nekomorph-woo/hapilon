@@ -8,6 +8,7 @@
  *   Allow Pattern   — 仅当调用方给出 allowSuggestion 时出现：输入通配前缀匹配
  *   Deny            — 拒绝本次
  */
+import { notify } from "../notify.js";
 const OPTIONS = [
     "Allow Once",
     "Allow this Session",
@@ -46,7 +47,7 @@ export async function requestConfirm(ctx, title, msg, opts = {}) {
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.warn("安全确认对话框异常:", message);
+        notify(`安全确认对话框异常: ${message}`);
         return { status: "error", message };
     }
 }
@@ -66,7 +67,7 @@ export async function requestHighRiskConfirm(ctx, title, msg) {
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.warn("高危路径确认对话框异常:", message);
+        notify(`高危路径确认对话框异常: ${message}`);
         return false; // 对话框异常 → 拒绝
     }
 }

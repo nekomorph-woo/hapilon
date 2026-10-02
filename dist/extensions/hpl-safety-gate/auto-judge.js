@@ -10,6 +10,7 @@
  *   GateAutoInvalidOutput），调用方统一按 unsure 回落。
  * - 判定结果 {verdict, reason} 走 Schema 校验，模型输出属不可信边界。
  */
+import { notify } from "../notify.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Data, Effect, Schema } from "effect";
@@ -31,7 +32,7 @@ function boolOr(raw, fallback, warn) {
         return fallback;
     if (typeof raw === "boolean")
         return raw;
-    console.warn(`[hpl-safety-gate] ${warn}，使用默认值。`);
+    notify(`[hpl-safety-gate] ${warn}，使用默认值。`);
     return fallback;
 }
 function positiveIntOr(raw, fallback, warn) {
@@ -39,7 +40,7 @@ function positiveIntOr(raw, fallback, warn) {
         return fallback;
     if (typeof raw === "number" && Number.isFinite(raw) && raw > 0)
         return raw;
-    console.warn(`[hpl-safety-gate] ${warn}，使用默认值。`);
+    notify(`[hpl-safety-gate] ${warn}，使用默认值。`);
     return fallback;
 }
 function stringOr(raw, fallback, warn) {
@@ -47,7 +48,7 @@ function stringOr(raw, fallback, warn) {
         return fallback;
     if (typeof raw === "string" && raw.trim() !== "")
         return raw.trim();
-    console.warn(`[hpl-safety-gate] ${warn}，使用默认值。`);
+    notify(`[hpl-safety-gate] ${warn}，使用默认值。`);
     return fallback;
 }
 export const readGateAutoConfigEffect = Effect.try({
@@ -57,14 +58,14 @@ export const readGateAutoConfigEffect = Effect.try({
             return { ...GATE_AUTO_DEFAULTS };
         const parsed = JSON.parse(readFileSync(path, "utf8"));
         if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-            console.warn(`[hpl-safety-gate] ${path} 顶层必须是对象，gateAuto 使用默认配置。`);
+            notify(`[hpl-safety-gate] ${path} 顶层必须是对象，gateAuto 使用默认配置。`);
             return { ...GATE_AUTO_DEFAULTS };
         }
         const raw = parsed.gateAuto;
         if (raw === undefined)
             return { ...GATE_AUTO_DEFAULTS };
         if (typeof raw !== "object" || Array.isArray(raw)) {
-            console.warn("[hpl-safety-gate] settings.json gateAuto 必须是对象，使用默认配置。");
+            notify("[hpl-safety-gate] settings.json gateAuto 必须是对象，使用默认配置。");
             return { ...GATE_AUTO_DEFAULTS };
         }
         const g = raw;
@@ -76,7 +77,7 @@ export const readGateAutoConfigEffect = Effect.try({
     },
     catch: (error) => error,
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-safety-gate] gateAuto 配置读取失败，使用默认配置：${String(error)}`);
+    notify(`[hpl-safety-gate] gateAuto 配置读取失败，使用默认配置：${String(error)}`);
     return { ...GATE_AUTO_DEFAULTS };
 })));
 export function readGateAutoConfig() {
@@ -92,11 +93,11 @@ function readSettings(path) {
         parsed = JSON.parse(readFileSync(path, "utf8"));
     }
     catch (error) {
-        console.warn(`[hpl-safety-gate] 无法读取 settings.json，跳过写入：${error instanceof Error ? error.message : String(error)}`);
+        notify(`[hpl-safety-gate] 无法读取 settings.json，跳过写入：${error instanceof Error ? error.message : String(error)}`);
         return undefined;
     }
     if (!isSettingsObject(parsed)) {
-        console.warn("[hpl-safety-gate] settings.json 不是对象，跳过写入。");
+        notify("[hpl-safety-gate] settings.json 不是对象，跳过写入。");
         return undefined;
     }
     return parsed;
@@ -125,7 +126,7 @@ export const setGateAutoEnabledEffect = (enabled) => Effect.try({
     },
     catch: (error) => error,
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-safety-gate] gateAuto 设置写入失败：${String(error)}`);
+    notify(`[hpl-safety-gate] gateAuto 设置写入失败：${String(error)}`);
     return false;
 })));
 export function setGateAutoEnabled(enabled) {

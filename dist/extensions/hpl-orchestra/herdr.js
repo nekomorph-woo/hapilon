@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { spawnSync } from "node:child_process";
 import { isAbsolute, resolve } from "node:path";
 import { Data, Effect } from "effect";
@@ -45,7 +46,7 @@ function isHerdrNotFound(error) {
     return code === "pane_not_found" || code === "agent_not_found";
 }
 function warnHerdrFailure(args, error) {
-    console.warn(`[hpl-orchestra] herdr ${args.join(" ")} 失败：${error instanceof Error ? error.message : String(error)}`);
+    notify(`[hpl-orchestra] herdr ${args.join(" ")} 失败：${error instanceof Error ? error.message : String(error)}`);
 }
 function runJsonRaw(args, spawn) {
     return Effect.try({
@@ -319,7 +320,7 @@ export function hapilonCliPath() {
         : resolve(process.cwd(), process.argv[1] ?? "");
     if (injected)
         return resolve(process.cwd(), injected);
-    console.warn("[hpl-orchestra] HAPILON_CLI_PATH 未注入，降级用 argv[1]（可能不是 hapilon 入口）");
+    notify("[hpl-orchestra] HAPILON_CLI_PATH 未注入，降级用 argv[1]（可能不是 hapilon 入口）");
     return script;
 }
 export function buildPaneRunCommand(role, model, promptFile, tasksPath) {
@@ -369,7 +370,7 @@ function fallbackModel(tiers) {
 }
 function warnAndFallback(tiers, reason) {
     const fallback = fallbackModel(tiers);
-    console.warn(`[hpl-orchestra] ${reason}，回落 ${fallback ?? "pi 默认模型"}`);
+    notify(`[hpl-orchestra] ${reason}，回落 ${fallback ?? "pi 默认模型"}`);
     return fallback;
 }
 /**

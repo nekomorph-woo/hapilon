@@ -9,6 +9,7 @@ const INTERNAL_EXTENSION_MODULES = new Set([
   "ensure-configs.js",
   "loader.js",
   "npm-extensions.js",
+  "notify.js",
 ]);
 
 /**

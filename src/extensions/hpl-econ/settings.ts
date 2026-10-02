@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { agentDir } from "../../config/hapilon-home.js";
@@ -61,7 +62,7 @@ const readEconSettingsSync = (agentDirPath: string): EconSettings => {
         typeof raw.tailLines === "number" && raw.tailLines > 0 ? raw.tailLines : ECON_DEFAULTS.tailLines,
     };
   } catch (err) {
-    console.warn(
+    notify(
       `[hpl-econ] econ-config.json 解析失败，使用默认参数：${err instanceof Error ? err.message : String(err)}`,
     );
     return { ...ECON_DEFAULTS };

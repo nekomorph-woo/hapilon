@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Effect } from "effect";
 import { setPolicySection } from "./bridge.js";
@@ -22,7 +23,7 @@ export default function hplEffectPolicy(pi: ExtensionAPI): void {
       return {};
     } catch (err) {
       setPolicySection(undefined);
-      console.warn("[hpl-effect-policy] policy injection disabled after an error:", err);
+      notify(`[hpl-effect-policy] policy injection disabled after an error: ${String(err)}`);
       return {};
     }
   });

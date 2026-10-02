@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { spawnSync } from "node:child_process";
 import { isAbsolute, resolve } from "node:path";
 import { Data, Effect } from "effect";
@@ -73,7 +74,7 @@ function isHerdrNotFound(error: unknown): boolean {
 }
 
 function warnHerdrFailure(args: string[], error: unknown): void {
-  console.warn(`[hpl-orchestra] herdr ${args.join(" ")} 失败：${error instanceof Error ? error.message : String(error)}`);
+  notify(`[hpl-orchestra] herdr ${args.join(" ")} 失败：${error instanceof Error ? error.message : String(error)}`);
 }
 
 function runJsonRaw(args: string[], spawn: SpawnFn): Effect.Effect<unknown, unknown> {
@@ -410,7 +411,7 @@ export function hapilonCliPath(): string | undefined {
     ? process.argv[1]
     : resolve(process.cwd(), process.argv[1] ?? "");
   if (injected) return resolve(process.cwd(), injected);
-  console.warn("[hpl-orchestra] HAPILON_CLI_PATH 未注入，降级用 argv[1]（可能不是 hapilon 入口）");
+  notify("[hpl-orchestra] HAPILON_CLI_PATH 未注入，降级用 argv[1]（可能不是 hapilon 入口）");
   return script;
 }
 
@@ -473,7 +474,7 @@ function fallbackModel(tiers: Record<ModelTier, ResolvedModel[]>): string | unde
 
 function warnAndFallback(tiers: Record<ModelTier, ResolvedModel[]>, reason: string): string | undefined {
   const fallback = fallbackModel(tiers);
-  console.warn(`[hpl-orchestra] ${reason}，回落 ${fallback ?? "pi 默认模型"}`);
+  notify(`[hpl-orchestra] ${reason}，回落 ${fallback ?? "pi 默认模型"}`);
   return fallback;
 }
 

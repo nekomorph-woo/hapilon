@@ -9,6 +9,7 @@
  * 用法: hapilon 启动时自动加载（discoverExtensions() → -e 注入）
  * 拦截点: pi 的 tool_call 事件（能读到工具入参，也就能放行/改写）
  */
+import { notify } from "../notify.js";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { appendFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -31,7 +32,7 @@ import("@tintinweb/pi-subagents/dist/child-context.js")
     subagentProbe = mod.inChildSessionContext;
 })
     .catch(() => {
-    console.warn("[hpl-safety-gate] subagent 探针不可得，bash 敏感读取将走 confirm 流程");
+    notify("[hpl-safety-gate] subagent 探针不可得，bash 敏感读取将走 confirm 流程");
 });
 function inSubagentSession() {
     return subagentProbe ? subagentProbe() : false;
@@ -47,7 +48,7 @@ export function appendGateAutoAudit(entry, filePath = join(agentDir(), "gate-aut
         appendFileSync(filePath, `${JSON.stringify(entry)}\n`, "utf8");
     }
     catch (err) {
-        console.warn(`[hpl-safety-gate] gate-auto 审计写入失败（不阻塞）: ${err instanceof Error ? err.message : String(err)}`);
+        notify(`[hpl-safety-gate] gate-auto 审计写入失败（不阻塞）: ${err instanceof Error ? err.message : String(err)}`);
     }
 }
 function sandboxSummary(targets) {
@@ -216,7 +217,7 @@ export default function (pi) {
             if (hasSensitiveReadArg(command, ctx.cwd)) {
                 const labels = sensitiveReadLabels(command, ctx.cwd).join("、");
                 if (inSubagentSession()) {
-                    console.warn(`[hpl-safety-gate] subagent 会话禁止读取敏感文件（${labels}）: ${shown}`);
+                    notify(`[hpl-safety-gate] subagent 会话禁止读取敏感文件（${labels}）: ${shown}`);
                     return {
                         block: true,
                         reason: `🛡️ subagent 会话禁止读取敏感文件（${labels}）：secret 只该被应用运行时读取，agent 读取会进入 LLM 上下文与 transcript。请在主会话中操作，或使用白名单文件（.env.example）。`,
@@ -225,7 +226,7 @@ export default function (pi) {
                 if (isTrusted("bash", normalized, ctx.cwd))
                     return;
                 if (!ctx.hasUI) {
-                    console.warn(`[hpl-safety-gate] 非交互模式下禁止读取敏感文件（${labels}）: ${shown}`);
+                    notify(`[hpl-safety-gate] 非交互模式下禁止读取敏感文件（${labels}）: ${shown}`);
                     return {
                         block: true,
                         reason: `🛡️ 非交互模式下禁止读取敏感文件（${labels}）：${shown}`,
@@ -236,7 +237,7 @@ export default function (pi) {
                     const reason = result.status === "unavailable"
                         ? `🛡️ 非交互模式下禁止读取敏感文件（${labels}）`
                         : `用户拒绝了敏感文件读取：${shown}`;
-                    console.warn(`[hpl-safety-gate] ${reason}`);
+                    notify(`[hpl-safety-gate] ${reason}`);
                     return { block: true, reason };
                 }
                 try {
@@ -245,14 +246,14 @@ export default function (pi) {
                     }
                 }
                 catch (err) {
-                    console.warn("添加信任失败（不影响本次操作）:", err instanceof Error ? err.message : String(err));
+                    notify(`添加信任失败（不影响本次操作）: ${err instanceof Error ? err.message : String(err)}`);
                 }
             }
             return;
         }
         if (verdict === "block") {
             // 拦截必须留痕（Make It Observable）
-            console.warn(`[hpl-safety-gate] 危险命令已阻止: ${shown}`);
+            notify(`[hpl-safety-gate] 危险命令已阻止: ${shown}`);
             return {
                 block: true,
                 reason: `🛡️ 危险命令已阻止：${shown}`,
@@ -266,7 +267,7 @@ export default function (pi) {
             return;
         if (!ctx.hasUI) {
             // 拦截必须留痕（Make It Observable）
-            console.warn(`[hpl-safety-gate] 非交互模式下拦截中危命令: ${shown}`);
+            notify(`[hpl-safety-gate] 非交互模式下拦截中危命令: ${shown}`);
             return {
                 block: true,
                 reason: `🛡️ 非交互模式下拦截中危命令：${shown}`,
@@ -280,7 +281,7 @@ export default function (pi) {
                     ? `🛡️ 确认对话框异常，已阻止：${shown}`
                     : `用户拒绝了此操作：${shown}`;
             // 拦截必须留痕（Make It Observable）
-            console.warn(`[hpl-safety-gate] ${reason}`);
+            notify(`[hpl-safety-gate] ${reason}`);
             return { block: true, reason };
         }
         try {
@@ -289,7 +290,7 @@ export default function (pi) {
             }
         }
         catch (err) {
-            console.warn("添加信任失败（不影响本次操作）:", err instanceof Error ? err.message : String(err));
+            notify(`添加信任失败（不影响本次操作）: ${err instanceof Error ? err.message : String(err)}`);
         }
     });
 }

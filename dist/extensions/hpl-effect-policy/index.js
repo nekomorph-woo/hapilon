@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { Effect } from "effect";
 import { setPolicySection } from "./bridge.js";
 import { buildPolicySectionText } from "./inject.js";
@@ -20,7 +21,7 @@ export default function hplEffectPolicy(pi) {
         }
         catch (err) {
             setPolicySection(undefined);
-            console.warn("[hpl-effect-policy] policy injection disabled after an error:", err);
+            notify(`[hpl-effect-policy] policy injection disabled after an error: ${String(err)}`);
             return {};
         }
     });

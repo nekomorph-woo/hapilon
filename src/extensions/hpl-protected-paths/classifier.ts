@@ -6,6 +6,7 @@
  * classifyPath — 按工具类型返回 block / confirm / allow
  */
 
+import { notify } from "../notify.js";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
@@ -30,7 +31,7 @@ const resolveTargetSync = (targetPath: string, cwd: string): string => {
   } catch (err: unknown) {
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code === "ENOENT") return absPath;
-    console.warn("路径解析异常 (realpath):", code ?? String(err), "→ 回退到未解析路径");
+    notify(`路径解析异常 (realpath): ${code ?? String(err)} → 回退到未解析路径`);
     return absPath;
   }
 }

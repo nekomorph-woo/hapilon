@@ -10,6 +10,7 @@
  * 用法: hapilon 启动时自动加载（discoverExtensions() → -e 注入）
  * 拦截点: pi 的 tool_call 事件（能读到工具入参，也就能放行/改写）
  */
+import { notify } from "../notify.js";
 import { argumentCompletions } from "../../shared/argument-completion.js";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { classifyPath, resolveTarget } from "./classifier.js";
@@ -29,7 +30,7 @@ import("@tintinweb/pi-subagents/dist/child-context.js")
     subagentProbe = mod.inChildSessionContext;
 })
     .catch(() => {
-    console.warn("[hpl-protected-paths] subagent 探针不可得，子会话敏感读取将走 confirm 流程");
+    notify("[hpl-protected-paths] subagent 探针不可得，子会话敏感读取将走 confirm 流程");
 });
 function inSubagentSession() {
     return subagentProbe ? subagentProbe() : false;
@@ -48,7 +49,7 @@ export default function (pi) {
         if (isToolCallEventType("write", event) || isToolCallEventType("edit", event)) {
             const rawPath = event.input.path ?? "";
             if (!rawPath) {
-                console.warn("write/edit 工具调用缺少 path 参数，安全扩展无法生效");
+                notify("write/edit 工具调用缺少 path 参数，安全扩展无法生效");
                 return;
             }
             // 入口统一 resolve（~ 展开 + 相对路径解析 + symlink 跟随），
@@ -62,7 +63,7 @@ export default function (pi) {
                 // block 路径 → 仅 session trust
                 if (!isSessionTrusted(toolName, filePath)) {
                     // 拦截必须留痕（Make It Observable）
-                    console.warn(`[hpl-protected-paths] 受保护的文件路径，不允许写入: ${filePath}`);
+                    notify(`[hpl-protected-paths] 受保护的文件路径，不允许写入: ${filePath}`);
                     return { block: true, reason: `🛡️ 受保护的文件路径，不允许写入：${filePath}` };
                 }
                 return;
@@ -79,7 +80,7 @@ export default function (pi) {
                             ? `🛡️ 确认对话框异常，已阻止：${filePath}`
                             : `用户拒绝了写入：${filePath}`;
                     // 拦截必须留痕（Make It Observable）
-                    console.warn(`[hpl-protected-paths] ${reason}`);
+                    notify(`[hpl-protected-paths] ${reason}`);
                     return { block: true, reason };
                 }
                 // 用户批准 → 按 scope 添加信任
@@ -89,7 +90,7 @@ export default function (pi) {
                     }
                 }
                 catch (err) {
-                    console.warn("添加信任失败（不影响本次操作）:", err instanceof Error ? err.message : String(err));
+                    notify(`添加信任失败（不影响本次操作）: ${err instanceof Error ? err.message : String(err)}`);
                 }
             }
             return;
@@ -97,7 +98,7 @@ export default function (pi) {
         if (isToolCallEventType("read", event)) {
             const rawPath = event.input.path ?? "";
             if (!rawPath) {
-                console.warn("read 工具调用缺少 path 参数，安全扩展无法生效");
+                notify("read 工具调用缺少 path 参数，安全扩展无法生效");
                 return;
             }
             // 与 write/edit 分支一致：入口 resolve，信任检查基于规范化路径
@@ -112,7 +113,7 @@ export default function (pi) {
             // 直接拦截，不走 confirm 流程。
             if (inSubagentSession()) {
                 const reason = `🛡️ subagent 会话禁止读取敏感文件：${filePath}（如需读取请在主会话操作）`;
-                console.warn(`[hpl-protected-paths] ${reason}`);
+                notify(`[hpl-protected-paths] ${reason}`);
                 return { block: true, reason };
             }
             const result = await requestConfirm(ctx, "⚠️ 敏感文件读取确认", `Agent 正在尝试读取敏感文件：\n\n> ${filePath}\n\n是否允许？`);
@@ -123,7 +124,7 @@ export default function (pi) {
                         ? `🛡️ 确认对话框异常，已阻止读取：${filePath}`
                         : `用户拒绝了读取敏感文件：${filePath}`;
                 // 拦截必须留痕（Make It Observable）
-                console.warn(`[hpl-protected-paths] ${reason}`);
+                notify(`[hpl-protected-paths] ${reason}`);
                 return { block: true, reason };
             }
             try {
@@ -132,7 +133,7 @@ export default function (pi) {
                 }
             }
             catch (err) {
-                console.warn("添加信任失败（不影响本次操作）:", err instanceof Error ? err.message : String(err));
+                notify(`添加信任失败（不影响本次操作）: ${err instanceof Error ? err.message : String(err)}`);
             }
         }
     });

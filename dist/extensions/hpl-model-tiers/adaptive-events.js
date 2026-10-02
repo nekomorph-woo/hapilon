@@ -7,6 +7,7 @@
  *
  * 落盘位置：<HAPILON_HOME>/tier-adaptive/{events.jsonl,profile.json}
  */
+import { notify } from "../notify.js";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -45,10 +46,10 @@ function parseEvents(raw) {
             if (isEvent(parsed))
                 events.push(parsed);
             else
-                console.warn("[hpl-model-tiers] tier-adaptive 事件缺 kind/ts，已跳过");
+                notify("[hpl-model-tiers] tier-adaptive 事件缺 kind/ts，已跳过");
         }
         catch {
-            console.warn("[hpl-model-tiers] tier-adaptive 事件行不是合法 JSON，已跳过");
+            notify("[hpl-model-tiers] tier-adaptive 事件行不是合法 JSON，已跳过");
         }
     }
     return events;
@@ -60,7 +61,7 @@ export const readAdaptiveEventsEffect = Effect.try({
     },
     catch: (error) => error,
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-model-tiers] tier-adaptive 事件日志读取失败，按空日志继续：${String(error)}`);
+    notify(`[hpl-model-tiers] tier-adaptive 事件日志读取失败，按空日志继续：${String(error)}`);
     return [];
 })));
 export function readAdaptiveEvents() {
@@ -192,7 +193,7 @@ export const rebuildAdaptiveProfileEffect = (now = new Date().toISOString()) => 
         writeProfileSnapshot(profile);
     }
     catch (error) {
-        console.warn(`[hpl-model-tiers] 画像快照写入失败（不影响路由）：${String(error)}`);
+        notify(`[hpl-model-tiers] 画像快照写入失败（不影响路由）：${String(error)}`);
     }
 })));
 export function rebuildAdaptiveProfile(now) {
@@ -216,7 +217,7 @@ export const readAdaptiveProfileEffect = (now = new Date().toISOString()) => Eff
         },
         catch: (error) => error,
     }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-        console.warn(`[hpl-model-tiers] 画像快照读取失败，按空画像继续：${String(error)}`);
+        notify(`[hpl-model-tiers] 画像快照读取失败，按空画像继续：${String(error)}`);
         return EMPTY_PROFILE(now);
     })));
 });
@@ -241,7 +242,7 @@ export const appendAdaptiveEventEffect = (event, key) => Effect.try({
     },
     catch: (error) => error,
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-model-tiers] tier-adaptive 事件写入失败（不影响选模）：${String(error)}`);
+    notify(`[hpl-model-tiers] tier-adaptive 事件写入失败（不影响选模）：${String(error)}`);
     return false;
 })));
 export function appendAdaptiveEvent(event, key) {

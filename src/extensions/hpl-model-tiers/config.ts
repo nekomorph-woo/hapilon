@@ -1,3 +1,4 @@
+import { notify } from "../notify.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -10,7 +11,7 @@ const hasOwn = (value: Record<string, unknown>, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(value, key);
 
 function warnInvalid(path: string, tier: string, value: unknown): void {
-  console.warn(
+  notify(
     `[hpl-model-tiers] ${path} 中 ${tier} 无效（需要 string[]，收到 ${JSON.stringify(value)}），该档按空处理。`,
   );
 }
@@ -26,14 +27,14 @@ export const readTierConfigFileEffect = (
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
-    console.warn(
+    notify(
       `[hpl-model-tiers] 无法读取 ${path}，该级忽略：${error instanceof Error ? error.message : String(error)}`,
     );
     return {};
   }
 
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    console.warn(`[hpl-model-tiers] ${path} 顶层必须是对象，该级忽略。`);
+    notify(`[hpl-model-tiers] ${path} 顶层必须是对象，该级忽略。`);
     return {};
   }
 
@@ -54,7 +55,7 @@ export const readTierConfigFileEffect = (
   catch: (error) => error,
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(
+    notify(
       `[hpl-model-tiers] 读取 ${path} 失败，该级忽略：${String(error)}`,
     );
     return {};
@@ -82,7 +83,7 @@ export const readModelTiersEffect = (cwd: string): Effect.Effect<TierModels, nev
       }).pipe(Effect.map(({ global, project }) => mergeTierConfigs(global, project))),
     ),
     Effect.catchAll((error) => Effect.sync(() => {
-      console.warn(`[hpl-model-tiers] 配置加载失败，按空档位继续：${String(error)}`);
+      notify(`[hpl-model-tiers] 配置加载失败，按空档位继续：${String(error)}`);
       return { opus: [], sonnet: [], haiku: [] } as TierModels;
     })),
   );
@@ -104,7 +105,7 @@ export const saveModelTiersEffect = (
   catch: (error) => error,
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    console.warn(`[hpl-model-tiers] 保存 model-tiers.json 失败：${String(error)}`);
+    notify(`[hpl-model-tiers] 保存 model-tiers.json 失败：${String(error)}`);
     return false;
   })),
 );

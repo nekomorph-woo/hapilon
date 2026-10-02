@@ -12,6 +12,7 @@
  *   tools      工具使用分布、失败率
  */
 
+import { notify as notifyRuntime } from "../notify.js";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -148,7 +149,7 @@ function writeAndOpenReport(name: string, startLabel: string, endLabel: string, 
     }
     spawn(command, args, { detached: true, stdio: "ignore" }).unref();
   } catch (error) {
-    console.warn(`[hpl-metrics] 报告打开失败（文件已生成）：${String(error)}`);
+    notifyRuntime(`[hpl-metrics] 报告打开失败（文件已生成）：${String(error)}`);
   }
   return path;
 }

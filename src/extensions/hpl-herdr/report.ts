@@ -5,6 +5,7 @@
  * HERDR_PANE_ID / HERDR_BIN_PATH,用 CLI 上报语义状态即可成为自己的 agent 类型,
  * 不需要 herdr 原生支持(OMP 是同一先例)。纯函数 + 注入 spawn/env,便于单测。
  */
+import { notify } from "../notify.js";
 import type { SpawnFn } from "../hpl-orchestra/herdr.js";
 
 /** 源必须稳定且唯一——herdr 用它区分同一 pane 上的不同上报方 */
@@ -69,7 +70,7 @@ export interface HerdrReporter {
 export interface ReporterDeps {
 	spawn: SpawnFn;
 	env: HerdrEnv;
-	/** 上报失败时通知一次（默认 console.warn）；herdr 不在时永不触发 */
+	/** 上报失败时通知一次（默认经 notify.ts 出口）；herdr 不在时永不触发 */
 	onError?: (message: string) => void;
 	/** 时钟（毫秒），注入以便单测 */
 	now?: () => number;
@@ -83,7 +84,7 @@ const REPORT_TIMEOUT_MS = 3000;
  */
 export function createHerdrReporter(deps: ReporterDeps): HerdrReporter {
 	const enabled = reporterEnabled(deps.env);
-	const onError = deps.onError ?? ((message: string) => console.warn(message));
+	const onError = deps.onError ?? ((message: string) => notify(message));
 
 	// herdr 对每个 (pane, source) 记住已接受的最大 seq，凡 seq <= 它的上报一律「接受但丢弃」
 	// （退出码 0、无错误输出），而本扩展每次 /new 或进程重启都会重建、计数从 0 重来，
