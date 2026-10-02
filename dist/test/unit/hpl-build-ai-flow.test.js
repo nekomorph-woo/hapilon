@@ -528,7 +528,7 @@ describe("stale：上游回退后的产物重确认", () => {
         runOk(advanceFlowEffect(cwd, "demo")); // → S3
         const state = runOk(loadFlowEffect(cwd, "demo"));
         const text = renderStatus(cwd, state);
-        assert.ok(text.includes("上游回退（stale）：S3–S9"));
+        assert.ok(text.includes("上游有调整（stale）：S3–S9"));
         const prompt = buildStagePrompt({ state, cwd });
         assert.ok(prompt.includes("仅供历史参考"));
         assert.ok(prompt.includes("decision-log 不整体重写"));
@@ -540,7 +540,7 @@ describe("stale：上游回退后的产物重确认", () => {
         assert.ok(!s3.includes("上游前提检查"));
         const s4 = buildStagePrompt({ state: { ...runOk(loadFlowEffect(cwd, "demo")), stage: 4 }, cwd });
         assert.ok(s4.includes("上游前提检查"));
-        assert.ok(s4.includes("回退建议权"));
+        assert.ok(s4.includes("回上由用户决定"));
     });
 });
 // ─── prompt 拼装与渲染 ──────────────────────────────────────────────
@@ -604,7 +604,7 @@ describe("补全分派", () => {
         const current = gotoCands.find((c) => (c.description ?? "").includes("当前"));
         assert.ok(current?.value === "goto 6 ");
         const back = buildCompletions("goto 5 ", cwd);
-        assert.ok(back.some((c) => (c.description ?? "").includes("回退")));
+        assert.ok(back.some((c) => (c.description ?? "").includes("回跳")));
         const fwd = buildCompletions("goto 8 ", cwd);
         assert.ok(fwd.some((c) => (c.description ?? "").includes("前跳")));
     });

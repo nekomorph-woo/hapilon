@@ -73,7 +73,7 @@ export function renderStatus(cwd: string, state: FlowState): string {
   const capLine = capabilityStatusLine(state);
   if (capLine) lines.push(`能力（capability）：${capLine}`);
   if (state.stale) {
-    lines.push(`上游回退（stale）：S${state.stale.from}–S9 产物待基于新上游重新确认（存在 ≠ 当前有效）`);
+    lines.push(`上游有调整（stale）：S${state.stale.from}–S9 产物待基于新上游重新确认（存在 ≠ 当前有效）`);
   }
   lines.push(`历史：${shortHistory(state) || "—"}`);
   lines.push(`建议下一步：${nextStepAdvice(cwd, state)}`);

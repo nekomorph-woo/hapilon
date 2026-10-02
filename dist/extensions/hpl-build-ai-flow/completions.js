@@ -41,7 +41,7 @@ export function buildCompletions(query, cwd) {
             { value: "next", label: "next", description: gateHint, searchText: "next 推进 下一阶段" },
             { value: "status", label: "status", description: "ASCII 状态轨 + 当前状态 + 建议下一步", searchText: "status 状态 查看进度" },
             { value: "list", label: "list", description: "列出全部 flow", searchText: "list 列表 全部" },
-            { value: "goto ", label: "goto", description: "跳阶段/回炉：goto <0-9> <原因>", searchText: "goto 跳转 回退 回炉" },
+            { value: "goto ", label: "goto", description: "导航到任意阶段（前跳/回补/重做）：goto <0-9> <原因>", searchText: "goto 跳转 回补 前跳 重做" },
             { value: "audit", label: "audit", description: "决策冲突审查（tier:sonnet 读 decision-log 找矛盾）", searchText: "audit 审查 冲突 决策" },
             { value: "debt", label: "debt", description: "查看 Gate 缺口欠账", searchText: "debt 欠账 缺口 查看" },
             { value: "debt resolve ", label: "debt resolve", description: "关闭欠账：debt resolve <G-00x> <说明>", searchText: "debt resolve 关闭 欠账" },
@@ -69,7 +69,7 @@ export function buildCompletions(query, cwd) {
     if (/^goto\b/.test(trimmed)) {
         const current = flow?.status === "active" || flow?.status === "frozen" ? flow.stage : null;
         const candidates = STAGES.map((s) => {
-            const rel = current === null ? "" : s.index < current ? "回退" : s.index > current ? "前跳" : "当前";
+            const rel = current === null ? "" : s.index < current ? "回跳" : s.index > current ? "前跳" : "当前";
             return {
                 value: `goto ${s.index} `,
                 label: `goto ${s.index} ${s.slug}`,

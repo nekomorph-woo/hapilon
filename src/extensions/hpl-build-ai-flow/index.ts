@@ -75,7 +75,7 @@ export default function hplBuildAiFlow(pi: ExtensionAPI): void {
         return;
       }
 
-      // ── goto：跳前/回退/重开（原因必填） ────────────────────────
+      // ── goto：前跳/回跳/重开（原因必填） ────────────────────────
       const gotoMatch = trimmed.match(/^goto\s+(\d+)\s+(.+)$/s);
       if (gotoMatch) {
         const target = Number.parseInt(gotoMatch[1]!, 10);
@@ -96,7 +96,7 @@ export default function hplBuildAiFlow(pi: ExtensionAPI): void {
         return;
       }
       if (/^goto\b/.test(trimmed)) {
-        ctx.ui?.notify?.(`用法：/build-ai-flow goto <0-${LAST_STAGE}> <原因>（回炉/跳过都要留痕）`, "error");
+        ctx.ui?.notify?.(`用法：/build-ai-flow goto <0-${LAST_STAGE}> <原因>（任意阶段导航，原因留痕）`, "error");
         return;
       }
 

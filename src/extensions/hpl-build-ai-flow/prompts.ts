@@ -31,10 +31,10 @@ export function buildStagePrompt(opts: DispatchOptions): string {
   lines.push(`自主权：${def.autonomy}`);
   lines.push("");
 
-  // 上游前提检查（仅 S4–S9）：AI 有回退建议权，没有回退执行权
+  // 上游前提检查（仅 S4–S9）：AI 可建议回到上游处理，不可自行回上
   if (state.stage >= 4) {
     lines.push(
-      "上游前提检查：若发现无法可靠继续的原因来自已确认的上游结论（Frame / Definition / Decision / Design 等）——不自行修改上游，不为了完成本阶段硬做；指出哪个前提可能失效、给出新证据、说明对当前工作的影响、建议回退到哪个阶段，然后停下等用户决定 goto。你有回退建议权，没有回退执行权。能力（如 golden-case）暴露上游问题同此办理：能力可以发现问题，没有上游修改权。",
+      "上游前提检查：若发现无法可靠继续的原因来自已确认的上游结论（Frame / Definition / Decision / Design 等）——不自行修改上游，不为了完成本阶段硬做；指出哪个前提可能失效、给出新证据、说明对当前工作的影响、建议回到哪个阶段处理，然后停下等用户决定 goto。回上由用户决定，你没有执行权。能力（如 golden-case）暴露上游问题同此办理：能力可以发现问题，没有上游修改权。",
     );
     lines.push("");
   }
@@ -51,7 +51,7 @@ export function buildStagePrompt(opts: DispatchOptions): string {
   // stale 提示：旧版本产物仅供历史参考，重新验证/重写后保存才算数
   if (state.stale && state.stage >= state.stale.from) {
     lines.push(
-      `注意（stale）：上游已回退（自 S${state.stale.from} 起），本阶段及之后已有产物是旧版本，仅供历史参考——需基于当前上游重新验证或重写后保存（确认仍有效也重新落盘，如补一行确认记录）。`,
+      `注意（stale）：上游自 S${state.stale.from} 起有过调整/补充，本阶段及之后已有产物是旧版本，仅供历史参考——需基于当前上游重新验证或重写后保存（确认仍有效也重新落盘，如补一行确认记录）。`,
     );
     lines.push("decision-log 不整体重写：按需追加条目（supersedes / 事件行）即可。");
     lines.push("");

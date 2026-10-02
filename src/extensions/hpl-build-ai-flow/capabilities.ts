@@ -48,7 +48,7 @@ const ENABLED_GUIDANCE: Record<number, string[]> = {
   ],
   8: [
     "golden-case：扩量遇同类数据差异 → 沿用现有 frozen cases / pattern 继续扩展；遇真正新业务场景 → 必须先定义真值（new scenario → 确认 → 封金 → 实现 → adapter 验证），禁止 implementation first 再照输出补 case。",
-    "新场景若冲击核心定义、已有 business truth 或 Design 假设 → 命中升级规则：立即停止扩量，记 Unknown/Proposal，向用户说明影响并建议回退点。",
+    "新场景若冲击核心定义、已有 business truth 或 Design 假设 → 命中升级规则：立即停止扩量，记 Unknown/Proposal，向用户说明影响并建议回到哪个阶段处理。",
   ],
   9: [
     "golden-case：spec.md / start-prompt.md 记录 case 资产的权威位置与使用规则，不复制内容——启用状态、.hapilon/go-case/ 下各文件（cases.yaml / frozen.md / manifest.json / runs.json）的角色、未关闭的 case 相关事项、后续改业务行为时的重审路径（重新确认 → 新版本封金；adapter 全绿不等于业务对）、重放会话应先读哪些 case 资产。",

@@ -366,7 +366,7 @@ export const freezeFlowEffect = (cwd, slug, forceGaps) => Effect.gen(function* (
 });
 export const gotoStageEffect = (cwd, slug, target, reason) => Effect.gen(function* () {
     if (reason.trim() === "") {
-        return yield* new FlowStateError({ message: "goto 必须带原因：/build-ai-flow goto <0-9> <原因>（回炉/跳过都要留痕）" });
+        return yield* new FlowStateError({ message: "goto 必须带原因：/build-ai-flow goto <0-9> <原因>（任意阶段导航，原因留痕）" });
     }
     if (target < 0 || target > LAST_STAGE) {
         return yield* new FlowStateError({ message: `阶段号 ${target} 越界（0..${LAST_STAGE}）` });
@@ -433,7 +433,7 @@ export function evaluateGate(cwd, slug, stage, stale, capabilities) {
         if (staleAt > 0 && !STALE_EXEMPT.has(artifact)) {
             const mtime = statSync(join(dir, artifact)).mtimeMs;
             if (mtime <= staleAt) {
-                failures.push(`${artifact} 是上游回退（S${stale.from - 1}→）之前的旧版本，需基于新上游重新验证/重写后保存（确认仍有效也重新落盘）`);
+                failures.push(`${artifact} 是上游调整（自 S${stale.from - 1} 起）前的旧版本，需基于新上游重新验证/重写后保存（确认仍有效也重新落盘）`);
             }
         }
     }
