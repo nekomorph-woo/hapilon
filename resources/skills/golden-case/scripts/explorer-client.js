@@ -34,6 +34,12 @@ position:sticky;top:0;height:100vh}
 .brand b{display:block;font-size:.82rem;letter-spacing:.02em}
 .brand span{display:block;font-size:.68rem;color:var(--soft);margin-top:.15rem}
 .tree{flex:1;overflow-y:auto;padding:.5rem .45rem 1rem}
+.snapshot{border-top:1px solid var(--rule);padding:.55rem .9rem;font-size:.66rem;color:var(--soft);line-height:1.5}
+.snaprow{display:flex;align-items:center;gap:.4rem;margin-top:.35rem}
+.snapcopy{display:inline-flex;align-items:center;justify-content:center;width:1.5rem;height:1.5rem;flex:none;
+padding:0;border:1px solid var(--rule);border-radius:5px;background:transparent;color:var(--soft);cursor:pointer}
+.snapcopy:hover{color:var(--accent);border-color:var(--accent)}
+.snapcopy svg{width:.85rem;height:.85rem}
 .sidehint{border-top:1px solid var(--rule);padding:.55rem .9rem;font-size:.66rem;color:var(--soft);line-height:1.5}
 .tgroup{margin:.7rem .3rem .2rem;font-size:.64rem;letter-spacing:.1em;color:var(--soft)}
 .titem{display:flex;align-items:baseline;gap:.4rem;width:100%;text-align:left;padding:.26rem .45rem;
@@ -429,6 +435,9 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
   const BY_ID = new Map(CASES.map((c) => [c.id, c]));
   const noteCount = (id) => notesCache.filter((n) => n.case_id === id).length;
 
+  // lucide「copy」内联 SVG：生出的 HTML 零外链，图标不能走 CDN
+  const ICON_COPY = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+
   // ── 骨架（先建 DOM，再接线）──
   // 只往 body 追加一个根容器（不用 body.innerHTML 覆盖：那会连带清掉页面里其它节点）
   function initShell() {
@@ -440,8 +449,12 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
         '<aside class="side">' +
           '<div class="brand"><b>' + esc(DATA.title) + '</b><span>用例浏览器 · ' + esc(DATA.subtitle || '本地只读审阅面') + '</span></div>' +
           '<nav class="tree" id="tree"></nav>' +
-          '<div class="sidehint" id="storageNote">便签仅存本机浏览器（IndexedDB），不会修改用例文件 · 生成于 ' +
-            esc(DATA.generated_at) + '</div>' +
+          '<div class="snapshot">本页是生成时刻的静态快照，不随用例与运行数据更新' +
+            '<span class="snaprow">' +
+              '<button class="snapcopy" data-act="copyRegen" title="复制重新生成本页的命令（粘贴到 pi 输入框执行，! 前缀，输出对 agent 可见）">' + ICON_COPY + '</button>' +
+              '<span>生成于 ' + esc(DATA.generated_at) + '</span>' +
+            '</span></div>' +
+          '<div class="sidehint" id="storageNote">便签仅存本机浏览器（IndexedDB），不会修改用例文件</div>' +
         '</aside>' +
         '<main class="main">' +
           '<div class="mhead"><div class="row">' +
@@ -1346,6 +1359,11 @@ box-shadow:var(--shadow);padding:.25rem;min-width:11rem}
       composer.draft = draftFor();
       renderComposer();
       toast('初稿已生成，可继续编辑');
+    },
+    copyRegen: async () => {
+      if (!DATA.regen_cmd) { toast('本页未内嵌生成命令（旧版生成），请重新生成'); return; }
+      const ok = await copyText(DATA.regen_cmd);
+      toast(ok ? '已复制：粘贴到 pi 输入框（! 开头）执行' : '复制失败：请手动选中文本复制');
     },
     copyDraft: async () => {
       if (!composer || !composer.draft) return;

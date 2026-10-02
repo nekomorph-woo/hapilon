@@ -21,7 +21,7 @@
 //
 // 存储边界：生出的 HTML 只读 Case 源；UI 偏好进 localStorage，便签进 IndexedDB。
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseYaml, numEq, isUndecidable, isDecimal } from './yaml-lite.mjs';
 import { loadCasesOrExit, parseYamlOrExit } from './cases-source.mjs';
@@ -56,6 +56,9 @@ if (!Array.isArray(cases) || cases.length === 0) fail('cases 文件中没有 cas
 const frozenMap = frozenPath ? (loadYaml(frozenPath, 'frozen').frozen ?? {}) : null;
 const runs = runsPath ? JSON.parse(readFileSync(runsPath, 'utf8')) : null;
 if (runs && (typeof runs !== 'object' || Array.isArray(runs))) fail('--runs 文件须是 JSON 对象');
+// 包装结构（{status,results:[…]}）不是契约形态：不解会静默全 NOT_RUN，宁可生成失败指路
+if (runs && Array.isArray(runs.results) && !runs._meta)
+  fail('--runs 是 {status,results:[…]} 包装结构——explorer 只认 format.md 的按锚点铺平 map（{"CASE-001:锚点": actual}），修 runner 的写入口');
 
 // ── 运行历史台账：按月分文件 YYYY-MM.jsonl（append-only），文件内最旧在前 ──
 // 取新在前的顺序：文件名倒序（月新到旧）＋文件内逐行倒序；每案封顶 HISTORY_CAP 条。
@@ -68,12 +71,14 @@ function loadHistory(path) {
     ? readdirSync(path).filter((f) => f.endsWith('.jsonl')).sort().reverse().map((f) => join(path, f))
     : [path];
   const byCase = new Map();
+  let badRows = 0;
   for (const file of files) {
     const rows = readFileSync(file, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean);
     for (let i = rows.length - 1; i >= 0; i--) {
       let row;
       try { row = JSON.parse(rows[i]); }
       catch (e) { fail(`历史文件 ${file} 第 ${i + 1} 行不是 JSON：${rows[i].slice(0, 60)}`); }
+      if (!row.cases || typeof row.cases !== 'object' || Array.isArray(row.cases)) { badRows++; continue; }
       const firstFail = row.first_fail ?? {};
       for (const [cid, verdict] of Object.entries(row.cases ?? {})) {
         const list = byCase.get(cid) ?? [];
@@ -83,6 +88,7 @@ function loadHistory(path) {
       }
     }
   }
+  if (badRows) console.error(`explorer: 历史台账有 ${badRows} 行不是 {when,cases,first_fail} 形态（SKILL.md「运行台账」），已忽略`);
   return byCase;
 }
 
@@ -212,7 +218,10 @@ function buildRun(c, vps, id) {
     };
   }
   if (!runs) return null;
-  const results = vps.filter((v) => v.source && !v.bad).map((v) => {
+  // bad（isUndecidable：期望含非 ASCII/空白）不排除判定——中文业务常量（「魔法」）是真期望，
+  // 锚点有实测就应判定；真写成了描述的期望会因字面比较 FAIL 而非静默 NOT_RUN（fail-closed）。
+  // bad 标志仍保留在 VP 上供 UI 提示。
+  const results = vps.filter((v) => v.source).map((v) => {
     const actual = runs[`${id}:${v.source}`];
     if (actual === undefined) {
       return { vp_id: v.id, source: v.source, expected: v.expected, actual: null, status: 'NOT_RUN', message: '' };
@@ -437,11 +446,31 @@ function buildModel(list) {
 const model = buildModel(cases).filter((m) => !business || m.business === business);
 if (business && model.length === 0) fail(`--business「${business}」下没有 case`);
 const suspicious = model.filter((m) => m.health === 'BROKEN' || (m.run && m.run.fail.length)).length;
+
+// 快照提示用：重新生成命令在生成时刻拼好内嵌进 HTML（页面是静态快照，客户端拿不到 CLI 参数）。
+// 路径一律解析为绝对路径——命令可能从任意工作目录执行；参数按实际传入重建。
+// 前缀 ! 供 pi 输入框直接执行并把输出带进会话（agent 可见）；!! 才是不给模型看的形态。
+const shq = (v) => (/[^A-Za-z0-9_@%+=:,./-]/.test(v) ? `'${v.replace(/'/g, `'\''`)}'` : v);
+const had = (name) => process.argv.includes(`--${name}`);
+const regenParts = ['node', fileURLToPath(new URL('./explorer.mjs', import.meta.url)), '--cases', resolve(casesPath)];
+if (frozenPath) regenParts.push('--frozen', resolve(frozenPath));
+if (runsPath) regenParts.push('--runs', resolve(runsPath));
+if (historyPath) regenParts.push('--history', resolve(historyPath));
+if (had('title')) regenParts.push('--title', title);
+if (had('subtitle')) regenParts.push('--subtitle', subtitle);
+if (had('business')) regenParts.push('--business', business);
+regenParts.push('--out', resolve(outPath));
+const regenCmd = '!' + regenParts.map(shq).join(' ');
+
+const now = new Date();
+const pad2 = (n) => String(n).padStart(2, '0');
 const data = {
   title,
   subtitle,
-  generated_at: new Date().toISOString().slice(0, 16).replace('T', ' '),
+  // 生成时间展示给读者，用本地时区（toISOString 是 UTC，本地读者会看到差 8 小时的时间）
+  generated_at: `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())} ${pad2(now.getHours())}:${pad2(now.getMinutes())}`,
   source: { cases: casesPath, frozen: frozenPath ?? null, runs: runsPath ?? null, history: historyPath ?? null },
+  regen_cmd: regenCmd,
   counts: { total: model.length, frozen: model.filter((m) => m.frozen).length, suspicious },
   cases: model,
 };
