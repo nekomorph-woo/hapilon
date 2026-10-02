@@ -21,6 +21,13 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 - 例外（允许普通 async/await 或裸 throw）：纯同步小工具函数、已定型不再改动的 async 遗留代码、及其测试。
 - 动手前先读 effect-typescript 技能；拿不准某处该不该用 Effect 时，用。
 
+## 扩展通知（notify）
+
+- 运行时提示统一走 `src/extensions/notify.ts` 的 `notify()`。它是 pi `ctx.ui.notify` 的出口，不是替代：有 UI 时送 TUI 状态行，未就绪（启动早期、print 模式）回落 console.warn，不丢消息。不要再直接 console.warn 发运行时提示。
+- 手头有 ctx（钩子、命令处理器）直接 `ctx.ui.notify(...)`；无 ctx 的模块（config、工具函数、workflow 全局钩子）用 `notify(...)`——两条路同一通道。
+- sink 全进程共享、注册一次即可（现挂在 hpl-subagent-models 的 before_agent_start），新扩展不用管。保留 console 的例外：team-cli/wait-pane 的命令 stdout、ensure-configs 的启动校验——那些是命令输出，不是通知。
+- 连续通知不互相覆盖靠 ensure-pi-patch 的 showStatus 补丁（marker `hapiStatusStack`）：状态行追加不替换，pi 内置提示（Switched to… 等）一并生效。
+
 ## 提交纪律
 
 - Conventional commits：type/scope 英文，描述与正文简体中文（覆盖 snap 按历史提交推断语言的默认优先级——历史是英文，新提交仍走中文）；业务高度（用户视角，一行一个想法，禁止罗列文件/版本号）；正文 ≤3 行只讲 why——即 snap skill 的标准。
@@ -31,7 +38,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 
 - `src/extensions/hpl-*` — 内置扩展：hpl-system-prompt（系统提示全量组装，含提交纪律小节）、hpl-safety-gate、hpl-model-tiers、hpl-subagent-models（subagent 派发模型列表，Agent/TaskExecute 拦截改写）、hpl-orchestra（team/pane 编排）、hpl-herdr（herdr 内的 hapi 身份与状态上报）等。
 - `resources/skills/` — 内置技能库（随版本分发）；`resources/themes/` — TUI 主题（hapilon-dark/light）。
-- `src/patch/ensure-pi-patch.ts` — 对 node_modules 的幂等补丁表（pi 包：代码块底色、中段 slash 触发门；hapilon 自身依赖：后台任务插件的 Windows shell、pi-subagents 的 workflow 派发模型钩子）；上游变更导致锚点失配时只有启动警告，需对照新源码更新锚点表。
+- `src/patch/ensure-pi-patch.ts` — 对 node_modules 的幂等补丁表（pi 包：代码块底色、中段 slash 触发门、状态行追加不覆盖；hapilon 自身依赖：后台任务插件的 Windows shell、pi-subagents 的 workflow 派发模型钩子）；上游变更导致锚点失配时只有启动警告，需对照新源码更新锚点表。
 - `.hapilon/` — 本地运行时目录（gitignored）：artifacts、handoff 等 skill 产物。
 - 文档落盘：调研/决策笔记 → `docs/research/`；用户明示留存的交付物 → `docs/artifacts/`；临时产物 → `.hapilon/<skill>/` 或 OS temp；领域词汇表（ubiquitous language）→ `.hapilon/CONTEXT.md`。
 
