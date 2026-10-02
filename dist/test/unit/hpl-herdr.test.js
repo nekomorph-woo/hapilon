@@ -1,6 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { HERDR_AGENT, HERDR_SOURCE, blockMessage, createHerdrReporter, releaseAgentArgs, reportAgentArgs, reporterEnabled, } from "../../extensions/hpl-herdr/report.js";
+import { createHerdrState } from "../../extensions/hpl-herdr/state.js";
+import { registerHerdrReporting } from "../../extensions/hpl-herdr/index.js";
 /** 记录 spawn 调用的假 SpawnFn */
 function makeSpawn(result = {}) {
     const calls = [];
@@ -131,5 +133,100 @@ describe("createHerdrReporter()", () => {
         reporter.report("working");
         assert.equal(errors.length, 1);
         assert.ok(errors[0].includes("pane_not_found"));
+    });
+});
+describe("createHerdrState() 状态合成", () => {
+    it("回归：主循环 settle 后 subagent 在跑保持 working，最后一个结束才 idle", () => {
+        const s = createHerdrState();
+        assert.equal(s.turnStart()?.state, "working");
+        s.subagentStarted("a1");
+        // 旧代码此处直接报 idle——subagent 还在跑，必须保持 working 且不重复上报
+        assert.equal(s.agentSettled(), undefined);
+        assert.equal(s.subagentEnded("a1")?.state, "idle");
+    });
+    it("主循环早已 settle 时，后台派发直接拉回 working", () => {
+        const s = createHerdrState();
+        assert.equal(s.subagentStarted("a1")?.state, "working");
+    });
+    it("blocked 优先，prompt 关闭后回到 subagent 撑住的 working", () => {
+        const s = createHerdrState();
+        s.subagentStarted("a1");
+        const blocked = s.promptStart("confirm: 允许写入?");
+        assert.equal(blocked?.state, "blocked");
+        assert.equal(blocked?.message, "confirm: 允许写入?");
+        assert.equal(s.promptEnd()?.state, "working");
+        assert.equal(s.subagentEnded("a1")?.state, "idle");
+    });
+    it("同状态去重：连续起跑与多个 subagent 都不重复产出", () => {
+        const s = createHerdrState();
+        assert.ok(s.agentStart());
+        assert.equal(s.turnStart(), undefined);
+        assert.equal(s.subagentStarted("a1"), undefined);
+        assert.equal(s.subagentStarted("a2"), undefined);
+        s.agentSettled(); // 主循环结束，subagent 撑住 working
+        // 并发收尾：最后一个结束才转 idle，先结束的不动
+        assert.equal(s.subagentEnded("a1"), undefined);
+        assert.equal(s.subagentEnded("a2")?.state, "idle");
+    });
+    it("failed 与 completed 同路：都解除在跑标记", () => {
+        const s = createHerdrState();
+        s.subagentStarted("a1");
+        s.subagentStarted("a2");
+        s.subagentEnded("a1");
+        assert.equal(s.agentSettled(), undefined);
+        assert.equal(s.subagentEnded("a2")?.state, "idle");
+    });
+});
+describe("registerHerdrReporting() 接线", () => {
+    function fakePi() {
+        const handlers = new Map();
+        const events = new Map();
+        const pi = {
+            on: (name, handler) => void handlers.set(name, handler),
+            events: { on: (name, handler) => void events.set(name, handler) },
+        };
+        return { pi: pi, handlers, events };
+    }
+    const states = (calls) => calls.map((c) => c.args[c.args.indexOf("--state") + 1]);
+    it("非 herdr 环境不注册任何监听", () => {
+        const { spawn } = makeSpawn();
+        const { pi, handlers, events } = fakePi();
+        registerHerdrReporting(pi, { spawn, env: { herdrEnv: undefined, binPath: undefined, paneId: undefined } });
+        assert.equal(handlers.size, 0);
+        assert.equal(events.size, 0);
+    });
+    it("回归：subagent 生命周期事件在主循环 settle 后撑住 working", () => {
+        const { spawn, calls } = makeSpawn();
+        const { pi, handlers, events } = fakePi();
+        registerHerdrReporting(pi, { spawn, env: ENV });
+        handlers.get("turn_start")();
+        handlers.get("agent_settled")(); // 无 subagent：沉淀即 idle
+        (events.get("subagents:started"))({ id: "a1" });
+        handlers.get("agent_settled")(); // subagent 在跑：不再报 idle
+        (events.get("subagents:completed"))({ id: "a1" });
+        assert.deepEqual(states(calls), ["working", "idle", "working", "idle"]);
+    });
+    it("failed 同样解除在跑；blocked 事件流经状态机", () => {
+        const { spawn, calls } = makeSpawn();
+        const { pi, handlers, events } = fakePi();
+        registerHerdrReporting(pi, { spawn, env: ENV });
+        (events.get("subagents:started"))({ id: "a1" });
+        (events.get("subagents:failed"))({ id: "a1", status: "stopped" });
+        assert.deepEqual(states(calls), ["working", "idle"]);
+    });
+    it("session_start 重置状态机并带 session 路径", () => {
+        const { spawn, calls } = makeSpawn();
+        const { pi, handlers, events } = fakePi();
+        registerHerdrReporting(pi, { spawn, env: ENV });
+        (events.get("subagents:started"))({ id: "a1" });
+        handlers.get("session_start")({}, {
+            sessionManager: { getSessionFile: () => "/s.jsonl" },
+        });
+        const last = calls.at(-1);
+        assert.equal(last.args[last.args.indexOf("--state") + 1], "idle");
+        assert.ok(last.args.includes("--agent-session-path"));
+        // 重置后旧的在跑标记不再撑状态
+        handlers.get("agent_settled")();
+        assert.deepEqual(states(calls).slice(-2), ["idle", "idle"]);
     });
 });
