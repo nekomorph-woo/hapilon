@@ -369,17 +369,23 @@ describe("golden-case · yaml-lite 对不可判定期望的拒判", () => {
     assert.equal(yamlLite.numEq("74.8", 74.8), true, "保文本小数按数值比");
   });
 
-  it("不可判定的期望被标 bad 并拒判，同 case 里可判定的照常判", () => {
+  it("中文常量期望照常判（bad 只作 UI 提示），真描述会字面 FAIL 而非跳过", () => {
     const CASES = `cases:
   - id: CASE-201
-    name: 期望里混了一句感受
+    name: 期望里混了一句中文常量
     observe: [mood, stock_after]
     expect:
       mood: 余额扣得正确，用户体验良好
       stock_after: 2
 
   - id: CASE-202
-    name: 期望全是描述
+    name: 期望全是中文常量
+    observe: [mood]
+    expect:
+      mood: 余额扣得正确，用户体验良好
+
+  - id: CASE-203
+    name: 真写成了描述
     observe: [mood]
     expect:
       mood: 余额扣得正确，用户体验良好
@@ -389,24 +395,30 @@ describe("golden-case · yaml-lite 对不可判定期望的拒判", () => {
         "CASE-201:mood": "余额扣得正确，用户体验良好",
         "CASE-201:stock_after": 2,
         "CASE-202:mood": "余额扣得正确，用户体验良好",
+        "CASE-203:mood": "余额扣错了 3 元",
       }),
     );
     const c = cases[0];
-    assert.equal(c.vps[0].bad, true, "描述性期望必须标 bad");
+    assert.equal(c.vps[0].bad, true, "中文常量标 bad 供 UI 提示");
     assert.equal(c.vps[1].bad, false);
-    assert.equal(c.health, "BROKEN", "含不可判定期望的 case 健康度应为 BROKEN");
+    assert.equal(c.health, "BROKEN", "含 bad 期望的 case 健康度仍提示 BROKEN");
 
     assert.ok(c.run);
     assert.deepEqual(
       c.run.results.map((r) => r.vp_id),
-      ["VP-002"],
-      "被拒判的 VP 不得进入判定结果",
+      ["VP-001", "VP-002"],
+      "bad VP 照常判定，不排除出判定结果",
     );
-    assert.equal(c.run.status, "PASS", "只由可判定 VP 聚合判定");
+    assert.equal(c.run.results[0].status, "PASS", "中文常量按字面相等判");
+    assert.equal(c.run.status, "PASS");
 
     const all = cases[1];
     assert.equal(all.vps[0].bad, true);
-    assert.equal(all.run?.status, "NOT_RUN", "全不可判定 = 拒判，不得给 PASS/FAIL");
+    assert.equal(all.run?.status, "PASS", "全 bad 也照判：相等即 PASS");
+
+    const described = cases[2];
+    assert.equal(described.run?.results[0].status, "FAIL", "真描述与实测不等 → 字面 FAIL（fail-closed，不静默跳过）");
+    assert.equal(described.run?.status, "FAIL");
   });
 });
 
