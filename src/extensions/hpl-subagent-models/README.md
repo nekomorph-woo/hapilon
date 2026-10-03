@@ -25,3 +25,12 @@ subagent 派发的模型列表。两个接入点共享同一张列表：`tool_ca
 - 配置顺序为准；条目 provider 任一用量窗口 ≥90%（hpl-quota-usage 快照）视为紧张，沉底顺延到后面的条目。
 - 全部紧张：不改写，回落父 agent 模型，console.warn 提示。
 - `:thinking` 后缀只对 Agent 工具生效（TaskExecute 与 workflow 派发没有该参数直通车；workflow 的思考深度走脚本自己的 `effort` 参数）。
+
+## vision-models（vision 子代理专用列表）
+
+`~/.hapilon*/vision-models.json`（项目 `.hapilon/vision-models.json` 存在即整体替换），格式同上。`/vision-models` 交互编辑。
+
+- 只改 `subagent_type=vision` 的 **Agent 工具**派发；vision 子代理定义由 hapilon 首启播种在全局 `agents/vision.md`（`prompt_mode: replace`，专注图像分析；用户已自定义则不覆盖）。
+- 列表未配置/未命中时回落父 agent 模型并告警（父模型可能不支持图像）。
+- TaskExecute 与 workflow 派发暂不走 vision 列表（一期范围：Agent 工具路径）。
+- 主会话侧派发纪律（输入构造四要素 + 防幻觉）在 system prompt 的 `<vision_delegation>` 段。

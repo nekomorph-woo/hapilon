@@ -237,6 +237,17 @@ export function buildAppendSection(appendSystemPrompt?: string): string {
   return `<additional_instructions>\n${appendSystemPrompt}\n</additional_instructions>`;
 }
 
+/** vision 子代理派发纪律：输入构造与防幻觉双向约束（主模型侧） */
+export function buildVisionDelegationSection(): string {
+  return [
+    "<vision_delegation>",
+    "图像/截图分析优先派 vision 子代理（多模态，subagent_type=vision），主会话不直接读图：",
+    "- 派发输入必须给全：图片路径、要回答的具体问题、判断/验收标准、期望输出格式。vision 拿不到这些就只能追问或声明假设，来回浪费一轮。",
+    "- 收到 vision 的文字结论后只按其原文汇总裁决：不得自行想象画面里的问题，不得脑补它没报告的视觉细节；对画面有疑问就把疑问发回 vision 复核，而不是自己猜。",
+    "</vision_delegation>",
+  ].join("\n");
+}
+
 /** 外部目录（/add-dir）注入内容由 hpl-add-dir 经 bridge 提供；此处条件拼接 + XML 转义。 */
 export function buildExternalDirsSection(): string {
   const dirs = getAddedDirs();
@@ -334,6 +345,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   const contextFilesSection = buildContextSection(contextFiles);
   const externalDirsSection = buildExternalDirsSection();
   const skillsSection = buildSkillsSection(skills, tools);
+  const visionDelegationSection = buildVisionDelegationSection();
   const appendSection = buildAppendSection(appendSystemPrompt);
   const envSection = buildEnvironmentSection(cwd, agentDirPath, runModeText);
 
@@ -357,6 +369,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
       contextFiles: contextFilesSection.length,
       externalDirectories: externalDirsSection.length,
       skills: skillsSection.length,
+      visionDelegation: visionDelegationSection.length,
       customToolsNote: customToolsNote.length,
       additionalData: appendSection.length,
       environment: envSection.length,
@@ -381,6 +394,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     contextFilesSection,
     externalDirsSection,
     skillsSection,
+    visionDelegationSection,
     appendSection,
     envSection,
   ]);

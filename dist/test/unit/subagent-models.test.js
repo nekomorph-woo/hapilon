@@ -91,3 +91,78 @@ describe("hpl-subagent-models config", { concurrency: false }, () => {
         assert.equal(parseModelEntry("/id", "x"), undefined);
     });
 });
+describe("vision-models 列表（与 subagent-models 同一套 IO）", { concurrency: false }, () => {
+    let home;
+    let project;
+    const originalHome = process.env.HAPILON_HOME;
+    before(() => {
+        home = mkdtempSync(join(tmpdir(), "hapi-vision-models-home-"));
+        project = mkdtempSync(join(tmpdir(), "hapi-vision-models-project-"));
+        process.env.HAPILON_HOME = home;
+    });
+    after(() => {
+        rmSync(home, { recursive: true, force: true });
+        rmSync(project, { recursive: true, force: true });
+        if (originalHome === undefined)
+            delete process.env.HAPILON_HOME;
+        else
+            process.env.HAPILON_HOME = originalHome;
+    });
+    it("vision-models.json 双层读取，与 subagent 列表互不串台", async () => {
+        const { readVisionModelsEffect, readSubagentModelsEffect } = await import("../../extensions/hpl-subagent-models/config.js");
+        writeFileSync(join(home, "vision-models.json"), JSON.stringify({ models: ["openai/gpt-5.2-vision"] }), "utf8");
+        writeFileSync(join(home, "subagent-models.json"), JSON.stringify({ models: ["zai-coding-cn/glm-4.7"] }), "utf8");
+        const vision = Effect.runSync(readVisionModelsEffect(project));
+        const subagent = Effect.runSync(readSubagentModelsEffect(project));
+        assert.deepEqual(vision.entries, [{ provider: "openai", id: "gpt-5.2-vision" }]);
+        assert.deepEqual(subagent.entries, [{ provider: "zai-coding-cn", id: "glm-4.7" }]);
+    });
+    it("项目层整体替换全局（vision 同规则）", async () => {
+        const { readVisionModelsEffect } = await import("../../extensions/hpl-subagent-models/config.js");
+        mkdirSync(join(project, ".hapilon"), { recursive: true });
+        writeFileSync(join(project, ".hapilon", "vision-models.json"), JSON.stringify({ models: ["anthropic/claude-sonnet-vision"] }), "utf8");
+        const vision = Effect.runSync(readVisionModelsEffect(project));
+        assert.deepEqual(vision.entries, [{ provider: "anthropic", id: "claude-sonnet-vision" }]);
+    });
+});
+describe("vision 路由分流（Agent 派发按 subagent_type 选列表）", { concurrency: false }, () => {
+    let home;
+    let project;
+    const originalHome = process.env.HAPILON_HOME;
+    before(async () => {
+        home = mkdtempSync(join(tmpdir(), "hapi-vision-route-home-"));
+        project = mkdtempSync(join(tmpdir(), "hapi-vision-route-project-"));
+        process.env.HAPILON_HOME = home;
+        writeFileSync(join(home, "vision-models.json"), JSON.stringify({ models: ["openai/gpt-5.2-vision"] }), "utf8");
+        writeFileSync(join(home, "subagent-models.json"), JSON.stringify({ models: ["zai-coding-cn/glm-4.7"] }), "utf8");
+    });
+    after(() => {
+        rmSync(home, { recursive: true, force: true });
+        rmSync(project, { recursive: true, force: true });
+        if (originalHome === undefined)
+            delete process.env.HAPILON_HOME;
+        else
+            process.env.HAPILON_HOME = originalHome;
+    });
+    it("subagent_type=vision → vision 列表；无类型 → subagent 列表；显式 model 不动", async () => {
+        const mod = await import("../../extensions/hpl-subagent-models/index.js");
+        const handlers = [];
+        const pi = {
+            registerCommand: () => { },
+            on: (event, handler) => {
+                if (event === "tool_call")
+                    handlers.push(handler);
+            },
+        };
+        mod.default(pi);
+        assert.equal(handlers.length, 1);
+        const run = async (input) => {
+            const event = { type: "tool_call", toolName: "Agent", toolCallId: "t", input: { ...input } };
+            await handlers[0](event, { cwd: project });
+            return event.input.model;
+        };
+        assert.equal(await run({ prompt: "看图", subagent_type: "vision" }), "openai/gpt-5.2-vision");
+        assert.equal(await run({ prompt: "查代码" }), "zai-coding-cn/glm-4.7");
+        assert.equal(await run({ prompt: "看图", subagent_type: "vision", model: "x/y" }), "x/y");
+    });
+});

@@ -150,6 +150,54 @@ const ensureThemeSettingsEffect = (agentDir) => Effect.gen(function* () {
     });
 });
 /**
+ * vision 子代理定义：agentDir/agents/vision.md 不存在时播种。模型不写在定义里
+ * ——由 vision-models 列表在派发时改写（未配置时回落父模型并告警）。
+ * 用户已有同名文件永不覆盖。
+ */
+const VISION_AGENT_MD = `---
+name: vision
+display_name: Vision
+prompt_mode: replace
+description: 图像/截图分析专用子代理（多模态模型派发）。看图专注、证据落地。派发时必须给全：图片路径、要回答的问题、判断/验收标准、期望输出格式；不齐会追问。适用：UI 截图审查、视觉回归比对、图表/照片内容提取。
+---
+
+你是视觉分析子代理，搭载多模态模型——读图是你的核心能力，也是你被派来的原因。你看图，主会话不看：你返回的每一句观察就是主会话唯一的「眼睛」。
+
+## 看图纪律
+
+- 真切地看图：逐区域扫描（整体布局→各区域→细节），不扫一眼就下结论。像素证据优先于猜测：对齐/溢出/遮挡/裁剪/文字渲染/色彩/状态，逐项核实。
+- 观察与判断分开：先说看到了什么（引用图中可见文本、位置、区域），再下判断；判断必须能指回可见证据。
+- 不知道就说不知道：图里看不清/被截断/无法判定的，明确说「无法判定+缺什么」，绝不编造画面内容。
+- 通用性：不限于 UI——照片、图表、扫描件、示意图都按同一纪律处理：先描述可见事实，再回答派发问题。
+
+## 输入契约（派发方应给全；缺了就追问，不猜）
+
+1. 图片路径（一张或多张）
+2. 要回答的具体问题（「看看有没有问题」不算问题——追问具体维度）
+3. 判断/验收标准（什么算对、什么算错；没有标准则先声明你的判断依据）
+4. 期望输出格式（清单/表格/逐项结论）
+
+输入不齐时：先列出缺什么、按声明过的假设继续，把假设写在结论前——不许默默猜。
+
+## 输出格式
+
+- 逐项结论：观察（可见证据）→ 判断（Pass/Concern/Fail/无法判定）→ 依据
+- 末尾附「未检查项」：没看过的维度明说，不营造全部检查过的印象
+- 只描述与派发问题相关的内容，不复述整张图；文字结论自包含，主会话不再看图
+`;
+const ensureVisionAgentEffect = (agentDir) => Effect.gen(function* () {
+    const path = join(agentDir, "agents", "vision.md");
+    if (existsSync(path))
+        return;
+    yield* Effect.try({
+        try: () => {
+            mkdirSync(join(agentDir, "agents"), { recursive: true, mode: 0o700 });
+            writeFileSync(path, VISION_AGENT_MD, "utf8");
+        },
+        catch: (err) => new ConfigWriteError({ message: err instanceof Error ? err.message : String(err) }),
+    });
+});
+/**
  * 预置扩展的全局默认配置（幂等，首次启动生效）。
  */
 export const ensureExtensionConfigsEffect = (agentDir) => Effect.gen(function* () {
@@ -160,6 +208,8 @@ export const ensureExtensionConfigsEffect = (agentDir) => Effect.gen(function* (
     yield* ensureJsonConfigEffect(agentDir, "mcp.json", MCP_CONFIG_DEFAULTS);
     // hpl-econ：组合甲默认实体化
     yield* ensureJsonConfigEffect(agentDir, "econ-config.json", ECON_CONFIG_DEFAULTS);
+    // vision 子代理定义：全局 agents 目录播种（用户已自定义则不碰）
+    yield* ensureVisionAgentEffect(agentDir);
     // 主题：仓库主题目录挂进 settings.themes，默认选中 hapilon-light/hapilon-dark（跟随终端明暗）
     yield* ensureThemeSettingsEffect(agentDir);
 });

@@ -26,6 +26,8 @@ export interface SystemPromptMeta {
     contextFiles: number;
     externalDirectories: number;
     skills: number;
+    /** vision 子代理派发纪律段（hpl-vision 上线后常驻，旧快照无此键） */
+    visionDelegation?: number;
     team?: number;
     customToolsNote: number;
     additionalData: number;

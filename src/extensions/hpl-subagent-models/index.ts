@@ -15,9 +15,14 @@ import { isToolCallEventType, type ExtensionAPI } from "@earendil-works/pi-codin
 import { Effect } from "effect";
 import { readQuotaSnapshots } from "../hpl-quota-usage/cache.js";
 import { quotaNamespace, snapshotHot } from "../hpl-quota-usage/snapshot.js";
-import { readSubagentModelsEffect, type SubagentModelEntry } from "./config.js";
+import {
+  readSubagentModelsEffect,
+  readVisionModelsEffect,
+  type SubagentModelEntry,
+  type SubagentModelsConfig,
+} from "./config.js";
 import { pickSubagentModel } from "./selector.js";
-import { handleSubagentModelsCommand } from "./command.js";
+import { handleSubagentModelsCommand, handleVisionModelsCommand } from "./command.js";
 
 const PREFIX = "[hpl-subagent-models]";
 
@@ -27,11 +32,24 @@ function hotProviders(): Set<string> {
 
 /** 同一张列表的选型：配置现读 + 配额顺延；不命中返回 undefined（回落父模型）。 */
 function pickEntry(cwd: string): SubagentModelEntry | undefined {
-  const { enabled, entries } = Effect.runSync(readSubagentModelsEffect(cwd));
+  return pickFromList(cwd, readSubagentModelsEffect, "subagent");
+}
+
+/** vision 列表选型：subagent_type=vision 的 Agent 派发专用（多模态）。 */
+function pickVisionEntry(cwd: string): SubagentModelEntry | undefined {
+  return pickFromList(cwd, readVisionModelsEffect, "vision");
+}
+
+function pickFromList(
+  cwd: string,
+  read: (cwd: string) => Effect.Effect<SubagentModelsConfig, never>,
+  kind: "subagent" | "vision",
+): SubagentModelEntry | undefined {
+  const { enabled, entries } = Effect.runSync(read(cwd));
   if (!enabled || entries.length === 0) return undefined;
   const pick = pickSubagentModel(entries, hotProviders());
   if (pick.kind === "all-hot") {
-    notify(`${PREFIX} 列表全部 provider 配额紧张（≥90%），不改写，回落父 agent 的模型`);
+    notify(`${PREFIX} ${kind} 列表全部 provider 配额紧张（≥90%），不改写，回落父 agent 的模型`);
     return undefined;
   }
   return pick.kind === "entry" ? pick.entry : undefined;
@@ -50,6 +68,13 @@ export default function (pi: ExtensionAPI) {
     description: "交互编辑 subagent 派发模型列表（Agent/TaskExecute/Workflow 的模型与 thinking）",
     handler: async (_args, ctx) => {
       await handleSubagentModelsCommand(ctx);
+    },
+  });
+
+  pi.registerCommand("vision-models", {
+    description: "交互编辑 vision 子代理（多模态）模型列表——subagent_type=vision 的派发用",
+    handler: async (_args, ctx) => {
+      await handleVisionModelsCommand(ctx);
     },
   });
 
@@ -74,9 +99,10 @@ export default function (pi: ExtensionAPI) {
     const isTaskExecute = !isAgent && isToolCallEventType("TaskExecute", event);
     if (!isAgent && !isTaskExecute) return;
 
-    const input = event.input as { model?: unknown; resume?: unknown };
+    const input = event.input as { model?: unknown; resume?: unknown; subagent_type?: unknown };
     // resume 是接续已有会话，模型属于原会话，列表不插手
     if (typeof input.resume === "string" && input.resume !== "") return;
+    const subagentType = typeof input.subagent_type === "string" ? input.subagent_type.trim() : "";
 
     const explicit = typeof input.model === "string" ? input.model.trim() : "";
     if (explicit !== "") {
@@ -90,7 +116,10 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const entry = pickEntry(ctx.cwd);
+    const entry = subagentType === "vision" && isAgent ? pickVisionEntry(ctx.cwd) : pickEntry(ctx.cwd);
+    if (subagentType === "vision" && isAgent && !entry) {
+      notify(`${PREFIX} vision 列表未配置/未命中，vision 派发回落父 agent 模型（可能不支持图像）`, "warning");
+    }
     if (!entry) return;
     input.model = `${entry.provider}/${entry.id}`;
     if (isAgent && entry.thinking) {
