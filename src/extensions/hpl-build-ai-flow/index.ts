@@ -26,6 +26,7 @@ import {
   resolveDebtEffect,
   savePendingGoal,
   setCapabilityEffect,
+  setGoalEffect,
   startFlowEffect,
   takePendingGoal,
   uniqueSlug,
@@ -56,7 +57,7 @@ function activeFlow(cwd: string): { state: FlowState } | { error: string } | { n
 export default function hplBuildAiFlow(pi: ExtensionAPI): void {
   pi.registerCommand("build-ai-flow", {
     description:
-      "十阶段复杂任务流程（dump→…→freeze，Gate 管控）。用法：/build-ai-flow start <目标> | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit",
+      "十阶段复杂任务流程（dump→…→freeze，Gate 管控）。用法：/build-ai-flow start <目标> | goal <定位句>（换行后每行一条验收要点） | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit",
     getArgumentCompletions: (query: string) => buildCompletions(query, process.cwd()),
     handler: async (args: string, ctx) => {
       const cwd = ctx.cwd ?? process.cwd();
@@ -236,6 +237,39 @@ export default function hplBuildAiFlow(pi: ExtensionAPI): void {
       }
 
       // ── audit：决策冲突审查 ─────────────────────────────────────
+      // ── goal：S2 拍板写回（定位句 + 验收要点，人拍板才写入） ──────
+      const goalMatch = trimmed.match(/^goal(?:\s+([\s\S]+))?$/);
+      if (goalMatch) {
+        const active = activeFlow(cwd);
+        if ("none" in active || "error" in active) {
+          ctx.ui?.notify?.("没有活跃 flow。先 /build-ai-flow start <目标>", "error");
+          return;
+        }
+        const body = goalMatch[1]?.trim() ?? "";
+        if (body === "") {
+          ctx.ui?.notify?.(
+            active.state.goalStatement !== null
+              ? "用法：/build-ai-flow goal <定位句>（换行后每行一条验收要点，重发即覆盖）。当前已拍板，重发前确认要改"
+              : "用法：/build-ai-flow goal <定位句>（换行后每行一条验收要点）",
+            "error",
+          );
+          return;
+        }
+        const [firstLine, ...rest] = body.split("\n");
+        const statement = (firstLine ?? "").trim();
+        const acceptance = rest.map((l) => l.replace(/^[-*•\d.\s]+/, "").trim()).filter((l) => l !== "");
+        const set = runEither(setGoalEffect(cwd, active.state.slug, statement, acceptance));
+        if (set._tag === "Left") {
+          ctx.ui?.notify?.(set.left.message, "error");
+          return;
+        }
+        ctx.ui?.notify?.(
+          `目标已拍板写入：定位句「${set.right.goalStatement}」，验收要点 ${set.right.acceptance.length} 条。S8 覆盖盘点与冻结检查以此为准（已留痕 history）`,
+          "info",
+        );
+        return;
+      }
+
       // ── cap：能力启用/拒绝（只有人能触发；AI 只有推荐权） ────
       const capMatch = trimmed.match(/^cap\s+(\S+)\s+(enable|decline)(?:\s+(.+))?$/s);
       if (capMatch) {
@@ -288,7 +322,7 @@ export default function hplBuildAiFlow(pi: ExtensionAPI): void {
       }
 
       ctx.ui?.notify?.(
-        "用法：/build-ai-flow [start <目标> | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit]",
+        "用法：/build-ai-flow [start <目标> | goal <定位句>（换行后每行一条验收要点） | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit]",
         "error",
       );
     },
@@ -387,7 +421,7 @@ async function maybeAuditThenFreeze(
       }
     }
   }
-  const coverageGaps = coverageDispositionGaps(cwd, state.slug);
+  const coverageGaps = coverageDispositionGaps(cwd, state.slug, state.acceptance);
   if (coverageGaps.length > 0) {
     ctx.ui?.notify?.(
       `冻结被拦：scale.md 覆盖盘点中 ${coverageGaps.length} 个未实现/部分项没有去向拍板（需 → 拍板 D-xxx / 用户裁决原话 / 流程后续+拍板记录）：\n` +

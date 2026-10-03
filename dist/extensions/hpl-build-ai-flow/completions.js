@@ -30,7 +30,7 @@ export function buildCompletions(query, cwd) {
     const trimmed = query.trimStart();
     const flow = activeFlowSync(cwd);
     // 子命令位
-    if (!/^(start|goto|next|status|list|audit|debt|cap)\b/.test(trimmed)) {
+    if (!/^(start|goal|goto|next|status|list|audit|debt|cap)\b/.test(trimmed)) {
         const gateHint = flow && flow.status === "active"
             ? evaluateGate(cwd, flow.slug, flow.stage, flow.stale).passed
                 ? "推进（当前 Gate 已过）"
@@ -42,6 +42,7 @@ export function buildCompletions(query, cwd) {
             { value: "status", label: "status", description: "ASCII 状态轨 + 当前状态 + 建议下一步", searchText: "status 状态 查看进度" },
             { value: "list", label: "list", description: "列出全部 flow", searchText: "list 列表 全部" },
             { value: "goto ", label: "goto", description: "导航到任意阶段（前跳/回补/重做）：goto <0-9> <原因>", searchText: "goto 跳转 回补 前跳 重做" },
+            { value: "goal ", label: "goal", description: "拍板目标：goal <定位句>（换行后每行一条验收要点）——S8 盘点与冻结以此为准", searchText: "goal 目标 定位句 验收 拍板" },
             { value: "audit", label: "audit", description: "决策冲突审查（tier:sonnet 读 decision-log 找矛盾）", searchText: "audit 审查 冲突 决策" },
             { value: "debt", label: "debt", description: "查看 Gate 缺口欠账", searchText: "debt 欠账 缺口 查看" },
             { value: "debt resolve ", label: "debt resolve", description: "关闭欠账：debt resolve <G-00x> <说明>", searchText: "debt resolve 关闭 欠账" },

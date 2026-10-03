@@ -20,6 +20,7 @@ export class FlowStateError extends Data.TaggedError("FlowStateError")<{
 
 export type TransitionKind =
   | "start"
+  | "goal-set"
   | "advance"
   | "force"
   | "skip"
@@ -72,6 +73,10 @@ export interface FlowState {
   slug: string;
   name: string;
   goal: string;
+  /** S2 拍板的一句话目标定位句；null = 未拍板（旧 state 缺省补 null）。S8 盘点与冻结以此为准 */
+  goalStatement: string | null;
+  /** S2 拍板的验收要点清单（逐条可判定）；旧 state 缺省补 []。S8 覆盖盘点逐条对照 */
+  acceptance: string[];
   status: "active" | "frozen";
   stage: number;
   createdAt: string;
@@ -89,21 +94,28 @@ export function openDebts(state: FlowState): GateDebt[] {
   return state.debts.filter((d) => !d.resolvedAt);
 }
 
-/** 冻结闸门：scale.md 覆盖盘点中，未实现/部分项必须有去向拍板；返回违规行（空=通过）。无覆盖盘点小节视为全部违规由 S8 Gate 标记拦截，此处返回空不重复报 */
-export function coverageDispositionGaps(cwd: string, slug: string): string[] {
+/** 冻结闸门：scale.md 覆盖盘点中，未实现/部分项必须有去向拍板，acceptance 逐条必须在表；返回违规行（空=通过）。无覆盖盘点小节由 S8 Gate 标记拦截，此处不重复报 */
+export function coverageDispositionGaps(cwd: string, slug: string, acceptance: string[] = []): string[] {
   const content = readFileOrNull(join(flowDir(cwd, slug), "scale.md"));
   if (content === null) return [];
   const gaps: string[] = [];
+  const lines = content.split("\n");
+  const section: string[] = [];
   let inCoverage = false;
-  for (const line of content.split("\n")) {
+  for (const line of lines) {
     if (/覆盖盘点/.test(line)) {
       inCoverage = true;
       continue;
     }
     if (inCoverage && /^#{1,3} /.test(line)) break; // 覆盖盘点小节结束
     if (!inCoverage) continue;
+    section.push(line);
     if (!/❌|未实现|◐/.test(line)) continue;
     if (!/拍板|D-\d{2,3}|用户裁决/.test(line)) gaps.push(line.trim());
+  }
+  const sectionText = section.join("\n");
+  for (const item of acceptance) {
+    if (!sectionText.includes(item)) gaps.push(`验收要点未入覆盖盘点表：${item}`);
   }
   return gaps;
 }
@@ -263,6 +275,8 @@ function parseState(raw: string, path: string): FlowState {
     slug: s.slug,
     name: typeof s.name === "string" ? s.name : s.slug,
     goal: typeof s.goal === "string" ? s.goal : "",
+    goalStatement: typeof s.goalStatement === "string" && s.goalStatement !== "" ? s.goalStatement : null,
+    acceptance: Array.isArray(s.acceptance) ? s.acceptance.filter((a): a is string => typeof a === "string" && a !== "") : [],
     status: s.status,
     stage: s.stage,
     createdAt: typeof s.createdAt === "string" ? s.createdAt : "",
@@ -383,6 +397,8 @@ export const startFlowEffect = (
       debts: [],
       stale: null,
       capabilities: {},
+      goalStatement: null,
+      acceptance: [],
     };
     writeFlow(cwd, state);
     writeActive(cwd, slug);
@@ -458,6 +474,34 @@ export const forceAdvanceEffect = (
   });
 
 /** 能力启用/拒绝：唯一写入口，只由 cap 命令（人）触发；翻转是真实用户决策，单条目覆盖 + history 留痕 */
+/** S2 拍板写回：定位句 + 验收要点清单。唯一写入口是 /build-ai-flow goal（人拍板），history 留痕 kind=goal-set */
+export const setGoalEffect = (
+  cwd: string,
+  slug: string,
+  goalStatement: string,
+  acceptance: string[],
+): Effect.Effect<FlowState, FlowStateError> =>
+  Effect.gen(function* () {
+    if (goalStatement.trim() === "") {
+      return yield* new FlowStateError({ message: "定位句不能为空：/build-ai-flow goal <定位句>（换行后每行一条验收要点）" });
+    }
+    let state = yield* loadFlowEffect(cwd, slug);
+    const now = new Date().toISOString();
+    state = {
+      ...state,
+      goalStatement: goalStatement.trim(),
+      acceptance,
+    };
+    state = append(state, {
+      kind: "goal-set",
+      to: state.stage,
+      reason: `定位句：${goalStatement.trim()}｜验收要点 ${acceptance.length} 条`,
+      at: now,
+    });
+    writeFlow(cwd, state);
+    return state;
+  });
+
 export const setCapabilityEffect = (
   cwd: string,
   slug: string,

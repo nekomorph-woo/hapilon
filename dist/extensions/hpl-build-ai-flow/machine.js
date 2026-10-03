@@ -16,14 +16,16 @@ export const KNOWN_CAPABILITIES = ["golden-case"];
 export function openDebts(state) {
     return state.debts.filter((d) => !d.resolvedAt);
 }
-/** 冻结闸门：scale.md 覆盖盘点中，未实现/部分项必须有去向拍板；返回违规行（空=通过）。无覆盖盘点小节视为全部违规由 S8 Gate 标记拦截，此处返回空不重复报 */
-export function coverageDispositionGaps(cwd, slug) {
+/** 冻结闸门：scale.md 覆盖盘点中，未实现/部分项必须有去向拍板，acceptance 逐条必须在表；返回违规行（空=通过）。无覆盖盘点小节由 S8 Gate 标记拦截，此处不重复报 */
+export function coverageDispositionGaps(cwd, slug, acceptance = []) {
     const content = readFileOrNull(join(flowDir(cwd, slug), "scale.md"));
     if (content === null)
         return [];
     const gaps = [];
+    const lines = content.split("\n");
+    const section = [];
     let inCoverage = false;
-    for (const line of content.split("\n")) {
+    for (const line of lines) {
         if (/覆盖盘点/.test(line)) {
             inCoverage = true;
             continue;
@@ -32,10 +34,16 @@ export function coverageDispositionGaps(cwd, slug) {
             break; // 覆盖盘点小节结束
         if (!inCoverage)
             continue;
+        section.push(line);
         if (!/❌|未实现|◐/.test(line))
             continue;
         if (!/拍板|D-\d{2,3}|用户裁决/.test(line))
             gaps.push(line.trim());
+    }
+    const sectionText = section.join("\n");
+    for (const item of acceptance) {
+        if (!sectionText.includes(item))
+            gaps.push(`验收要点未入覆盖盘点表：${item}`);
     }
     return gaps;
 }
@@ -175,6 +183,8 @@ function parseState(raw, path) {
         slug: s.slug,
         name: typeof s.name === "string" ? s.name : s.slug,
         goal: typeof s.goal === "string" ? s.goal : "",
+        goalStatement: typeof s.goalStatement === "string" && s.goalStatement !== "" ? s.goalStatement : null,
+        acceptance: Array.isArray(s.acceptance) ? s.acceptance.filter((a) => typeof a === "string" && a !== "") : [],
         status: s.status,
         stage: s.stage,
         createdAt: typeof s.createdAt === "string" ? s.createdAt : "",
@@ -275,6 +285,8 @@ export const startFlowEffect = (cwd, slug, name, goal) => Effect.gen(function* (
         debts: [],
         stale: null,
         capabilities: {},
+        goalStatement: null,
+        acceptance: [],
     };
     writeFlow(cwd, state);
     writeActive(cwd, slug);
@@ -329,6 +341,27 @@ export const forceAdvanceEffect = (cwd, slug, gaps) => Effect.gen(function* () {
     return { kind: "advanced", state };
 });
 /** 能力启用/拒绝：唯一写入口，只由 cap 命令（人）触发；翻转是真实用户决策，单条目覆盖 + history 留痕 */
+/** S2 拍板写回：定位句 + 验收要点清单。唯一写入口是 /build-ai-flow goal（人拍板），history 留痕 kind=goal-set */
+export const setGoalEffect = (cwd, slug, goalStatement, acceptance) => Effect.gen(function* () {
+    if (goalStatement.trim() === "") {
+        return yield* new FlowStateError({ message: "定位句不能为空：/build-ai-flow goal <定位句>（换行后每行一条验收要点）" });
+    }
+    let state = yield* loadFlowEffect(cwd, slug);
+    const now = new Date().toISOString();
+    state = {
+        ...state,
+        goalStatement: goalStatement.trim(),
+        acceptance,
+    };
+    state = append(state, {
+        kind: "goal-set",
+        to: state.stage,
+        reason: `定位句：${goalStatement.trim()}｜验收要点 ${acceptance.length} 条`,
+        at: now,
+    });
+    writeFlow(cwd, state);
+    return state;
+});
 export const setCapabilityEffect = (cwd, slug, id, status, reason) => Effect.gen(function* () {
     if (!KNOWN_CAPABILITIES.includes(id)) {
         return yield* new FlowStateError({ message: `未知能力「${id}」（已知：${KNOWN_CAPABILITIES.join("、")}）` });

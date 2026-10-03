@@ -311,11 +311,15 @@ describe("parseState fail closed / fail soft", () => {
         delete legacy.debts;
         delete legacy.name;
         delete legacy.goal;
+        delete legacy.goalStatement;
+        delete legacy.acceptance;
         writeFileSync(path, JSON.stringify(legacy), "utf-8");
         const state = runOk(loadFlowEffect(cwd, "demo"));
         assert.deepEqual(state.debts, []);
         assert.equal(state.name, "demo");
         assert.equal(state.goal, "");
+        assert.equal(state.goalStatement, null);
+        assert.deepEqual(state.acceptance, []);
         const goodRaw = { ...legacy, debts: [], name: "demo", goal: "g" };
         for (const [patch, match] of [
             [{ status: "frozn" }, /status 非法/],
@@ -594,11 +598,11 @@ describe("prompt 拼装与渲染", () => {
 // ─── 补全 ───────────────────────────────────────────────────────────
 describe("补全分派", () => {
     beforeEach(() => freshCwd());
-    it("空 query 给九个子命令；goto 给十档候选并标注相对位置", () => {
+    it("空 query 给十个子命令；goto 给十档候选并标注相对位置", () => {
         runOk(startFlowEffect(cwd, "demo", "演示", ""));
         runOk(gotoStageEffect(cwd, "demo", 6, "进入实现阶段"));
         const subs = buildCompletions("", cwd);
-        assert.equal(subs.length, 9);
+        assert.equal(subs.length, 10);
         const gotoCands = buildCompletions("goto ", cwd);
         assert.equal(gotoCands.length, 10);
         const current = gotoCands.find((c) => (c.description ?? "").includes("当前"));
@@ -765,6 +769,34 @@ describe("S9 freeze 两阶段提交", () => {
         assert.equal(disk.status, "frozen");
         assert.equal(disk.history.filter((h) => h.kind === "freeze").length, 1);
         assert.ok(ctx.notifies.some((n) => n.msg.includes("已冻结")));
+    });
+    it("goal 拍板写回 + 验收要点缺席冻结被拦（goal-set 留痕）", async () => {
+        const mock = makeMockPi();
+        hplBuildAiFlow(mock.pi);
+        const def = mock.commands.get("build-ai-flow");
+        const ctx = makeMockCtx();
+        await def.handler("start 做攻略 app", ctx.ctx);
+        await submitSlug(mock, ctx.ctx, "guide-app");
+        // 空目标报用法
+        await def.handler("goal", ctx.ctx);
+        assert.ok(ctx.notifies.some((n) => n.msg.includes("用法") && n.msg.includes("验收要点")));
+        // 拍板写回：定位句 + 两条要点
+        await def.handler("goal 给玩家看魔兽轴攻略，用来判断阵容与出手顺序，不是数据全集\n魔兽攻略含往期\nbox 渐进收集可用", ctx.ctx);
+        const state = runOk(loadFlowEffect(cwd, "guide-app"));
+        assert.equal(state.goalStatement, "给玩家看魔兽轴攻略，用来判断阵容与出手顺序，不是数据全集");
+        assert.deepEqual(state.acceptance, ["魔兽攻略含往期", "box 渐进收集可用"]);
+        assert.equal(state.history.at(-1).kind, "goal-set");
+        // 冻结：覆盖盘点表缺验收要点 → 被拦；补齐（原样入表+有去向）→ 放行
+        runOk(gotoStageEffect(cwd, "guide-app", 9, "直奔收口"));
+        writeFilledStageArtifacts("guide-app", 9);
+        const bad = makeSeqCtx({ confirms: [false] });
+        await mock.commands.get("build-ai-flow").handler("next", bad.ctx);
+        assert.equal(runOk(loadFlowEffect(cwd, "guide-app")).status, "active");
+        assert.ok(bad.notifies.some((n) => n.msg.includes("验收要点未入覆盖盘点表")));
+        writeArtifact("guide-app", "scale.md", "扩全量记录与回归检查。\n\n## goal 覆盖盘点\n\n| 承诺项 | 状态 | 去向 |\n|---|---|---|\n| 魔兽攻略含往期 | ✅ | — |\n| box 渐进收集可用 | ❌ 未实现 | → 用户裁决：流程后续 |\n");
+        const pass = makeSeqCtx({ confirms: [false] });
+        await mock.commands.get("build-ai-flow").handler("next", pass.ctx);
+        assert.equal(runOk(loadFlowEffect(cwd, "guide-app")).status, "frozen");
     });
     it("覆盖盘点去向检查：未实现项无拍板去向 → 冻结被拦；补齐后放行", async () => {
         // 机器层：合规夹具（MARKER_CONTENT 含去向列）应零违规

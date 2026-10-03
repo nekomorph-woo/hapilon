@@ -16,7 +16,19 @@ export function buildStagePrompt(opts) {
     ];
     const lines = [];
     lines.push(`【build-ai-flow：${state.name}（${state.slug}）】阶段 ${state.stage}/9 ${def.slug}｜${def.zh}`);
-    lines.push(state.goal ? `任务目标：${state.goal}` : "任务目标：（未填写——先和用户确认一句话目标，写进本阶段产物）");
+    if (state.goalStatement !== null) {
+        // 拍板后的结构化目标：定位句 + 验收要点（S8 盘点与冻结以此为准）；原文不再整段注入，需要时读 state.json
+        lines.push(`任务目标：${state.goalStatement}`);
+        if (state.acceptance.length > 0) {
+            lines.push("验收要点（S8 覆盖盘点逐条对照）：");
+            for (const item of state.acceptance)
+                lines.push(`- ${item}`);
+        }
+    }
+    else {
+        lines.push(state.goal ? `任务目标：${state.goal}` : "任务目标：（未填写——先和用户确认一句话目标，写进本阶段产物）");
+        lines.push("（目标尚未拍板结构化：S2 应提炼一句话定位句 + 验收要点清单，请用户确认后由用户执行 /build-ai-flow goal 写入）");
+    }
     lines.push("");
     lines.push(`自主权：${def.autonomy}`);
     lines.push("");
