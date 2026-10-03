@@ -84,6 +84,35 @@ export function uniqueSlug(cwd, base) {
         slug = `${base}-${n}`;
     return slug;
 }
+export function pendingProposalPath(cwd) {
+    return join(aiFlowRoot(cwd), ".pending-goal.json");
+}
+export function saveGoalProposal(cwd, proposal) {
+    mkdirSync(aiFlowRoot(cwd), { recursive: true });
+    writeFileSync(pendingProposalPath(cwd), JSON.stringify(proposal), "utf8");
+}
+/** 读提案（不删）；无提案或损坏返回 null */
+export function readGoalProposal(cwd) {
+    const path = pendingProposalPath(cwd);
+    if (!existsSync(path))
+        return null;
+    let parsed;
+    try {
+        parsed = JSON.parse(readFileSync(path, "utf8"));
+    }
+    catch {
+        return null;
+    }
+    if (typeof parsed !== "object" || parsed === null)
+        return null;
+    const r = parsed;
+    if (typeof r.slug !== "string" || typeof r.statement !== "string" || !Array.isArray(r.acceptance))
+        return null;
+    return { slug: r.slug, statement: r.statement, acceptance: r.acceptance.map(String) };
+}
+export function discardGoalProposal(cwd) {
+    rmSync(pendingProposalPath(cwd), { force: true });
+}
 // ─── 读写 ────────────────────────────────────────────────────────────
 function parseState(raw, path) {
     let parsedJson;

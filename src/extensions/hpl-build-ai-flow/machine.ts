@@ -170,6 +170,43 @@ export function uniqueSlug(cwd: string, base: string): string {
   return slug;
 }
 
+// ─── pending goal proposal（goal 拍板两段式：模型提案暂存，人确认写入） ──────
+
+export interface GoalProposal {
+  slug: string;
+  statement: string;
+  acceptance: string[];
+}
+
+export function pendingProposalPath(cwd: string): string {
+  return join(aiFlowRoot(cwd), ".pending-goal.json");
+}
+
+export function saveGoalProposal(cwd: string, proposal: GoalProposal): void {
+  mkdirSync(aiFlowRoot(cwd), { recursive: true });
+  writeFileSync(pendingProposalPath(cwd), JSON.stringify(proposal), "utf8");
+}
+
+/** 读提案（不删）；无提案或损坏返回 null */
+export function readGoalProposal(cwd: string): GoalProposal | null {
+  const path = pendingProposalPath(cwd);
+  if (!existsSync(path)) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const r = parsed as Record<string, unknown>;
+  if (typeof r.slug !== "string" || typeof r.statement !== "string" || !Array.isArray(r.acceptance)) return null;
+  return { slug: r.slug, statement: r.statement, acceptance: r.acceptance.map(String) };
+}
+
+export function discardGoalProposal(cwd: string): void {
+  rmSync(pendingProposalPath(cwd), { force: true });
+}
+
 // ─── 读写 ────────────────────────────────────────────────────────────
 
 function parseState(raw: string, path: string): FlowState {

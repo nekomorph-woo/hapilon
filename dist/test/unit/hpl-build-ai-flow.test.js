@@ -770,17 +770,48 @@ describe("S9 freeze 两阶段提交", () => {
         assert.equal(disk.history.filter((h) => h.kind === "freeze").length, 1);
         assert.ok(ctx.notifies.some((n) => n.msg.includes("已冻结")));
     });
-    it("goal 拍板写回 + 验收要点缺席冻结被拦（goal-set 留痕）", async () => {
+    it("goal 两段式：propose_goal 提案 → 裸 goal 确认写入；拒绝保留；decline 丢弃", async () => {
+        const mock = makeMockPi();
+        hplBuildAiFlow(mock.pi);
+        const def = mock.commands.get("build-ai-flow");
+        const ctx = makeMockCtx({ confirm: true });
+        await def.handler("start 做攻略 app", ctx.ctx);
+        await submitSlug(mock, ctx.ctx, "guide-app");
+        // 无提案时裸 goal 报引导
+        await def.handler("goal", ctx.ctx);
+        assert.ok(ctx.notifies.some((n) => n.msg.includes("无待审提案") && n.msg.includes("propose_goal")));
+        // 模型提案（工具）
+        const propose = mock.tools.get("propose_goal");
+        const proposed = await propose.execute("t2", { statement: "给玩家看魔兽轴攻略，用来判断阵容与出手顺序，不是数据全集", acceptance: ["魔兽攻略含往期", "box 渐进收集可用"] }, undefined, undefined, ctx.ctx);
+        assert.ok(proposed.content[0].text.includes("请用户执行 /build-ai-flow goal 确认"));
+        // 拒绝：不写入，提案保留
+        const no = makeMockCtx({ confirm: false });
+        await def.handler("goal", no.ctx);
+        assert.equal(runOk(loadFlowEffect(cwd, "guide-app")).goalStatement, null);
+        assert.ok(no.notifies.some((n) => n.msg.includes("提案保留")));
+        // 确认：写入 + goal-set 留痕 + 提案消费
+        await def.handler("goal", ctx.ctx);
+        const state = runOk(loadFlowEffect(cwd, "guide-app"));
+        assert.equal(state.goalStatement, "给玩家看魔兽轴攻略，用来判断阵容与出手顺序，不是数据全集");
+        assert.deepEqual(state.acceptance, ["魔兽攻略含往期", "box 渐进收集可用"]);
+        assert.equal(state.history.at(-1).kind, "goal-set");
+        assert.ok(ctx.notifies.some((n) => n.msg.includes("已拍板写入")));
+        // 再提再拒：decline 丢弃
+        await propose.execute("t3", { statement: "新定位", acceptance: ["新要点"] }, undefined, undefined, ctx.ctx);
+        await def.handler("goal decline", ctx.ctx);
+        assert.ok(ctx.notifies.some((n) => n.msg.includes("提案已丢弃")));
+        const after = makeMockCtx({ confirm: true });
+        await def.handler("goal", after.ctx);
+        assert.ok(after.notifies.some((n) => n.msg.includes("无待审提案")));
+    });
+    it("goal 手写直通 + 验收要点缺席冻结被拦（goal-set 留痕）", async () => {
         const mock = makeMockPi();
         hplBuildAiFlow(mock.pi);
         const def = mock.commands.get("build-ai-flow");
         const ctx = makeMockCtx();
         await def.handler("start 做攻略 app", ctx.ctx);
         await submitSlug(mock, ctx.ctx, "guide-app");
-        // 空目标报用法
-        await def.handler("goal", ctx.ctx);
-        assert.ok(ctx.notifies.some((n) => n.msg.includes("用法") && n.msg.includes("验收要点")));
-        // 拍板写回：定位句 + 两条要点
+        // 拍板写回：定位句 + 两条要点（手写路径）
         await def.handler("goal 给玩家看魔兽轴攻略，用来判断阵容与出手顺序，不是数据全集\n魔兽攻略含往期\nbox 渐进收集可用", ctx.ctx);
         const state = runOk(loadFlowEffect(cwd, "guide-app"));
         assert.equal(state.goalStatement, "给玩家看魔兽轴攻略，用来判断阵容与出手顺序，不是数据全集");

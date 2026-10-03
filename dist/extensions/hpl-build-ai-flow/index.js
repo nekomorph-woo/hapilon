@@ -7,7 +7,7 @@
  * 扩展是闸门机械。工作区 .hapilon/ai-flow/<slug>/，单会话设计。
  */
 import { Effect } from "effect";
-import { advanceFlowEffect, forceAdvanceEffect, freezeFlowEffect, gotoStageEffect, listFlowsEffect, loadFlowEffect, openDebts, coverageDispositionGaps, readActiveEffect, resolveDebtEffect, savePendingGoal, setCapabilityEffect, setGoalEffect, startFlowEffect, takePendingGoal, uniqueSlug, } from "./machine.js";
+import { advanceFlowEffect, forceAdvanceEffect, freezeFlowEffect, gotoStageEffect, listFlowsEffect, loadFlowEffect, openDebts, coverageDispositionGaps, discardGoalProposal, readActiveEffect, readGoalProposal, resolveDebtEffect, saveGoalProposal, savePendingGoal, setCapabilityEffect, setGoalEffect, startFlowEffect, takePendingGoal, uniqueSlug, } from "./machine.js";
 import { LAST_STAGE, stageByIndex } from "./stages.js";
 import { buildFreezeNote, buildSlugDistillPrompt, buildStagePrompt, buildStartGuide } from "./prompts.js";
 import { renderStatus } from "./render.js";
@@ -29,7 +29,7 @@ function activeFlow(cwd) {
 }
 export default function hplBuildAiFlow(pi) {
     pi.registerCommand("build-ai-flow", {
-        description: "十阶段复杂任务流程（dump→…→freeze，Gate 管控）。用法：/build-ai-flow start <目标> | goal <定位句>（换行后每行一条验收要点） | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit",
+        description: "十阶段复杂任务流程（dump→…→freeze，Gate 管控）。用法：/build-ai-flow start <目标> | goal（确认模型提案） | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit",
         getArgumentCompletions: (query) => buildCompletions(query, process.cwd()),
         handler: async (args, ctx) => {
             const cwd = ctx.cwd ?? process.cwd();
@@ -191,7 +191,7 @@ export default function hplBuildAiFlow(pi) {
                 return;
             }
             // ── audit：决策冲突审查 ─────────────────────────────────────
-            // ── goal：S2 拍板写回（定位句 + 验收要点，人拍板才写入） ──────
+            // ── goal：两段式拍板。模型调 propose_goal 提案 → 用户裸 goal 命令确认；带参 = 手写直通 ──
             const goalMatch = trimmed.match(/^goal(?:\s+([\s\S]+))?$/);
             if (goalMatch) {
                 const active = activeFlow(cwd);
@@ -199,11 +199,43 @@ export default function hplBuildAiFlow(pi) {
                     ctx.ui?.notify?.("没有活跃 flow。先 /build-ai-flow start <目标>", "error");
                     return;
                 }
-                const body = goalMatch[1]?.trim() ?? "";
-                if (body === "") {
-                    ctx.ui?.notify?.(active.state.goalStatement !== null
-                        ? "用法：/build-ai-flow goal <定位句>（换行后每行一条验收要点，重发即覆盖）。当前已拍板，重发前确认要改"
-                        : "用法：/build-ai-flow goal <定位句>（换行后每行一条验收要点）", "error");
+                // 裸 goal：确认或拒绝待审提案
+                if (goalMatch[1] === undefined) {
+                    const proposal = readGoalProposal(cwd);
+                    if (proposal === null) {
+                        ctx.ui?.notify?.(active.state.goalStatement !== null
+                            ? "当前无待审提案。目标已拍板；重拍请让模型调 propose_goal 提新提案，或 goal <定位句> 手写覆盖"
+                            : "当前无待审提案。让模型调 propose_goal 提交（定位句+验收要点），再来确认", "error");
+                        return;
+                    }
+                    if (proposal.slug !== active.state.slug) {
+                        discardGoalProposal(cwd);
+                        ctx.ui?.notify?.(`提案属于 flow「${proposal.slug}」与活跃 flow「${active.state.slug}」不符，已丢弃。请重新提案`, "error");
+                        return;
+                    }
+                    const summary = [
+                        "目标提案（拍板后 S8 盘点与冻结以此为准）：",
+                        `定位句：${proposal.statement}`,
+                        ...proposal.acceptance.map((a, i) => `验收${i + 1}：${a}`),
+                    ].join("\n");
+                    const approve = ctx.ui?.confirm ? await ctx.ui.confirm("build-ai-flow", summary) : true;
+                    if (!approve) {
+                        ctx.ui?.notify?.("未写入，提案保留。改内容让模型重新提案，或 goal decline 丢弃", "info");
+                        return;
+                    }
+                    const set = runEither(setGoalEffect(cwd, proposal.slug, proposal.statement, proposal.acceptance));
+                    if (set._tag === "Left") {
+                        ctx.ui?.notify?.(set.left.message, "error");
+                        return;
+                    }
+                    discardGoalProposal(cwd);
+                    ctx.ui?.notify?.(`目标已拍板写入：定位句「${set.right.goalStatement}」，验收要点 ${set.right.acceptance.length} 条（history 已留痕）`, "info");
+                    return;
+                }
+                const body = goalMatch[1].trim();
+                if (body === "decline") {
+                    discardGoalProposal(cwd);
+                    ctx.ui?.notify?.("提案已丢弃", "info");
                     return;
                 }
                 const [firstLine, ...rest] = body.split("\n");
@@ -214,7 +246,7 @@ export default function hplBuildAiFlow(pi) {
                     ctx.ui?.notify?.(set.left.message, "error");
                     return;
                 }
-                ctx.ui?.notify?.(`目标已拍板写入：定位句「${set.right.goalStatement}」，验收要点 ${set.right.acceptance.length} 条。S8 覆盖盘点与冻结检查以此为准（已留痕 history）`, "info");
+                ctx.ui?.notify?.(`目标已写入：定位句「${set.right.goalStatement}」，验收要点 ${set.right.acceptance.length} 条。手写路径不经过提案审核，确认内容无误`, "info");
                 return;
             }
             // ── cap：能力启用/拒绝（只有人能触发；AI 只有推荐权） ────
@@ -250,7 +282,7 @@ export default function hplBuildAiFlow(pi) {
                 await runAudit(pi, ctx, cwd);
                 return;
             }
-            ctx.ui?.notify?.("用法：/build-ai-flow [start <目标> | goal <定位句>（换行后每行一条验收要点） | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit]", "error");
+            ctx.ui?.notify?.("用法：/build-ai-flow [start <目标> | goal（确认模型提案） | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit]", "error");
         },
     });
     // create_flow：start 两段式第二段——承接模型提炼的 slug 建 flow，并派发 S0
@@ -290,6 +322,51 @@ export default function hplBuildAiFlow(pi) {
             return {
                 content: [{ type: "text", text: `flow「${slug}」已创建（目标已入档），S0 阶段任务已派发，请按 S0 prompt 开始工作` }],
                 details: { slug },
+            };
+        },
+    });
+    // propose_goal：goal 拍板两段式第一段——模型从讨论中精炼提交提案，人确认才写入
+    pi.registerTool({
+        name: "propose_goal",
+        label: "Propose Goal",
+        description: "提交 build-ai-flow 的目标提案（定位句 + 验收要点清单），由用户执行 /build-ai-flow goal 确认后才写入。" +
+            "在 S2 讨论收敛后（或用户要求重拍目标时）调用；定位句一句话填「给___看，用来判断___，不是用来___」，" +
+            "验收要点逐条可判定，覆盖目标全部承诺（含 app 本体/数据管线/AI 推理等全部交付面）。提案后提醒用户确认。",
+        parameters: {
+            type: "object",
+            properties: {
+                statement: { type: "string", description: "一句话定位句：给谁看、用来判断什么、不是用来什么" },
+                acceptance: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "验收要点清单，每条可判定；S8 覆盖盘点逐条对照，文本需原样入表",
+                },
+            },
+            required: ["statement", "acceptance"],
+        },
+        execute: async (_toolCallId, params, _signal, _onUpdate, toolCtx) => {
+            const cwd = toolCtx.cwd;
+            const active = activeFlow(cwd);
+            if ("none" in active || "error" in active) {
+                throw new Error("没有活跃 flow，提案无处归属");
+            }
+            const statement = String(params.statement ?? "").trim();
+            const acceptance = (Array.isArray(params.acceptance) ? params.acceptance : [])
+                .map((a) => String(a).replace(/^[\s•\-\d.]+/, "").trim())
+                .filter((a) => a !== "");
+            if (statement === "" || acceptance.length === 0) {
+                throw new Error("定位句与至少一条验收要点不能为空；重新提炼后再提交");
+            }
+            saveGoalProposal(cwd, { slug: active.state.slug, statement, acceptance });
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: `提案已暂存（flow「${active.state.slug}」）。请在对话里向用户展示定位句与验收要点全文，` +
+                            `并请用户执行 /build-ai-flow goal 确认（拒绝用 goal decline）；确认前不要把提案当作已拍板目标使用。`,
+                    },
+                ],
+                details: { slug: active.state.slug },
             };
         },
     });
