@@ -241,9 +241,9 @@ export function buildAppendSection(appendSystemPrompt?: string): string {
 export function buildVisionDelegationSection(): string {
   return [
     "<vision_delegation>",
-    "图像/截图分析优先派 vision 子代理（多模态，subagent_type=vision），主会话不直接读图：",
-    "- 派发输入必须给全：图片路径、要回答的具体问题、判断/验收标准、期望输出格式。vision 拿不到这些就只能追问或声明假设，来回浪费一轮。",
-    "- 收到 vision 的文字结论后只按其原文汇总裁决：不得自行想象画面里的问题，不得脑补它没报告的视觉细节；对画面有疑问就把疑问发回 vision 复核，而不是自己猜。",
+    "Prefer dispatching image/screenshot analysis to the vision sub-agent (multimodal, subagent_type=vision); the main session does not read images directly:",
+    "- Dispatch input must include all four: image paths, the specific question to answer, judgment/acceptance criteria, and the expected output format. Without them vision can only ask back or state assumptions — a wasted round trip.",
+    "- After receiving vision's text findings, aggregate and adjudicate strictly on its verbatim content: never imagine problems in the image, never fabricate visual details it did not report. If in doubt about the picture, send the question back to vision for re-check instead of guessing.",
     "</vision_delegation>",
   ].join("\n");
 }
