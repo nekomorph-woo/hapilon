@@ -89,6 +89,25 @@ export function openDebts(state: FlowState): GateDebt[] {
   return state.debts.filter((d) => !d.resolvedAt);
 }
 
+/** 冻结闸门：scale.md 覆盖盘点中，未实现/部分项必须有去向拍板；返回违规行（空=通过）。无覆盖盘点小节视为全部违规由 S8 Gate 标记拦截，此处返回空不重复报 */
+export function coverageDispositionGaps(cwd: string, slug: string): string[] {
+  const content = readFileOrNull(join(flowDir(cwd, slug), "scale.md"));
+  if (content === null) return [];
+  const gaps: string[] = [];
+  let inCoverage = false;
+  for (const line of content.split("\n")) {
+    if (/覆盖盘点/.test(line)) {
+      inCoverage = true;
+      continue;
+    }
+    if (inCoverage && /^#{1,3} /.test(line)) break; // 覆盖盘点小节结束
+    if (!inCoverage) continue;
+    if (!/❌|未实现|◐/.test(line)) continue;
+    if (!/拍板|D-\d{2,3}|用户裁决/.test(line)) gaps.push(line.trim());
+  }
+  return gaps;
+}
+
 export interface GateResult {
   passed: boolean;
   failures: string[];

@@ -24,6 +24,7 @@ import {
   KNOWN_CAPABILITIES,
   loadFlowEffect,
   openDebts,
+  coverageDispositionGaps,
   readActiveEffect,
   resolveDebtEffect,
   savePendingGoal,
@@ -69,7 +70,7 @@ const MARKER_CONTENT: Record<string, string> = {
   "visual-direction.md": "候选：A（密）与 B（疏），各一段描述与小样路径；拍板：选 A，理由是与判断密度匹配。内容足够长。",
   "prototype.md": "一肥（最复杂案例）与一瘦（最空案例）的验证结论与文件路径，缺口表现记录在内。内容足够长。",
   "self-review.md": "六轴自评：诚实性 Concern（执行状态是代理指标但主标签写已执行）、可达性 Not verified（未做移动端检查）、其余 Pass；问题清单按严重度排序，已修与遗留分开。内容足够长。",
-  "scale.md": "扩全量执行记录；保留一肥一瘦两样例的回归检查结果。内容足够长过机械 Gate 的长度门槛。",
+  "scale.md": "扩全量执行记录；保留一肥一瘦两样例的回归检查结果。\n\n## goal 覆盖盘点\n\n| 承诺项 | 状态 | 去向 |\n|---|---|---|\n| 魔兽攻略展示 | ✅ | — |\n| AI 养成建议 | ❌ 未实现 | → 拍板 D-002 流程后续 |\n\n内容足够长过机械 Gate 的长度门槛。",
 };
 function writeFilledStageArtifacts(slug: string, upTo: number): void {
   for (const def of STAGES.slice(0, upTo + 1)) {
@@ -911,6 +912,30 @@ describe("S9 freeze 两阶段提交", () => {
     assert.equal(disk.status, "frozen");
     assert.equal(disk.history.filter((h) => h.kind === "freeze").length, 1);
     assert.ok(ctx.notifies.some((n) => n.msg.includes("已冻结")));
+  });
+
+  it("覆盖盘点去向检查：未实现项无拍板去向 → 冻结被拦；补齐后放行", async () => {
+    // 机器层：合规夹具（MARKER_CONTENT 含去向列）应零违规
+    assert.equal(coverageDispositionGaps(cwd, "demo").length, 0);
+
+    const mock = makeMockPi();
+    hplBuildAiFlow(mock.pi);
+    await readyAtS9(mock);
+    // 换成无去向的覆盖盘点表
+    writeArtifact("demo", "scale.md", "扩全量记录，回归检查完成，内容足够长过机械 Gate 的长度门槛。\n\n## goal 覆盖盘点\n\n| 承诺项 | 状态 |\n|---|---|\n| AI 养成建议 | ❌ 未实现 |\n");
+    const blocked = makeSeqCtx({ confirms: [true], auditText: `{"ok":true,"conflicts":[]}` });
+    await mock.commands.get("build-ai-flow")!.handler("next", blocked.ctx);
+    assert.equal(runOk(loadFlowEffect(cwd, "demo")).status, "active");
+    assert.ok(blocked.notifies.some((n) => n.msg.includes("冻结被拦") && n.msg.includes("AI 养成建议")));
+    // 违规行被点名
+    assert.ok(coverageDispositionGaps(cwd, "demo").some((l) => l.includes("AI 养成建议")));
+
+    // 补齐去向 → 放行冻结
+    writeArtifact("demo", "scale.md", "扩全量记录，回归检查完成，内容足够长过机械 Gate 的长度门槛。\n\n## goal 覆盖盘点\n\n| 承诺项 | 状态 | 去向 |\n|---|---|---|\n| AI 养成建议 | ❌ 未实现 | → 用户裁决：流程后续 |\n");
+    assert.equal(coverageDispositionGaps(cwd, "demo").length, 0);
+    const pass = makeSeqCtx({ confirms: [false] });
+    await mock.commands.get("build-ai-flow")!.handler("next", pass.ctx);
+    assert.equal(runOk(loadFlowEffect(cwd, "demo")).status, "frozen");
   });
 
   it("② gate 过 → 冲突 → 用户确认冻结 → frozen", async () => {

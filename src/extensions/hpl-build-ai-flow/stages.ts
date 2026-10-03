@@ -175,10 +175,10 @@ export const STAGES: StageDef[] = [
     zh: "反向验收",
     coreQuestion: "它最可能怎样误导我？",
     autonomy:
-      "审查由未参与实现的 subagent 执行：派发时只给产物文件、frame 与验收清单，不给实现过程的对话上下文——审查者的价值在陌生眼睛。主会话负责汇总裁决（Fail 修复、Concern 列单）与执行修复。高质疑权，零粉饰权——只挑问题，不夸自己。可用性实测由主会话驾驶：先按维度生成体验条目再逐条实测，条目先行避免走到哪算哪；用 computer_use/browser_use 工具像真实用户一样操作产物（点击、滚动、输入、截图），不止读代码和跑测试；发现阻塞级问题（功能不可用/崩溃/死路）立即修复不待决策，体验级问题（不顺手、文案、层次）记 Concern 清单交用户裁决。",
+      "审查由未参与实现的 subagent 执行：派发时只给产物文件、frame 与验收清单，不给实现过程的对话上下文——审查者的价值在陌生眼睛。主会话负责汇总裁决（Fail 修复、Concern 列单）与执行修复。高质疑权，零粉饰权——只挑问题，不夸自己。可用性实测由主会话驾驶：先按维度生成体验条目再逐条实测，条目先行避免走到哪算哪；用 computer_use/browser_use 工具像真实用户一样操作产物（点击、滚动、输入、截图），不止读代码和跑测试；发现阻塞级问题（功能不可用/崩溃/死路）立即修复不待决策，体验级问题（不顺手、文案、层次）记 Concern 清单交用户裁决。报告口径：任何「完成/收口」表述必须附未关账计数（Concern/Unknown/欠账），仍有未关账项时不得宣称「无未办/全部完成」。",
     checklist: [
       "先从 goal、design 与产物实际形态生成体验测试条目——维度：主流程 / 空态与异常 / 乱序与非常规操作 / 边界输入；条目按项目实际写，不套固定清单，用户口头补充的要求并入条目",
-      "用 computer_use/browser_use 逐条实测（点击/滚动/输入/截图），记录每条结果与卡点，不止读代码和跑测试",
+      "先用 computer_use/browser_use 逐条实测（点击/滚动/输入/截图），记录每条结果与卡点，不止读代码和跑测试；实测截图落盘并把路径交 vision 子代理分析（多模态），主会话只依据其文字结论汇总裁决，不直接读图",
       "0 有没有被隐藏；Unknown 有没有被包装成结论",
       "代理指标有没有写成真实结果；数量有没有被误读成质量",
       "默认展开与文案是否一致；第一眼重点是被样式强化还是淹没",
@@ -189,7 +189,7 @@ export const STAGES: StageDef[] = [
     artifactNote: "问题清单（按严重度排序，阻塞级标注已即时修复）+ 体验条目清单及逐条实测结果（含操作序列与截图/现象）+ 六轴自评（每轴 Pass/Concern/Fail/Not verified 附证据）+ 已修复项 + 遗留项。",
     gateNote: "0 没被隐藏；代理指标没写成真实结果",
     stopCondition: "写完 self-review.md 并修复明确问题后即停，不加新功能。",
-    skills: ["verify", "artifact-assist"],
+    skills: ["verify", "artifact-assist", "ui-automation"],
   },
   {
     index: 8,
@@ -197,17 +197,18 @@ export const STAGES: StageDef[] = [
     zh: "扩全量",
     coreQuestion: "是在复制已验证模式，还是重新发明系统？",
     autonomy:
-      "高执行权低需求修改权：只扩数据不改结构；要改规则先出 Proposal 追加 decision-log——推翻旧口径时用 supersedes 事件行，不许偷改。扩全量的批量实现默认委派 subagent：子代理按 prototype/self-review 确认过的模式复制执行，主会话收进度与结果、裁决偏差；规则级改动仍由主会话出 Proposal 留痕。",
+      "高执行权低需求修改权：只扩数据不改结构；要改规则先出 Proposal 追加 decision-log——推翻旧口径时用 supersedes 事件行，不许偷改。扩全量的批量实现默认委派 subagent：子代理按 prototype/self-review 确认过的模式复制执行，主会话收进度与结果、裁决偏差；规则级改动仍由主会话出 Proposal 留痕。报告口径：任何「完成/收口」表述必须附未关账计数（Concern/Unknown/欠账各几项），仍有未关账项时不得宣称「无未办/全部完成」。",
     checklist: [
       "只扩数据，不动已确认的信息架构与视觉身份",
       "新情况先标 Unknown / Proposal，不偷偷改口径",
       "新异常状态有显式说明",
       "保留一肥一瘦两个样例做回归检查",
+      "goal 覆盖盘点（必写，冻结闸门机械检查）：goal 与 frame 承诺的每一项 → Markdown 表格一行一项，三态标记 ✅已实现 / ◐部分实现 / ❌未实现；未实现与部分项同格写去向（→ 拍板 D-xxx / 用户裁决原话 / 流程后续+拍板记录），无去向的项冻结时会被拦",
       "升级规则：新情况若无法由现有定义解释、需要新增核心状态、需要改信息层级或已锁定视觉语义、或会使现有判断被误导 → 立即停止扩量，记 Unknown/Proposal，向用户说明影响并建议回到哪个阶段（Define/Design/Prototype）处理，不自行 goto、不自行改规则",
       "普通数据差异（多/少/空/命名不一）不触发升级，继续扩量",
     ],
     artifacts: ["scale.md"],
-    artifactNote: "全量执行记录：扩了什么、遇到的新情况及处理（Unknown/Proposal）、回归检查结果、若命中升级规则则记录影响与建议回到哪个阶段处理。",
+    artifactNote: "全量执行记录：扩了什么、遇到的新情况及处理（Unknown/Proposal）、回归检查结果、若命中升级规则则记录影响与建议回到哪个阶段处理；末尾必含「## goal 覆盖盘点」表（格式见清单项，每行一个承诺项）。",
     gateNote: "没为收全数据偷偷改口径",
     stopCondition: "全量完成并写完 scale.md 即停；命中升级规则时立即停止扩量并报告，回到上游或放行由用户决定。",
     skills: [],
@@ -272,7 +273,7 @@ export const GATE_MARKERS: Record<string, Record<string, string[]>> = {
   visual: { "visual-direction.md": ["候选", "拍板"] },
   prototype: { "prototype.md": ["肥", "瘦"] },
   inspect: { "self-review.md": ["自评", "问题"] },
-  scale: { "scale.md": ["回归"] },
+  scale: { "scale.md": ["回归", "覆盖盘点"] },
 };
 
 /** stale 检查豁免：decision-log 是追加式持久认知，不因上游回退整体失效（按需追加条目即可） */

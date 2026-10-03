@@ -7,7 +7,7 @@
  * 扩展是闸门机械。工作区 .hapilon/ai-flow/<slug>/，单会话设计。
  */
 import { Effect } from "effect";
-import { advanceFlowEffect, forceAdvanceEffect, freezeFlowEffect, gotoStageEffect, listFlowsEffect, loadFlowEffect, openDebts, readActiveEffect, resolveDebtEffect, savePendingGoal, setCapabilityEffect, startFlowEffect, takePendingGoal, uniqueSlug, } from "./machine.js";
+import { advanceFlowEffect, forceAdvanceEffect, freezeFlowEffect, gotoStageEffect, listFlowsEffect, loadFlowEffect, openDebts, coverageDispositionGaps, readActiveEffect, resolveDebtEffect, savePendingGoal, setCapabilityEffect, startFlowEffect, takePendingGoal, uniqueSlug, } from "./machine.js";
 import { LAST_STAGE, stageByIndex } from "./stages.js";
 import { buildFreezeNote, buildSlugDistillPrompt, buildStagePrompt, buildStartGuide } from "./prompts.js";
 import { renderStatus } from "./render.js";
@@ -295,6 +295,13 @@ async function maybeAuditThenFreeze(pi, ctx, cwd, state, forceGaps) {
                 }
             }
         }
+    }
+    const coverageGaps = coverageDispositionGaps(cwd, state.slug);
+    if (coverageGaps.length > 0) {
+        ctx.ui?.notify?.(`冻结被拦：scale.md 覆盖盘点中 ${coverageGaps.length} 个未实现/部分项没有去向拍板（需 → 拍板 D-xxx / 用户裁决原话 / 流程后续+拍板记录）：\n` +
+            coverageGaps.map((g) => `· ${g}`).join("\n") +
+            "\n补齐去向（或把项做完）后重新 /build-ai-flow next。", "error");
+        return;
     }
     const frozen = runEither(freezeFlowEffect(cwd, state.slug, forceGaps));
     if (frozen._tag === "Left") {

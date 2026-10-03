@@ -69,6 +69,7 @@ export function buildStagePrompt(opts) {
     lines.push(`本阶段产物：${def.artifacts.join("、")}（写入 .hapilon/ai-flow/${state.slug}/ 下）。${def.artifactNote}`);
     lines.push("");
     lines.push(`停止条件：${def.stopCondition}`);
+    lines.push("阶段收尾对照：结束时对照 goal 逐项盘点承诺 vs 已交付，缺口显式写入产物（三态：已实现/部分/未实现），不静默搁置，不用「打磨项/待裁决」话术豁免 goal 级缺口——盘点是你职责内的事，不等用户追问。");
     lines.push("完成后由用户执行 /build-ai-flow next 做 Gate 检查，不要自行进入下一阶段。");
     return lines.join("\n");
 }
