@@ -138,7 +138,7 @@ describe("sections", () => {
     try {
       process.env.HAPILON_HOME = "/tmp/hapilon-dev-fixture";
       const dev = buildPiDocText();
-      assert.ok(dev.includes("/tmp/hapilon-dev-fixture/agent/skills/"), "skills 路径跟随实际 home");
+      assert.ok(dev.includes("/tmp/hapilon-dev-fixture/agents/skills/<name>/SKILL.md"), "skills 路径跟随实际 home");
       assert.ok(!dev.includes("~/.hapilon/agent/"), "不再写死 ~/.hapilon/agent/");
     } finally {
       if (originalHome === undefined) delete process.env.HAPILON_HOME;

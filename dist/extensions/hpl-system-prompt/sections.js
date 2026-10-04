@@ -42,10 +42,10 @@ export function buildPiDocText() {
         `(e.g., tui.md for TUI API details)\n\n` +
         `hapilon-specific paths (where user extensions/skills/rules actually live):\n` +
         `- Global extensions: ${home}/agent/extensions/  (not ~/.pi/agent/extensions/)\n` +
-        `- Global skills: ${home}/agent/skills/\n` +
+        `- Global skills: ${home}/agents/skills/<name>/SKILL.md\n` +
         `- Global settings: ${home}/agent/settings.json\n` +
         `- Project extensions: .pi/extensions/\n` +
-        `- Project skills: .pi/skills/\n` +
+        `- Project skills: .hapilon/agents/skills/<name>/SKILL.md\n` +
         `- hapilon context: global ${home}/HAPILON.md; project-level write .hapilon/HAPILON.md ` +
         `(commit it), never root HAPILON.md (not loaded) (ancestor-traversal, auto-injected)\n` +
         `- hapilon rules: ${home}/agents/rules/*.md, .hapilon/agents/rules/*.md ` +
