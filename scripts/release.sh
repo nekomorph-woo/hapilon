@@ -3,12 +3,11 @@
 #
 # 用法：
 #   ./scripts/release.sh <patch|minor> "<一句话内容>"
-#   ./scripts/release.sh --notes <文件> <patch|minor> "<一句话内容>"   # 自定义 Release 说明全文
 #   ./scripts/release.sh --dry-run patch "修复 xxx"   # 只打印将执行的命令
 #
-# 流程：版本号升级 → 依赖精确锁定检查 → build + 全量测试门禁 → commit →
-#       附注 tag → push → npm pack → 全新安装冒烟验证（版本号 + 补丁钩子） →
-#       gh release create 附 tarball → 清理
+# 流程：生成 release notes（机械映射 + haiku 兑底）→ 版本号升级 → 依赖精确锁定检查 →
+#       build + 全量测试门禁 → commit → 附注 tag → push → npm pack →
+#       全新安装冒烟验证（版本号 + 补丁钩子） → gh release create 附 tarball → 清理
 #
 # 前置：源码已全部合入当前分支且工作区干净；dist/ 与 src/ 一致（脚本会重新 build 保证）。
 #       @earendil-works 系依赖必须精确锁版本（无 ^ ~）——范围依赖在全新安装时会漂移到
@@ -21,12 +20,10 @@ cd "$REPO_DIR"
 REPO_DIR_JSON="$(node -p "JSON.stringify(process.argv[1])" "$REPO_DIR")"
 
 DRY_RUN=0
-NOTES_FILE=""
 ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
-    --notes) NOTES_FILE="$2"; shift 2 ;;
     *) ARGS+=("$1"); shift ;;
   esac
 done
@@ -35,11 +32,10 @@ BUMP="${ARGS[0]:-}"
 SUMMARY="${ARGS[1]:-}"
 
 usage() {
-  echo "用法: $0 [--dry-run] [--notes <文件>] <patch|minor> \"<一句话内容>\"" >&2
+  echo "用法: $0 [--dry-run] <patch|minor> \"<一句话内容>\"" >&2
   exit 1
 }
 [[ "$BUMP" =~ ^(patch|minor)$ && -n "$SUMMARY" ]] || usage
-[[ -z "$NOTES_FILE" || -f "$NOTES_FILE" ]] || { echo "✗ notes 文件不存在: $NOTES_FILE" >&2; exit 1; }
 
 # ── 前置检查 ──────────────────────────────────────────────────────────
 if [[ -n "$(git status --porcelain)" ]]; then
@@ -76,6 +72,7 @@ run() {
 echo "hapilon 发版: ${OLD_VERSION} → ${NEW_VERSION} ($BUMP)"
 echo "  tag: ${TAG}  tarball: ${TARBALL}  内容: ${SUMMARY}"
 if [[ $DRY_RUN -eq 1 ]]; then
+  echo "  [dry-run] node scripts/release-notes.mjs \$(git describe --tags --abbrev=0) ${NEW_VERSION}"
   echo "  [dry-run] npm version ${NEW_VERSION} --no-git-tag-version"
   echo "  [dry-run] npm run build && npm test（门禁）"
   echo "  [dry-run] git add package.json package-lock.json dist/"
@@ -83,10 +80,18 @@ if [[ $DRY_RUN -eq 1 ]]; then
   echo "  [dry-run] git tag -a ${TAG} && git push（HTTPS 失败回退 ${SSH_REMOTE}）"
   echo "  [dry-run] npm pack → /tmp/${TARBALL}"
   echo "  [dry-run] 全新安装冒烟验证（版本号 + 补丁钩子）"
-  echo "  [dry-run] gh release create ${TAG} /tmp/${TARBALL} $([[ -n $NOTES_FILE ]] && echo --notes-file $NOTES_FILE || echo --generate-notes)"
+  echo "  [dry-run] gh release create ${TAG} /tmp/${TARBALL} --notes-file .hapilon/release/v${NEW_VERSION}.md"
   exit 0
 fi
 read -rp "继续? [y/N] " yn; [[ "$yn" == "y" ]] || exit 1
+
+# ── 0. 生成 release notes ────────────────────────────────────────
+# 发版现场生成，消灭「草稿生成后到打 tag 前」的新提交静默漏出 notes 的时间差
+NOTES_FILE=".hapilon/release/v${NEW_VERSION}.md"
+echo "▶ 0/7 生成 release notes（机械映射 + haiku 兑底）"
+PREV_TAG="$(git describe --tags --abbrev=0)" || { echo "✗ 找不到上一个 tag（首个发版请手工准备 notes）"; exit 1; }
+node scripts/release-notes.mjs "$PREV_TAG" "$NEW_VERSION"
+[[ -f "$NOTES_FILE" ]] || { echo "✗ notes 未生成: $NOTES_FILE"; exit 1; }
 
 # ── 1. 升版本号 ───────────────────────────────────────────────────────
 echo "▶ 1/7 升版本号"
@@ -169,11 +174,7 @@ cleanup_smoke
 echo "  版本 $SMOKE_VERSION ✓ 补丁钩子 letters=3 open=1 shell=1+1 ✓"
 
 echo "▶ 7/7 建 Release 并附 tarball"
-if [[ -n "$NOTES_FILE" ]]; then
-  gh release create "$TAG" "/tmp/$TARBALL" --title "$TAG" --notes-file "$NOTES_FILE"
-else
-  gh release create "$TAG" "/tmp/$TARBALL" --title "$TAG" --generate-notes
-fi
+gh release create "$TAG" "/tmp/$TARBALL" --title "$TAG" --notes-file "$NOTES_FILE"
 
 rm "/tmp/$TARBALL"
 echo "✓ 发版完成: ${TAG}（Release 页面已附 ${TARBALL}）"

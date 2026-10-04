@@ -94,32 +94,16 @@ bash 工具调用先过安全门（`hpl-safety-gate`）分类为 block / confirm
 
 ## 发版打包流程（开发机）
 
-三步：生成草稿 → 编辑定稿 → 带 notes 发版。
-
-```bash
-# 1. 生成草稿：按 conventional commit 分组，产出 .hapilon/release/v<版本>.md，
-#    并打印可复用的摘要候选
-node scripts/release-notes.mjs v0.6.0 0.6.1
-
-# 2. 编辑定稿：标题与叙事改成用户视角，同 scope 的碎修合并成一段，删掉纯内部改动
-#    （草稿头部的编辑提示注释，定稿后一并删除）
-
-# 3. 发版：--notes 传定稿全文
-./scripts/release.sh --notes .hapilon/release/v0.6.1.md minor "一句话摘要"
-```
-
-`.hapilon/release/` 是本地草稿目录，不入库（`.hapilon/*` 已在 `.gitignore`）。生成器只读 `git log <prev-tag>..HEAD`，无网络依赖、无交互；非 conventional 的提交归到「其他」，不猜 type。
-
-不带 `--notes` 时退回 `gh release create --generate-notes` 的自动提交清单——它只有 commit 罗列、没有用户视角的分节叙事，仅适合临时预览。
-
-其余用法：
+一条命令，notes 在发版现场自动生成：
 
 ```bash
 ./scripts/release.sh <patch|minor> "<一句话内容>"
 ./scripts/release.sh --dry-run patch "..."   # 只打印将执行的命令
 ```
 
-自动完成：版本号升级 → 依赖精确锁定检查（`^`/`~` 范围直接拒绝）→ build + 全量测试门禁（不绿即中止回滚）→ commit（含 dist）→ 附注 tag → push（HTTPS 失败自动回退 ssh）→ `npm pack` → **全新安装冒烟验证**（隔离环境真装一遍：版本号 + 补丁钩子）→ `gh release create` 附 tarball → 清理。
+自动完成：**生成 release notes**（conventional type 机械映射到分块；无法映射的提交由 haiku 档模型决策分块并改写用户视角描述，产出到 `.hapilon/release/v<版本>.md`）→ 版本号升级 → 依赖精确锁定检查（`^`/`~` 范围直接拒绝）→ build + 全量测试门禁（不绿即中止回滚）→ commit（含 dist）→ 附注 tag → push（HTTPS 失败自动回退 ssh）→ `npm pack` → **全新安装冒烟验证**（隔离环境真装一遍：版本号 + 补丁钩子）→ `gh release create --notes-file` 附 tarball → 清理。
+
+notes 在第 0 步现场生成：prev-tag 自动取最近祖先 tag（`git describe --tags --abbrev=0`），不存在「草稿生成后、打 tag 前的新提交漏出 notes」的时间差。每条提交都会进某个分块：conventional type 机械映射（含 chore/docs/test 归入「其他」），无法映射的交给 haiku 决策并在日志里列出条数。haiku 调用失败时发版中止，不静默降级；`HAPILON_HOME` 需指向带 auth 的数据目录（默认 `~/.hapilon`）。
 
 冒烟验证是 v0.4.0 事故的产物：依赖范围在用户全新安装时会漂移到未验证版本、运行时 pi-tui 嵌套副本未打补丁——包能装但能力失效。任何检查不过都不上 Release。
 
@@ -153,6 +137,7 @@ gh release create v<X.Y.Z> /tmp/hapilon-<版本>.tgz --notes-file .hapilon/relea
 | `hapilon setup` | 交互式初始化配置 |
 | `hapilon doctor` | 环境体检 |
 | `hapilon --version` / `-v` | 查看 hapilon 版本 |
+| `hapi -p "…" --model tier:<档位>[<序号>]` | 一次性调用按档位选模型（如 `tier:haiku`）；序号越界自动绕回，整档为空则启动失败；发版脚本用它调 haiku 档分类 |
 | `hapilon mcp add <name> stdio\|http ...` | 添加 MCP server（写 `~/.hapilon/agent/mcp.json`） |
 | `hapilon mcp list` / `remove <name>` | 列出 / 移除 MCP server |
 | `hapilon config show` | 查看配置 |
