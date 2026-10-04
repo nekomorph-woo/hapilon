@@ -21,6 +21,7 @@ import { realpathSync } from "node:fs";
 import { basename, isAbsolute, join, normalize, resolve } from "node:path";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { notify } from "../notify.js";
+import { pickFromList } from "../../shared/list-picker.js";
 import { argumentCompletions } from "../../shared/argument-completion.js";
 import { readBlockedFiles, saveBlockedFiles } from "./config.js";
 /** 默认名单：代码常量，永远生效，不可通过 /block 删除 */
@@ -205,8 +206,8 @@ async function interactiveList(ctx) {
             say(`追加名单为空。默认拦截 ${DEFAULT_BLOCKED_FILES.join("、")}（不可删除）。用 /block <绝对路径> 追加。`);
             return;
         }
-        const selected = await ctx.ui.select(`已屏蔽文件（默认：${DEFAULT_BLOCKED_FILES.join("、")}，不可删除）\n选中追加条目进入删除：`, [...extras, "取消"]);
-        if (!selected || selected === "取消")
+        const selected = await pickFromList(ctx, `已屏蔽文件（默认：${DEFAULT_BLOCKED_FILES.join("、")}，不可删除）\n选中追加条目进入删除：`, extras, "取消");
+        if (selected === undefined || selected === null)
             return;
         const confirmed = await ctx.ui.select(`确认从名单删除 ${selected}？`, ["删除", "取消"]);
         if (confirmed !== "删除")

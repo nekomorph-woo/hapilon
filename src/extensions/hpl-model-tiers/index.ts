@@ -5,6 +5,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
 import { argumentCompletions } from "../../shared/argument-completion.js";
+import { pickFromList } from "../../shared/list-picker.js";
 import { readModelTiersEffect, saveModelTiersEffect } from "./config.js";
 import { readTierAdaptiveConfig, setTierAdaptiveEnabled, setTierAdaptiveSessionOverride, tierAdaptiveEnabled, planTierSelection } from "./adaptive.js";
 import { readAdaptiveProfile, EVIDENCE_WINDOW_DAYS } from "./adaptive-events.js";
@@ -365,12 +366,12 @@ async function addModels(
 
   let changed = false;
   while (available.length > 0) {
-    const selected = await ctx.ui.select("添加模型（可连续选择）", [...available, "完成"]);
+    const selected = await pickFromList(ctx, "添加模型（可连续选择）", available, "完成");
     if (selected === undefined) {
       ctx.ui.notify("已取消，本次改动未保存", "info");
       return;
     }
-    if (selected === "完成") break;
+    if (selected === null) break;
     const index = available.indexOf(selected);
     if (index < 0) break;
     tiers[tier].push(selected);

@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { agentDir } from "../../config/hapilon-home.js";
 import { argumentCompletions } from "../../shared/argument-completion.js";
+import { pickFromList } from "../../shared/list-picker.js";
 import { addFastModeModel, addFastModeServiceTier, matchesFastModeModel, readFastModeSettingsEffect, removeFastModeModel, SERVICE_TIERS, toggleFastModeModel, writeFastModeSettingsEffect, } from "./settings.js";
 const USAGE = "用法：/fast（打开菜单）、/fast on|off 或 /fast tier <fast|priority|standard|flex>";
 const ARGUMENT_COMPLETIONS = [
@@ -71,7 +72,7 @@ async function openFastModeMenu(agentDirPath, ctx) {
             ctx.ui.notify("没有可添加的 OpenAI 系模型。", "warning");
             return;
         }
-        const selectedModel = await ctx.ui.select("添加 OpenAI 系模型", candidates);
+        const selectedModel = await pickFromList(ctx, "添加 OpenAI 系模型", candidates);
         if (!selectedModel)
             return;
         const candidate = available.find((item) => modelName(item) === selectedModel);

@@ -6,6 +6,7 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { Effect } from "effect";
 import { THINKING_LEVELS, splitThinkingSuffix } from "../hpl-model-tiers/resolved.js";
+import { pickFromList } from "../../shared/list-picker.js";
 import type { SubagentModelsLayer } from "./config.js";
 
 const OPERATIONS = ["开关扩展", "添加模型", "设置 thinking", "调整顺序", "移除模型", "清空列表"] as const;
@@ -99,12 +100,12 @@ async function addModels(ctx: ExtensionCommandContext, io: ModelListCommandIo, t
   }
   let changed = false;
   while (available.length > 0) {
-    const selected = await ctx.ui.select("添加模型（可连续选择）", [...available, "完成"]);
+    const selected = await pickFromList(ctx, "添加模型（可连续选择）", available, "完成");
     if (selected === undefined) {
       ctx.ui.notify("已取消，本次改动未保存", "info");
       return;
     }
-    if (selected === "完成") break;
+    if (selected === null) break;
     const index = available.indexOf(selected);
     if (index < 0) break;
     target.layer.models.push(selected);

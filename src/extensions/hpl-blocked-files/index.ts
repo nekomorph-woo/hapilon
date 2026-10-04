@@ -28,6 +28,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { notify } from "../notify.js";
+import { pickFromList } from "../../shared/list-picker.js";
 import { argumentCompletions } from "../../shared/argument-completion.js";
 import { readBlockedFiles, saveBlockedFiles } from "./config.js";
 
@@ -234,11 +235,13 @@ async function interactiveList(ctx: ExtensionCommandContext): Promise<void> {
       say(`追加名单为空。默认拦截 ${DEFAULT_BLOCKED_FILES.join("、")}（不可删除）。用 /block <绝对路径> 追加。`);
       return;
     }
-    const selected = await ctx.ui.select(
+    const selected = await pickFromList(
+      ctx,
       `已屏蔽文件（默认：${DEFAULT_BLOCKED_FILES.join("、")}，不可删除）\n选中追加条目进入删除：`,
-      [...extras, "取消"],
+      extras,
+      "取消",
     );
-    if (!selected || selected === "取消") return;
+    if (selected === undefined || selected === null) return;
     const confirmed = await ctx.ui.select(`确认从名单删除 ${selected}？`, ["删除", "取消"]);
     if (confirmed !== "删除") continue;
     removeEntries(ctx, [selected]);

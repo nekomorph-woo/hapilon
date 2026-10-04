@@ -4,6 +4,7 @@
  * handler 依赖工厂闭包内的状态与核心操作，通过 CommandOps 注入，
  * index.ts 组装注册，行为与拆分前一致。
  */
+import { pickFromList } from "../../shared/list-picker.js";
 import { suggestDirectories } from "./suggestions.js";
 import { scanDirContext, resolveDir } from "./context.js";
 // ─── 命令注册 ─────────────────────────────────────────────────────────
@@ -23,19 +24,18 @@ export function registerCommands(pi, ops) {
                         const reasons = s.reasons.slice(0, 2).join(", ");
                         return `${s.label} — ${s.absolutePath} (${reasons})`;
                     });
-                    choices.push("📝 Enter a custom path...");
-                    const selected = await ctx.ui.select("Add directory:", choices);
+                    // 选「自定义路径」项（固定在顶部）落 input 分支；esc 取消
+                    const selected = await pickFromList(ctx, "Add directory:", choices, "📝 Enter a custom path...");
                     if (selected === undefined)
                         return;
-                    const selectedIdx = choices.indexOf(selected);
-                    if (selectedIdx === choices.length - 1 || selectedIdx === -1) {
-                        // 自定义路径（最后一个选项或未找到）
+                    if (selected === null) {
                         const prompted = await ctx.ui.input("Directory path:", "");
                         if (!prompted)
                             return;
                         inputPath = prompted;
                     }
                     else {
+                        const selectedIdx = choices.indexOf(selected);
                         inputPath = suggestions[selectedIdx].absolutePath;
                     }
                 }
@@ -71,7 +71,7 @@ export function registerCommands(pi, ops) {
                 const reasons = s.reasons.slice(0, 2).join(", ");
                 return `${s.label} (${score}%) — ${reasons}`;
             });
-            const selected = await ctx.ui.select("Suggested directories — pick to add:", choices);
+            const selected = await pickFromList(ctx, "Suggested directories — pick to add:", choices);
             if (selected === undefined)
                 return;
             const selectedIdx = choices.indexOf(selected);

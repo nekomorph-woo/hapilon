@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { agentDir } from "../../config/hapilon-home.js";
 import { argumentCompletions } from "../../shared/argument-completion.js";
+import { pickFromList } from "../../shared/list-picker.js";
 import {
   addFastModeModel,
   addFastModeServiceTier,
@@ -104,7 +105,7 @@ async function openFastModeMenu(agentDirPath: string, ctx: ExtensionCommandConte
       ctx.ui.notify("没有可添加的 OpenAI 系模型。", "warning");
       return;
     }
-    const selectedModel = await ctx.ui.select("添加 OpenAI 系模型", candidates);
+    const selectedModel = await pickFromList(ctx, "添加 OpenAI 系模型", candidates);
     if (!selectedModel) return;
     const candidate = available.find((item) => modelName(item) === selectedModel);
     if (!candidate) {

@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { THINKING_LEVELS, splitThinkingSuffix } from "../hpl-model-tiers/resolved.js";
+import { pickFromList } from "../../shared/list-picker.js";
 const OPERATIONS = ["开关扩展", "添加模型", "设置 thinking", "调整顺序", "移除模型", "清空列表"];
 /** 概览：两层现状 + 生效层判定 + 检查入口提示。 */
 function showOverview(ctx, io, layers) {
@@ -68,12 +69,12 @@ async function addModels(ctx, io, target) {
     }
     let changed = false;
     while (available.length > 0) {
-        const selected = await ctx.ui.select("添加模型（可连续选择）", [...available, "完成"]);
+        const selected = await pickFromList(ctx, "添加模型（可连续选择）", available, "完成");
         if (selected === undefined) {
             ctx.ui.notify("已取消，本次改动未保存", "info");
             return;
         }
-        if (selected === "完成")
+        if (selected === null)
             break;
         const index = available.indexOf(selected);
         if (index < 0)
