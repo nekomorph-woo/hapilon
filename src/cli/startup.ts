@@ -14,6 +14,8 @@ import { ensureExtensionConfigsEffect } from "../extensions/ensure-configs.js";
 import { ensurePiPatch, warnIfPiPatchStale } from "../patch/ensure-pi-patch.js";
 import { resolveNpmExtensionPathsEffect } from "../extensions/npm-extensions.js";
 import { deriveCliIdentity } from "./identity.js";
+import { rewriteTierModelArg, pickTierModel } from "./tier-model-arg.js";
+import { readResolvedTiersEffect } from "../extensions/hpl-model-tiers/resolved.js";
 
 export class StartupError extends Data.TaggedError("StartupError")<{
   message: string;
@@ -85,6 +87,18 @@ export const prepareStartupEffect = (args: string[]): Effect.Effect<PiLaunchPlan
     })
     : undefined;
   const piArgs = stripHapilonFlags(withoutTeamFlags);
+  // --model tier:<档位>[<序号>] 在 spawn 前解析成具体模型：pi 对不可解析指代只报
+  // diagnostic 后静默用默认模型，透传等于静默用错模型
+  const tierRewrite = rewriteTierModelArg(piArgs, (tier, index) =>
+    pickTierModel(Effect.runSync(readResolvedTiersEffect), tier, index));
+  if (tierRewrite.error) {
+    return yield* Effect.fail(new StartupError({ message: tierRewrite.error }));
+  }
+  if (tierRewrite.resolved) {
+    console.warn(`[hapi] --model ${tierRewrite.resolved.original} → ${tierRewrite.resolved.spec}（档位解析）`);
+  }
+  piArgs.length = 0;
+  piArgs.push(...tierRewrite.args);
   piArgs.push("--no-context-files", "--no-skills");
 
   if (!config.safetyNoticeShown && !isNonInteractive) {
