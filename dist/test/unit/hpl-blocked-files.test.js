@@ -3,9 +3,13 @@
  *
  * 测试导出的纯函数与事件处理函数，不依赖 Pi ExtensionAPI mock。
  */
-import { describe, it } from "node:test";
+import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { matchBlockedReadPath, matchBlockedCommand, matchBlockedPathLine, injectExclude, filterBlockedLines, handleToolCallEvent, handleToolResultEvent, } from "../../extensions/hpl-blocked-files/index.js";
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DEFAULT_BLOCKED_FILES, matchBlockedReadPath, matchBlockedCommand, matchBlockedPathLine, injectExclude, filterBlockedLines, handleToolCallEvent, handleToolResultEvent, parseBlockArgs, validateAddPath, setExtraBlockedEntries, getExtraBlockedEntries, } from "../../extensions/hpl-blocked-files/index.js";
+import { readBlockedFiles, saveBlockedFiles } from "../../extensions/hpl-blocked-files/config.js";
 describe("hpl-blocked-files", () => {
     describe("matchBlockedReadPath()", () => {
         it("CLAUDE.md → 命中", () => assert.strictEqual(matchBlockedReadPath("CLAUDE.md"), "CLAUDE.md"));
@@ -151,6 +155,118 @@ describe("hpl-blocked-files", () => {
             assert.ok(r);
             assert.strictEqual(r.content.length, 2);
             assert.strictEqual(r.content[1].type, "image");
+        });
+    });
+    describe("动态名单（追加条目）", () => {
+        let dir;
+        before(() => {
+            dir = mkdtempSync(join(tmpdir(), "hapilon-blocked-extra-"));
+            writeFileSync(join(dir, "NOTES.md"), "x");
+        });
+        after(() => {
+            setExtraBlockedEntries([]);
+            rmSync(dir, { recursive: true, force: true });
+        });
+        it("追加条目后 read 按 basename 传播命中", () => {
+            setExtraBlockedEntries([join(dir, "NOTES.md")]);
+            assert.strictEqual(matchBlockedReadPath("docs/NOTES.md"), "NOTES.md");
+            assert.strictEqual(matchBlockedReadPath("NOTES.md"), "NOTES.md");
+        });
+        it("追加条目后 symlink 指向禁文件时命中精确路径", () => {
+            const v = validateAddPath(join(dir, "NOTES.md"), "/Users/tester");
+            assert.ok(v.ok);
+            setExtraBlockedEntries([v.resolved]);
+            const link = join(dir, "link.md");
+            if (!existsSync(link))
+                symlinkSync(join(dir, "NOTES.md"), link);
+            assert.strictEqual(matchBlockedReadPath(link), "link.md");
+        });
+        it("未登记路径且 basename 不同 → 不命中", () => {
+            setExtraBlockedEntries([join(dir, "NOTES.md")]);
+            assert.strictEqual(matchBlockedReadPath(join(dir, "other.md")), null);
+        });
+        it("追加条目后 bash 命令与结果行过滤同步生效", () => {
+            setExtraBlockedEntries([join(dir, "NOTES.md")]);
+            assert.strictEqual(matchBlockedCommand("cat NOTES.md"), "NOTES.md");
+            assert.ok(matchBlockedPathLine(`src/NOTES.md:3: leak`));
+            assert.ok(matchBlockedPathLine("./NOTES.md"));
+            const r = filterBlockedLines("keep\n./NOTES.md");
+            assert.strictEqual(r.text, "keep");
+        });
+        it("注入 exclude 含追加条目文件名", () => {
+            setExtraBlockedEntries([join(dir, "NOTES.md")]);
+            const input = {};
+            injectExclude(input);
+            assert.deepEqual(input.exclude, [...DEFAULT_BLOCKED_FILES, "NOTES.md"]);
+        });
+        it("移除后不再命中", () => {
+            setExtraBlockedEntries([join(dir, "NOTES.md")]);
+            setExtraBlockedEntries([]);
+            assert.strictEqual(matchBlockedReadPath("NOTES.md"), null);
+            assert.strictEqual(matchBlockedCommand("cat NOTES.md"), null);
+            assert.strictEqual(getExtraBlockedEntries().length, 0);
+        });
+    });
+    describe("parseBlockArgs()", () => {
+        it("无参 → 交互列表", () => assert.deepEqual(parseBlockArgs(""), { kind: "list" }));
+        it("list → 交互列表", () => assert.deepEqual(parseBlockArgs("list"), { kind: "list" }));
+        it("裸路径 → add", () => assert.deepEqual(parseBlockArgs("/a/b.md"), { kind: "add", paths: ["/a/b.md"] }));
+        it("多路径空格分隔 → add", () => assert.deepEqual(parseBlockArgs("/a.md /b.md"), { kind: "add", paths: ["/a.md", "/b.md"] }));
+        it("add 前缀 → add", () => assert.deepEqual(parseBlockArgs("add /a.md"), { kind: "add", paths: ["/a.md"] }));
+        it("remove 前缀 → remove", () => assert.deepEqual(parseBlockArgs("remove /a.md /b.md"), { kind: "remove", paths: ["/a.md", "/b.md"] }));
+        it("remove 无路径 → usage", () => assert.deepEqual(parseBlockArgs("remove"), { kind: "usage" }));
+        it("add 无路径 → usage", () => assert.deepEqual(parseBlockArgs("add"), { kind: "usage" }));
+    });
+    describe("validateAddPath()", () => {
+        const home = "/Users/tester";
+        it("绝对路径 → 归一化保留", () => assert.deepEqual(validateAddPath("/a/b/NOTES.md", home), { ok: true, resolved: "/a/b/NOTES.md" }));
+        it("~ 展开", () => assert.deepEqual(validateAddPath("~/docs/NOTES.md", home), { ok: true, resolved: "/Users/tester/docs/NOTES.md" }));
+        it("相对路径 → 拒绝", () => assert.equal(validateAddPath("docs/NOTES.md", home).ok, false));
+        it("存在的文件归一到真实路径（symlink 口径与查询侧一致）", () => {
+            const dir = mkdtempSync(join(tmpdir(), "hapilon-blocked-val-"));
+            try {
+                writeFileSync(join(dir, "real.md"), "x");
+                const v = validateAddPath(join(dir, "real.md"), home);
+                assert.ok(v.ok);
+                // realpathSync 口径：登记值与查询侧 realpath 一致（macOS /var → /private/var）
+                assert.ok(v.resolved.startsWith("/"));
+            }
+            finally {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        });
+    });
+    describe("配置读写（blocked-files.json）", () => {
+        let home;
+        const originalHome = process.env.HAPILON_HOME;
+        before(() => {
+            home = mkdtempSync(join(tmpdir(), "hapilon-blocked-home-"));
+            process.env.HAPILON_HOME = home;
+        });
+        after(() => {
+            if (originalHome === undefined)
+                delete process.env.HAPILON_HOME;
+            else
+                process.env.HAPILON_HOME = originalHome;
+            rmSync(home, { recursive: true, force: true });
+        });
+        beforeEach(() => rmSync(join(home, "blocked-files.json"), { force: true }));
+        it("文件不存在 → 空名单", () => {
+            assert.deepEqual(readBlockedFiles(), []);
+        });
+        it("写入后读回 roundtrip", () => {
+            assert.ok(saveBlockedFiles(["/a/NOTES.md", "/b/x.md"]));
+            assert.deepEqual(readBlockedFiles(), ["/a/NOTES.md", "/b/x.md"]);
+        });
+        it("格式异常 → 降级空名单", () => {
+            writeFileSync(join(home, "blocked-files.json"), JSON.stringify(["裸数组"]));
+            assert.deepEqual(readBlockedFiles(), []);
+            writeFileSync(join(home, "blocked-files.json"), "not json{");
+            assert.deepEqual(readBlockedFiles(), []);
+        });
+        it("blockedFiles 含非字符串项 → 过滤", () => {
+            writeFileSync(join(home, "blocked-files.json"), JSON.stringify({ blockedFiles: ["/ok.md", 42] }));
+            assert.deepEqual(readBlockedFiles(), ["/ok.md"]);
         });
     });
 });
