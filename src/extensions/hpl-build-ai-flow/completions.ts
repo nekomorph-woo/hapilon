@@ -38,7 +38,7 @@ export function buildCompletions(query: string, cwd: string): AutocompleteItem[]
   const flow = activeFlowSync(cwd);
 
   // 子命令位
-  if (!/^(start|goal|goto|next|status|list|audit|debt|cap)\b/.test(trimmed)) {
+  if (!/^(start|goal|goto|next|status|list|audit|debt|cap|help)\b/.test(trimmed)) {
     const gateHint =
       flow && flow.status === "active"
         ? evaluateGate(cwd, flow.slug, flow.stage, flow.stale).passed
@@ -54,6 +54,7 @@ export function buildCompletions(query: string, cwd: string): AutocompleteItem[]
         { value: "goto ", label: "goto", description: "导航到任意阶段（前跳/回补/重做）：goto <0-9> <原因>", searchText: "goto 跳转 回补 前跳 重做" },
         { value: "goal", label: "goal", description: "确认目标提案（模型 propose_goal 后）；decline 丢弃", searchText: "goal 目标 定位句 验收 拍板 确认" },
         { value: "audit", label: "audit", description: "决策冲突审查（tier:sonnet 读 decision-log 找矛盾）", searchText: "audit 审查 冲突 决策" },
+        { value: "help", label: "help", description: "全流程保姆指南（节奏、十站职责、工具箱、卡住解法）", searchText: "help 帮助 指南 教程" },
         { value: "debt", label: "debt", description: "查看 Gate 缺口欠账", searchText: "debt 欠账 缺口 查看" },
         { value: "debt resolve ", label: "debt resolve", description: "关闭欠账：debt resolve <G-00x> <说明>", searchText: "debt resolve 关闭 欠账" },
         ...KNOWN_CAPABILITIES.map((id) => {

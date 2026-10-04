@@ -278,11 +278,15 @@ export default function hplBuildAiFlow(pi) {
                 ctx.ui?.notify?.(`能力状态：${line || "golden-case 未决定（S2/S3 的 prompt 会提示是否值得推荐）"}\n用法：/build-ai-flow cap golden-case enable|decline [说明]`, "info");
                 return;
             }
+            if (/^help\b/.test(trimmed) || trimmed === "?") {
+                ctx.ui?.notify?.(buildHelpText(), "info");
+                return;
+            }
             if (/^audit\b/.test(trimmed)) {
                 await runAudit(pi, ctx, cwd);
                 return;
             }
-            ctx.ui?.notify?.("用法：/build-ai-flow [start <目标> | goal（确认模型提案） | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit]", "error");
+            ctx.ui?.notify?.("用法：/build-ai-flow [start <目标> | goal（确认模型提案） | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit | help]", "error");
         },
     });
     // create_flow：start 两段式第二段——承接模型提炼的 slug 建 flow，并派发 S0
@@ -371,6 +375,37 @@ export default function hplBuildAiFlow(pi) {
         },
     });
     registerGuard(pi);
+}
+/** help 文案：全流程保姆级指引（派发节奏 + 十站职责 + 工具箱 + 卡住解法） */
+function buildHelpText() {
+    return [
+        "【build-ai-flow 全流程指南】",
+        "",
+        "节奏：任务书派发 → 模型干活（重活委派 subagent）→ 停下等球 → 你拍板 → /build-ai-flow next。",
+        "你负责三件事：start 的原始输入、S2/S7 的拍板、每站结束的 next；调查/实现/审查/扩量都是 subagent 的活。",
+        "",
+        "十站：",
+        "S0 dump 倒材料——你把手头材料全给它，它只整理不调查",
+        "S1 explore 探事实——重调查默认委派 subagent，你看一眼「推断」有没有混进「事实」",
+        "S2 frame 定问题★——指认定位句候选 → 模型 propose_goal 提案 → /build-ai-flow goal 确认拍板（从此盘点与冻结对着验收要点算账）",
+        "S3 define 钉口径——术语口径逐条拍板（记 decision-log）；可能提示封金 golden-case",
+        "S4 design 设计信息——看阅读顺序/层级/空数据约定，不对就说",
+        "S5 visual 视觉定调——挑候选 HTML，大白话反馈",
+        "S6 prototype 极端原型——subagent 搭「最肥/最瘦」两样例，你确认页面真的打开看过",
+        "S7 inspect 反向验收★——独立 subagent 审产物 + 主会话 computer_use 实测（体验条目 → 逐条驾驶 → 截图交 vision 子代理看图）；阻塞级当场修，Concern 清单你裁决",
+        "S8 scale 扩全量——subagent 批量复制；收尾必写「goal 覆盖盘点」表（验收要点逐条三态+去向，这是冻结门票）",
+        "S9 freeze 固化——冻结闸门机械查要点缺席/无去向 → 决策冲突审查（建议跑）→ 冻结出 spec.md + start-prompt.md",
+        "",
+        "工具箱：",
+        "status 看进度｜goto <0-9> <原因> 导航到任意阶段（回补/前跳/重做，不是惩罚，随时用）",
+        "next 硬推 → 留 G-00x 欠账，冻结前还：debt resolve <id> <说明>｜goal 重拍目标（拒绝提案用 goal decline）",
+        "会话断了不丢：磁盘就是状态，新会话 status/goto 续走；冻结后改东西用 goto 解冻",
+        "",
+        "卡住：",
+        "模型等拍板但没列问题 → 让它「把待拍板项列出来」",
+        "它称「无未办」你不信 → 让它贴 Concern/Unknown/欠账计数（口径规则要求报数）",
+        "发现上游错了 → 模型只有建议权，你执行 goto",
+    ].join("\n");
 }
 /** freeze 两阶段提交的后半段：审查与确认在前，用户同意后才提交 frozen（唯一提交点 freezeFlowEffect） */
 async function maybeAuditThenFreeze(pi, ctx, cwd, state, forceGaps) {

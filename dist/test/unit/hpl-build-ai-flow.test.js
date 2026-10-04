@@ -598,11 +598,11 @@ describe("prompt 拼装与渲染", () => {
 // ─── 补全 ───────────────────────────────────────────────────────────
 describe("补全分派", () => {
     beforeEach(() => freshCwd());
-    it("空 query 给十个子命令；goto 给十档候选并标注相对位置", () => {
+    it("空 query 给十一个子命令；goto 给十档候选并标注相对位置", () => {
         runOk(startFlowEffect(cwd, "demo", "演示", ""));
         runOk(gotoStageEffect(cwd, "demo", 6, "进入实现阶段"));
         const subs = buildCompletions("", cwd);
-        assert.equal(subs.length, 10);
+        assert.equal(subs.length, 11);
         const gotoCands = buildCompletions("goto ", cwd);
         assert.equal(gotoCands.length, 10);
         const current = gotoCands.find((c) => (c.description ?? "").includes("当前"));
@@ -616,6 +616,18 @@ describe("补全分派", () => {
         runOk(startFlowEffect(cwd, "demo", "演示", ""));
         assert.equal(buildCompletions("start ", cwd), null);
         assert.equal(buildCompletions("status ", cwd), null);
+    });
+    it("help 子命令：notify 全流程指南（含十站、工具箱、拍板节奏）", async () => {
+        const mock = makeMockPi();
+        hplBuildAiFlow(mock.pi);
+        const def = mock.commands.get("build-ai-flow");
+        const ctx = makeMockCtx();
+        await def.handler("help", ctx.ctx);
+        const help = ctx.notifies.find((n) => n.msg.includes("全流程指南"));
+        assert.ok(help);
+        for (const keyword of ["S2 frame", "propose_goal", "S7 inspect", "computer_use", "覆盖盘点", "goto", "debt resolve"]) {
+            assert.ok(help.msg.includes(keyword), `help 应含 ${keyword}`);
+        }
     });
 });
 // ─── decision-audit ─────────────────────────────────────────────────
