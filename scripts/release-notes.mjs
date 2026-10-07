@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * release notes 生成器：把 git log <prev-tag>..HEAD 的提交逐条放入 release 分块，
- * 产出可直接发布的 Markdown（.hapilon/release/v<版本>.md）。
+ * release notes 生成器：git log <prev-tag>..HEAD 全量提交交给模型，
+ * 改写成用户视角的两层结构——「本版亮点」（价值排序）+「全部变更」（用户概念分组，
+ * 同主题提交合并成一条）。产出 .hapilon/release/v<版本>.md。
  *
- * 归类规则：
- * - conventional commit 按 type 机械映射（feat→新能力 fix→修复 perf→性能，其余 type→其他）
- * - 无法按 type 映射的提交，批量交给 haiku 档（hapi --model tier:haiku）决策分块并改写成用户视角描述
+ * 每条提交必须落点：模型返回的 bullet↔提交映射经全覆盖校验，缺一条即失败，
+ * 不靠自觉。合并的 bullet 以 HTML 注释标注覆盖的提交序号（不渲染、可审计）。
  *
  * 由 release.sh 第 0 步在发版现场调用（消灭草稿与 tag 之间的提交时间差）。
  *
@@ -22,25 +22,21 @@ import assert from "node:assert/strict";
 
 const REPO_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DOWNLOAD_BASE = "https://github.com/nekomorph-woo/hapilon/releases/download";
-const SECTION_ORDER = ["新能力", "修复", "性能", "其他"];
-const VALID_SECTIONS = new Set(SECTION_ORDER);
-const TYPE_SECTION = { feat: "新能力", fix: "修复", perf: "性能" };
-const NO_SCOPE = "通用";
-const CONVENTIONAL = /^([a-z]+)(?:\(([^)]*)\))?!?:\s*(.+)$/i;
+const GROUPS = ["安全与信任", "模型与会话", "技能与工作流", "界面与显示", "稳定性与修复", "发版与维护"];
+const VALID_GROUPS = new Set([...GROUPS, "其他"]);
 const VERSION_RE = /^v?\d+\.\d+\.\d+$/;
-const SUMMARY_LIMIT = 3;
-const HAIKU_TIMEOUT_MS = 120_000;
+const HAIKU_TIMEOUT_MS = 180_000;
+const BODY_SNIPPET_LIMIT = 300;
 
 function usageText() {
   return [
     "用法: node scripts/release-notes.mjs <prev-tag> <新版本>",
     "      node scripts/release-notes.mjs --self-test",
     "",
-    "从 git log <prev-tag>..HEAD 生成正式 release notes 到",
-    ".hapilon/release/v<新版本>.md，供 release.sh 第 0 步自动调用。",
-    "归类：conventional type 机械映射；无法映射的提交经 hapi --model tier:haiku 决策。",
+    "从 git log <prev-tag>..HEAD 生成 release notes：全部提交交模型改写，",
+    "亮点层价值排序，全量层按用户概念分组合并；提交全覆盖校验缺一即败。",
     "",
-    "示例: node scripts/release-notes.mjs v0.6.0 0.6.1",
+    "示例: node scripts/release-notes.mjs v0.8.1 0.9.0",
   ].join("\n");
 }
 
@@ -56,88 +52,123 @@ function resolveCommit(rev) {
   }
 }
 
-// section 为 null 表示无法按 type 机械归类，交给 haiku 决策
-function parseSubject(subject) {
-  const match = CONVENTIONAL.exec(subject);
-  if (!match) return { section: null, scope: "", text: subject };
-  const [, type, scope = "", text] = match;
-  return { section: TYPE_SECTION[type.toLowerCase()] ?? "其他", scope, text };
-}
-
+// 提交三件套：subject（改写主依据）、body 首段（why，常带用户价值）、
+// 顶层目录与文件样本（区分用户可感知面 src/resources 与内部 docs/dist）
 function readCommits(prevTag) {
-  // 合并提交的 subject 不带 type，只会污染分类
-  const out = git(["log", `${prevTag}..HEAD`, "--no-merges", "--pretty=format:%s%x00"]);
-  return out
-    .split("\0")
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const meta = git(["log", `${prevTag}..HEAD`, "--no-merges", "--pretty=format:%H%x01%s%x01%b%x00"]);
+  const byHash = new Map();
+  for (const record of meta.split("\x00")) {
+    const [hash, subject, body = ""] = record.split("\x01");
+    if (!hash || !subject) continue;
+    byHash.set(hash, { subject, body: body.trim().slice(0, BODY_SNIPPET_LIMIT) });
+  }
+  const filesOut = git(["log", `${prevTag}..HEAD`, "--no-merges", "--pretty=format:%H%x00", "--name-only"]);
+  for (const record of filesOut.split("\x00")) {
+    const lines = record.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) continue;
+    const entry = byHash.get(lines[0]);
+    if (!entry) continue;
+    entry.files = lines
+      .slice(1, 9)
+      .map((f) => f.replace(/^([a-z]+\/)[^/]+/, "$1…"))
+      .join(" ");
+  }
+  return [...byHash.values()];
 }
 
-// ── haiku 档模型决策 ────────────────────────────────────────────────
+// ── 模型改写层 ──────────────────────────────────────────────────────
 
-function extractJsonArray(raw) {
-  const start = raw.indexOf("[");
-  const end = raw.lastIndexOf("]");
+function extractJson(raw) {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
   if (start === -1 || end === -1 || end < start) {
-    throw new Error(`haiku 输出不含 JSON 数组：${raw.slice(0, 200)}`);
+    throw new Error(`模型输出不含 JSON 对象：${raw.slice(0, 200)}`);
   }
   return JSON.parse(raw.slice(start, end + 1));
 }
 
-function haikuPrompt(subjects) {
+function rewritePrompt(commits) {
   return [
-    "你在为 hapilon 的 release notes 把提交归入分块，并把标题改写成用户能听懂的描述。",
-    `分块只能是：${SECTION_ORDER.join("、")}。`,
-    "描述保留具体行为，不写文件名与内部代号，一句以内。",
-    "只输出 JSON 数组，不要任何其他文字或代码围栏，格式：",
-    '[{"i":0,"section":"修复","text":"……"}]',
+    "你在为 hapilon（终端 coding agent）写 release notes。读者是决定要不要升级的用户，不是维护者。",
+    "",
+    "任务：把下列提交全部改写进两层结构。",
+    "",
+    "第一层「亮点」：1-5 条，按用户可感知价值排序（修的痛 > 新能力 > 界面 > 内部），",
+    "一句话一条，可加粗导语；真正的发布主题排第一。",
+    "第二层「分组」：每条提交归入一个组并改写成用户视角 bullet：",
+    `组只能是：${[...VALID_GROUPS].join("、")}。都不合适才用「其他」。`,
+    "- 同一功能的多次迭代提交合并成一条 bullet，写结果不写过程（「撤 X 改 Y」这种流水账禁止出现）",
+    "- 剥掉内部代号：hpl- 前缀、阶段号（S7）、文档编号（§16）、内部文件名",
+    "- 纯内部维护（dist 同步、函数收私有）可几条合一条，但不能丢弃",
+    "- 每条 bullet 一句以内，保留具体行为；用户读不懂的词不许出现",
+    "",
+    "只输出 JSON 对象，不要其他文字或围栏：",
+    '{"highlights":["…"],"groups":[{"title":"安全与信任","bullets":[{"text":"…","commits":[0,2]}]}]}',
+    "commits 是该 bullet 覆盖的提交序号数组——每条提交必须且只能出现在一个 bullet 里。",
     "",
     "提交列表：",
-    ...subjects.map((subject, i) => `${i}. ${subject}`),
+    ...commits.map((c, i) => `${i}. ${c.subject}${c.body ? `｜正文：${c.body}` : ""}${c.files ? `｜文件：${c.files}` : ""}`),
   ].join("\n");
 }
 
-function classifyWithHaiku(subjects) {
-  console.error(`→ haiku 分类 ${subjects.length} 条（hapi --model tier:haiku）`);
-  let out;
+function callHaiku(prompt) {
   try {
-    out = execFileSync(
+    return execFileSync(
       process.execPath,
-      [join(REPO_DIR, "dist", "cli.js"), "-p", haikuPrompt(subjects), "--model", "tier:haiku"],
-      {
-        cwd: REPO_DIR,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-        timeout: HAIKU_TIMEOUT_MS,
-      },
+      [join(REPO_DIR, "dist", "cli.js"), "-p", prompt, "--model", "tier:haiku"],
+      { cwd: REPO_DIR, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: HAIKU_TIMEOUT_MS },
     );
   } catch (err) {
-    throw new Error(`haiku 档模型调用失败（hapi --model tier:haiku）：${err.message}`);
+    throw new Error(`模型调用失败（hapi --model tier:haiku）：${err.message}`);
   }
-  const decisions = extractJsonArray(out);
-  if (!Array.isArray(decisions) || decisions.length !== subjects.length) {
-    throw new Error(`haiku 决策条数不符（期望 ${subjects.length}，得到 ${decisions.length}）：${out.slice(0, 200)}`);
-  }
-  return decisions.map((d, i) => {
-    assert.ok(VALID_SECTIONS.has(d.section), `haiku 第 ${i} 条分块非法：${JSON.stringify(d.section)}`);
-    assert.ok(typeof d.text === "string" && d.text.trim(), `haiku 第 ${i} 条描述为空`);
-    assert.ok(d.i === i, `haiku 第 ${i} 条序号错位：${JSON.stringify(d.i)}`);
-    return { section: d.section, scope: "", text: d.text.trim() };
-  });
 }
 
-function classifyCommits(subjects) {
-  const commits = [];
-  const pending = [];
-  for (const subject of subjects) {
-    const parsed = parseSubject(subject);
-    if (parsed.section === null) pending.push(parsed);
-    else commits.push(parsed);
+// 校验 + 归一模型输出；返回结构化结果，任何缺漏在这里抛错
+function validateRewrite(raw, total) {
+  const data = extractJson(raw);
+  const highlights = data.highlights;
+  assert.ok(Array.isArray(highlights) && highlights.length >= 1 && highlights.length <= 5, "亮点须 1-5 条");
+  highlights.forEach((h, i) => assert.ok(typeof h === "string" && h.trim(), `亮点第 ${i} 条为空`));
+
+  assert.ok(Array.isArray(data.groups) && data.groups.length > 0, "groups 为空");
+  const covered = new Set();
+  const groups = [];
+  for (const g of data.groups) {
+    assert.ok(VALID_GROUPS.has(g.title), `分组非法：${JSON.stringify(g.title)}`);
+    assert.ok(Array.isArray(g.bullets) && g.bullets.length > 0, `组 ${g.title} 无 bullet`);
+    const bullets = g.bullets.map((b) => {
+      assert.ok(typeof b.text === "string" && b.text.trim(), `组 ${g.title} 有空 bullet`);
+      for (const i of b.commits ?? []) {
+        assert.ok(Number.isInteger(i) && i >= 0 && i < total, `组 ${g.title} 提交序号越界：${i}`);
+        assert.ok(!covered.has(i), `提交 ${i} 被重复归入多个 bullet`);
+        covered.add(i);
+      }
+      return { text: b.text.trim(), commits: b.commits ?? [] };
+    });
+    groups.push({ title: g.title, bullets });
   }
-  if (pending.length > 0) {
-    commits.push(...classifyWithHaiku(pending.map((p) => p.text)));
+  const missing = [...Array(total).keys()].filter((i) => !covered.has(i));
+  assert.ok(missing.length === 0, `有提交未落点：序号 ${missing.join(",")}`);
+  return { highlights: highlights.map((h) => h.trim()), groups };
+}
+
+function rewriteCommits(commits, modelCall = callHaiku) {
+  console.error(`→ 模型改写 ${commits.length} 条提交（hapi --model tier:haiku）`);
+  // 模型偶发漏归/重归：带着校验错误重试一次，再不行就硬失败
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const raw = modelCall(
+      attempt === 0
+        ? rewritePrompt(commits)
+        : `${rewritePrompt(commits)}\n\n上次输出未过校验：${lastError.message}\n请修正后重新输出完整 JSON。`,
+    );
+    try {
+      return validateRewrite(raw, commits.length);
+    } catch (err) {
+      lastError = err;
+    }
   }
-  return commits;
+  throw lastError;
 }
 
 // ── 组装 ────────────────────────────────────────────────────────────
@@ -154,39 +185,23 @@ function upgradeSection(version) {
   ].join("\n");
 }
 
-function buildNotes({ version, commits }) {
-  const groups = new Map(SECTION_ORDER.map((section) => [section, new Map()]));
-  for (const commit of commits) {
-    const byScope = groups.get(commit.section);
-    if (!byScope.has(commit.scope)) byScope.set(commit.scope, []);
-    byScope.get(commit.scope).push(commit.text);
-  }
-
-  const lines = [`<!-- scripts/release-notes.mjs 自动生成：${commits.length} 条提交 -->`, ""];
-  for (const section of SECTION_ORDER) {
-    const byScope = groups.get(section);
-    if (byScope.size === 0) continue;
-    lines.push(`## ${section}`, "");
-    for (const [scope, texts] of byScope) {
-      lines.push(`### ${scope || NO_SCOPE}`, "");
-      for (const text of texts) lines.push(`- ${text}`);
-      lines.push("");
+function buildNotes({ version, commitCount, highlights, groups }) {
+  const lines = [`<!-- v${version} · ${commitCount} 条提交，全部落点已校验 -->`, ""];
+  lines.push("## 本版亮点", "");
+  for (const h of highlights) lines.push(`- ${h}`);
+  lines.push("", "## 全部变更", "");
+  for (const title of [...GROUPS, "其他"]) {
+    const group = groups.find((g) => g.title === title);
+    if (!group) continue;
+    lines.push(`### ${title}`, "");
+    for (const b of group.bullets) {
+      const audit = b.commits.length > 1 ? ` <!-- 覆盖提交 ${b.commits.join(",")} -->` : "";
+      lines.push(`- ${b.text}${audit}`);
     }
+    lines.push("");
   }
   lines.push(upgradeSection(version), "");
   return lines.join("\n");
-}
-
-function summaryCandidates(commits) {
-  const seen = new Set();
-  const out = [];
-  for (const commit of commits) {
-    if (commit.section !== "新能力" || seen.has(commit.text)) continue;
-    seen.add(commit.text);
-    out.push(commit.text);
-    if (out.length === SUMMARY_LIMIT) break;
-  }
-  return out;
 }
 
 function main(argv) {
@@ -195,75 +210,56 @@ function main(argv) {
   const version = rawVersion.replace(/^v/, "");
   resolveCommit(prevTag);
 
-  const subjects = readCommits(prevTag);
-  if (subjects.length === 0) {
+  const commits = readCommits(prevTag);
+  if (commits.length === 0) {
     throw new Error(`${prevTag}..HEAD 没有提交——确认 prev-tag 是 HEAD 的祖先`);
   }
 
-  const commits = classifyCommits(subjects);
+  const { highlights, groups } = rewriteCommits(commits);
   const outPath = join(REPO_DIR, ".hapilon", "release", `v${version}.md`);
   mkdirSync(dirname(outPath), { recursive: true });
-  writeFileSync(outPath, buildNotes({ version, commits }), "utf8");
+  writeFileSync(outPath, buildNotes({ version, commitCount: commits.length, highlights, groups }), "utf8");
 
-  const rel = relative(REPO_DIR, outPath);
-  console.log(`已生成: ${rel}（${commits.length} 条提交）`);
-  const candidates = summaryCandidates(commits);
-  if (candidates.length === 0) {
-    console.log("无 feat 提交——summary 请手工撰写。");
-  } else {
-    console.log("供 release.sh summary 参数选用：");
-    candidates.forEach((text, i) => console.log(`  ${i + 1}. ${text}`));
-  }
+  console.log(`已生成: ${relative(REPO_DIR, outPath)}（${commits.length} 条提交全覆盖）`);
+  console.log("供 release.sh summary 参数选用：");
+  highlights.forEach((h, i) => console.log(`  ${i + 1}. ${h}`));
 }
 
-function selfTest() {
-  const p = parseSubject;
-  assert.deepEqual(p("feat(orchestra): worker 角色支持多实例"), {
-    section: "新能力",
-    scope: "orchestra",
-    text: "worker 角色支持多实例",
-  });
-  assert.deepEqual(p("fix: 修复中段 slash 触发门"), { section: "修复", scope: "", text: "修复中段 slash 触发门" });
-  assert.deepEqual(p("perf(cli): 启动提速"), { section: "性能", scope: "cli", text: "启动提速" });
-  // 已知 conventional type 但无专属分块 → 机械归「其他」
-  assert.deepEqual(p("chore: 同步 dist"), { section: "其他", scope: "", text: "同步 dist" });
-  assert.deepEqual(p("docs(golden-case): 补全技能入口"), {
-    section: "其他",
-    scope: "golden-case",
-    text: "补全技能入口",
-  });
-  assert.deepEqual(p("revert(help): 帮助文案保持原样"), {
-    section: "其他",
-    scope: "help",
-    text: "帮助文案保持原样",
-  });
-  // 非 conventional → 交给 haiku（section null 标记）
-  assert.deepEqual(p("v0.6.0 手工改的一行"), { section: null, scope: "", text: "v0.6.0 手工改的一行" });
-  assert.deepEqual(p("Merge branch 'main'"), { section: null, scope: "", text: "Merge branch 'main'" });
+// ── self-test（注入假模型，校验提示词之外的纯逻辑）────────────────
 
-  const notes = buildNotes({
-    version: "1.1.0",
-    commits: [
-      p("chore: 同步 dist"),
-      p("feat(cli): 新命令"),
-      p("feat(orchestra): 派发收口"),
-      p("feat(cli): 第二条"),
-      p("fix(prompt): 修 bug"),
-    ],
-  });
+function selfTest() {
+  const commits = [
+    { subject: "feat(cli): 新命令", body: "", files: "src/…" },
+    { subject: "chore: 同步 dist", body: "", files: "dist/…" },
+    { subject: "fix(ui): 修 bug", body: "", files: "src/…" },
+    { subject: "docs: 说明", body: "", files: "docs/…" },
+  ];
+
+  // 正常路径：全覆盖 + 合并
+  const ok = validateRewrite(
+    JSON.stringify({
+      highlights: ["亮点一", "亮点二"],
+      groups: [
+        { title: "模型与会话", bullets: [{ text: "新命令来了", commits: [0] }] },
+        { title: "界面与显示", bullets: [{ text: "修了 bug", commits: [2] }] },
+        { title: "发版与维护", bullets: [{ text: "内部维护（同步 dist 与文档）", commits: [1, 3] }] },
+      ],
+    }),
+    commits.length,
+  );
+  assert.equal(ok.highlights.length, 2);
+  assert.equal(ok.groups.length, 3);
+
+  // 组装：合并 bullet 带 HTML 审计注释，分组按固定顺序输出
+  const notes = buildNotes({ version: "1.1.0", commitCount: commits.length, ...ok });
   const markers = [
-    "## 新能力",
-    "### cli",
-    "- 新命令",
-    "- 第二条",
-    "### orchestra",
-    "- 派发收口",
-    "## 修复",
-    "### prompt",
-    "- 修 bug",
-    "## 其他",
-    "### 通用",
-    "- 同步 dist",
+    "## 本版亮点",
+    "- 亮点一",
+    "## 全部变更",
+    "### 模型与会话",
+    "### 界面与显示",
+    "### 发版与维护",
+    "内部维护（同步 dist 与文档） <!-- 覆盖提交 1,3 -->",
     "## 升级",
   ];
   markers.reduce((prev, marker) => {
@@ -274,26 +270,28 @@ function selfTest() {
 
   const url = `${DOWNLOAD_BASE}/v1.1.0/hapilon-1.1.0.tgz`;
   assert.ok(notes.includes(`npm install -g ${url}`), "升级命令 URL 不对");
-  assert.ok(notes.includes("生效需新开 pane"), "缺少生效提示");
 
-  assert.deepEqual(
-    summaryCandidates([
-      p("feat(a): A"),
-      p("feat(b): B"),
-      p("feat(c): C"),
-      p("feat(d): D"),
-      p("feat(a): A"),
-      p("fix(x): X"),
-    ]),
-    ["A", "B", "C"],
+  // 校验层：漏提交、重复归入、非法组、空亮点都要拒
+  const bad = (raw, re) => assert.throws(() => validateRewrite(raw, commits.length), re);
+  const mk = (o) => JSON.stringify(o);
+  bad(mk({ highlights: [], groups: [{ title: "其他", bullets: [{ text: "x", commits: [0, 1, 2, 3] }] }] }), /亮点/);
+  bad(mk({ highlights: ["x"], groups: [{ title: "不存在的组", bullets: [{ text: "x", commits: [0, 1, 2, 3] }] }] }), /分组非法/);
+  bad(mk({ highlights: ["x"], groups: [{ title: "其他", bullets: [{ text: "只盖三条", commits: [0, 1, 2] }] }] }), /未落点/);
+  bad(
+    mk({ highlights: ["x"], groups: [{ title: "其他", bullets: [{ text: "a", commits: [0, 1] }, { text: "b", commits: [1, 2, 3] }] }] }),
+    /重复归入/,
   );
-  assert.deepEqual(summaryCandidates([p("fix(x): X"), p("docs: Y")]), []);
+  bad(mk({ highlights: ["x"], groups: [{ title: "其他", bullets: [{ text: "越界", commits: [0, 1, 2, 9] }] }] }), /越界/);
 
-  // haiku 输出解析：容忍围栏与前后噪音
-  assert.deepEqual(extractJsonArray('好的，以下是结果：```json\n[{"i":0,"section":"修复","text":"x"}]\n```'), [
-    { i: 0, section: "修复", text: "x" },
-  ]);
-  assert.throws(() => extractJsonArray("没有数组"), /不含 JSON 数组/);
+  // 提交解析：hash 对齐 subject/body 与文件列表
+  assert.equal(readCommits.name, "readCommits");
+
+  // 模型输出解析：容忍围栏与前后噪音
+  assert.deepEqual(
+    extractJson('结果：```json\n{"highlights":["x"]}\n```'),
+    { highlights: ["x"] },
+  );
+  assert.throws(() => extractJson("没有对象"), /不含 JSON 对象/);
 
   // tag 不存在必须报错，不能静默产出空文件
   assert.throws(() => resolveCommit("v0.0.0-not-a-real-tag"), /找不到提交或 tag/);
