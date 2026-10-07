@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { classifyWithLabel } from "../../extensions/hpl-safety-gate/classifier.js";
 import { checkSandboxWrite } from "../../extensions/hpl-safety-gate/sandbox-allow.js";
-import { GATE_AUTO_DEFAULTS, judgeCommand, readGateAutoConfig, setGateAutoEnabled, } from "../../extensions/hpl-safety-gate/auto-judge.js";
+import { GATE_AUTO_DEFAULTS, judgeCommand, recentAllows, readGateAutoConfig, setGateAutoEnabled, } from "../../extensions/hpl-safety-gate/auto-judge.js";
 import gateExtension from "../../extensions/hpl-safety-gate/index.js";
 const REPLAY_FILE = "/tmp/safety-replay.jsonl";
 const SANDBOX_OPTS = { cwd: "/Volumes/Under_M2/morphiiouo/hapilon", home: "" };
@@ -57,6 +57,11 @@ function setupExtension(options = {}) {
 const completeWith = (text) => () => Promise.resolve({ content: [{ type: "text", text }] });
 /** 审计文件读取（env HAPILON_HOME → <home>/agent/gate-auto.jsonl） */
 const auditPath = () => join(testHome, "agent", "gate-auto.jsonl");
+/** 向审计文件追加条目（recentAllows 测试用） */
+function appendAudit(entry) {
+    mkdirSync(join(testHome, "agent"), { recursive: true });
+    writeFileSync(auditPath(), `${JSON.stringify(entry)}\n`, { flag: "a" });
+}
 const readAudit = () => existsSync(auditPath())
     ? readFileSync(auditPath(), "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line))
     : [];
@@ -322,6 +327,28 @@ describe("hpl-safety-gate auto", () => {
                 assert.equal(result.right.model, "zai/glm-4.7");
         });
     });
+    describe("recentAllows（先例检索）", () => {
+        it("无审计文件 → 空数组；同规则 7 天内 auto-allow 取最近 3 条，旧条目截断", () => {
+            rmSync(auditPath(), { force: true });
+            assert.deepEqual(recentAllows("sed -i 批量替换"), []);
+            const now = Date.now();
+            const day = 86_400_000;
+            for (let i = 0; i < 4; i++) {
+                appendAudit({
+                    ts: new Date(now - i * day).toISOString(),
+                    ruleLabel: "sed -i 批量替换",
+                    outcome: "auto-allow",
+                    command: `sed -i '' s/x/y/ f${i}`,
+                });
+            }
+            appendAudit({ ts: new Date(now - 8 * day).toISOString(), ruleLabel: "sed -i 批量替换", outcome: "auto-allow", command: "old" });
+            appendAudit({ ts: new Date(now).toISOString(), ruleLabel: "其他规则", outcome: "auto-allow", command: "other" });
+            appendAudit({ ts: new Date(now).toISOString(), ruleLabel: "sed -i 批量替换", outcome: "fallback-confirm", command: "not-allow" });
+            const got = recentAllows("sed -i 批量替换", 7, 3, now);
+            assert.deepEqual(got, ["sed -i '' s/x/y/ f0", "sed -i '' s/x/y/ f1", "sed -i '' s/x/y/ f2"]);
+            assert.deepEqual(recentAllows(undefined), []);
+        });
+    });
     describe("108 样本重放", () => {
         it("allow 直通不触发 Auto；confirm 中 2 条沙箱先行、3 条进模型层且审计齐全", async () => {
             const replay = existsSync(REPLAY_FILE)
@@ -446,7 +473,8 @@ describe("hpl-safety-gate auto", () => {
             });
             assert.equal(await call("git push origin main"), undefined);
             assert.equal(await call("git push origin main"), undefined);
-            assert.equal(calls, 1, "第二次应命中缓存不调模型");
+            // 首次判定 = 行为观察员描述 + 判定两次模型调用；第二次命中缓存零调用
+            assert.equal(calls, 2, "第二次应命中缓存不调模型");
             const cacheEntries = readAudit().filter((e) => e.layer === "cache");
             assert.equal(cacheEntries.length, 1);
             assert.equal(cacheEntries[0].outcome, "auto-allow");
@@ -521,18 +549,18 @@ describe("hpl-safety-gate auto", () => {
             assert.equal(calls, 0);
             await runCommand("gate-auto-mode", "on");
             assert.deepEqual(JSON.parse(readSettingsRaw()), { gateAuto: { enabled: true } });
-            // 开之后：进入模型层（说明内存开关生效）
+            // 开之后：进入模型层（描述 + 判定两次调用，说明内存开关生效）
             const result = await call("git push origin main");
             assert.ok(result?.block);
-            assert.equal(calls, 1);
+            assert.equal(calls, 2);
             assert.equal(readAudit().at(-1).outcome, "fallback-block");
             // verdictCache 已清：off 后再 on，同命令仍重新调模型（而不是命中缓存）
             await runCommand("gate-auto-mode", "off");
             assert.ok((await call("git push origin main"))?.block);
-            assert.equal(calls, 1, "off 后 Auto 不生效，不调模型");
+            assert.equal(calls, 2, "off 后 Auto 不生效，不再调模型");
             await runCommand("gate-auto-mode", "on");
             await call("git push origin main");
-            assert.equal(calls, 2, "on 清空缓存后应重新调模型");
+            assert.equal(calls, 4, "on 清空缓存后应重新调模型（描述+判定）");
         });
         it("状态行：分别列出 settings 值、本会话实际生效值、模型/超时、缓存条数", async () => {
             writeSettingsRaw(JSON.stringify({ gateAuto: { enabled: false, timeoutMs: 5000, model: "tier:haiku" } }));

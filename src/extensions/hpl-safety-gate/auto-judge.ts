@@ -170,7 +170,96 @@ export class GateAutoInvalidOutput extends Data.TaggedError("GateAutoInvalidOutp
 
 export type GateAutoError = GateAutoTimeout | GateAutoApiError | GateAutoInvalidOutput;
 
-// ─── 判定 ────────────────────────────────────────────────────────────
+// ─── 行为观察员：场景描述层 ──────────────────────────────────
+
+export interface DescribeDeps<T extends JudgeModelShape> {
+  modelSpec: string;
+  timeoutMs: number;
+  command: string;
+  cwd: string;
+  ruleLabel?: string;
+  sandboxSummary?: string;
+  /** 安全门亲历的近期工具行为（滚动窗口，客观记录非自述） */
+  activityWindow: readonly string[];
+  available: readonly T[];
+  complete: (
+    model: T,
+    request: JudgeRequest,
+    options: { signal: AbortSignal; reasoning: "off"; maxTokens: number },
+  ) => Promise<unknown>;
+}
+
+const DESCRIBE_SYSTEM_PROMPT = `你是 hapilon 安全门的行为观察员。你只依据给出的近期工具行为记录（安全门亲眼所见的命令序列，客观事实）描述现场，不臆测、不转述 agent 的自我声明。
+用不超过 80 字回答：agent 正在做什么任务、这条待判命令在其中扮演什么角色、写目标是什么、是否 git 可恢复。记录不足时直说「记录不足」，不要编。只输出描述文本。`;
+
+export const describeScenario = <T extends JudgeModelShape>(
+  deps: DescribeDeps<T>,
+): Effect.Effect<string, GateAutoError> =>
+  Effect.gen(function* () {
+    const resolvedTiers = yield* readResolvedTiersEffect;
+    const model = resolveAutoModel(deps.modelSpec, deps.available, resolvedTiers);
+    if (!model) {
+      return yield* new GateAutoApiError({
+        message: `观察员模型不可用（${deps.modelSpec}）`,
+        command: deps.command,
+      });
+    }
+    const userMessage = [
+      `近期工具行为（从新到旧）：\n${deps.activityWindow.slice().reverse().map((a) => `- ${a}`).join("\n") || "（无）"}`,
+      `cwd：${deps.cwd}`,
+      ...(deps.ruleLabel ? [`命中安全规则：${deps.ruleLabel}`] : []),
+      ...(deps.sandboxSummary ? [`写目标解析：${deps.sandboxSummary}`] : []),
+      `待判命令：\n${deps.command}`,
+    ].join("\n\n");
+    const response = yield* Effect.tryPromise({
+      try: (signal) => deps.complete(model, {
+        systemPrompt: DESCRIBE_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userMessage, timestamp: Date.now() }],
+      }, { signal, reasoning: "off", maxTokens: 300 }),
+      catch: (error) => new GateAutoApiError({
+        message: error instanceof Error ? error.message : String(error),
+        command: deps.command,
+      }),
+    }).pipe(
+      Effect.timeout(deps.timeoutMs),
+      Effect.catchTag("TimeoutException", () => new GateAutoTimeout({ timeoutMs: deps.timeoutMs, command: deps.command })),
+    );
+    const text = response && typeof response === "object" && Array.isArray((response as { content?: unknown }).content)
+      ? (response as { content: Array<{ text?: string }> }).content.map((p) => p.text ?? "").join("").trim()
+      : "";
+    if (!text) {
+      return yield* new GateAutoInvalidOutput({ message: "观察员描述为空", command: deps.command });
+    }
+    return text.slice(0, 400);
+  });
+
+// ─── 先例：近 7 天同规则自动放行记录 ───────────────────────
+
+/** 读 gate-auto.jsonl 近 N 天同 ruleLabel 的 auto-allow 先例（compact 命令，至多 3 条） */
+export function recentAllows(ruleLabel: string | undefined, days = 7, limit = 3, now = Date.now()): string[] {
+  if (!ruleLabel) return [];
+  let lines: string[];
+  try {
+    lines = readFileSync(join(agentDir(), "gate-auto.jsonl"), "utf8").split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+  const matches: Array<{ ts: number; compact: string }> = [];
+  const cutoff = now - days * 86_400_000;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const entry = JSON.parse(lines[i]!) as { ts: string; ruleLabel?: string; outcome?: string; command?: string };
+      if (entry.ruleLabel !== ruleLabel || entry.outcome !== "auto-allow") continue;
+      const ts = Date.parse(entry.ts);
+      if (ts < cutoff) continue;
+      const compact = (entry.command ?? "").trim().replace(/\s+/g, " ").slice(0, 80);
+      if (compact) matches.push({ ts, compact });
+    } catch {
+      // 脏行跳过
+    }
+  }
+  return matches.sort((a, b) => b.ts - a.ts).slice(0, limit).map((m) => m.compact);
+}
 
 export type AutoVerdict = "allow" | "block" | "unsure";
 
@@ -209,18 +298,28 @@ export interface AutoJudgeDeps<T extends JudgeModelShape> {
   ruleLabel?: string;
   /** 沙箱解析摘要（给模型的目标解析上下文） */
   sandboxSummary?: string;
+  /** 行为观察员生成的场景描述（agent 在做什么、命令的角色）——辅助信息，非硬事实 */
+  scenario?: string;
+  /** 近期同类自动放行的先例（compact 命令），供判定参考 */
+  precedents?: string[];
   available: readonly T[];
   complete: (
     model: T,
     request: JudgeRequest,
-    options: { signal: AbortSignal; reasoning: "off"; maxTokens: number },
+    options: { signal: AbortSignal; reasoning: "off" | "low"; maxTokens: number },
   ) => Promise<unknown>;
 }
 
-const JUDGE_SYSTEM_PROMPT = `你是 hapilon 安全门的命令判定助手，对 bash 命令做三值判定：
-- allow：写目标可静态解析且全部位于临时目录或沙箱（/tmp、$TMPDIR、$HAPILON_HOME、plan-task）内；或属于单人仓库的常规工作流（git push、git commit --amend、git checkout/restore 恢复文件等）。
-- block：不可逆且作用域越出沙箱与仓库（删根目录/home、格式化磁盘、清空生产数据、强推主干等）。
-- unsure：目标无法静态解析、影响面拿不准、或需要人工确认。拿不准时一律 unsure。
+const JUDGE_SYSTEM_PROMPT = `你是 hapilon（终端 coding agent）安全门的判定员，对 bash 命令做三值判定。
+
+环境自述：这是 hapilon 自己的机器环境。$HAPILON_HOME（~/.hapilon*）是 hapilon 的家目录：其中 agents/skills/ 是随版本分发的自带技能与脚本（可信工具链），plan-task/ 是临时工作区。当前 cwd 通常是一个 git 仓库：git 跟踪的文件被删改都可恢复（reflog/历史），但未被跟踪的新文件删了就没了。
+
+判定看性质，不比对命令名单：
+- allow：写目标可静态解析且在临时目录/沙箱/hapilon 家目录内；或落在 git 跟踪范围内可恢复（sed -i 改源码、git push、commit --amend、checkout/restore 恢复、npm version 这类单人仓库常规迭代）；技能脚本（$HAPILON_HOME/agents/skills/ 下）执行属于工具链调用。
+- block：不可逆且越出仓库与沙箱——删根/home、格式化磁盘、清生产数据、强推共享主干、写系统路径。
+- unsure：写目标无法静态解析、影响面拿不准、需要人来拍板。拿不准一律 unsure，宁可多问不可放过。
+
+场景描述与先例是辅助信息，可能有误：命令本身、写目标解析、cwd 才是硬事实，冲突时以硬事实为准。
 只输出一行 JSON：{"verdict":"allow|block|unsure","reason":"不超过 60 字的理由"}`;
 
 /** `tier:<name>[<index>]` 查 resolved 档位表取可用模型；其余按 glob/具体 id 直接匹配。
@@ -281,10 +380,14 @@ export function parseJudgeOutput(raw: unknown, command: string): AutoJudgement {
   }
 }
 
-function buildUserMessage(deps: Pick<AutoJudgeDeps<JudgeModelShape>, "command" | "cwd" | "ruleLabel" | "sandboxSummary">): string {
+function buildUserMessage(deps: Pick<AutoJudgeDeps<JudgeModelShape>, "command" | "cwd" | "ruleLabel" | "sandboxSummary" | "scenario" | "precedents">): string {
   const parts = [`命令：\n${deps.command}`, `cwd：${deps.cwd}`];
   if (deps.ruleLabel) parts.push(`命中安全规则：${deps.ruleLabel}`);
-  if (deps.sandboxSummary) parts.push(`沙箱解析：${deps.sandboxSummary}`);
+  if (deps.sandboxSummary) parts.push(`写目标解析：${deps.sandboxSummary}`);
+  if (deps.scenario) parts.push(`行为观察员的场景描述（辅助，可能有误）：${deps.scenario}`);
+  if (deps.precedents && deps.precedents.length > 0) {
+    parts.push(`近 7 天同规则自动放行先例：\n${deps.precedents.map((p) => `- ${p}`).join("\n")}`);
+  }
   return parts.join("\n\n");
 }
 
@@ -310,8 +413,8 @@ export const judgeCommand = <T extends JudgeModelShape>(
         messages: [{ role: "user", content: buildUserMessage(deps), timestamp: Date.now() }],
       }, {
         signal,
-        reasoning: "off",
-        maxTokens: 200,
+        reasoning: "low",
+        maxTokens: 500,
       }),
       catch: (error) => new GateAutoApiError({
         message: error instanceof Error ? error.message : String(error),

@@ -812,7 +812,7 @@ describe("hpl-safety-gate", () => {
         ctxWithModelRegistry(() => { modelCalls++; }),
       );
       assert.strictEqual(result, undefined, "模型 allow → 放行");
-      assert.strictEqual(modelCalls, 1, "Auto 开启态应经注入的 modelRegistry 判定一次");
+      assert.strictEqual(modelCalls, 2, "Auto 开启态应经注入的 modelRegistry 描述+判定两次");
     });
   });
 });

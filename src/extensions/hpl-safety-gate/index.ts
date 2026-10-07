@@ -22,7 +22,9 @@ import { agentDir, hapilonHome } from "../../config/hapilon-home.js";
 import { classifyCommand, classifyWithLabel, hasShellInjection } from "./classifier.js";
 import { checkSandboxWrite, type SandboxTarget } from "./sandbox-allow.js";
 import {
+  describeScenario,
   judgeCommand,
+  recentAllows,
   readGateAutoConfig,
   setGateAutoEnabled,
   type AutoVerdict,
@@ -94,6 +96,8 @@ export interface GateAutoAuditEntry {
   reason: string;
   model: string;
   latencyMs?: number;
+  /** 行为观察员的场景描述（agent 在做什么、命令的角色）——审计案卷用 */
+  scenario?: string;
   outcome: "auto-allow" | "fallback-confirm" | "fallback-block";
 }
 
@@ -148,9 +152,15 @@ export default function (pi: ExtensionAPI) {
   let gateAutoConfig: GateAutoConfig | undefined;
   let verdictCache = new Map<string, { verdict: AutoVerdict; reason: string }>();
 
+  // 行为滚动窗口：安全门亲历的近期 bash 命令（含被拦的），行为观察员的唯一信息源。
+  // 记录的是「实际做了什么」而非 agent 自述——客观性来自信息源。
+  let activityWindow: string[] = [];
+  const ACTIVITY_WINDOW_SIZE = 12;
+
   pi.on("session_start", () => {
     gateAutoConfig = readGateAutoConfig();
     verdictCache = new Map();
+    activityWindow = [];
   });
 
   // ─── /gate-auto-mode：Auto 判定开关（无对话框三态） ─────────────────
@@ -209,8 +219,9 @@ export default function (pi: ExtensionAPI) {
     const enabled = gateAutoConfig.enabled || pi.getFlag("gate-auto") === true;
     if (!enabled) return false;
 
-    const audit = (entry: Omit<GateAutoAuditEntry, "ts" | "cwd" | "command" | "ruleLabel">) =>
-      appendGateAutoAudit({ ts: new Date().toISOString(), cwd: ctx.cwd, command: normalized, ruleLabel, ...entry });
+    let scenario: string | undefined;
+    const audit = (entry: Omit<GateAutoAuditEntry, "ts" | "cwd" | "command" | "ruleLabel" | "scenario"> & { scenario?: string }) =>
+      appendGateAutoAudit({ ts: new Date().toISOString(), cwd: ctx.cwd, command: normalized, ruleLabel, scenario, ...entry });
 
     // 1. 会话内缓存：沿用上次 verdict，不重复调模型
     const cached = verdictCache.get(normalized);
@@ -236,8 +247,23 @@ export default function (pi: ExtensionAPI) {
       return true;
     }
 
-    // 3. 档位模型判定；超时/错误/不合法 → 按 unsure 回落现状
+    // 3. 行为观察员场景描述 + 先例检索（均为辅助信息；失败不阻塞判定）
     const startedAt = Date.now();
+    const scenarioResult = await Effect.runPromise(Effect.either(describeScenario({
+      modelSpec: gateAutoConfig.model,
+      timeoutMs: gateAutoConfig.timeoutMs,
+      command,
+      cwd: ctx.cwd,
+      ruleLabel,
+      sandboxSummary: sandboxSummary(sandbox.targets),
+      activityWindow: activityWindow,
+      available: ctx.modelRegistry.getAvailable(),
+      complete: (model, request, options) => ctx.modelRegistry.complete(model, request, options),
+    })));
+    scenario = scenarioResult._tag === "Right" ? scenarioResult.right : undefined;
+    const precedents = recentAllows(ruleLabel);
+
+    // 4. 档位模型判定；超时/错误/不合法 → 按 unsure 回落现状
     const result = await Effect.runPromise(Effect.either(judgeCommand({
       modelSpec: gateAutoConfig.model,
       timeoutMs: gateAutoConfig.timeoutMs,
@@ -245,6 +271,8 @@ export default function (pi: ExtensionAPI) {
       cwd: ctx.cwd,
       ruleLabel,
       sandboxSummary: sandboxSummary(sandbox.targets),
+      scenario,
+      precedents,
       available: ctx.modelRegistry.getAvailable(),
       complete: (model, request, options) => ctx.modelRegistry.complete(model, request, options),
     })));
@@ -286,6 +314,8 @@ export default function (pi: ExtensionAPI) {
 
     // 标准化空白字符用于信任匹配
     const normalized = command.trim().replace(/\s+/g, " ");
+    activityWindow.push(normalized.slice(0, 100));
+    if (activityWindow.length > ACTIVITY_WINDOW_SIZE) activityWindow.shift();
     // 折叠后的单行命令（超长截断），所有 warn/reason 提示文本共用
     const shown = compactCommand(command);
 

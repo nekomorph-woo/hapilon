@@ -19,7 +19,7 @@ import { argumentCompletions } from "../../shared/argument-completion.js";
 import { agentDir, hapilonHome } from "../../config/hapilon-home.js";
 import { classifyWithLabel } from "./classifier.js";
 import { checkSandboxWrite } from "./sandbox-allow.js";
-import { judgeCommand, readGateAutoConfig, setGateAutoEnabled, } from "./auto-judge.js";
+import { describeScenario, judgeCommand, recentAllows, readGateAutoConfig, setGateAutoEnabled, } from "./auto-judge.js";
 import { deriveAllowPattern } from "./derive-allow.js";
 import { hasSensitiveReadArg, sensitiveReadLabels, splitCommandSegments } from "./sensitive-args.js";
 import { requestConfirm } from "../hpl-protected-paths/confirm.js";
@@ -108,9 +108,14 @@ export default function (pi) {
     // Auto 会话状态：配置 + 同命令判定缓存（会话级，session_start 重置）
     let gateAutoConfig;
     let verdictCache = new Map();
+    // 行为滚动窗口：安全门亲历的近期 bash 命令（含被拦的），行为观察员的唯一信息源。
+    // 记录的是「实际做了什么」而非 agent 自述——客观性来自信息源。
+    let activityWindow = [];
+    const ACTIVITY_WINDOW_SIZE = 12;
     pi.on("session_start", () => {
         gateAutoConfig = readGateAutoConfig();
         verdictCache = new Map();
+        activityWindow = [];
     });
     // ─── /gate-auto-mode：Auto 判定开关（无对话框三态） ─────────────────
     const GATE_AUTO_MODE_USAGE = "用法：/gate-auto-mode [on|off]（不带参数查看状态）";
@@ -159,7 +164,8 @@ export default function (pi) {
         const enabled = gateAutoConfig.enabled || pi.getFlag("gate-auto") === true;
         if (!enabled)
             return false;
-        const audit = (entry) => appendGateAutoAudit({ ts: new Date().toISOString(), cwd: ctx.cwd, command: normalized, ruleLabel, ...entry });
+        let scenario;
+        const audit = (entry) => appendGateAutoAudit({ ts: new Date().toISOString(), cwd: ctx.cwd, command: normalized, ruleLabel, scenario, ...entry });
         // 1. 会话内缓存：沿用上次 verdict，不重复调模型
         const cached = verdictCache.get(normalized);
         if (cached) {
@@ -182,8 +188,22 @@ export default function (pi) {
             audit({ layer: "sandbox", verdict: "allow", reason: sandboxSummary(sandbox.targets), model: "sandbox", outcome: "auto-allow" });
             return true;
         }
-        // 3. 档位模型判定；超时/错误/不合法 → 按 unsure 回落现状
+        // 3. 行为观察员场景描述 + 先例检索（均为辅助信息；失败不阻塞判定）
         const startedAt = Date.now();
+        const scenarioResult = await Effect.runPromise(Effect.either(describeScenario({
+            modelSpec: gateAutoConfig.model,
+            timeoutMs: gateAutoConfig.timeoutMs,
+            command,
+            cwd: ctx.cwd,
+            ruleLabel,
+            sandboxSummary: sandboxSummary(sandbox.targets),
+            activityWindow: activityWindow,
+            available: ctx.modelRegistry.getAvailable(),
+            complete: (model, request, options) => ctx.modelRegistry.complete(model, request, options),
+        })));
+        scenario = scenarioResult._tag === "Right" ? scenarioResult.right : undefined;
+        const precedents = recentAllows(ruleLabel);
+        // 4. 档位模型判定；超时/错误/不合法 → 按 unsure 回落现状
         const result = await Effect.runPromise(Effect.either(judgeCommand({
             modelSpec: gateAutoConfig.model,
             timeoutMs: gateAutoConfig.timeoutMs,
@@ -191,6 +211,8 @@ export default function (pi) {
             cwd: ctx.cwd,
             ruleLabel,
             sandboxSummary: sandboxSummary(sandbox.targets),
+            scenario,
+            precedents,
             available: ctx.modelRegistry.getAvailable(),
             complete: (model, request, options) => ctx.modelRegistry.complete(model, request, options),
         })));
@@ -230,6 +252,9 @@ export default function (pi) {
             return;
         // 标准化空白字符用于信任匹配
         const normalized = command.trim().replace(/\s+/g, " ");
+        activityWindow.push(normalized.slice(0, 100));
+        if (activityWindow.length > ACTIVITY_WINDOW_SIZE)
+            activityWindow.shift();
         // 折叠后的单行命令（超长截断），所有 warn/reason 提示文本共用
         const shown = compactCommand(command);
         // 分类只看非豁免段：skill 脚本段（解释器直执行 ~/.hapilon*/agents/skills/
