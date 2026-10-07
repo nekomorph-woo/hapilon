@@ -46,6 +46,8 @@ export interface SandboxOptions {
   cwd: string;
   /** HAPILON_HOME 绝对路径（调用方经 hapilonHome() 解析后传入，便于测试注入） */
   home: string;
+  /** 项目申报的额外沙箱根（.hapilon/config.json 的 sandboxPaths，绝对路径） */
+  projectRoots?: readonly string[];
 }
 
 interface VarValue {
@@ -229,7 +231,7 @@ function normalizePath(path: string, opts: SandboxOptions): string {
 function isSandboxedPath(path: string, opts: SandboxOptions): boolean {
   if (path === "/dev/null") return true;
   if (!path.startsWith("/")) return false;
-  const roots = ["/tmp", "/private/tmp", "/var/folders", "/private/var/folders", opts.home];
+  const roots = ["/tmp", "/private/tmp", "/var/folders", "/private/var/folders", opts.home, ...(opts.projectRoots ?? [])];
   if (opts.home.startsWith("/tmp") || opts.home.startsWith("/var/")) {
     roots.push(`/private${opts.home}`);
   }

@@ -192,7 +192,7 @@ function isSandboxedPath(path, opts) {
         return true;
     if (!path.startsWith("/"))
         return false;
-    const roots = ["/tmp", "/private/tmp", "/var/folders", "/private/var/folders", opts.home];
+    const roots = ["/tmp", "/private/tmp", "/var/folders", "/private/var/folders", opts.home, ...(opts.projectRoots ?? [])];
     if (opts.home.startsWith("/tmp") || opts.home.startsWith("/var/")) {
         roots.push(`/private${opts.home}`);
     }

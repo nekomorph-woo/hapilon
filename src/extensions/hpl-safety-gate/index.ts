@@ -13,7 +13,8 @@
 import { notify } from "../notify.js";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync, realpathSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -46,6 +47,69 @@ import("@tintinweb/pi-subagents/dist/child-context.js")
   .catch(() => {
     notify("[hpl-safety-gate] subagent 探针不可得，bash 敏感读取将走 confirm 流程");
   });
+
+// ── 项目申报沙箱根：.hapilon/config.json 的 sandboxPaths（绝对路径数组）──
+// 项目自有工作区常在仓库外（b31 的 ~/.b31-bd2 fixture 目录），申报后按沙箱内对待。
+// cwd → roots 缓存，避免每次判定读盘。
+const projectRootsCache = new Map<string, readonly string[]>();
+
+export function projectSandboxRoots(cwd: string): readonly string[] {
+  const cached = projectRootsCache.get(cwd);
+  if (cached) return cached;
+  let roots: readonly string[] = [];
+  try {
+    const config = JSON.parse(readFileSync(join(cwd, ".hapilon", "config.json"), "utf8")) as { sandboxPaths?: unknown };
+    if (Array.isArray(config.sandboxPaths)) {
+      roots = config.sandboxPaths.filter((p): p is string => typeof p === "string" && p.startsWith("/"));
+    }
+  } catch {
+    // 无配置或解析失败 → 无项目根（fail-closed）
+  }
+  projectRootsCache.set(cwd, roots);
+  return roots;
+}
+
+// ── git 事实：写目标是否受 git 跟踪（可恢复性判定不再靠模型猜）──
+
+export function gitTrackedSummary(targets: readonly { resolved: string }[], cwd: string): string {
+  const paths = [...new Set(targets.map((t) => t.resolved.replace(/^~/, homedir())))]
+    .filter((p) => !p.includes("*") && !p.includes("\u0002"))
+    .slice(0, 5);
+  if (paths.length === 0) return "";
+  let repoRoot = "";
+  try {
+    repoRoot = realpathSync(execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 3000,
+    }).trim());
+  } catch {
+    return "cwd 不是 git 仓库";
+  }
+  const realPath = (p: string) => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return p; // 路径向未存在（待写入的新文件）—— realpath 不了，用原样比对
+    }
+  };
+  const parts: string[] = [];
+  for (const p of paths) {
+    const rp = realPath(p);
+    const inside = rp === repoRoot || rp.startsWith(`${repoRoot}/`);
+    if (!inside) {
+      parts.push(`${p}=仓库外`);
+      continue;
+    }
+    try {
+      const out = execFileSync("git", ["-C", cwd, "ls-files", "--", rp], {
+        encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 3000,
+      }).trim();
+      parts.push(`${p}=${out.length > 0 ? "git 跟踪（可恢复）" : "未跟踪（删改不可恢复）"}`);
+    } catch {
+      parts.push(`${p}=无法查询`);
+    }
+  }
+  return parts.join("；");
+}
 
 function inSubagentSession(): boolean {
   return subagentProbe ? subagentProbe() : false;
@@ -241,14 +305,15 @@ export default function (pi: ExtensionAPI) {
     }
 
     // 2. 沙箱规则先行：破坏性命令词 + 全部写目标在沙箱集 → 免模型直接放行
-    const sandbox = checkSandboxWrite(command, { cwd: ctx.cwd, home: safeHapilonHome() });
+    const sandbox = checkSandboxWrite(command, { cwd: ctx.cwd, home: safeHapilonHome(), projectRoots: projectSandboxRoots(ctx.cwd) });
     if (sandbox.allowed) {
       audit({ layer: "sandbox", verdict: "allow", reason: sandboxSummary(sandbox.targets), model: "sandbox", outcome: "auto-allow" });
       return true;
     }
 
-    // 3. 行为观察员场景描述 + 先例检索（均为辅助信息；失败不阻塞判定）
+    // 3. 行为观察员场景描述 + git 事实 + 先例检索（辅助信息；失败不阻塞判定）
     const startedAt = Date.now();
+    const gitStatus = gitTrackedSummary(sandbox.targets, ctx.cwd);
     const scenarioResult = await Effect.runPromise(Effect.either(describeScenario({
       modelSpec: gateAutoConfig.model,
       timeoutMs: gateAutoConfig.timeoutMs,
@@ -256,6 +321,7 @@ export default function (pi: ExtensionAPI) {
       cwd: ctx.cwd,
       ruleLabel,
       sandboxSummary: sandboxSummary(sandbox.targets),
+      gitStatus,
       activityWindow: activityWindow,
       available: ctx.modelRegistry.getAvailable(),
       complete: (model, request, options) => ctx.modelRegistry.complete(model, request, options),
@@ -271,6 +337,7 @@ export default function (pi: ExtensionAPI) {
       cwd: ctx.cwd,
       ruleLabel,
       sandboxSummary: sandboxSummary(sandbox.targets),
+      gitStatus,
       scenario,
       precedents,
       available: ctx.modelRegistry.getAvailable(),

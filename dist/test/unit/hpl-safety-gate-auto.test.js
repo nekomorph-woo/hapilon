@@ -10,13 +10,14 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { execSync } from "node:child_process";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { classifyWithLabel } from "../../extensions/hpl-safety-gate/classifier.js";
 import { checkSandboxWrite } from "../../extensions/hpl-safety-gate/sandbox-allow.js";
 import { GATE_AUTO_DEFAULTS, judgeCommand, recentAllows, readGateAutoConfig, setGateAutoEnabled, } from "../../extensions/hpl-safety-gate/auto-judge.js";
-import gateExtension from "../../extensions/hpl-safety-gate/index.js";
+import gateExtension, { gitTrackedSummary } from "../../extensions/hpl-safety-gate/index.js";
 const REPLAY_FILE = "/tmp/safety-replay.jsonl";
 const SANDBOX_OPTS = { cwd: "/Volumes/Under_M2/morphiiouo/hapilon", home: "" };
 const FAKE_MODEL = { provider: "zai", id: "glm-4.7" };
@@ -325,6 +326,40 @@ describe("hpl-safety-gate auto", () => {
             assert.equal(result._tag, "Right");
             if (result._tag === "Right")
                 assert.equal(result.right.model, "zai/glm-4.7");
+        });
+    });
+    describe("写目标 git 事实（A 规则）与项目沙箱根（C 规则）", () => {
+        it("gitTrackedSummary：跟踪/未跟踪/仓库外三态分清", () => {
+            const repo = mkdtempSync(join(tmpdir(), "gate-git-"));
+            try {
+                execSync("git init -q .", { cwd: repo });
+                writeFileSync(join(repo, "tracked.ts"), "1");
+                writeFileSync(join(repo, "untracked.log"), "1");
+                execSync("git add tracked.ts", { cwd: repo });
+                const summary = gitTrackedSummary([{ resolved: join(repo, "tracked.ts") }, { resolved: join(repo, "untracked.log") }, { resolved: join(homedir(), "somewhere/x") }], repo);
+                assert.match(summary, /tracked\.ts=git 跟踪/);
+                assert.match(summary, /untracked\.log=未跟踪/);
+                assert.match(summary, /仓库外/);
+            }
+            finally {
+                rmSync(repo, { recursive: true, force: true });
+            }
+        });
+        it("项目申报 sandboxPaths 命中即沙箱内：rm -rf 申报根下目录可自动放行", () => {
+            const declared = join(homedir(), ".b31-fixture");
+            const check = checkSandboxWrite(`rm -rf ${declared}/out`, {
+                cwd: "/proj",
+                home: testHome,
+                projectRoots: [declared],
+            });
+            assert.equal(check.allowed, true);
+            // 未申报的同级路径仍不放行
+            const check2 = checkSandboxWrite(`rm -rf ${join(homedir(), ".other")}/out`, {
+                cwd: "/proj",
+                home: testHome,
+                projectRoots: [declared],
+            });
+            assert.equal(check2.allowed, false);
         });
     });
     describe("recentAllows（先例检索）", () => {
