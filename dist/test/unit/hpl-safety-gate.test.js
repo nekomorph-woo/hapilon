@@ -13,6 +13,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { classifyCommand, hasShellInjection, } from "../../extensions/hpl-safety-gate/index.js";
+import { isSkillScriptSegment, stripSkillScriptSegments } from "../../extensions/hpl-safety-gate/index.js";
 import safetyGateExtension from "../../extensions/hpl-safety-gate/index.js";
 import { isSessionTrusted, isTrusted, isCommandTrusted, addTrust, clearSessionTrust, } from "../../config/trust-store.js";
 const ORIGINAL_HAPILON_HOME = process.env.HAPILON_HOME;
@@ -359,6 +360,22 @@ describe("hpl-safety-gate", () => {
         it("block 优先级高于 confirm（同时匹配 rm -rf ~ 时不落入 confirm）", () => {
             // rm -rf ~ 匹配 block 规则（rm -rf ~ 是 block），不应被 confirm 规则拦截
             assert.strictEqual(classifyCommand("rm -rf ~"), "block");
+        });
+    });
+    describe("skill 脚本段豁免", () => {
+        // HAPILON_HOME 在 before() 里才指向临时目录，必须懒取
+        const skill = () => `${process.env.HAPILON_HOME}/agents/skills/imp-case/scripts/case_tools.py`;
+        it("解释器直执行 skill 脚本 → 段豁免，整条 allow", () => {
+            assert.strictEqual(classifyCommand(`cd /proj && python3 ${skill()} align --root . --cases tests/cases`), "allow");
+        });
+        it("豁免只作用于 skill 段：链上 sed -i 照常 confirm", () => {
+            assert.strictEqual(classifyCommand(`cd /proj && python3 ${skill()} align && sed -i '' 's/a/b/' f.ts`), "confirm");
+        });
+        it("非 skill 目录脚本不豁免；段判定与剥离正确", () => {
+            assert.strictEqual(isSkillScriptSegment("python3 /tmp/evil.py x", "/proj"), false);
+            assert.strictEqual(isSkillScriptSegment(`python3 ${skill()} x`, "/proj"), true);
+            const stripped = stripSkillScriptSegments(`python3 ${skill()} x && sed -i '' s/a/b/ f`, "/proj");
+            assert.ok(stripped.includes("sed -i") && !stripped.includes("case_tools"), stripped);
         });
     });
     describe("hasShellInjection()", () => {

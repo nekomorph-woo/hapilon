@@ -30,7 +30,7 @@ import {
   type GateAutoError,
 } from "./auto-judge.js";
 import { deriveAllowPattern } from "./derive-allow.js";
-import { hasSensitiveReadArg, sensitiveReadLabels } from "./sensitive-args.js";
+import { hasSensitiveReadArg, sensitiveReadLabels, splitCommandSegments } from "./sensitive-args.js";
 import { requestConfirm } from "../hpl-protected-paths/confirm.js";
 import { addTrust, isCommandTrusted, initProjectTrust } from "../../config/trust-store.js";
 
@@ -52,6 +52,28 @@ function inSubagentSession(): boolean {
 // 信任匹配逐段（isCommandTrusted）：条目如 `git push*` 命中复合命令的任一段即放行。
 function bashTrusted(normalized: string, cwd: string): boolean {
   return isCommandTrusted("bash", normalized, cwd);
+}
+
+// ── skill 脚本豁免：hapi 自带/安装的技能脚本段不参与风险分级 ──
+// 技能脚本是 agent 工具链的一部分（imp-case 的 case_tools.py 等），
+// 它们本身不该把整条链拉进 confirm；链上其它危险段（sed -i 等）照常拦截。
+const SCRIPT_INTERPRETERS = /^(?:python3?|node|deno|bun|tsx?|bash|sh|zsh|dash|ash)\b/;
+
+function skillScriptRoots(cwd: string): string[] {
+  return [join(safeHapilonHome(), "agents", "skills"), join(cwd, ".hapilon", "agents", "skills")];
+}
+
+/** 段是「解释器直接执行 skill 目录下脚本」→ 豁免 */
+export function isSkillScriptSegment(segment: string, cwd: string): boolean {
+  if (!SCRIPT_INTERPRETERS.test(segment)) return false;
+  const roots = skillScriptRoots(cwd);
+  return roots.some((root) => segment.includes(`${root}/`));
+}
+
+/** 去掉豁免段后的命令（分类器只看不豁免的段；全豁免返回空串） */
+export function stripSkillScriptSegments(command: string, cwd: string): string {
+  const kept = splitCommandSegments(command).filter((seg) => !isSkillScriptSegment(seg.trim(), cwd));
+  return kept.join(" && ");
 }
 
 // 提示文本紧凑化：折叠空白（多行/正则命令不再断行爆宽），截 80 字符，超长补省略号
@@ -267,7 +289,10 @@ export default function (pi: ExtensionAPI) {
     // 折叠后的单行命令（超长截断），所有 warn/reason 提示文本共用
     const shown = compactCommand(command);
 
-    const { verdict, label } = classifyWithLabel(command);
+    // 分类只看非豁免段：skill 脚本段（解释器直执行 ~/.hapilon*/agents/skills/
+    // 或项目 .hapilon/agents/skills/ 下脚本）不参与风险分级，链上其它段照常拦。
+    const gated = stripSkillScriptSegments(command, ctx.cwd);
+    const { verdict, label } = classifyWithLabel(gated);
     if (verdict === "allow") {
       // 敏感文件 bash 读检测：危险命令规则放行后，
       // 参数命中 READ_CONFIRM 的命令进入分级拦截——
