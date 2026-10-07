@@ -458,6 +458,17 @@ describe("hpl-safety-gate auto", () => {
       }
     });
 
+    it("sed 脚本含空格与反引号时不被切成假目标（引号区间整体一个 token）", () => {
+      const bt = "`";
+      const sb = checkSandboxWrite(
+        `sed -i '' 's/当前版本为 ${bt}0.1.17${bt}/当前版本为 ${bt}0.1.18${bt}/' README.md`,
+        { cwd: "/proj", home: testHome },
+      );
+      const raws = sb.targets.map((t) => t.raw);
+      assert.ok(!raws.some((r) => r.includes("0.1.17") || r.includes("0.1.18")), `假目标：${raws.join("|")}`);
+      assert.ok(raws.includes("README.md"));
+    });
+
     it("项目申报 sandboxPaths 命中即沙箱内：rm -rf 申报根下目录可自动放行", () => {
       const declared = join(homedir(), ".b31-fixture");
       const check = checkSandboxWrite(`rm -rf ${declared}/out`, {

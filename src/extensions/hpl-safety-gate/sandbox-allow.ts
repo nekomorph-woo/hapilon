@@ -84,14 +84,32 @@ function dequote(view: string): string {
   return out;
 }
 
+// 引号区间内不切分：`sed -i '' 's/a b/c d/' f` 的 script 含空格时必须是一个 token，
+// 否则 skipScript 只跳过第一片，剩余片会被当成文件目标（引号盲切分的实际事故）。
 function tokenize(segment: string): Token[] {
-  return segment
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((raw) => ({
-      text: raw.replaceAll(LITERAL_MARK, ""),
-      literal: raw.includes(LITERAL_MARK),
-    }));
+  const tokens: Token[] = [];
+  let cur = "";
+  let hasCur = false;
+  let literal = false;
+  let inQuote = false;
+  for (const ch of segment) {
+    if (ch === LITERAL_MARK) {
+      inQuote = !inQuote;
+      literal = true;
+      continue;
+    }
+    if (!inQuote && /\s/.test(ch)) {
+      if (hasCur) tokens.push({ text: cur, literal });
+      cur = "";
+      hasCur = false;
+      literal = false;
+      continue;
+    }
+    cur += ch;
+    hasCur = true;
+  }
+  if (hasCur) tokens.push({ text: cur, literal });
+  return tokens;
 }
 
 const isAssignment = (t: Token): boolean => !t.literal && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t.text);
