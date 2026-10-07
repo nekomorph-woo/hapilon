@@ -27,6 +27,20 @@ export function isAllowed(entries, target) {
     }
     return false;
 }
+/**
+ * 整条命令或其任一段（| ; && || 切分）命中条目即信任：
+ * allow 条目（如 `git push*`）是对单个简单命令的前缀，而整条命令常以
+ * `cd /proj && ` 开头——只对整串匹配会让复合命令的信任全部失效。
+ */
+export function isCommandTrusted(toolName, command, cwd) {
+    if (isTrusted(toolName, command, cwd))
+        return true;
+    return command
+        .split(/\||;|&&|\|\|/)
+        .map((seg) => seg.trim())
+        .filter(Boolean)
+        .some((seg) => isTrusted(toolName, seg, cwd));
+}
 // ─── Session 级信任（内存）──────────────────────────────────────────
 const sessionTrust = new Map();
 // ─── Session API ─────────────────────────────────────────────────────

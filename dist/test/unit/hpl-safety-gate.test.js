@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { classifyCommand, hasShellInjection, } from "../../extensions/hpl-safety-gate/index.js";
 import safetyGateExtension from "../../extensions/hpl-safety-gate/index.js";
-import { isSessionTrusted, isTrusted, clearSessionTrust, } from "../../config/trust-store.js";
+import { isSessionTrusted, isTrusted, isCommandTrusted, addTrust, clearSessionTrust, } from "../../config/trust-store.js";
 const ORIGINAL_HAPILON_HOME = process.env.HAPILON_HOME;
 let testHome = "";
 // settings 与 model-tiers-resolved 都以 HAPILON_HOME 为唯一来源：临时空目录即「默认配置」基线
@@ -347,6 +347,15 @@ describe("hpl-safety-gate", () => {
         it("evaluation 不触发 eval 匹配（非独立词）", () => {
             assert.strictEqual(classifyCommand("echo evaluation_result"), "allow");
         });
+        it("heredoc 正文中的 eval 字样不触发（非命令位）", () => {
+            assert.strictEqual(classifyCommand("cd /p && python3 - <<'PYEOF'\nc = eval(open('x').read())\nPYEOF"), "allow");
+        });
+        it("-e 参数代码文本中的 eval 字样不触发（引号内已剥离）", () => {
+            assert.strictEqual(classifyCommand(`node --disable-warning=ExperimentalWarning -e 'console.log(eval("1+1"))'`), "allow");
+        });
+        it("env 赋值前缀后的 eval 命令仍 confirm", () => {
+            assert.strictEqual(classifyCommand("FOO=1 eval '$CMD'"), "confirm");
+        });
         it("block 优先级高于 confirm（同时匹配 rm -rf ~ 时不落入 confirm）", () => {
             // rm -rf ~ 匹配 block 规则（rm -rf ~ 是 block），不应被 confirm 规则拦截
             assert.strictEqual(classifyCommand("rm -rf ~"), "block");
@@ -463,6 +472,12 @@ describe("hpl-safety-gate", () => {
             };
         }
         afterEach(() => clearSessionTrust());
+        it("信任逐段匹配：cd 前缀的复合命令命中段级通配条目", () => {
+            clearSessionTrust();
+            addTrust("bash", "git push*", "session", "/tmp");
+            assert.strictEqual(isCommandTrusted("bash", "cd /proj && git push origin main", "/tmp"), true);
+            assert.strictEqual(isCommandTrusted("bash", "cd /proj && npm install", "/tmp"), false);
+        });
         it("中危选通配（会话）→ addTrust 收到编辑后的模式，后续同类命令免弹框", async () => {
             clearSessionTrust();
             const handler = captureToolCallHandler();

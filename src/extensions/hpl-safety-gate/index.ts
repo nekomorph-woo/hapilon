@@ -32,7 +32,7 @@ import {
 import { deriveAllowPattern } from "./derive-allow.js";
 import { hasSensitiveReadArg, sensitiveReadLabels } from "./sensitive-args.js";
 import { requestConfirm } from "../hpl-protected-paths/confirm.js";
-import { addTrust, isTrusted, initProjectTrust } from "../../config/trust-store.js";
+import { addTrust, isCommandTrusted, initProjectTrust } from "../../config/trust-store.js";
 
 // subagent 会话探针（分级依赖）：与 hpl-protected-paths 同款。
 // bash 读敏感文件时 subagent block、主会话 confirm——与 read 分级一致。
@@ -47,6 +47,11 @@ import("@tintinweb/pi-subagents/dist/child-context.js")
 
 function inSubagentSession(): boolean {
   return subagentProbe ? subagentProbe() : false;
+}
+
+// 信任匹配逐段（isCommandTrusted）：条目如 `git push*` 命中复合命令的任一段即放行。
+function bashTrusted(normalized: string, cwd: string): boolean {
+  return isCommandTrusted("bash", normalized, cwd);
 }
 
 // 提示文本紧凑化：折叠空白（多行/正则命令不再断行爆宽），截 80 字符，超长补省略号
@@ -276,7 +281,7 @@ export default function (pi: ExtensionAPI) {
             reason: `🛡️ subagent 会话禁止读取敏感文件（${labels}）：secret 只该被应用运行时读取，agent 读取会进入 LLM 上下文与 transcript。请在主会话中操作，或使用白名单文件（.env.example）。`,
           };
         }
-        if (isTrusted("bash", normalized, ctx.cwd)) return;
+        if (bashTrusted(normalized, ctx.cwd)) return;
         if (!ctx.hasUI) {
           notify(`[hpl-safety-gate] 非交互模式下禁止读取敏感文件（${labels}）: ${shown}`);
           return {
@@ -317,8 +322,8 @@ export default function (pi: ExtensionAPI) {
       };
     }
 
-    // confirm → 先查 trust（用标准化后的命令）
-    if (isTrusted("bash", normalized, ctx.cwd)) return;
+    // confirm → 先查 trust（逐段匹配，复合命令的段级信任同样生效）
+    if (bashTrusted(normalized, ctx.cwd)) return;
 
     // Auto 模式：缓存 → 沙箱规则 → 模型判定先行接管 confirm 级（block 级永不放松）
     if (await runAutoGate(command, normalized, label, ctx)) return;

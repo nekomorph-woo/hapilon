@@ -9,6 +9,15 @@
  */
 
 /** 规则作用域：command = 只在该简单命令的命令词区命中；whole = 对整条命令（去引号视图）匹配 */
+import {
+  commandWordAt,
+  extractSubstitutions,
+  extractShellPayloads,
+  splitSimpleCommands,
+  stripQuotedText,
+  substitutionInDestructiveTarget,
+} from "./parse.js";
+
 export type RuleScope = "command" | "whole";
 
 export interface SafetyRule {
@@ -234,7 +243,9 @@ export const CONFIRM_PATTERNS: SafetyRule[] = [
 
   // ── eval ──
   {
-    test: (c) => /\beval\b/.test(c),
+    // 只匹配命令位首词（含 env 赋值/前缀词）——heredoc 正文、-e/--eval
+    // 参数里的 "eval" 字样不是 shell eval。eval "脚本" 由分类器递归体覆盖。
+    test: (c) => commandWordAt(c).word === "eval",
     label: "eval",
   },
 
