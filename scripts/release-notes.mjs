@@ -98,7 +98,10 @@ function rewritePrompt(commits) {
     "第二层「分组」：每条提交归入一个组并改写成用户视角 bullet：",
     `组只能是：${[...VALID_GROUPS].join("、")}。都不合适才用「其他」。`,
     "- 同一功能的多次迭代提交合并成一条 bullet，写结果不写过程（「撤 X 改 Y」这种流水账禁止出现）",
-    "- 剥掉内部代号：hpl- 前缀、阶段号（S7）、文档编号（§16）、内部文件名",
+    "- 剥掉纯内部引用：hpl- 前缀、阶段号（S7）、文档编号（§16）、内部文件名。",
+    "- 但用户要敲的入口必须保留原文：命令（/block、/team:open）、参数与 flag（--model tier:haiku[0]）、",
+    "  技能与命令名（make-sense、器物晚报）——这些是操作入口，翻译成描述用户反而找不到",
+    "- 描述本身用中文，但入口名、代码、路径保持原文嵌在句中",
     "- 纯内部维护（dist 同步、函数收私有）可几条合一条，但不能丢弃",
     "- 每条 bullet 一句以内，保留具体行为；用户读不懂的词不许出现",
     "",
@@ -135,7 +138,8 @@ function validateRewrite(raw, total) {
   const groups = [];
   for (const g of data.groups) {
     assert.ok(VALID_GROUPS.has(g.title), `分组非法：${JSON.stringify(g.title)}`);
-    assert.ok(Array.isArray(g.bullets) && g.bullets.length > 0, `组 ${g.title} 无 bullet`);
+    // 空组（模型没内容可放）直接跳过，不算失败
+    if (!Array.isArray(g.bullets) || g.bullets.length === 0) continue;
     const bullets = g.bullets.map((b) => {
       assert.ok(typeof b.text === "string" && b.text.trim(), `组 ${g.title} 有空 bullet`);
       for (const i of b.commits ?? []) {
