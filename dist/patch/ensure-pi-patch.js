@@ -25,6 +25,8 @@ const MID_TEXT_SLASH_MARKER = "__hapiMidTextSlash";
 const MID_TEXT_SLASH_OPEN_MARKER = "__hapiMidTextSlashOpen";
 /** 后台任务插件 shell 修复的 marker */
 const HAPI_SHELL_MARKER = "hapiShell";
+/** 后台任务状态行耗时展示的 marker */
+const HAPI_BG_ELAPSED_MARKER = "hapiBgElapsed";
 /** 背景重放补丁的 marker（Box/Markdown 全宽底色下的子元素 reset 不再裸奔） */
 const HAPI_BG_REPLAY_MARKER = "hapiBgReplay";
 /** 代码块整行涂底的 marker（补齐空格也涂 mdCodeBlockBg，色带铺满气泡） */
@@ -290,6 +292,18 @@ export const PATCH_RULES = [
         replace: 'result = await pi.exec!(hapiShell(), ["-c", command], {',
         occurrences: 1,
         marker: HAPI_SHELL_MARKER,
+    },
+    // ── 后台任务状态行展示每个任务的运行耗时：上游只在任务事件时刷新状态行，
+    //    耗时会停在事件间的死数上。补两件事：labels 追加 fmtDuration(elapseMs(j))；
+    //    活跃任务存在时起秒级 interval 刷新状态行，清零即停。上游若自带耗时展示，删掉这条。
+    {
+        base: "hapilon",
+        package: BACKGROUND_TASKS_PACKAGE,
+        file: "extensions/background-tasks.ts",
+        find: '    if (active.length === 0) {\n      ui.setStatus(STATUS_KEY, undefined);\n      return;\n    }\n    const labels = active.map((j) => `#${j.id} ${j.label}`).slice(0, 3).join(", ");',
+        replace: '    if (active.length === 0) {\n      // hapilon: hapiBgElapsed —— 无活跃任务时停掉秒级刷新\n      const g = globalThis as unknown as { __hapiBgTick?: ReturnType<typeof setInterval> };\n      if (g.__hapiBgTick) { clearInterval(g.__hapiBgTick); g.__hapiBgTick = undefined; }\n      ui.setStatus(STATUS_KEY, undefined);\n      return;\n    }\n    // hapilon: hapiBgElapsed —— 每秒刷一次状态行让耗时走表（updateStatus 幂等，重复调用安全）\n    {\n      const g = globalThis as unknown as { __hapiBgTick?: ReturnType<typeof setInterval> };\n      if (!g.__hapiBgTick) g.__hapiBgTick = setInterval(() => updateStatus(lastUi), 1000);\n    }\n    const labels = active.map((j) => `#${j.id} ${j.label} ${fmtDuration(elapseMs(j))}`).slice(0, 3).join(", ");',
+        occurrences: 1,
+        marker: HAPI_BG_ELAPSED_MARKER,
     },
     // ── SubagentWorkflow 派发模型列表：workflow 脚本的 agent() 在 host 内部直接解析
     //    模型，无 tool_call 可拦（hpl-subagent-models 只能覆写 Agent/TaskExecute）。
