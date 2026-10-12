@@ -14,7 +14,7 @@ export const POP_ICON = "▣";
 export const SWEEP_MS = 300;
 
 /** 默认快捷键 */
-export const DEFAULT_KEYS = ["shift+alt+down", "ctrl+q"];
+export const DEFAULT_KEYS = ["shift+alt+down", "alt+o"]; // alt+o：与 ctrl+o（展开工具输出）同助记；ctrl+q 在 Windows 上是 pi 的 follow-up
 /** 默认折叠行数上限（0=关闭） */
 export const DEFAULT_MAX_LINES = 5;
 
