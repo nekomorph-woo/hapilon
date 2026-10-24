@@ -35,7 +35,7 @@ const NPM_EXTENSIONS: readonly [pkg: string, entry: string][] = [
   // setStatus key "background-tasks" 与 hpl-orchestra "team" 不冲突。
   // 注意 background 直通 /bin/sh 不经 hpl-safety-gate（v1 接受）。
   ["@nklisch/pi-background-tasks", "extensions/background-tasks.ts"],
-  // 用户视角实测对（build-ai-flow S7 驱动真实 app/浏览器用）：
+  // 计算机与浏览器驾驶（实测对过的扩展）：
   // computer-use 走 Cua Driver（macOS 需辅助功能+屏幕录制权限），工具前缀 computer_use_*；
   // browser-use 拉起 chrome-devtools-mcp 子进程，工具前缀 browser_*，Electron 应用可挂远程调试端口。
   // 两者都只在主会话可用（-e 不进 subagent），S7 的实测驾驶由主会话执行。
