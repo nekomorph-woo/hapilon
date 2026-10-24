@@ -100,47 +100,34 @@ describe("ensureExtensionConfigs()", () => {
         ensureExtensionConfigs(fresh);
         assert.ok(existsSync(join(fresh, "tasks-config.json")));
     });
-    it("把仓库主题目录挂进 settings.themes，并默认选中跟随终端明暗的配对主题", () => {
-        const fresh = join(agentDir, "themes-seed");
+    it("主题清理：hapilon 主题残留被剔除，回落 pi 内置主题", () => {
+        const fresh = join(agentDir, "themes-cleanup");
         mkdirSync(fresh, { recursive: true });
-        writeFileSync(join(fresh, "settings.json"), "{}\n");
+        writeFileSync(join(fresh, "settings.json"), JSON.stringify({ theme: "hapilon-light/hapilon-dark", themes: ["/old/checkout/resources/themes", "/tmp/my-themes"] }, null, 2));
         ensureExtensionConfigs(fresh);
         const settings = JSON.parse(readFileSync(join(fresh, "settings.json"), "utf8"));
-        assert.equal(settings.theme, "hapilon-light/hapilon-dark");
-        const themeDir = settings.themes.at(-1);
-        assert.ok(themeDir.endsWith("/resources/themes"), `themes 末项是主题目录：${themeDir}`);
-        for (const name of ["hapilon-dark.json", "hapilon-light.json"]) {
-            const theme = JSON.parse(readFileSync(join(themeDir, name), "utf8"));
-            assert.equal(theme.name, name.replace(".json", ""));
-            assert.equal(typeof theme.colors.mdCodeBlockBg, "string");
-        }
+        assert.equal(settings.theme, undefined, "hapilon-* 主题选择被清除");
+        assert.deepEqual(settings.themes, ["/tmp/my-themes"], "仅保留用户自装主题");
     });
-    it("重复调用幂等：theme/themes 不被重写", () => {
-        const fresh = join(agentDir, "themes-idem");
+    it("主题清理幂等：无残留且已种 defaultTools 时 settings.json 不被重写", () => {
+        const fresh = join(agentDir, "themes-clean-idem");
         mkdirSync(fresh, { recursive: true });
-        writeFileSync(join(fresh, "settings.json"), "{}\n");
+        writeFileSync(join(fresh, "settings.json"), JSON.stringify({ theme: "dark", defaultTools: ["+codemode"], tuiMode: "regular" }, null, 2));
+        const before = readFileSync(join(fresh, "settings.json"), "utf8");
         ensureExtensionConfigs(fresh);
-        const first = readFileSync(join(fresh, "settings.json"), "utf8");
-        ensureExtensionConfigs(fresh);
-        assert.equal(readFileSync(join(fresh, "settings.json"), "utf8"), first);
+        assert.equal(readFileSync(join(fresh, "settings.json"), "utf8"), before);
     });
-    it("用户已选定主题、且自己填了 themes 条目时均保留", () => {
-        const fresh = join(agentDir, "themes-user-pick");
+    it("defaultTools/tuiMode 未设置时种子（tool_search + regular）", () => {
+        const fresh = join(agentDir, "settings-seed");
         mkdirSync(fresh, { recursive: true });
-        writeFileSync(join(fresh, "settings.json"), JSON.stringify({ theme: "light/dark", themes: ["/tmp/my-themes"] }, null, 2));
+        writeFileSync(join(fresh, "settings.json"), JSON.stringify({ theme: "dark" }, null, 2));
         ensureExtensionConfigs(fresh);
         const settings = JSON.parse(readFileSync(join(fresh, "settings.json"), "utf8"));
-        assert.equal(settings.theme, "light/dark", "用户的 light/dark 自动配对不被配对默认值顶掉");
-        assert.deepEqual(settings.themes.slice(0, 1), ["/tmp/my-themes"]);
-        assert.ok(settings.themes.at(-1).endsWith("/resources/themes"));
-    });
-    it("仓库换了路径：旧的 hapilon 主题条目被剔除，不积累", () => {
-        const fresh = join(agentDir, "themes-moved");
-        mkdirSync(fresh, { recursive: true });
-        writeFileSync(join(fresh, "settings.json"), JSON.stringify({ themes: ["/old/checkout/resources/themes", "/tmp/my-themes"] }, null, 2));
+        assert.deepEqual(settings.defaultTools, ["+tool_search"]);
+        assert.equal(settings.tuiMode, "regular");
+        // 二次调用幂等，且用户显式配置不被覆盖
+        writeFileSync(join(fresh, "settings.json"), JSON.stringify({ tuiMode: "fullscreen" }, null, 2));
         ensureExtensionConfigs(fresh);
-        const settings = JSON.parse(readFileSync(join(fresh, "settings.json"), "utf8"));
-        assert.ok(!settings.themes.includes("/old/checkout/resources/themes"));
-        assert.deepEqual(settings.themes, ["/tmp/my-themes", settings.themes.at(-1)]);
+        assert.equal(JSON.parse(readFileSync(join(fresh, "settings.json"), "utf8")).tuiMode, "fullscreen");
     });
 });

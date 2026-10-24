@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { Effect } from "effect";
 import { ConfigWriteError } from "../config/config-io.js";
 /**
@@ -34,8 +33,8 @@ const TASKS_CONFIG_DEFAULTS = { autoCascade: true, taskScope: "session-global" }
  */
 const WEB_ACCESS_CONFIG_DEFAULTS = { workflow: "none" };
 /**
- * pi-mcp-adapter 预置：空 mcpServers 骨架——给用户与 agent 一个
- * 明确的配置落点（写入用 hapi mcp add 或让 agent 按 system prompt 指引写）。
+ * mcp.json 预置：空 mcpServers 骨架——给用户与 agent 一个明确的配置落点
+ * （写入用 hapi mcp add 或让 agent 按 system prompt 指引写）。
  * 仅当文件不存在时写，已有 server 配置永不触碰。
  */
 const MCP_CONFIG_DEFAULTS = { mcpServers: {} };
@@ -76,44 +75,18 @@ const ensureJsonConfigEffect = (agentDir, filename, defaults) => Effect.gen(func
         return; // 幂等
     yield* write({ ...defaults, ...record });
 });
-/**
- * hapilon 主题：仓库 resources/themes 直接当 pi 的主题目录用（settings.themes 通道）。
- *
- * 为什么不必走扩展的 resources_discover/themePaths 贡献：pi 在扩展资源合并之前就
- * initTheme(settings.theme) 并跑过一次 applyFromSettings()（interactive-mode 先建
- * ThemeController，之后才 bindExtensions 合并扩展贡献），那时主题还不在注册表里，
- * 默认选中会先报 "Failed to load theme" 再回落 dark。settings.themes 是资源装载器
- * 构建期就有的输入（package-manager 读 globalSettings.themes），且同一份列表既喂给
- * 冷启动的 initTheme，也喂给 /settings 的主题列表。
- */
-const HAPILON_THEME_FILES = ["hapilon-light.json", "hapilon-dark.json"];
-/**
- * 未设置 theme 时的默认主题：pi 的 settings.theme 支持 "浅色/深色" 配对语法
- * （settings-manager.getThemeSetting → theme.js resolveThemeSetting/parseAutoThemeSetting，
- * 与 CLI 的 --use-theme light/dark 同一条路径，对自定义主题名同样生效），
- * 于是跟随终端明暗自动切换。用户在 /settings 改过则永不再覆盖。
- */
-const DEFAULT_THEME = "hapilon-light/hapilon-dark";
-/** 仓库内主题源目录（本模块编译后在 dist/extensions/ 下） */
-function hapilonThemesSourceDir() {
-    return join(dirname(fileURLToPath(import.meta.url)), "..", "..", "resources", "themes");
-}
-/** 识别 settings.themes 里属于 hapilon 的那条（仓库换路径后旧条目靠它剔除） */
+/** 识别 settings.themes 里属于 hapilon 的那条（旧安装的残留，需剔除） */
 function isHapilonThemesPath(entry) {
     return entry.replaceAll("\\", "/").endsWith("/resources/themes");
 }
 /**
- * settings.json：themes 里常驻 hapilon 主题目录，theme 缺省时种子为 hapilon-light/hapilon-dark。
- * 用户自己填的 themes 条目与已选主题一律保留。
+ * settings.json 种子（均未设置时写一次，用户已配置永不覆盖）：
+ * - defaultTools: ["+tool_search"]——pi 内置 MCP 工具默认 codemode 暴露（不占模型
+ *   上下文），需 tool_search 才能被搜索加载；
+ * - tuiMode: "regular"——pi 1.4 起默认全屏，但 hapi 的浮动面板/折叠等鼠标功能
+ *   在全屏下退避，种子保持升级前的 regular 体验。
  */
-const ensureThemeSettingsEffect = (agentDir) => Effect.gen(function* () {
-    const sourceDir = hapilonThemesSourceDir();
-    const missing = HAPILON_THEME_FILES.filter((file) => !existsSync(join(sourceDir, file)));
-    if (missing.length > 0) {
-        return yield* Effect.fail(new ConfigWriteError({
-            message: `[hapilon] 主题文件缺失：${sourceDir} 下缺 ${missing.join("、")}。安装不完整，请重新 npm ci && npm run build。`,
-        }));
-    }
+const seedPiSettingsEffect = (agentDir) => Effect.gen(function* () {
     const path = join(agentDir, "settings.json");
     if (!existsSync(path))
         return; // 首次启动由 ensureQuietStartup 建文件，下一轮再种子
@@ -122,28 +95,55 @@ const ensureThemeSettingsEffect = (agentDir) => Effect.gen(function* () {
         settings = JSON.parse(readFileSync(path, "utf8"));
     }
     catch {
-        console.warn(`Warning: ${path} 解析失败，跳过主题设置写入`);
+        return; // 解析失败：不动用户文件
+    }
+    if (typeof settings !== "object" || settings === null || Array.isArray(settings))
+        return;
+    const seeds = [];
+    if (!Array.isArray(settings.defaultTools))
+        seeds.push(["defaultTools", ["+tool_search"]]);
+    if (typeof settings.tuiMode !== "string")
+        seeds.push(["tuiMode", "regular"]);
+    if (seeds.length === 0)
+        return;
+    for (const [key, value] of seeds)
+        settings[key] = value;
+    yield* Effect.try({
+        try: () => writeFileSync(path, JSON.stringify(settings, null, 2) + "\n", "utf8"),
+        catch: (err) => new ConfigWriteError({ message: err instanceof Error ? err.message : String(err) }),
+    });
+});
+/**
+ * 主题清理（迁移）：hapilon 曾自带 23 个主题并种子 settings.themes/theme。
+ * 主题已全部移除，此处把指向已删目录的 themes 条目与 hapilon-* 主题选择
+ * 从存量 settings.json 里剔除，让 pi 回落内置主题；用户自装主题不动。
+ */
+const cleanupThemeSettingsEffect = (agentDir) => Effect.gen(function* () {
+    const path = join(agentDir, "settings.json");
+    if (!existsSync(path))
+        return;
+    let settings;
+    try {
+        settings = JSON.parse(readFileSync(path, "utf8"));
+    }
+    catch {
+        console.warn(`Warning: ${path} 解析失败，跳过主题清理`);
         return;
     }
-    if (typeof settings !== "object" || settings === null || Array.isArray(settings)) {
-        console.warn(`Warning: ${path} 不是 JSON object，跳过主题设置写入`);
+    if (typeof settings !== "object" || settings === null || Array.isArray(settings))
         return;
-    }
     const existing = settings;
-    if (existing.themes !== undefined && !Array.isArray(existing.themes)) {
-        console.warn(`Warning: ${path} 的 themes 不是数组，跳过主题设置写入`);
-        return;
-    }
-    const userThemes = (existing.themes ?? []);
+    const userThemes = Array.isArray(existing.themes) ? existing.themes : [];
     const kept = userThemes.filter((entry) => !(typeof entry === "string" && isHapilonThemesPath(entry)));
-    const nextThemes = [...kept, sourceDir];
-    const themesChanged = JSON.stringify(userThemes) !== JSON.stringify(nextThemes);
-    const needsDefaultTheme = typeof existing.theme !== "string";
-    if (!themesChanged && !needsDefaultTheme)
-        return; // 幂等
-    existing.themes = nextThemes;
-    if (needsDefaultTheme)
-        existing.theme = DEFAULT_THEME;
+    const themeIsHapilon = typeof existing.theme === "string" && existing.theme.includes("hapilon-");
+    if (kept.length === userThemes.length && !themeIsHapilon)
+        return; // 幂等：没有残留可清
+    if (kept.length > 0)
+        existing.themes = kept;
+    else
+        delete existing.themes;
+    if (themeIsHapilon)
+        delete existing.theme;
     yield* Effect.try({
         try: () => writeFileSync(path, JSON.stringify(existing, null, 2) + "\n", "utf8"),
         catch: (err) => new ConfigWriteError({ message: err instanceof Error ? err.message : String(err) }),
@@ -204,14 +204,16 @@ export const ensureExtensionConfigsEffect = (agentDir) => Effect.gen(function* (
     yield* ensureJsonConfigEffect(agentDir, "tasks-config.json", TASKS_CONFIG_DEFAULTS);
     // pi-web-access：workflow:none 不弹浏览器；fff/ask-user/btw 无必配项
     yield* ensureJsonConfigEffect(agentDir, "web-search.json", WEB_ACCESS_CONFIG_DEFAULTS);
-    // pi-mcp-adapter：空骨架给 mcp.json 一个明确落点；用户配置永不覆盖
+    // mcp.json：空骨架给一个明确落点；用户配置永不覆盖
     yield* ensureJsonConfigEffect(agentDir, "mcp.json", MCP_CONFIG_DEFAULTS);
     // hpl-econ：组合甲默认实体化
     yield* ensureJsonConfigEffect(agentDir, "econ-config.json", ECON_CONFIG_DEFAULTS);
     // vision 子代理定义：全局 agents 目录播种（用户已自定义则不碰）
     yield* ensureVisionAgentEffect(agentDir);
-    // 主题：仓库主题目录挂进 settings.themes，默认选中 hapilon-light/hapilon-dark（跟随终端明暗）
-    yield* ensureThemeSettingsEffect(agentDir);
+    // MCP 渐进式暴露 + TUI 模式保持 regular（均未设置时种子一次）
+    yield* seedPiSettingsEffect(agentDir);
+    // 主题已移除：清理旧安装 settings.json 里的 hapilon 主题残留
+    yield* cleanupThemeSettingsEffect(agentDir);
 });
 export function ensureExtensionConfigs(agentDir) {
     const result = Effect.runSync(Effect.either(ensureExtensionConfigsEffect(agentDir)));

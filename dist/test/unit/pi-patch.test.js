@@ -23,7 +23,12 @@ describe("ensurePiPatch()", () => {
     }
     function writeChunkFixture(path) {
         const chunkRules = PATCH_RULES.filter((rule) => rule.signature);
-        writeFileSync(path, chunkRules.map((rule) => Array(rule.occurrences).fill(rule.find).join("\n")).join("\n") + "\n");
+        // 真实 chunk 里签名串（如 lastStatusSpacer 的声明）在锚点之外还有出现；
+        // 不补这行，补丁后签名被抹掉，重跑寻址 0 命中误报 stale
+        const signatures = [...new Set(chunkRules.map((rule) => rule.signature))]
+            .map((sig) => `const _${sig}="${sig}";`)
+            .join("");
+        writeFileSync(path, chunkRules.map((rule) => Array(rule.occurrences).fill(rule.find).join("\n")).join("\n") + "\n" + signatures + "\n");
     }
     before(() => {
         base = mkdtempSync(join(tmpdir(), "hapi-patch-"));
@@ -87,17 +92,22 @@ describe("ensurePiPatch()", () => {
         assert.match(JSON.stringify(stale), /命中 2 个文件/);
         rmSync(duplicatePath);
     });
-    it("混合态重入不双插(旧批次已补+新批次未补,theme.js 事故回归)", () => {
-        // 取同一文件上分两批落的规则:旧批次(marker=mdCodeBlockBg)+新批次(slash 触发门)
+    it("混合态重入不双插(同文件两批 marker，theme.js 事故回归)", () => {
+        // 取同一 chunk 上分两批落的规则:字母触发门(__hapiMidTextSlash 已应用)+
+        // 「/」键触发门(__hapiMidTextSlashOpen 未应用)
         const rules = PATCH_RULES.filter((r) => r.signature);
-        const oldRules = rules.filter((r) => r.marker === undefined);
-        const newRules = rules.filter((r) => r.marker !== undefined && r.marker !== "mdCodeBlockBg");
+        const oldRules = rules.filter((r) => r.marker === "__hapiMidTextSlash");
+        const newRules = rules.filter((r) => r.marker === "__hapiMidTextSlashOpen");
         assert.ok(oldRules.length > 0 && newRules.length > 0, "该文件应有新旧两批规则");
-        // 旧批次已应用(替换产物在场),新批次只有锚点、产物缺席——正是当年炸掉 theme 的形态
+        // 旧批次已应用(替换产物在场),新批次与其他规则只有锚点、产物缺席——正是当年炸掉 theme 的形态
+        const others = PATCH_RULES.filter((r) => r.signature && r.marker !== "__hapiMidTextSlash");
         let content = oldRules
             .map((r) => Array(r.occurrences).fill(r.replace).join("\n"))
             .join("\n");
-        content += "\n" + newRules.map((r) => Array(r.occurrences).fill(r.find).join("\n")).join("\n");
+        content += "\n" + others.map((r) => Array(r.occurrences).fill(r.find).join("\n")).join("\n");
+        // 保留签名上下文，否则重跑时签名寻址 0 命中误报 stale（同 writeChunkFixture）
+        content += "\n" + [...new Set(PATCH_RULES.filter((r) => r.signature).map((r) => r.signature))]
+            .map((sig) => `const _${sig}="${sig}";`).join("");
         const path = fixturePath(rules[0]);
         writeFileSync(path, content);
         const result = ensurePiPatch({ piDir, hapilonRoot: base });

@@ -17,8 +17,8 @@ import { fileURLToPath } from "node:url";
 const PI_PACKAGE = "@earendil-works/pi-coding-agent";
 /** 第二目标包:编辑器组件在 pi-tui 里(与 pi 同 scope、同层安装) */
 const PI_TUI_PACKAGE = "@earendil-works/pi-tui";
-/** 补丁标记:任一目标文件出现它即视为已补丁 */
-const PATCH_MARKER = "mdCodeBlockBg";
+/** 补丁标记:仅作无 marker 规则的回退（当前表内所有规则均自带 marker） */
+const PATCH_MARKER = "__hapilonPatched";
 /** 中段 slash 触发钩子的 marker(editor 触发门补丁专用) */
 const MID_TEXT_SLASH_MARKER = "__hapiMidTextSlash";
 /** 「/」键中段触发钩子的 marker(独立 marker,防同 marker 早退漏应用) */
@@ -27,10 +27,6 @@ const MID_TEXT_SLASH_OPEN_MARKER = "__hapiMidTextSlashOpen";
 const HAPI_SHELL_MARKER = "hapiShell";
 /** 后台任务状态行耗时展示的 marker */
 const HAPI_BG_ELAPSED_MARKER = "hapiBgElapsed";
-/** 背景重放补丁的 marker（Box/Markdown 全宽底色下的子元素 reset 不再裸奔） */
-const HAPI_BG_REPLAY_MARKER = "hapiBgReplay";
-/** 代码块整行涂底的 marker（补齐空格也涂 mdCodeBlockBg，色带铺满气泡） */
-const HAPI_CODE_FILL_MARKER = "hapiCodeFill";
 /** 后台任务插件包名（hapilon 自身的依赖，不在 pi 包树里） */
 const BACKGROUND_TASKS_PACKAGE = "@nklisch/pi-background-tasks";
 /** subagent 扩展包名（hapilon 自身的依赖，不在 pi 包树里） */
@@ -43,179 +39,11 @@ const HAPI_STATUS_STACK_MARKER = "hapiStatusStack";
 const PI_BUNDLE_CHUNKS = "dist/bundle/chunks";
 /**
  * 全部改动均为字符串级替换，逐条 anchors 与实际 pi dist 产物 byte-for-byte 校验过
- * （theme.js 7 条 + theme-json.js 1 条 + theme-schema.json 1 条 + assistant-message.js 1 条
- * + pi-tui utils.js 1 条 + bundle chunk 11 条）。
+ * （pi-tui editor.js 2 条 + bundle chunk 3 条 + background-tasks.ts 4 条
+ * + pi-subagents host.js 1 条 + interactive-mode.js 1 条）。
  */
 /** 补丁规则表(导出仅供测试构造 fixture;运行时只读) */
 export const PATCH_RULES = [
-    {
-        file: "dist/modes/interactive/theme/theme.js",
-        find: "        ...colors,\n",
-        replace: "        ...colors,\n        // hapilon: themes without this token keep the pre-patch look (\"\" -> terminal default bg)\n        mdCodeBlockBg: colors.mdCodeBlockBg ?? \"\",\n",
-        occurrences: 1,
-    },
-    {
-        file: "dist/modes/interactive/theme/theme.js",
-        find: "    const bgColorKeys = new Set([\n        \"selectedBg\",\n",
-        replace: "    const bgColorKeys = new Set([\n        \"selectedBg\",\n        \"mdCodeBlockBg\",\n",
-        occurrences: 1,
-    },
-    {
-        file: "dist/modes/interactive/theme/theme.js",
-        find: "    return cachedCliHighlightTheme;\n}\n",
-        replace: "    return cachedCliHighlightTheme;\n}\n// hapilon: code blocks render on a background swatch. cli-highlight lines carry their\n// own resets, so re-apply the background after every one of them.\nfunction codeBlockLine(text) {\n    const bg = theme.getBgAnsi(\"mdCodeBlockBg\");\n    return theme.bg(\"mdCodeBlockBg\", text.split(\"\\x1b[0m\").join(`\\x1b[0m${bg}`));\n}\n",
-        occurrences: 1,
-    },
-    {
-        file: "dist/modes/interactive/theme/theme.js",
-        find: "return code.split(\"\\n\").map((line) => theme.fg(\"mdCodeBlock\", line));",
-        replace: "return code.split(\"\\n\").map(codeBlockLine);",
-        occurrences: 3,
-    },
-    {
-        file: "dist/modes/interactive/theme/theme.js",
-        find: "return highlight(code, opts).split(\"\\n\");",
-        replace: "return highlight(code, opts).split(\"\\n\").map(codeBlockLine);",
-        occurrences: 2,
-    },
-    {
-        file: "dist/modes/interactive/theme/theme.js",
-        find: "    catch {\n        return code.split(\"\\n\");\n    }",
-        replace: "    catch {\n        return code.split(\"\\n\").map(codeBlockLine);\n    }",
-        occurrences: 1,
-    },
-    {
-        file: "dist/modes/interactive/theme/theme.js",
-        find: "        codeBlock: (text) => theme.fg(\"mdCodeBlock\", text),\n        codeBlockBorder: (text) => theme.fg(\"mdCodeBlockBorder\", text),",
-        replace: "        codeBlock: codeBlockLine,\n        codeBlockBorder: () => \"\",",
-        occurrences: 1,
-    },
-    {
-        file: "dist/modes/interactive/theme/theme-json.js",
-        find: "        mdCodeBlockBorder: ColorValueSchema,\n",
-        replace: "        mdCodeBlockBorder: ColorValueSchema,\n        mdCodeBlockBg: Type.Optional(ColorValueSchema),\n",
-        occurrences: 1,
-    },
-    {
-        file: "dist/modes/interactive/theme/theme-schema.json",
-        find: "\t\t\t\t\"mdCodeBlockBorder\": {\n\t\t\t\t\t\"$ref\": \"#/$defs/colorValue\",\n\t\t\t\t\t\"description\": \"Markdown code block fences\"\n\t\t\t\t},\n",
-        replace: "\t\t\t\t\"mdCodeBlockBorder\": {\n\t\t\t\t\t\"$ref\": \"#/$defs/colorValue\",\n\t\t\t\t\t\"description\": \"Markdown code block fences\"\n\t\t\t\t},\n\t\t\t\t\"mdCodeBlockBg\": {\n\t\t\t\t\t\"$ref\": \"#/$defs/colorValue\",\n\t\t\t\t\t\"description\": \"Markdown code block background (hapilon patch; optional)\"\n\t\t\t\t},\n",
-        occurrences: 1,
-    },
-    {
-        file: PI_BUNDLE_CHUNKS,
-        signature: "mdCodeBlockBorder",
-        find: "scrollbarTrack:colors.scrollbarTrack??colors.muted,",
-        replace: "mdCodeBlockBg:colors.mdCodeBlockBg??\"\",scrollbarTrack:colors.scrollbarTrack??colors.muted,",
-        occurrences: 1,
-    },
-    {
-        file: PI_BUNDLE_CHUNKS,
-        signature: "mdCodeBlockBorder",
-        find: "bgColorKeys=new Set([\"selectedBg\",",
-        replace: "bgColorKeys=new Set([\"selectedBg\",\"mdCodeBlockBg\",",
-        occurrences: 1,
-    },
-    {
-        file: PI_BUNDLE_CHUNKS,
-        signature: "mdCodeBlockBorder",
-        find: "function createTheme(themeJson,mode,sourcePath){",
-        replace: "function codeBlockLine(text){let bg=theme.getBgAnsi(\"mdCodeBlockBg\");return theme.bg(\"mdCodeBlockBg\",text.split(\"\\x1B[0m\").join(\"\\x1B[0m\"+bg))}function createTheme(themeJson,mode,sourcePath){",
-        occurrences: 1,
-    },
-    {
-        file: PI_BUNDLE_CHUNKS,
-        signature: "mdCodeBlockBorder",
-        find: "code.split(`\n`).map(line=>theme.fg(\"mdCodeBlock\",line))",
-        replace: "code.split(`\n`).map(codeBlockLine)",
-        occurrences: 3,
-    },
-    {
-        file: PI_BUNDLE_CHUNKS,
-        signature: "mdCodeBlockBorder",
-        find: "return highlight(code,opts).split(`\n`)",
-        replace: "return highlight(code,opts).split(`\n`).map(codeBlockLine)",
-        occurrences: 2,
-    },
-    {
-        file: PI_BUNDLE_CHUNKS,
-        signature: "mdCodeBlockBorder",
-        find: "catch{return code.split(`\n`)}",
-        replace: "catch{return code.split(`\n`).map(codeBlockLine)}",
-        occurrences: 1,
-    },
-    {
-        file: PI_BUNDLE_CHUNKS,
-        signature: "mdCodeBlockBorder",
-        find: "codeBlock:text=>theme.fg(\"mdCodeBlock\",text),codeBlockBorder:text=>theme.fg(\"mdCodeBlockBorder\",text)",
-        replace: "codeBlock:codeBlockLine,codeBlockBorder:()=>\"\"",
-        occurrences: 1,
-    },
-    {
-        file: PI_BUNDLE_CHUNKS,
-        signature: "mdCodeBlockBorder",
-        find: "mdCodeBlockBorder:ColorValueSchema,",
-        replace: "mdCodeBlockBorder:ColorValueSchema,mdCodeBlockBg:typebox_exports.Optional(ColorValueSchema),",
-        occurrences: 1,
-    },
-    // ── 助手消息整块底色：assistant 消息的 Markdown 此前 defaultTextStyle 传 undefined，
-    //    全宽涂底机制（applyBackgroundToLine）不启用，代码块底色只能逐行逐字符涂、
-    //    右缘参差成「字周边」拼布。传入 bgColor 后每行（含空行与补齐空格）都涂满
-    //    mdCodeBlockBg，整条消息连成一块完整色板，代码块融入其中。主题缺 token 时
-    //    bgAnsi("") 退化为终端默认底色，theme.bg 不会抛错。
-    {
-        file: "dist/modes/interactive/components/assistant-message.js",
-        find: "new Markdown(content.text.trim(), this.outputPad, 0, this.markdownTheme, undefined, {",
-        replace: 'new Markdown(content.text.trim(), this.outputPad, 0, this.markdownTheme, { bgColor: (text) => theme.bg("mdCodeBlockBg", text) }, {',
-        occurrences: 1,
-    },
-    {
-        file: PI_BUNDLE_CHUNKS,
-        signature: "mdCodeBlockBorder",
-        find: 'this.markdownTheme,void 0,{transform:createMarkdownTransform("assistant"',
-        replace: 'this.markdownTheme,{bgColor:t=>theme.bg("mdCodeBlockBg",t)},{transform:createMarkdownTransform("assistant"',
-        occurrences: 1,
-    },
-    // ── 背景重放：Box/Markdown 的全宽底色（bgColor）会被行内子元素自带的背景复位
-    //    （\x1b[49m/\x1b[0m，如代码 chip、cli-highlight span）中途杀掉，复位点之后的
-    //    补齐空格与正文裸奔成终端默认底——用户气泡里的代码行就是一条贯穿整行的裸带。
-    //    在每个内层复位后重放外层底色；行尾最后一个复位保持原样，避免把底色泄漏
-    //    进下一行的擦除。主题缺 token 时 open 为空串，重放自然退化为无操作。
-    {
-        package: PI_TUI_PACKAGE,
-        file: "dist/utils.js",
-        find: "export function applyBackgroundToLine(line, width, bgFn) {\n    // Calculate padding needed\n    const visibleLen = visibleWidth(line);\n    const paddingNeeded = Math.max(0, width - visibleLen);\n    const padding = \" \".repeat(paddingNeeded);\n    // Apply background to content + padding\n    const withPadding = line + padding;\n    return bgFn(withPadding);\n}",
-        replace: "export function applyBackgroundToLine(line, width, bgFn) {\n    // Calculate padding needed\n    const visibleLen = visibleWidth(line);\n    const paddingNeeded = Math.max(0, width - visibleLen);\n    const padding = \" \".repeat(paddingNeeded);\n    // Apply background to content + padding\n    const withPadding = line + padding;\n    // hapilon: hapiBgReplay —— 内层背景复位后重放外层底色（open 只取开头首个完整 SGR 序列，\n    // 首个复位前的正文不能带进去重放）\n    const wrapped = bgFn(withPadding);\n    const esc = wrapped.indexOf(\"\\x1b[\");\n    if (esc === -1) return wrapped;\n    const mEnd = wrapped.indexOf(\"m\", esc);\n    if (mEnd === -1) return wrapped;\n    const open = wrapped.slice(0, mEnd + 1);\n    let out = wrapped.slice(mEnd + 1).split(\"\\x1b[49m\").join(\"\\x1b[49m\" + open);\n    out = out.split(\"\\x1b[0m\").join(\"\\x1b[0m\" + open);\n    if (out.endsWith(open)) out = out.slice(0, out.length - open.length);\n    return open + out;\n}",
-        occurrences: 1,
-        marker: HAPI_BG_REPLAY_MARKER,
-    },
-    {
-        file: PI_BUNDLE_CHUNKS,
-        signature: "mdCodeBlockBorder",
-        find: 'function applyBackgroundToLine(line,width,bgFn){let visibleLen=visibleWidth(line),paddingNeeded=Math.max(0,width-visibleLen),padding=" ".repeat(paddingNeeded),withPadding=line+padding;return bgFn(withPadding)}',
-        replace: 'function applyBackgroundToLine(line,width,bgFn){const wrapped=bgFn(line+" ".repeat(Math.max(0,width-visibleWidth(line))));const esc=wrapped.indexOf("\\x1B[");if(esc===-1)return wrapped;const mEnd=wrapped.indexOf("m",esc);if(mEnd===-1)return wrapped;const open=wrapped.slice(0,mEnd+1);let out=wrapped.slice(mEnd+1).split("\\x1B[49m").join("\\x1B[49m"+open).split("\\x1B[0m").join("\\x1B[0m"+open);out.endsWith(open)&&(out=out.slice(0,out.length-open.length));return open+out}/*hapiBgReplay*/',
-        occurrences: 1,
-        marker: HAPI_BG_REPLAY_MARKER,
-    },
-    // ── 代码块整行涂底：highlightCode/codeBlock 只把底色裹在文本上，行尾补齐与
-    //    前导缩进落在气泡底上，用户气泡里的代码块碎成「贴字的色块」而非通栏色带
-    //    （助手消息靠全宽涂底没有此问题）。补齐空格也走 codeBlock 包裹，色带顶天立地。
-    {
-        package: PI_TUI_PACKAGE,
-        file: "dist/components/markdown.js",
-        find: "                if (this.theme.highlightCode) {\n                    const highlightedLines = this.theme.highlightCode(token.text, token.lang);\n                    for (const hlLine of highlightedLines) {\n                        lines.push(`${indent}${hlLine}`);\n                    }\n                }\n                else {\n                    // Split code by newlines and style each line\n                    const codeLines = token.text.split(\"\\n\");\n                    for (const codeLine of codeLines) {\n                        lines.push(`${indent}${this.theme.codeBlock(codeLine)}`);\n                    }\n                }",
-        replace: "                if (this.theme.highlightCode) {\n                    const highlightedLines = this.theme.highlightCode(token.text, token.lang);\n                    for (const hlLine of highlightedLines) {\n                        // hapilon: hapiCodeFill 缩进与补齐空格都涂代码块底色，色带在气泡内铺满整行\n                        const hapiPad = \" \".repeat(Math.max(0, width - visibleWidth(indent) - visibleWidth(hlLine)));\n                        lines.push(`${this.theme.codeBlock(indent)}${hlLine}${this.theme.codeBlock(hapiPad)}`);\n                    }\n                }\n                else {\n                    // Split code by newlines and style each line\n                    const codeLines = token.text.split(\"\\n\");\n                    for (const codeLine of codeLines) {\n                        const hapiPad = \" \".repeat(Math.max(0, width - visibleWidth(indent) - visibleWidth(codeLine)));\n                        lines.push(`${this.theme.codeBlock(indent + codeLine + hapiPad)}`);\n                    }\n                }",
-        occurrences: 1,
-        marker: HAPI_CODE_FILL_MARKER,
-    },
-    {
-        file: PI_BUNDLE_CHUNKS,
-        signature: "mdCodeBlockBorder",
-        find: "this.theme.highlightCode){let highlightedLines=this.theme.highlightCode(token.text,token.lang);for(let hlLine of highlightedLines)lines.push(`${indent}${hlLine}`)}else{let codeLines=token.text.split(`\n`);for(let codeLine of codeLines)lines.push(`${indent}${this.theme.codeBlock(codeLine)}`)}",
-        replace: "this.theme.highlightCode){let highlightedLines=this.theme.highlightCode(token.text,token.lang);for(let hlLine of highlightedLines)lines.push(`${this.theme.codeBlock(indent)}${hlLine}${this.theme.codeBlock(\" \".repeat(Math.max(0,width-visibleWidth(indent)-visibleWidth(hlLine))))}`)}else{let codeLines=token.text.split(`\n`);for(let codeLine of codeLines)lines.push(`${this.theme.codeBlock(indent+codeLine+\" \".repeat(Math.max(0,width-visibleWidth(indent)-visibleWidth(codeLine))))}`)}/*hapiCodeFill*/",
-        occurrences: 1,
-        marker: HAPI_CODE_FILL_MARKER,
-    },
     // ── 中段 slash 补全触发门(hpl-editor-slash):provider 在编辑器触发门之后,
     //    门的行首判定会让中段打字永远不请求补全。给「字母键触发分支」加一个
     //    全局钩子,由扩展注入中段片段判定;钩子缺席时行为与原版一致。
@@ -313,8 +141,8 @@ export const PATCH_RULES = [
         base: "hapilon",
         package: SUBAGENTS_PACKAGE,
         file: "dist/workflow/host.js",
-        find: "            if (modelInput !== undefined) {\n                const resolved = resolveModel(modelInput, ctx.modelRegistry);\n                if (typeof resolved === \"string\") {\n                    if (request.model !== undefined)\n                        return { ok: false, error: resolved };\n                }\n                else {\n                    model = resolved;\n                }\n            }",
-        replace: "            if (modelInput !== undefined) {\n                const resolved = resolveModel(modelInput, ctx.modelRegistry);\n                if (typeof resolved === \"string\") {\n                    if (request.model !== undefined)\n                        return { ok: false, error: resolved };\n                }\n                else {\n                    model = resolved;\n                }\n            }\n            // hapilon: hpl-subagent-models 列表（脚本未点名时；钩子缺席则旁路）\n            if (request.model === undefined) {\n                const picked = globalThis.__hplSubagentModelsPick?.(ctx.cwd);\n                if (picked) {\n                    const fromList = resolveModel(`${picked.provider}/${picked.id}`, ctx.modelRegistry);\n                    if (typeof fromList !== \"string\")\n                        model = fromList;\n                }\n            }",
+        find: "            if (modelInput !== undefined) {",
+        replace: "            // hapilon: hpl-subagent-models 列表（脚本未点名时；钩子缺席则旁路）\n            if (request.model === undefined) {\n                const picked = globalThis.__hplSubagentModelsPick?.(ctx.cwd);\n                if (picked) {\n                    const fromList = resolveModel(`${picked.provider}/${picked.id}`, ctx.modelRegistry);\n                    if (typeof fromList !== \"string\")\n                        model = fromList;\n                }\n            }\n            if (modelInput !== undefined) {",
         occurrences: 1,
         marker: HAPI_SUBAGENT_MODELS_MARKER,
     },
@@ -323,15 +151,15 @@ export const PATCH_RULES = [
     //    pi 自身的状态提示（Switched to… 等）同样改为追加。
     {
         file: "dist/modes/interactive/interactive-mode.js",
-        find: '        if (last && secondLast && last === this.lastStatusText && secondLast === this.lastStatusSpacer) {\n            this.lastStatusText.setText(theme.fg("dim", message));\n            this.ui.requestRender();\n            return;\n        }\n',
+        find: "        if (last && secondLast && last === this.lastStatusText && secondLast === this.lastStatusSpacer) {\n            this.lastStatusMessage = message;\n            this.lastStatusText.invalidate();\n            this.ui.requestRender();\n            return;\n        }\n",
         replace: "        // hapilon: 状态行追加不覆盖（hapiStatusStack）\n",
         occurrences: 1,
         marker: HAPI_STATUS_STACK_MARKER,
     },
     {
         file: PI_BUNDLE_CHUNKS,
-        signature: "mdCodeBlockBorder",
-        find: 'if(last&&secondLast&&last===this.lastStatusText&&secondLast===this.lastStatusSpacer){this.lastStatusText.setText(theme.fg("dim",message)),this.ui.requestRender();return}',
+        signature: "lastStatusSpacer",
+        find: 'if(last&&secondLast&&last===this.lastStatusText&&secondLast===this.lastStatusSpacer){this.lastStatusMessage=message,this.lastStatusText.invalidate(),this.ui.requestRender();return}',
         replace: "/*hapilon:状态行追加不覆盖(hapiStatusStack)*/",
         occurrences: 1,
         marker: HAPI_STATUS_STACK_MARKER,
