@@ -1,29 +1,29 @@
 ---
 name: ask
-description: Answer a question with the investigation its type deserves — fact, project code, root cause, business rule, trade-off, how-to, or blast radius. Use when the user asks 为什么 / 怎么 / 根因 / 在哪 / 影响 / 哪个好 / 怎么配, asks what/how/why something works, or invokes /ask or /skill:ask. Not for implementation requests ("fix it", "add X") — those are editing work, not a question.
+description: 按问题类型走对应的调查纪律来回答——事实、项目代码、根因、业务规则、取舍、操作步骤、影响面。用户问「为什么 / 怎么 / 根因 / 在哪 / 影响 / 哪个好 / 怎么配」或点名 /ask 时使用。不用于实现请求（"修一下"、"加个 X"）——那是编辑工作，不是提问。
 disable-model-invocation: true
 ---
 
-# Ask
+# 问与答
 
-A question is not an edit request. Answer it, with the investigation its **type** demands — then stop. Change code only when the user asks for a change, not because answering touched the files.
+问题是问题，不是编辑请求。按问题类型走对应的调查纪律回答，然后停。只有用户要求改代码才改——回答过程碰了文件不算改的理由。
 
-## Route the question
+## 路由
 
-Identify the type first, then follow that row's discipline. Mixed questions are answered type by type.
+先判断类型，按对应行的纪律走。混合型问题逐类型回答。
 
-| Type | Signals | Investigation discipline | Reuse |
-|------|---------|------------------------|-------|
-| **Fact / technical knowledge** | what is X, does X support Y, which version, what's the default | Cite first-party sources only — official docs, source, spec — never a secondary write-up. Separate "the docs say" from "I infer". State the version the answer holds for. | `research` skill; `web_search`, `source_check` |
-| **Project code / implementation** | how does X work here, where is X, what calls this | Read from the entry point down the real call chain before answering — never from file names or memory. Evidence carries `file:line`. Label each conclusion Observed / Inferred / Unknown. | `understand-this-codebase`; Explore subagent for wide parallel lookups |
-| **Debug / root cause** | why does it fail, this is broken, root cause | Reproduce it first. One hypothesis at a time, falsified by the smallest experiment that could kill it. Fix the cause, not the symptom; a "why" answer is a causal chain, not a symptom description. | — |
-| **Business logic** | where is the rule that says X, who decides Y, why is Z allowed | Find the code that encodes the rule — the landing point — then walk the causal chain back to the source that set it. | `.hapilon/CONTEXT.md` 词汇表（若存在） |
-| **Open / trade-off** | which is better, should we, A vs B, what are the options | List the options, trade off each, give a recommendation — never dodge into "it depends". State what would change the answer. | — |
-| **How-to / operation** | how do I run/deploy/configure X | Give executable steps, obtained by actually running it or reading the real config / README — never reconstructed from memory. Mark each step verified or unverified. | `run` skill |
-| **Blast radius** | what breaks if I change X, who depends on X, impact of | Enumerate every caller and dependency — sweep the whole repo with parallel greps / subagents, not the one path you already know. Output the affected list. | Explore subagent |
+| 类型 | 信号 | 调查纪律 | 复用 |
+|------|------|----------|------|
+| **事实 / 技术知识** | X 是什么、X 支持吗、哪个版本、默认值 | 只引一手来源——官方文档、源码、规范，不引二手转述。区分「文档说的」和「我推断的」。注明答案适用的版本。 | `research` 技能 |
+| **项目代码 / 实现** | 这里的 X 怎么工作、X 在哪、谁调用 X | 从入口点顺着真实调用链读下去再回答——不凭文件名或记忆。证据带 `文件:行号`。结论标注 实测 / 推断 / 未知。 | `understand-this-codebase`；subagent 并行扫 |
+| **调试 / 根因** | 为什么失败、这坏了、根因 | 先复现。一次一个假设，用最小实验证伪。修因不修症；「为什么」的答案是因果链，不是症状描述。 | — |
+| **业务规则** | 「X 的规则在哪」「谁决定 Y」「为什么允许 Z」 | 找到编码该规则的代码——落点——再沿因果链回溯到设定它的源头。 | `.hapilon/CONTEXT.md`（若存在） |
+| **取舍 / 开放** | 哪个好、该不该、A vs B、有哪些选项 | 列选项、逐个权衡、给推荐——不躲进「看情况」。说出什么条件会改变结论。 | — |
+| **操作步骤** | 怎么跑 / 部署 / 配置 X | 给可执行的步骤，来自实际跑过或读了真实配置 / README——不凭记忆重建。标注每步 已验证 / 未验证。 | — |
+| **影响面** | 改 X 会坏什么、谁依赖 X | 枚举全部调用方与依赖——全仓并行 grep / subagent 扫，不是只查已知的那条路。输出受影响清单。 | `recon` 技能（带图的结构化侦察） |
 
-## Crossing disciplines — every type
+## 跨类型的通用纪律
 
-- **Measure, don't guess.** Any number or fact a grep or a command can produce, produce it: counts, versions, line numbers, call sites. Estimate only when nothing can be measured, and say that you estimated.
-- **Conclusion first, confidence labeled.** The first sentence is the answer. Keep Confirmed / Inferred / Guessed distinct, and name what you did *not* verify.
-- **Stamp the time.** Technical answers: the version they apply to. Project answers: the HEAD / working-tree state they rest on, and whether the tree was dirty.
+- **量出来，别猜。** grep 或命令能产出的数字和事实，就产出：计数、版本、行号、调用点。无法测量才估算，并说明是估的。
+- **结论先行，置信标注。** 第一句话就是答案。实测 / 推断 / 猜测 分开说，点名哪些没验证。
+- **标注时间。** 技术答案注明适用版本；项目答案注明所基于的 HEAD / 工作区状态及是否 dirty。
