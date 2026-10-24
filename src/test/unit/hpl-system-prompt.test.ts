@@ -49,7 +49,6 @@ import {
 import hplSystemPrompt from "../../extensions/hpl-system-prompt/index.js";
 import { setAddedDirs, resetAddedDirs } from "../../extensions/hpl-add-dir/bridge.js";
 import { fillOrchestratorSection } from "../../extensions/hpl-orchestra/roles.js";
-import { getLastMeta as getSpMeta, clearLastMeta as clearSpMeta } from "../../extensions/hpl-system-prompt/metadata.js";
 
 // ── shared/format.ts: xmlEscape ────────────────────────────────────────
 
@@ -673,8 +672,6 @@ describe("buildExternalDirsSection", () => {
     };
     const result = assembleSystemPrompt(opts);
     assert.ok(result.includes("<external_directories>"));
-    const meta = getSpMeta();
-    assert.ok(meta && meta.sections.externalDirectories > 0);
 
     rmSync(dir, { recursive: true, force: true });
   });
@@ -847,19 +844,6 @@ describe("assembleSystemPrompt", () => {
     assert.ok(result.includes("test&quot;rule"), "双引号应被转义");
   });
 
-  it("正常路径: assembleSystemPrompt 后 metadata 被记录", () => {
-    clearSpMeta();
-    assembleSystemPrompt(defaultOpts);
-    const meta = getSpMeta();
-    assert.ok(meta, "metadata 已被记录");
-    assert.ok(meta!.sections.roleAndIdentity > 0, "role 长度 > 0");
-    assert.ok(meta!.sections.tools > 0, "tools 长度 > 0");
-    assert.ok(meta!.sections.environment > 0, "environment 长度 > 0");
-    assert.ok(meta!.sections.commitDiscipline > 0, "commitDiscipline 长度 > 0");
-    assert.ok(meta!.sections.roleCommitBoundary > 0, "roleCommitBoundary 长度 > 0");
-    assert.equal(meta!.cwd, defaultOpts.cwd, "cwd 匹配");
-    clearSpMeta();
-  });
 });
 
 // ── 写入目标授权边界与提交权的会话作用域 ────────────────────────────────

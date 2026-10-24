@@ -35,7 +35,6 @@ import {
   CONFIRM_BEFORE_BUILDING_TEXT,
   WRITING_STYLE_TEXT,
 } from "./sections.js";
-import { setLastMeta } from "./metadata.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
 import { hapilonHome } from "../../config/hapilon-home.js";
 import { getAddedDirs } from "../hpl-add-dir/bridge.js";
@@ -386,33 +385,6 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   const appendSection = buildAppendSection(appendSystemPrompt);
   const envSection = buildEnvironmentSection(cwd, agentDirPath, runModeText);
 
-  // 记录元数据：各部分长度供 hpl-context-viewer /context 命令做 token 估算
-  setLastMeta({
-    assembledAt: Date.now(),
-    cwd,
-    sections: {
-      roleAndIdentity: roleSection.length,
-      piDocumentation: piDocSection.length,
-      tools: toolsSection.length,
-      guidelines: guidelinesSection.length,
-      team: teamSection.length,
-      codeStyle: codeStyleSection.length,
-      commitDiscipline: commitDisciplineSection.length,
-      roleCommitBoundary: roleCommitBoundarySection.length,
-      workflow: workflowSection.length,
-      writingStyle: writingStyleSection.length,
-      hapilonInstructions: hapilonInstructions.length,
-      hapilonRules: hapilonRulesSection.length,
-      domainGlossary: domainGlossarySection.length,
-      contextFiles: contextFilesSection.length,
-      externalDirectories: externalDirsSection.length,
-      skills: skillsSection.length,
-      visionDelegation: visionDelegationSection.length,
-      customToolsNote: customToolsNote.length,
-      additionalData: appendSection.length,
-      environment: envSection.length,
-    },
-  });
 
   const prompt = wrapSystemPrompt([
     roleSection,

@@ -39,7 +39,7 @@ interface RuntimeOverride {
 
 const override: RuntimeOverride = {};
 
-/** 压缩统计（/context 与 /econ Status 汇报） */
+/** 压缩统计（/econ Status 汇报） */
 export const stats = {
   compactions: 0,
   originalChars: 0,

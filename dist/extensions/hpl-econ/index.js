@@ -6,7 +6,7 @@ import { agentDir } from "../../config/hapilon-home.js";
 import { shouldCompress, compressOutput } from "./compress.js";
 import { readEconSettingsEffect, writeEconSettingsEffect, envDisabled, THRESHOLD_CHOICES, RETENTION_CHOICES, } from "./settings.js";
 const override = {};
-/** 压缩统计（/context 与 /econ Status 汇报） */
+/** 压缩统计（/econ Status 汇报） */
 export const stats = {
     compactions: 0,
     originalChars: 0,
