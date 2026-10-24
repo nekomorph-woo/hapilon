@@ -1,32 +1,32 @@
 ---
 name: prototype
-description: Build a disposable prototype to answer a design question. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like.
+description: 造一个用完即弃的原型来回答一个设计问题。用户想确认某个状态模型或逻辑是否靠谱、或探索某个 UI 该长什么样时使用。
 ---
 
-# Prototype
+# prototype
 
-A prototype is **disposable code that answers a question**. The question decides the shape.
+原型是**回答一个问题的即弃代码**。问题决定形态。
 
-## Pick a branch
+## 选分支
 
-Identify which question is being answered — from the user's prompt, the surrounding code, or by asking if the user is around:
+先判断要回答的是哪类问题——从用户的措辞、周围代码判断，用户在场就问：
 
-- **"Does this logic / state model feel right?"** → [LOGIC.md](LOGIC.md). Build a single shareable HTML file — free-play buttons plus tabbed guided walkthroughs — that pushes the state machine through cases that are hard to reason about on paper, and that a non-developer can drive.
-- **"What should this look like?"** → [UI.md](UI.md). Generate several radically different UI variations on a single route, switchable via a URL search param and a floating bottom bar.
-  Visual direction for these variations comes from the **taste-skill** skill (read its SKILL.md in this skills directory): deal directions, then follow its gate (lint + inspect) before handing the variants over. answer-me-with-html is exempt — its page style stays upstream.
+- **「这个逻辑/状态模型靠谱吗？」** → [LOGIC.md](LOGIC.md)。做一个可分享的单文件 HTML——自由把玩的按钮 + 分页导览——把状态机推过那些纸上难推理的场景，非开发者也能上手开。
+- **「这东西该长什么样？」** → [UI.md](UI.md)。在单条路由上生成多个截然不同的 UI 变体，URL 参数切换 + 底部悬浮条换档。
+  变体的视觉方向来自 **taste-skill**（读本技能库中它的 SKILL.md）：先发方向，交接前过它的 gate（lint + inspect）。answer-me-with-html 豁免——它的页面样式保持上游原样。
 
-The two branches produce very different artifacts — getting this wrong wastes the whole prototype. If the question is genuinely ambiguous and the user isn't reachable, default to whichever branch better matches the surrounding code (a backend module → logic; a page or component → UI) and state the assumption at the top of the prototype.
+两个分支的产物完全不同——选错浪费整个原型。问题真模糊且用户不在场时，按周围代码选更贴合的一支（后端模块 → 逻辑；页面/组件 → UI），并在原型顶部写明这个假设。
 
-## Offering it unprompted
+## 主动提议
 
-You may also offer a prototype unprompted when the user is weighing a brand-new product or UI idea with nothing built yet — at most once per session, one short line, then stop and wait; build only if they say yes. On a no, or no answer, carry on and do not offer again.
+用户在掂量一个全新产品或 UI 点子、什么都还没建时，可以主动提议做原型——每会话至多一次、一句话说完就停；用户说做才做。被拒绝或没回应，继续干活，不再提。
 
-## Rules that apply to both
+## 两支通用的规则
 
-1. **Disposable from day one, and clearly marked as such.** Locate the prototype code close to where it will actually be used (next to the module or page it's prototyping for) so context is obvious — but name it so a casual reader can see it's a prototype, not production. For disposable UI routes, obey whatever routing convention the project already uses; don't invent a new top-level structure.
-2. **Trivial to run.** A UI prototype starts from one command in the project's task runner — `pnpm <name>`, `python <path>`, `bun <path>`, etc. A logic demo is a single HTML file the user double-clicks. Either way, no thinking required to start it.
-3. **No persistence by default.** State lives in memory. Persistence is the thing the prototype is _checking_, not something it should depend on. If the question explicitly involves a database, hit a scratch DB or a local file with a clear "PROTOTYPE — wipe me" name.
-4. **Skip the polish.** No tests, no error handling beyond what makes the prototype _runnable_, no abstractions. The point is to learn something fast.
-5. **Surface the state.** After every action (logic) or on every variant switch (UI), print or render the full relevant state so the user can see what changed.
-6. **Capture it when done.** Fold the validated decision into the real code, then capture the answer — the verdict and the question it settled — in the commit message, or in `docs/research/` when the repo keeps decision notes there.
-7. **Keep the demo findable.** The logic branch's standalone demo HTML lives at `.hapilon/prototype/<slug>.html` — create the directory if it isn't there, and add `.hapilon/` to the repo's `.gitignore` if it has one. If the user names a location, use that instead.
+1. **从第一天起就是即弃品，且明摆着是。** 原型代码放在它将来的用武之地旁边（紧挨它服务的模块或页面），上下文一目了然——但命名要让随意浏览的读者看出这是原型不是生产代码。即弃 UI 路由遵循项目现有的路由约定，不发明新的顶层结构。
+2. **一键能跑。** UI 原型从项目的 task runner 一条命令起——`pnpm <name>`、`python <path>`、`bun <path>` 等；逻辑演示是用户双击即开的单个 HTML 文件。总之启动不需要思考。
+3. **默认不持久化。** 状态活在内存里。持久化是原型要_验证_的东西，不是它该依赖的东西。问题明确涉及数据库时，用一个带「PROTOTYPE — 用完即擦」标记的临时库或本地文件。
+4. **不上油漆。** 不写测试、不做超出「能跑」的错误处理、不抽象。目的是快点学到东西。
+5. **状态可见。** 每次操作后（逻辑）或每次切换变体时（UI），打印或渲染出完整的 relevant 状态，让用户看见什么变了。
+6. **答完就归档。** 把验证过的决策折进真实代码，然后把答案——结论 + 它回答的那个问题——记进 commit message；仓库记决策笔记的话落 `.hapilon/research/`。
+7. **演示留个可找的家。** 逻辑分支的独立演示 HTML 放 `.hapilon/prototype/<slug>.html`——目录不存在就创建；仓库有 `.gitignore` 就确认 `.hapilon/` 已被忽略。用户点名位置就用点名的。
