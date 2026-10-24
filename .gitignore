@@ -126,6 +126,7 @@ Desktop.ini
 .hapilon/*
 !.hapilon/HAPILON.md
 !.hapilon/CONTEXT.md
+!.pi/**settings.json
 !.hapilon/subagents.json
 !.hapilon/agents/
 
@@ -134,4 +135,7 @@ Desktop.ini
 .claude/settings.local.json
 
 # --- hapilon dev harness（任务面板运行时产物，永不入库）---
-.pi/
+.pi/*
+!.pi/settings.json
+
+!.pi/settings.json
