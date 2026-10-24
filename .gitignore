@@ -126,6 +126,7 @@ Desktop.ini
 .hapilon/*
 !.hapilon/HAPILON.md
 !.hapilon/CONTEXT.md
+!.hapilon/subagents.json
 !.hapilon/agents/
 
 # --- Claude ---

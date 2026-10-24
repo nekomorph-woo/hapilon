@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Data, Effect } from "effect";
 export class NpmExtensionError extends Data.TaggedError("NpmExtensionError") {
 }
@@ -31,6 +32,12 @@ const NPM_EXTENSIONS = [
     // setStatus key "background-tasks" 与 hpl-orchestra "team" 不冲突。
     // 注意 background 直通 /bin/sh 不经 hpl-safety-gate（v1 接受）。
     ["@nklisch/pi-background-tasks", "extensions/background-tasks.ts"],
+    // 上下文增量压缩（billion-context / ACP）：进程内 acp-kernel，注入
+    // compress/decompress/search_context/acp_status 模型侧工具与 /acp 系命令。
+    // 它会 cancel pi 原生 compaction（session_before_compact 钩子）——压缩权移交。
+    // ⚠ 互斥：永不与 `bili plugin install pi` 的 native 形态双开（双压）。
+    // 内置 delegate subagent 由 hapilon 种子的 ~/.pi/acp.json（delegate.enabled:false）关闭。
+    ["billion-context-pi", "dist/index.js"],
     // 计算机与浏览器驾驶（实测对过的扩展）：
     // computer-use 走 Cua Driver（macOS 需辅助功能+屏幕录制权限），工具前缀 computer_use_*；
     // browser-use 拉起 chrome-devtools-mcp 子进程，工具前缀 browser_*，Electron 应用可挂远程调试端口。
@@ -52,6 +59,18 @@ export const NPM_EXTENSIONS_BEFORE_HPL = [
  * 解析单个包的扩展入口（导出仅为可测试性）。
  * resolve 抛错即包不存在或子路径被 exports 锁死——由降级逻辑与调用方处理。
  */
+function findNodeModulesPackageDir(pkg) {
+    let dir = dirname(fileURLToPath(import.meta.url));
+    for (;;) {
+        const candidate = join(dir, "node_modules", pkg);
+        if (existsSync(join(candidate, "package.json")))
+            return candidate;
+        const parent = dirname(dir);
+        if (parent === dir)
+            return undefined;
+        dir = parent;
+    }
+}
 export function resolveExtensionEntry(pkg, entry, resolve) {
     // 主路径：resolve <pkg>/package.json 再拼入口。
     // 部分包（如 ponytail）用 exports 字段锁死子路径，
@@ -67,11 +86,20 @@ export function resolveExtensionEntry(pkg, entry, resolve) {
         const locked = err instanceof Error && "code" in err && err.code === "ERR_PACKAGE_PATH_NOT_EXPORTED";
         if (!locked)
             throw err;
-        let dir = dirname(resolve(pkg));
-        while (dir !== dirname(dir) && !existsSync(join(dir, "package.json"))) {
+        // 降级链：① resolve 包主入口再向上找包根（ponytail 布局）；
+        // ② 主入口也被 exports 锁（如 billion-context-pi 只开放 import 条件）时，
+        //    从本模块位置向上找 node_modules/<pkg> 包根。
+        let dir;
+        try {
+            dir = dirname(resolve(pkg));
+        }
+        catch {
+            dir = findNodeModulesPackageDir(pkg);
+        }
+        while (dir !== undefined && dir !== dirname(dir) && !existsSync(join(dir, "package.json"))) {
             dir = dirname(dir);
         }
-        if (!existsSync(join(dir, "package.json"))) {
+        if (dir === undefined || !existsSync(join(dir, "package.json"))) {
             throw new Error(`[hapilon] npm 扩展降级寻址失败：${pkg} 找不到含 package.json 的包根`);
         }
         pkgDir = dir;

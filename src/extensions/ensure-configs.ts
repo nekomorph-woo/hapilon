@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import { ConfigWriteError } from "../config/config-io.js";
@@ -200,6 +201,15 @@ const ensureVisionAgentEffect = (agentDir: string): Effect.Effect<void, ConfigWr
 });
 
 /**
+ * billion-context-pi（ACP）配置：关闭内置 delegate subagent——与 hapilon 的
+ * pi-subagents/Agent 派发重叠（该扩展的 pi-subagents 检测认不出 hapilon 的
+ * 挂载方式，必须显式关）。standalone 版只认 ~/.pi/acp.json（用户级）与
+ * <cwd>/.pi/acp.json（项目级），无 env 覆盖；种用户级，仅不存在时写，
+ * 用户改过（如 forceEnable）永不覆盖。
+ */
+const BILI_CONFIG_DEFAULTS = { delegate: { enabled: false } };
+
+/**
  * 预置扩展的全局默认配置（幂等，首次启动生效）。
  */
 export const ensureExtensionConfigsEffect = (agentDir: string): Effect.Effect<void, ConfigWriteError> => Effect.gen(function* () {
@@ -214,6 +224,8 @@ export const ensureExtensionConfigsEffect = (agentDir: string): Effect.Effect<vo
   yield* ensureVisionAgentEffect(agentDir);
   // MCP 渐进式暴露 + TUI 模式保持 regular（均未设置时种子一次）
   yield* seedPiSettingsEffect(agentDir);
+  // billion-context：关内置 delegate（用户级 ~/.pi/acp.json）
+  yield* ensureJsonConfigEffect(join(homedir(), ".pi"), "acp.json", BILI_CONFIG_DEFAULTS);
   // 主题已移除：清理旧安装 settings.json 里的 hapilon 主题残留
   yield* cleanupThemeSettingsEffect(agentDir);
 });

@@ -10,9 +10,9 @@ import { resolveNpmExtensionPaths, resolveExtensionEntry, resolveNpmExtensionsBe
 describe("resolveNpmExtensionPaths()", () => {
   it("解析出全部 npm 扩展的绝对入口路径", () => {
     const paths = resolveNpmExtensionPaths();
-    // 2 个 tintinweb 包 + 集成四包
+    // 2 个 tintinweb 包 + 集成四包 + billion-context-pi
     // + @nklisch/pi-background-tasks + 用户实测对（computer-use/browser-use）；ponytail 在 BEFORE_HPL 先行组
-    assert.equal(paths.length, 9);
+    assert.equal(paths.length, 10);
     for (const p of paths) {
       assert.ok(existsSync(p), `入口文件应存在: ${p}`);
     }

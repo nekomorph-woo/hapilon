@@ -33,6 +33,10 @@ const HAPI_BG_ELAPSED_MARKER = "hapiBgElapsed";
 const BACKGROUND_TASKS_PACKAGE = "@nklisch/pi-background-tasks";
 /** subagent 扩展包名（hapilon 自身的依赖，不在 pi 包树里） */
 const SUBAGENTS_PACKAGE = "@tintinweb/pi-subagents";
+/** pi-subagents 项目配置目录迁移（.pi → .hapilon）的 marker */
+const HAPI_SUBAGENTS_DIR_MARKER = "hapiSubagentsDir";
+/** 隐藏 pi 内置 /compact（补全与命令表，压缩权移交 billion-context）的 marker */
+const HAPI_COMPACT_HIDE_MARKER = "hapiCompactHide";
 /** SubagentWorkflow 派发模型列表钩子的 marker */
 const HAPI_SUBAGENT_MODELS_MARKER = "__hplSubagentModelsPick";
 /** 状态行追加不覆盖的 marker（showStatus 连续状态不再互相替换） */
@@ -62,8 +66,9 @@ interface PatchRule {
 
 /**
  * 全部改动均为字符串级替换，逐条 anchors 与实际 pi dist 产物 byte-for-byte 校验过
- * （pi-tui editor.js 2 条 + bundle chunk 3 条 + background-tasks.ts 4 条
- * + pi-subagents host.js 1 条 + interactive-mode.js 1 条）。
+ * （pi-tui editor.js 2 条 + bundle chunk 4 条 + background-tasks.ts 4 条
+ * + pi-subagents host.js/settings.js 2 条 + interactive-mode.js 1 条
+ * + slash-commands.js 1 条）。
  */
 /** 补丁规则表(导出仅供测试构造 fixture;运行时只读) */
 export const PATCH_RULES: readonly PatchRule[] = [
@@ -172,6 +177,37 @@ export const PATCH_RULES: readonly PatchRule[] = [
     replace: "            // hapilon: hpl-subagent-models 列表（脚本未点名时；钩子缺席则旁路）\n            if (request.model === undefined) {\n                const picked = globalThis.__hplSubagentModelsPick?.(ctx.cwd);\n                if (picked) {\n                    const fromList = resolveModel(`${picked.provider}/${picked.id}`, ctx.modelRegistry);\n                    if (typeof fromList !== \"string\")\n                        model = fromList;\n                }\n            }\n            if (modelInput !== undefined) {",
     occurrences: 1,
     marker: HAPI_SUBAGENT_MODELS_MARKER,
+  },
+  // ── pi-subagents 项目配置迁移：上游硬编码 <cwd>/.pi/subagents.json；hapilon 的
+  //    项目级配置一律归 .hapilon/（含 /agents → Settings 的写入落点）。上游若提供
+  //    官方路径覆盖，删掉这条。
+  {
+    base: "hapilon",
+    package: SUBAGENTS_PACKAGE,
+    file: "dist/settings.js",
+    find: 'return join(cwd, ".pi", "subagents.json");',
+    replace: 'return join(cwd, ".hapilon", "subagents.json"); /*hapilon: hapiSubagentsDir*/',
+    occurrences: 1,
+    marker: HAPI_SUBAGENTS_DIR_MARKER,
+  },
+  // ── 隐藏 pi 内置 /compact：billion-context 接管压缩（session_before_compact
+  //    cancel），/compact 成为死命令——从内置命令表移除，slash 补全随之消失。
+  //    扩展同名命令会被 pi 的补全构建器过滤（内置优先），只能走补丁。
+  //    移除 billion-context 接入时删掉这两条。
+  {
+    file: "dist/core/slash-commands.js",
+    find: '    { name: "compact", description: "Manually compact the session context" },\n',
+    replace: "    // hapilon: hapiCompactHide — /compact 由 billion-context 接管\n",
+    occurrences: 1,
+    marker: HAPI_COMPACT_HIDE_MARKER,
+  },
+  {
+    file: PI_BUNDLE_CHUNKS,
+    signature: "BUILTIN_SLASH_COMMANDS",
+    find: '{name:"compact",description:"Manually compact the session context"},',
+    replace: "/*hapiCompactHide*/,",
+    occurrences: 1,
+    marker: HAPI_COMPACT_HIDE_MARKER,
   },
   // ── 状态行追加不覆盖：pi 的 showStatus 对连续状态就地替换（防刷屏），扩展经
   //    ctx.ui.notify 发的多条提示会互相顶掉。去掉替换分支后每条通知各占一行；
