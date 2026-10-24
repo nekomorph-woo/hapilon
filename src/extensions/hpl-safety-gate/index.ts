@@ -121,7 +121,7 @@ function bashTrusted(normalized: string, cwd: string): boolean {
 }
 
 // ── skill 脚本豁免：hapi 自带/安装的技能脚本段不参与风险分级 ──
-// 技能脚本是 agent 工具链的一部分（imp-case 的 case_tools.py 等），
+// 技能脚本是 agent 工具链的一部分（agents/skills 下技能自带的脚本），
 // 它们本身不该把整条链拉进 confirm；链上其它危险段（sed -i 等）照常拦截。
 const SCRIPT_INTERPRETERS = /^(?:python3?|node|deno|bun|tsx?|bash|sh|zsh|dash|ash)\b/;
 
