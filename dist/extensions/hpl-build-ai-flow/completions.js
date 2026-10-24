@@ -7,8 +7,8 @@
  */
 import { Effect } from "effect";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
-import { evaluateGate, KNOWN_CAPABILITIES, readActiveEffect, loadFlowEffect } from "./machine.js";
 import { STAGES } from "./stages.js";
+import { evaluateGate, readActiveEffect, loadFlowEffect } from "./machine.js";
 function filter(candidates, query) {
     const hits = fuzzyFilter([...candidates], query, (c) => `${c.value} ${c.searchText ?? c.description ?? ""}`);
     return hits.length === 0 ? null : hits.map(({ searchText: _ignored, ...item }) => item);
@@ -47,26 +47,7 @@ export function buildCompletions(query, cwd) {
             { value: "help", label: "help", description: "全流程保姆指南（节奏、十站职责、工具箱、卡住解法）", searchText: "help 帮助 指南 教程" },
             { value: "debt", label: "debt", description: "查看 Gate 缺口欠账", searchText: "debt 欠账 缺口 查看" },
             { value: "debt resolve ", label: "debt resolve", description: "关闭欠账：debt resolve <G-00x> <说明>", searchText: "debt resolve 关闭 欠账" },
-            ...KNOWN_CAPABILITIES.map((id) => {
-                const cap = flow?.capabilities?.[id];
-                const state = cap?.status === "enabled" ? "已启用" : cap?.status === "declined" ? "已拒绝（可重新启用）" : "未决定（S2/S3 会提示是否推荐）";
-                return {
-                    value: `cap ${id} `,
-                    label: `cap ${id}`,
-                    description: `能力：${id}（${state}）——enable|decline [说明]`,
-                    searchText: `cap capability 能力 ${id} 启用 拒绝`,
-                };
-            }),
         ], trimmed);
-    }
-    if (/^cap\b/.test(trimmed)) {
-        const candidates = [];
-        for (const id of KNOWN_CAPABILITIES) {
-            const cap = flow?.capabilities?.[id];
-            const state = cap?.status === "enabled" ? "当前已启用" : cap?.status === "declined" ? "当前已拒绝" : "当前未决定";
-            candidates.push({ value: `cap ${id} enable `, label: `enable`, description: `${state}——启用${id}`, searchText: `cap ${id} enable 启用` }, { value: `cap ${id} decline `, label: `decline`, description: `${state}——拒绝（不再重复推荐）`, searchText: `cap ${id} decline 拒绝` });
-        }
-        return filter(candidates, trimmed);
     }
     if (/^goto\b/.test(trimmed)) {
         const current = flow?.status === "active" || flow?.status === "frozen" ? flow.stage : null;

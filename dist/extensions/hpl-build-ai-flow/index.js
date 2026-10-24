@@ -7,14 +7,13 @@
  * 扩展是闸门机械。工作区 .hapilon/ai-flow/<slug>/，单会话设计。
  */
 import { Effect } from "effect";
-import { advanceFlowEffect, forceAdvanceEffect, freezeFlowEffect, gotoStageEffect, listFlowsEffect, loadFlowEffect, openDebts, coverageDispositionGaps, discardGoalProposal, readActiveEffect, readGoalProposal, resolveDebtEffect, saveGoalProposal, savePendingGoal, setCapabilityEffect, setGoalEffect, startFlowEffect, takePendingGoal, uniqueSlug, } from "./machine.js";
+import { advanceFlowEffect, forceAdvanceEffect, freezeFlowEffect, gotoStageEffect, listFlowsEffect, loadFlowEffect, openDebts, coverageDispositionGaps, discardGoalProposal, readActiveEffect, readGoalProposal, resolveDebtEffect, saveGoalProposal, savePendingGoal, setGoalEffect, startFlowEffect, takePendingGoal, uniqueSlug, } from "./machine.js";
 import { LAST_STAGE, stageByIndex } from "./stages.js";
 import { buildFreezeNote, buildSlugDistillPrompt, buildStagePrompt, buildStartGuide } from "./prompts.js";
 import { renderStatus } from "./render.js";
 import { buildCompletions } from "./completions.js";
 import { appendAuditRecord, auditDecisionLog, AUDIT_MODEL_SPEC, readDecisionLog } from "./decision-audit.js";
 import { registerGuard } from "./guard.js";
-import { capabilityStatusLine } from "./capabilities.js";
 function runEither(effect) {
     return Effect.runSync(Effect.either(effect));
 }
@@ -29,7 +28,7 @@ function activeFlow(cwd) {
 }
 export default function hplBuildAiFlow(pi) {
     pi.registerCommand("build-ai-flow", {
-        description: "十阶段复杂任务流程（dump→…→freeze，Gate 管控）。用法：/build-ai-flow start <目标> | goal（确认模型提案） | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit",
+        description: "十阶段复杂任务流程（dump→…→freeze，Gate 管控）。用法：/build-ai-flow start <目标> | goal（确认模型提案） | next | status | list",
         getArgumentCompletions: (query) => buildCompletions(query, process.cwd()),
         handler: async (args, ctx) => {
             const cwd = ctx.cwd ?? process.cwd();
@@ -249,35 +248,6 @@ export default function hplBuildAiFlow(pi) {
                 ctx.ui?.notify?.(`目标已写入：定位句「${set.right.goalStatement}」，验收要点 ${set.right.acceptance.length} 条。手写路径不经过提案审核，确认内容无误`, "info");
                 return;
             }
-            // ── cap：能力启用/拒绝（只有人能触发；AI 只有推荐权） ────
-            const capMatch = trimmed.match(/^cap\s+(\S+)\s+(enable|decline)(?:\s+(.+))?$/s);
-            if (capMatch) {
-                const active = activeFlow(cwd);
-                if ("none" in active || "error" in active) {
-                    ctx.ui?.notify?.("没有活跃 flow。先 /build-ai-flow start <目标>", "error");
-                    return;
-                }
-                const set = runEither(setCapabilityEffect(cwd, active.state.slug, capMatch[1], capMatch[2] === "enable" ? "enabled" : "declined", capMatch[3] ?? ""));
-                if (set._tag === "Left") {
-                    ctx.ui?.notify?.(set.left.message, "error");
-                    return;
-                }
-                const verb = capMatch[2] === "enable" ? "已启用" : "已拒绝";
-                ctx.ui?.notify?.(`golden-case ${verb}（当前 S${set.right.stage}，决定已记入 history）。${capMatch[2] === "enable"
-                    ? "后续阶段 prompt 会携带对应指引与 case 上下文。"
-                    : "后续不再重复推荐；如改变主意可再 cap enable。"}`, "info");
-                return;
-            }
-            if (/^cap\b/.test(trimmed)) {
-                const active = activeFlow(cwd);
-                if ("none" in active || "error" in active) {
-                    ctx.ui?.notify?.("没有活跃 flow。先 /build-ai-flow start <目标>", "error");
-                    return;
-                }
-                const line = capabilityStatusLine(active.state);
-                ctx.ui?.notify?.(`能力状态：${line || "golden-case 未决定（S2/S3 的 prompt 会提示是否值得推荐）"}\n用法：/build-ai-flow cap golden-case enable|decline [说明]`, "info");
-                return;
-            }
             if (/^help\b/.test(trimmed) || trimmed === "?") {
                 ctx.ui?.notify?.(buildHelpText(), "info");
                 return;
@@ -286,7 +256,7 @@ export default function hplBuildAiFlow(pi) {
                 await runAudit(pi, ctx, cwd);
                 return;
             }
-            ctx.ui?.notify?.("用法：/build-ai-flow [start <目标> | goal（确认模型提案） | next | status | list | goto <0-9> <原因> | cap <能力> <enable|decline> [说明] | audit | help]", "error");
+            ctx.ui?.notify?.("用法：/build-ai-flow [start <目标> | goal（确认模型提案） | next | status | list | goto <0-9> <原因>", "error");
         },
     });
     // create_flow：start 两段式第二段——承接模型提炼的 slug 建 flow，并派发 S0

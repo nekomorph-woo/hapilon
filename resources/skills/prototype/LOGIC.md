@@ -49,7 +49,7 @@ Choose scenarios that demonstrate the awkward cases — the happy path, a tricky
 
 Keep it beautiful but restrained: clean typography, generous spacing, one accent colour. No animations, no gimmicks — nothing that competes with the state and the buttons.
 
-For HTML output, follow the design constitution in the **artifact** skill (its references/design.md). Non-negotiables even if you skip it:
+For HTML output, hold to these non-negotiables (they are local — no other skill needed):
 
 - body paints an explicit background from tokens;
 - every color comes from the token set, never defined only inside an `@media` block;

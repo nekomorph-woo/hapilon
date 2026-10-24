@@ -1,82 +1,130 @@
 ---
 name: recon
-description: Recon a target area the user names — build a structured understanding, then report it by mouth (no files written) to ground a follow-up discussion.
+description: 对用户点名的目标区域做定向侦察——建立结构化理解后口头汇报（不写任何文件），为后续讨论打底。目标可以是任何有内部结构的东西：代码模块、skill、文档、配置文件。
 disable-model-invocation: true
 ---
 
 # recon
 
-Directed reconnaissance of a target area the user names. Build a structured understanding, then **report it by mouth** — nothing written to disk. The report only grounds the next conversation.
+对用户点名的目标区域做定向侦察，建立结构化理解后**口头汇报**——不向磁盘写任何东西。汇报只为垫起接下来的讨论。
 
-A target can be anything with internal structure — a code module, a skill or doc, a config file.
+目标可以是任何有内部结构的东西——一个代码模块、一个 skill 或文档、一份配置。
 
-## Depth
+## 深度
 
-The user's wording sets the depth; with no signal, default to **medium**.
+用户的措辞决定深度；没有信号时默认 **medium**。
 
-| Level | Trigger words | What you do |
-|-------|---------------|-------------|
-| quick | quick, skim, glance | Read the entry files plus the core types / interfaces / config. Overview only. |
-| medium | (default) | quick, then trace the core flow, the key relations, and the patterns shaping the area. |
-| deep | deep, thorough, careful | medium, then chase the full dependency graph, edge cases, hidden assumptions, and latent problems. |
+| 档位 | 触发词 | 做什么 |
+|------|--------|--------|
+| quick | quick、skim、glance、扫一眼 | 只读入口文件 + 核心类型/接口/配置，概览。 |
+| medium | （默认） | quick 基础上追核心流程、关键关系、塑造该区域的模式。 |
+| deep | deep、thorough、careful、仔细 | medium 基础上追完整依赖图、边界情况、隐藏假设、潜在问题。 |
 
-## Process
+## 流程
 
-### 1. Confirm the target
+### 1. 确认目标
 
-When the user's description is vague, clarify before reading:
+用户的描述模糊时，先澄清再读：
 
-- the concrete path or name of the target;
-- the intent — what they want to understand, what the follow-up discussion is about.
+- 目标的具体路径或名字；
+- 意图——想理解什么、后续讨论围绕什么。
 
-**Completion:** target path/name and exploration intent are both stated; no remaining ambiguity would change *where* you read.
+**完成条件：** 目标路径/名字与探索意图都已明确；不再有会改变你「读哪里」的歧义。
 
-### 2. Recon the area
+### 2. 侦察
 
-Read and analyse the target at the chosen depth with Read, Glob, and Grep. Decide the target's type first, then pick the analytical lens that fits.
+按选定深度读目标（用 Read、Glob、Grep）。先判断目标类型，再选合适的分析视角。
 
-**Completion:** every entry file and every core type / interface / config the depth demands has been read; nothing on that depth's reading list is unread.
+**完成条件：** 该深度要求的每个入口文件、每个核心类型/接口/配置都已读过，阅读清单无遗漏。
 
-### 3. Report by mouth
+### 3. 口头汇报
 
-Deliver the report in the structure below.
+按下文结构汇报。
 
-**Completion:** every section the depth requires is covered, the report ends on a readiness check, and no file has been written.
+**完成条件：** 该深度要求的每一节都覆盖，汇报以就绪检查收尾，且没有写任何文件。
 
-## Report structure
+## 汇报形式：图文结合
 
-#### Responsibility
+文字不是唯一载体——结构、流程、变化这类信息，一张小图胜过一段描述。原则：**挑能说清当前这一点的最小视图**，不堆料、不炫技，一段文字旁边至多配一张图。可用的形式：
 
-One line on the problem the area solves and the role it plays.
+- **逻辑/算法** → 伪代码：
 
-#### Structure
+```text
+on(save)
+  if content is unchanged
+    return cached result
+  write new content
+  return fresh result
+```
 
-The key files and sub-directories in the area: the role each plays and how they relate.
+- **运行时控制流** → 调用树：
 
-#### Key paths
+```text
+submitForm
+  createSession
+    persistPrompt
+    launchAgent
+  navigateToSession
+```
 
-Adapt to the target's type:
+- **UI 结构** → 组件树（带状态与模块边界）：
 
-| Target type | What this answers |
-|-------------|-------------------|
-| Code module | The core call chain and data flow, 2–5 key nodes. |
-| Skill / rule / doc | Trigger → process → output; the key steps. |
-| Config / resource | Who references it, what behaviour it shapes, the blast radius of a change. |
+```tsx
+<SessionPage> (apps/example/src/routes/session.tsx)
+  useSessionEvents()
+  <SessionToolbar>
+    <RunSkillButton> (packages/ui)
+```
 
-#### Patterns and Smells
+- **文件职责 / 重构全貌** → 浅层文件树：
 
-Two faces of the same read — surface them as a pair.
+```text
+src/
+├── commands/       # parses user actions
+├── sessions/       # owns session state
+└── transport/      # sends API requests
+```
 
-**Patterns** — the organisational conventions, naming styles, and design decisions the area leans on; where it resembles its peers.
+- **组件交互 / 数据流** → Mermaid（sequenceDiagram 等）。
+- **变化点**（这里改了什么）→ diff，形状贴主题：组件变化用组件树 diff，布局变化用文件树 diff，控制流变化用调用树 diff。
+- 整块全新、或用户需要可复制的目标形状时，直接贴整块代码。
 
-**Smells** — the unclear spots, latent contradictions, tech debt, and improvement opportunities (*quick* skips this face). Flag *where*, not how to fix.
+多种形式可单独用也可组合，但几乎不会全用——按当前讨论点取舍，别淹没用户。
 
-#### Readiness check
+## 汇报结构
 
-One line declaring the recon done and waiting for direction. Free wording — e.g. "Got a read on this — what's next?"
+#### 职责
 
-## Boundaries
+一句话：该区域解决什么问题、扮演什么角色。
 
-- **Speak, don't write.** The report lives in the conversation; leave the filesystem untouched. This is the skill's defining constraint.
-- **Stay in bounds.** Read only the named target. Pull in a neighbour only when the user widens the scope.
-- **Briefing, not document.** Each section runs only as long as the follow-up discussion needs. Cut anything it won't lean on.
+#### 结构
+
+该区域的关键文件与子目录：各自的角色与关系。用文件树或调用树表达。
+
+#### 关键路径
+
+按目标类型适配：
+
+| 目标类型 | 回答什么 |
+|----------|----------|
+| 代码模块 | 核心调用链与数据流，2–5 个关键节点。配调用树或 Mermaid。 |
+| skill / 规则 / 文档 | 触发 → 流程 → 产出，关键步骤。 |
+| 配置 / 资源 | 谁引用它、它塑造什么行为、改动的波及面。 |
+
+#### 模式与坏味道
+
+同一次阅读的两张面孔，成对呈现。
+
+**模式**——该区域依赖的组织约定、命名风格、设计决策；它与同类区域相似在哪。
+
+**坏味道**——不清楚的地方、潜在矛盾、技术债、改进机会（*quick* 跳过这一面）。只标记**在哪**，不展开怎么修。
+
+#### 就绪检查
+
+一行宣告侦察完成、等待下一步。措辞自由——比如「摸清了，接下来聊哪块？」
+
+## 边界
+
+- **只说不写。** 汇报活在对话里，文件系统一尘不染——这是本 skill 的定义性约束。
+- **不越界。** 只读点名的目标；只有用户扩大范围时才把邻居拉进来。
+- **是简报不是文档。** 每一节只写到后续讨论需要的长度，讨论用不上的内容都砍。

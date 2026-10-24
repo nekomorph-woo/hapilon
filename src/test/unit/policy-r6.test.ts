@@ -134,13 +134,12 @@ describe("Policy R6 effect-typescript skill", () => {
     for (const path of paths) assert.ok(existsSync(join(process.cwd(), path)), path);
   });
 
-  it("内置 eli5 skill 自动发现，参数按 Pi 的 User 行语义传入", () => {
-    const skillPath = join(process.cwd(), "resources", "skills", "eli5", "SKILL.md");
+  it("内置 recon skill 自动发现（中文 frontmatter 亦可被 Pi 加载）", () => {
+    const skillPath = join(process.cwd(), "resources", "skills", "recon", "SKILL.md");
     const content = readFileSync(skillPath, "utf8");
     const paths = Effect.runSync(discoverBuiltInSkillsEffect());
     assert.ok(paths.includes(skillPath));
-    assert.match(content, /^name: eli5/m);
-    assert.ok(!content.includes("$ARGUMENTS"), "Pi 不做 $ARGUMENTS 替换，应使用追加的 User 行");
-    assert.match(content, /Topic: Use the topic supplied by the user/);
+    assert.match(content, /^name: recon/m);
+    assert.match(content, /^description: .+/m);
   });
 });

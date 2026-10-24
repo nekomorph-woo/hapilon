@@ -1,6 +1,6 @@
 {
   "name": "hapilon",
-  "version": "0.10.9",
+  "version": "0.10.10",
   "description": "HAPi",
   "private": true,
   "type": "module",
