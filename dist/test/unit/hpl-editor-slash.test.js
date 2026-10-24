@@ -157,6 +157,13 @@ describe("isMidTextSlashBefore()", () => {
     });
 });
 describe("extractNames()", () => {
+    it("数组空洞（补丁移除内置命令条目留下的 elision）不崩、跳过空槽", () => {
+        // eslint-disable-next-line no-sparse-arrays
+        const withHole = [{ name: "settings" }, undefined, { value: "x" }, null];
+        const names = extractNames(withHole);
+        assert.ok(names.has("settings"));
+        assert.ok(names.has("x"));
+    });
     it("SlashCommand 取 name,AutocompleteItem 取 value", () => {
         const names = extractNames([{ name: "team" }, { value: "exit" }, {}, { name: "" }]);
         assert.deepEqual([...names].sort(), ["exit", "team"]);

@@ -68,6 +68,8 @@ function toItem(entry: CommandEntryLike): SuggestionItem {
 export function extractNames(commands: CommandEntryLike[] | undefined): Set<string> {
 	const names = new Set<string>();
 	for (const entry of commands ?? []) {
+		// pi 侧数组可能有空洞/空槽（内置命令表被补丁移除条目时留下 elision）——跳过
+		if (entry === null || entry === undefined) continue;
 		const name = entry.name ?? entry.value;
 		if (name) names.add(name);
 	}

@@ -26,6 +26,9 @@ function toItem(entry) {
 export function extractNames(commands) {
     const names = new Set();
     for (const entry of commands ?? []) {
+        // pi 侧数组可能有空洞/空槽（内置命令表被补丁移除条目时留下 elision）——跳过
+        if (entry === null || entry === undefined)
+            continue;
         const name = entry.name ?? entry.value;
         if (name)
             names.add(name);

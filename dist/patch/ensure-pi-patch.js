@@ -35,6 +35,8 @@ const SUBAGENTS_PACKAGE = "@tintinweb/pi-subagents";
 const HAPI_SUBAGENTS_DIR_MARKER = "hapiSubagentsDir";
 /** 隐藏 pi 内置 /compact（补全与命令表，压缩权移交 billion-context）的 marker */
 const HAPI_COMPACT_HIDE_MARKER = "hapiCompactHide";
+/** /compact 条目移除后数组空洞的源头过滤（补全项不含 undefined）的 marker */
+const HAPI_COMPACT_FILTER_MARKER = "hapiCompactFilter";
 /** SubagentWorkflow 派发模型列表钩子的 marker */
 const HAPI_SUBAGENT_MODELS_MARKER = "__hplSubagentModelsPick";
 /** 状态行追加不覆盖的 marker（showStatus 连续状态不再互相替换） */
@@ -181,6 +183,14 @@ export const PATCH_RULES = [
         replace: "/*hapiCompactHide*/,",
         occurrences: 1,
         marker: HAPI_COMPACT_HIDE_MARKER,
+    },
+    {
+        file: PI_BUNDLE_CHUNKS,
+        signature: "BUILTIN_SLASH_COMMANDS",
+        find: "slashCommands=BUILTIN_SLASH_COMMANDS.map(command=>",
+        replace: "slashCommands=BUILTIN_SLASH_COMMANDS.filter(Boolean).map(command=>/*hapiCompactFilter*/",
+        occurrences: 1,
+        marker: HAPI_COMPACT_FILTER_MARKER,
     },
     // ── 状态行追加不覆盖：pi 的 showStatus 对连续状态就地替换（防刷屏），扩展经
     //    ctx.ui.notify 发的多条提示会互相顶掉。去掉替换分支后每条通知各占一行；
