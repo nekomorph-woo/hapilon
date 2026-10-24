@@ -24,8 +24,7 @@ const NPM_EXTENSIONS = [
     ["@zhushanwen/pi-ask-user", "index.ts"],
     ["@narumitw/pi-btw", "dist/index.ts"],
     ["pi-web-access", "index.ts"],
-    // MCP 桥接（入口取自包内 pi.extensions 声明）
-    ["pi-mcp-adapter", "index.ts"],
+    // MCP 桥接已切 pi 内置（builtin:mcp）：agentDir/mcp.json 由内核直接读取，不再需要 adapter 扩展。
     // 后台任务原语（background/monitor/jobs 三 tool）：命令退出经
     // pi.sendMessage(triggerTurn) 唤醒 agent。选极简版 @nklisch 而非
     // ismailsaleekh 主包——主包 /tasks 与 pi-tasks 撞名且带 Fusion 等冗余。
@@ -49,7 +48,7 @@ const NPM_EXTENSIONS = [
  */
 export function resolveExtensionEntry(pkg, entry, resolve) {
     // 主路径：resolve <pkg>/package.json 再拼入口。
-    // 部分包（如 pi-mcp-adapter、ponytail）用 exports 字段锁死子路径，
+    // 部分包（如 ponytail）用 exports 字段锁死子路径，
     // `./package.json` 不在白名单 → ERR_PACKAGE_PATH_NOT_EXPORTED。
     // 降级：resolve 包主入口，从其目录**向上找包根**（含 package.json 的目录）
     // 再拼接——主入口可能在深层子目录（ponytail 的主入口在 .opencode/plugins/），

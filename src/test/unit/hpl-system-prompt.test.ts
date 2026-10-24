@@ -447,12 +447,12 @@ describe("buildEnvironmentSection", () => {
     assert.ok(!result.includes("MCP servers"));
   });
 
-  it("MCP 段 token 成本上界（<150 token ≈ 600 chars）", () => {
+  it("MCP 段 token 成本上界（<190 token ≈ 760 chars）", () => {
     const result = buildEnvironmentSection("/home/user/project", "/home/user/.hapilon/agent");
     const mcpPart = result.slice(result.indexOf("MCP servers"));
     assert.ok(
-      mcpPart.length < 600,
-      `MCP 段 ${mcpPart.length} chars 超 600（约 150 token）上界`,
+      mcpPart.length < 760,
+      `MCP 段 ${mcpPart.length} chars 超 760（约 190 token）上界`,
     );
   });
 

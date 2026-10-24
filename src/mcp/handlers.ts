@@ -19,7 +19,7 @@ import {
  *   hapi mcp remove <name> [-y]
  *
  * 写入走 config-store 的 schema 校验与读-改-写；修改需重启会话生效
- * （adapter 在会话启动时读 mcp.json，lazy lifecycle 首次调用才 spawn）。
+ * （pi 内置 MCP 在会话启动时读 mcp.json）。
  */
 
 function usage(): never {
@@ -29,7 +29,7 @@ function usage(): never {
   hapi mcp list                                                     列出已配置 server
   hapi mcp remove <name> [-y]                                       删除 server（-y 跳过确认）
 
-配置文件: mcp.json（由 pi-mcp-adapter 读取；修改后重启会话生效）`);
+配置文件: mcp.json（pi 内置 MCP 读取；修改后重启会话生效）`);
   process.exit(1);
 }
 

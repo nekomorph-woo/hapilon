@@ -9,9 +9,9 @@ import { resolveNpmExtensionPaths, resolveExtensionEntry } from "../../extension
 describe("resolveNpmExtensionPaths()", () => {
   it("解析出全部 npm 扩展的绝对入口路径", () => {
     const paths = resolveNpmExtensionPaths();
-    // 2 个 tintinweb 包 + 集成四包 + pi-mcp-adapter
+    // 2 个 tintinweb 包 + 集成四包
     // + @nklisch/pi-background-tasks + 用户实测对（computer-use/browser-use）+ ponytail
-    assert.equal(paths.length, 11);
+    assert.equal(paths.length, 10);
     for (const p of paths) {
       assert.ok(existsSync(p), `入口文件应存在: ${p}`);
     }
@@ -31,10 +31,9 @@ describe("resolveNpmExtensionPaths()", () => {
     assert.ok(webAccess.endsWith("pi-web-access/index.ts"), `web-access: ${webAccess}`);
   });
 
-  it("pi-mcp-adapter 入口与包内 pi.extensions 声明一致", () => {
+  it("MCP 走 pi 内置（builtin:mcp），npm 扩展里没有 adapter", () => {
     const paths = resolveNpmExtensionPaths();
-    const adapter = paths.find((p) => p.includes("pi-mcp-adapter"));
-    assert.ok(adapter?.endsWith("pi-mcp-adapter/index.ts"), `mcp-adapter: ${adapter}`);
+    assert.ok(!paths.some((p) => p.includes("mcp")), `不应再有 MCP 扩展条目: ${paths.filter((p) => p.includes("mcp"))}`);
   });
 
   it("pi-background-tasks 入口在 ponytail 之前（包内 pi.extensions 声明）", () => {

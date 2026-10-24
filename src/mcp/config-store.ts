@@ -5,7 +5,7 @@ import { Data, Effect } from "effect";
 /**
  * mcp.json 配置存取（通道 B 的存储层）。
  *
- * pi-mcp-adapter 从 agentDir/mcp.json 读 server 声明（transport 有
+ * pi 内置 MCP 从 agentDir/mcp.json 读 server 声明（transport 有
  * stdio / http 两类）。此模块做 schema 校验 + 读-改-写，供
  * `hapi mcp add/list/remove` 子命令使用；校验失败一律抛
  * McpConfigError（Fail Fast——写坏配置文件比拒绝写入更糟）。
