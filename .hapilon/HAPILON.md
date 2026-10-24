@@ -41,7 +41,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 - 仓库常有并行会话写入：commit 前 `git status` 逐条过目，显式路径 staging，禁 `git add -A`。
 - 不主动 push；用户明确要求才 push / 走 PR。
 
-## 版本规范（melo）
+## 版本规范
 
 - 初始版本 0.1.0。
 - 第 1 位（major）：必须用户指定才能升级。
