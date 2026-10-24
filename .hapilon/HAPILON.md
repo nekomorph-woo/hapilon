@@ -67,7 +67,6 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 ## 已知坑
 
 - Effect 风格是高频失守点：连写过 Effect 的人也会在赶活时退回裸 throw/async——review 与自检时优先看这条。（习惯坑）
-
 - dev 模式 `devhapi` 的 HAPILON_HOME 是 `~/.hapilon-dev`（配置、sessions、模型档位都在那边，别查错家目录）。（事实坑）
 - model-tiers 双层配置：全局 `~/.hapilon*/model-tiers.json` + 项目 `.hapilon/model-tiers.json`，项目按档覆盖全局。（事实坑）
 - teams 配置（`~/.hapilon-dev/teams/`）的 role.model 支持 `tier:<name>[<index>]` 指代与具体 id，过期 id 自动回落档位[0]。（事实坑）
