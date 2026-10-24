@@ -70,6 +70,10 @@ function resolveAuthEffect(ctx, model) {
         headers: result.headers,
     } : undefined), Effect.catchAll(() => Effect.succeed(undefined)));
 }
+/** tool ctx 版凭证解析（ExtensionContext 与 CommandContext 同构，仅类型不同） */
+function resolveAuthEffectForTool(ctx, model) {
+    return resolveAuthEffect(ctx, model);
+}
 export function loadQuotaEffect(ctx, model) {
     const provider = model.provider;
     if (!isSupportedProvider(provider)) {
@@ -86,6 +90,53 @@ export function loadQuotaEffect(ctx, model) {
         })));
         return fields;
     });
+}
+// ─── quota_check 模型侧工具（额度哨兵的数据出口）─────────────────────
+/** 窗口水位等级：>=97 HOT（哨兵须行动）；>=90 WARN（提高检查频率）；否则 OK */
+export function quotaWindowLevel(percent) {
+    if (percent >= 97)
+        return "HOT";
+    if (percent >= 90)
+        return "WARN";
+    return "OK";
+}
+/** 滚动窗口（5h 这类会重置的）vs 长周期窗口（wk/mo，等不起） */
+export function isRollingWindow(window) {
+    return /h$/.test(window);
+}
+function remainingText(resetAt, now) {
+    if (resetAt === undefined || resetAt <= now)
+        return "";
+    const minutes = Math.floor((resetAt - now) / 60000);
+    const text = minutes < 60
+        ? `${minutes}m`
+        : minutes < 60 * 48
+            ? `${Math.floor(minutes / 60)}h${minutes % 60 > 0 ? ` ${minutes % 60}m` : ""}`
+            : `${Math.floor(minutes / 1440)}d`;
+    return `（剩 ${text}）`;
+}
+/** quota_check 的可读输出：逐窗口水位行 + 机器可判的 verdict 行 */
+export function formatQuotaCheckText(snapshot, now) {
+    const lines = snapshot.windows.map((w) => {
+        const level = quotaWindowLevel(w.percent);
+        const reset = w.resetAt === undefined ? "" : ` 重置 ${new Date(w.resetAt).toLocaleString("zh-CN", { hour12: false })}`;
+        return `${w.window}  ${Math.round(w.percent)}%${reset}${remainingText(w.resetAt, now)}  ${level}`;
+    });
+    const hot = snapshot.windows.filter((w) => quotaWindowLevel(w.percent) === "HOT");
+    const warn = snapshot.windows.filter((w) => quotaWindowLevel(w.percent) === "WARN");
+    const parts = [];
+    if (hot.length > 0) {
+        const rolling = hot.filter((w) => isRollingWindow(w.window)).map((w) => w.window);
+        const fixed = hot.filter((w) => !isRollingWindow(w.window)).map((w) => w.window);
+        if (rolling.length > 0)
+            parts.push(`hot_rolling=${rolling.join(",")}`);
+        if (fixed.length > 0)
+            parts.push(`hot_fixed=${fixed.join(",")}`);
+    }
+    if (warn.length > 0)
+        parts.push(`warn=${warn.map((w) => w.window).join(",")}`);
+    const verdict = parts.length > 0 ? parts.join("; ") : "all_ok";
+    return [...lines, `verdict: ${verdict}`].join("\n");
 }
 // ─── 后台轮询（footer 数据源）────────────────────────────────────────
 // 10 分钟兜底刷新；及时性由 /quota-usage 命令触发的 refreshCache 保证
@@ -174,6 +225,46 @@ export default function hplQuotaUsage(pi) {
             return;
         // 换 provider：换掉轮询目标，旧缓存由 footer 的 provider 匹配兜底不再展示
         startPollingFor(ctx);
+    });
+    // 模型侧额度查询：额度哨兵 skill 的数据出口（判定阈值内置于输出，模型只需按规则行动）
+    pi.registerTool({
+        name: "quota_check",
+        label: "查询额度水位",
+        description: "查询当前模型 provider 的 coding plan 额度水位（各窗口已用百分比、重置时间与等级）。"
+            + "长任务开工前、批次完成后、或调用连续失败/限流时主动调用；输出含 verdict 行"
+            + "（all_ok / warn=... / hot_rolling=... / hot_fixed=...），按额度哨兵技能的规则行动。",
+        parameters: {
+            type: "object",
+            properties: {
+                provider: { type: "string", description: "可选：指定 provider（缺省用当前模型）" },
+            },
+        },
+        execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+            const provider = typeof params.provider === "string" && params.provider.trim() !== ""
+                ? params.provider.trim()
+                : ctx.model?.provider;
+            if (!provider)
+                return { details: {}, content: [{ type: "text", text: "无法确定 provider（当前无模型，也未传 provider 参数）" }] };
+            if (!isSupportedProvider(provider)) {
+                return { details: {}, content: [{ type: "text", text: `provider ${provider} 未提供公开用量查询（支持：${[...SUPPORTED_PROVIDERS].join("、")}）` }] };
+            }
+            const model = ctx.model !== undefined && ctx.model.provider === provider
+                ? ctx.model
+                : ctx.modelRegistry.getAll().find((m) => m.provider === provider);
+            if (!model)
+                return { details: {}, content: [{ type: "text", text: `provider ${provider} 在可用模型列表中不存在` }] };
+            const auth = await Effect.runPromise(resolveAuthEffectForTool(ctx, model));
+            if (!auth)
+                return { details: {}, content: [{ type: "text", text: `未找到 ${provider} 的凭证，请先 /login` }] };
+            try {
+                const snapshot = await fetchAndParseSnapshot(provider, auth, Date.now());
+                writeQuotaSnapshot({ ...snapshot, provider: quotaNamespace(provider) });
+                return { details: {}, content: [{ type: "text", text: formatQuotaCheckText(snapshot, Date.now()) }] };
+            }
+            catch (error) {
+                return { details: {}, content: [{ type: "text", text: `额度查询失败：${error instanceof Error ? error.message : String(error)}` }] };
+            }
+        },
     });
     pi.registerCommand("quota-usage", {
         description: "Show quota or balance for all configured providers",

@@ -14,7 +14,7 @@ export function setPolicySection(text: string | undefined, mode?: EffectMode): v
   policyMode = mode;
 }
 
-/** hpl-skills 查询当前会话 policy mode；未计算或异常时不注入 skill。 */
+/** hpl-skills-discover 查询当前会话 policy mode；未计算或异常时不注入 skill。 */
 export function getEffectPolicyMode(): EffectMode | undefined {
   return policyMode;
 }

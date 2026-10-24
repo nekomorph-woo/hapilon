@@ -499,7 +499,7 @@ describe("buildHeaderLines()", () => {
     modelName: "glm-5-turbo",
     cwd: "/Volumes/Under_M2/morphiiouo/hapilon",
     homeDir: "/Users/test",
-    extensions: ["hpl-skills", "hpl-footer", "hpl-panel-viewer"],
+    extensions: ["hpl-skills-discover", "hpl-footer", "hpl-panel-viewer"],
     piUpdate: "0.80.10",
   };
 

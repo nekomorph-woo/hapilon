@@ -112,6 +112,7 @@ describe("hpl-quota-usage 命令", () => {
     hplQuotaUsage({
       on: () => {},
       registerCommand: (name: string, definition: { handler: Function }) => commands.set(name, definition),
+      registerTool: () => {},
     } as never);
     assert.ok(commands.has("quota-usage"));
 
@@ -151,6 +152,7 @@ describe("hpl-quota-usage 命令", () => {
       hplQuotaUsage({
         on: () => {},
         registerCommand: (name: string, definition: { handler: Function }) => commands.set(name, definition),
+        registerTool: () => {},
       } as never);
 
       const notifications: string[] = [];

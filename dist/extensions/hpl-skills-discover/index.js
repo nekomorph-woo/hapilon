@@ -1,5 +1,5 @@
 /**
- * hpl-skills — hapilon 技能发现与注入扩展（resources_discover）
+ * hpl-skills-discover — hapilon 技能发现与注入扩展（resources_discover）
  *
  * Skills 渐进式披露由 Pi 原生引擎自动处理（resources_discover 事件）。
  *

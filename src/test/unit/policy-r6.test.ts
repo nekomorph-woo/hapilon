@@ -7,7 +7,7 @@ import { getEffectPolicyMode, resetPolicySection, setPolicySection } from "../..
 import hplContext, {
   discoverBuiltInSkillsEffect,
   resolveHapilonSkillsDirEffect,
-} from "../../extensions/hpl-skills/index.js";
+} from "../../extensions/hpl-skills-discover/index.js";
 import { Effect } from "effect";
 
 const ORIGINAL_HOME = process.env.HOME;
@@ -106,7 +106,7 @@ describe("Policy R6 effect-typescript skill", () => {
 
   it("从 dist 模块位置向上解析包根，资源缺失时静默跳过", () => {
     const root = mkdtempSync(join(tmpdir(), "hapilon-r6-pkg-"));
-    const distModule = join(root, "dist", "extensions", "hpl-skills");
+    const distModule = join(root, "dist", "extensions", "hpl-skills-discover");
     mkdirSync(distModule, { recursive: true });
     writeFileSync(join(root, "package.json"), "{}");
     const resources = join(root, "resources", "skills");

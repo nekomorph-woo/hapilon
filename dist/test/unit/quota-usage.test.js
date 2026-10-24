@@ -100,6 +100,7 @@ describe("hpl-quota-usage 命令", () => {
         hplQuotaUsage({
             on: () => { },
             registerCommand: (name, definition) => commands.set(name, definition),
+            registerTool: () => { },
         });
         assert.ok(commands.has("quota-usage"));
         const notifications = [];
@@ -137,6 +138,7 @@ describe("hpl-quota-usage 命令", () => {
             hplQuotaUsage({
                 on: () => { },
                 registerCommand: (name, definition) => commands.set(name, definition),
+                registerTool: () => { },
             });
             const notifications = [];
             const deepseekModel = makeModel("deepseek");

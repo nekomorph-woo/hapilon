@@ -5,7 +5,7 @@
  * - 只注入 HAPILON.md（目录根 + .pi/ 子目录）——AGENTS.md / CLAUDE.md
  *   不读取不注入（hapilon 以 --no-context-files 关闭内核 AGENTS/CLAUDE 识别，
  *   上下文体系由 HAPILON.md + rules 接管，外部目录同样遵守）
- * - 外部目录 skills 不注入、不注册（--no-skills + hpl-skills 受控收集同理）
+ * - 外部目录 skills 不注入、不注册（--no-skills + hpl-skills-discover 受控收集同理）
  *
  * 保留自上游：/add-dir /suggest-dirs /remove-dir /dirs 命令、
  * add_directory / search_external_files 工具、TUI widget、session 持久化
