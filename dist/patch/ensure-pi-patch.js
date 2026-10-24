@@ -35,6 +35,8 @@ const SUBAGENTS_PACKAGE = "@tintinweb/pi-subagents";
 const HAPI_SUBAGENTS_DIR_MARKER = "hapiSubagentsDir";
 /** 隐藏 pi 内置 /compact（补全与命令表，压缩权移交 billion-context）的 marker */
 const HAPI_COMPACT_HIDE_MARKER = "hapiCompactHide";
+/** bg-task 完成通知从聊天区永久行改为 footer 短暂展示的 marker */
+const HAPI_BG_DONE_MARKER = "hapiBgDone";
 /** /compact 条目移除后数组空洞的源头过滤（补全项不含 undefined）的 marker */
 const HAPI_COMPACT_FILTER_MARKER = "hapiCompactFilter";
 /** SubagentWorkflow 派发模型列表钩子的 marker */
@@ -191,6 +193,18 @@ export const PATCH_RULES = [
         replace: "slashCommands=BUILTIN_SLASH_COMMANDS.filter(Boolean).map(command=>/*hapiCompactFilter*/",
         occurrences: 1,
         marker: HAPI_COMPACT_FILTER_MARKER,
+    },
+    // ── bg-task 完成通知：从 notify()（聊天区永久行）改为 setStatus（footer 5s
+    //    自动清除）——hapiStatusStack 补丁使 notify 永久堆积，完成消息不该占聊天区。
+    //    唤醒消息（wake → pi.sendMessage triggerTurn）不受影响。
+    {
+        base: "hapilon",
+        package: BACKGROUND_TASKS_PACKAGE,
+        file: "extensions/background-tasks.ts",
+        find: '      notify(ok ? "success" : "error", `background job #${job.id} "${label}" finished: ${reason}`, job);',
+        replace: '      // hapilon: hapiBgDone — 完成通知走 footer 短暂展示，不占聊天区\n      // （hapiStatusStack 补丁使 notify 永久堆积，完成消息会刷屏）\n      lastUi?.setStatus?.("bg-done", `${ok ? "\u2705" : "\u274c"} #${job.id} ${label}: ${reason}`);\n      setTimeout(() => lastUi?.setStatus?.("bg-done", undefined), 5000);',
+        occurrences: 1,
+        marker: HAPI_BG_DONE_MARKER,
     },
     // ── 状态行追加不覆盖：pi 的 showStatus 对连续状态就地替换（防刷屏），扩展经
     //    ctx.ui.notify 发的多条提示会互相顶掉。去掉替换分支后每条通知各占一行；
