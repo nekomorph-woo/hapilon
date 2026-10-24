@@ -1,12 +1,16 @@
 ---
 name: research
-description: Investigate a question against high-trust primary sources and capture the findings as a Markdown file in the repo. Use when the user wants a topic researched, docs or API facts gathered, or reading legwork delegated to a background agent.
+description: 对一个问题做高信源调研并把结论沉淀为仓库内的 Markdown 笔记。用户要调研某个主题、收集文档或 API 事实、或把阅读腿活交给后台 agent 时使用。
 ---
 
-Spin up a **background agent** to do the research, so you keep working while it reads.
+# research
 
-Its job:
+起一个**后台 agent** 去做调研——它读书的时候你继续干活。
 
-1. Investigate the question against **primary sources** — official docs, source code, specs, first-party APIs — not a secondary write-up of them. Follow every claim back to the source that owns it.
-2. Write the findings to a single Markdown file, citing each claim's source. Cite the commit SHA (or doc version) the findings rest on, so a later reader can check for drift.
-3. Save it where the repo already keeps such notes; match the existing convention, and if there is none, write it to `docs/research/YYYY-MM-DD-<topic>.md` and tell the user where it went. If the user names a location, use that instead.
+它的任务：
+
+1. 对着**一手信源**查证问题——官方文档、源码、规范、第一方 API，而不是二手转述。每个论断都追回拥有它的那个源头。
+2. 把结论写进单个 Markdown 文件，逐条论断注明出处；引用 commit SHA（或文档版本），让后来的读者能查漂移。
+3. 默认落盘到项目的 `.hapilon/research/YYYY-MM-DD-<主题>.md`（目录不存在就创建；确认仓库 `.gitignore` 已忽略 `.hapilon/`）。用户点名了位置就用用户的位置。
+
+笔记写完，用一句话向用户报告落点与核心结论——不整篇复述。
