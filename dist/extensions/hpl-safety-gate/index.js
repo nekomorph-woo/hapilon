@@ -24,6 +24,8 @@ import { describeScenario, judgeCommand, recentAllows, readGateAutoConfig, setGa
 import { deriveAllowPattern } from "./derive-allow.js";
 import { hasSensitiveReadArg, sensitiveReadLabels, splitCommandSegments } from "./sensitive-args.js";
 import { requestConfirm } from "../hpl-protected-paths/confirm.js";
+import { runTune, buildCalibrationSet, quotaStopReason, readTuneState, } from "./tune.js";
+import { readQuotaSnapshots } from "../hpl-quota-usage/cache.js";
 import { addTrust, isCommandTrusted, initProjectTrust } from "../../config/trust-store.js";
 // subagent 会话探针（分级依赖）：与 hpl-protected-paths 同款。
 // bash 读敏感文件时 subagent block、主会话 confirm——与 read 分级一致。
@@ -185,6 +187,59 @@ export default function (pi) {
     });
     // ─── /gate-auto-mode：Auto 判定开关（无对话框三态） ─────────────────
     const GATE_AUTO_MODE_USAGE = "用法：/gate-auto-mode [on|off]（不带参数查看状态）";
+    pi.registerCommand("gate-tune", {
+        description: "安全门判定 prompt 自动调参（校准集=历史+人工判例+红队；反思重写→重评→保留最优）。"
+            + "用法：/gate-tune [--resume] [--restart] [--rounds N]；配额 HOT 自动存档暂停",
+        getArgumentCompletions: (query) => argumentCompletions([
+            { value: "--resume", label: "--resume", description: "从上次存档继续调参" },
+            { value: "--restart", label: "--restart", description: "丢弃存档从头调参" },
+            { value: "--rounds 3", label: "--rounds N", description: "反思轮数（缺省 3，至多 6）" },
+        ], query),
+        handler: async (args, ctx) => {
+            const resume = /\b--resume\b/.test(args);
+            const restart = /\b--restart\b/.test(args);
+            const roundsMatch = /--rounds\s+(\d+)/.exec(args);
+            const maxRounds = roundsMatch ? Math.min(Number.parseInt(roundsMatch[1], 10), 6) : 3;
+            const prior = readTuneState(ctx.cwd);
+            if (prior && !resume && !restart) {
+                ctx.ui.notify?.("已有调参存档：用 /gate-tune --resume 继续，或 --restart 从头开始。", "warning");
+                return;
+            }
+            const cases = buildCalibrationSet(ctx.cwd);
+            if (cases.length < 20) {
+                ctx.ui.notify?.(`校准集不足（${cases.length} 条）——先正常使用积累历史再调参。`, "warning");
+                return;
+            }
+            ctx.ui.notify?.(`调参开始：校准集 ${cases.length} 条（历史/人工判例/红队），最多 ${maxRounds} 轮反思；每轮前查配额。`, "info");
+            if (gateAutoConfig === undefined)
+                gateAutoConfig = readGateAutoConfig();
+            const autoCfg = gateAutoConfig;
+            const report = await runTune({ available: ctx.modelRegistry.getAvailable(), complete: (m, r, o) => ctx.modelRegistry.complete(m, r, o) }, {
+                cwd: ctx.cwd,
+                modelSpec: autoCfg.model,
+                reflectionModelSpec: "tier:sonnet",
+                timeoutMs: autoCfg.timeoutMs,
+                maxRounds,
+                targetPassRate: 0.95,
+                quotaCheck: () => quotaStopReason(readQuotaSnapshots()),
+            });
+            const lines = [
+                `基线：pass ${(report.baseline.passRate * 100).toFixed(0)}% / catch ${(report.baseline.catchRate * 100).toFixed(0)}% / danger ${report.baseline.dangerCount}`,
+                ...report.rounds.map((r) => `第${r.round}轮：pass ${(r.metrics.passRate * 100).toFixed(0)}% / catch ${(r.metrics.catchRate * 100).toFixed(0)}% / danger ${r.metrics.dangerCount}${r.kept ? " ✓保留" : " 未达优"}`),
+                `终态：pass ${(report.final.passRate * 100).toFixed(0)}% / catch ${(report.final.catchRate * 100).toFixed(0)}% / danger ${report.final.dangerCount}`,
+                report.wroteOverride ? "✓ 已写入 gate-judge-prompt.md（判定层即时生效）" : "未写入覆盖（未超基线或红队未全拦）",
+            ];
+            if (report.stoppedByQuota) {
+                lines.push(`⏸ 配额暂停（${report.stoppedByQuota.windows.join("、")}）——已存档，重置后 /gate-tune --resume 续跑`);
+            }
+            if (report.final.failures.length > 0 && report.final.failures.length <= 8) {
+                lines.push("剩余错例：");
+                for (const f of report.final.failures)
+                    lines.push(`  [${f.label}→${f.got}] ${f.command.slice(0, 70)}`);
+            }
+            ctx.ui.notify?.(lines.join("\n"), "info");
+        },
+    });
     pi.registerCommand("gate-auto-mode", {
         description: "查看/切换安全门 Auto 判定（写入 settings.json 的 gateAuto.enabled）",
         getArgumentCompletions: (query) => argumentCompletions([{ value: "on", label: "on" }, { value: "off", label: "off" }], query),
