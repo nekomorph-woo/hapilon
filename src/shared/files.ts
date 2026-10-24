@@ -2,7 +2,7 @@
  * files.ts — hapilon 共享文件发现函数（基于文件系统 I/O）
  *
  * 扫描 .hapilon/ 目录体系，收集 HAPILON.md / rules / skills 文件。
- * 由 hpl-context 和 hpl-system-prompt 两个扩展共用。
+ * 由 hpl-skills 和 hpl-system-prompt 两个扩展共用。
  */
 
 import { readdirSync, readFileSync, existsSync } from "node:fs";
