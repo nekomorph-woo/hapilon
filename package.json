@@ -41,7 +41,7 @@
     "@tintinweb/pi-tasks": "^0.9.1",
     "@zhushanwen/pi-ask-user": "^7.4.1",
     "effect": "^3.22.1",
-    "pi-web-access": "^0.31.0",
+    "pi-web-access": "^0.44.0",
     "typescript": "5.9.3",
     "undici": "^8.10.0"
   },
