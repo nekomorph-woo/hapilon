@@ -1,32 +1,32 @@
 ---
 name: effect-typescript
-description: Guide for writing Effect TypeScript (typed errors, services, layers, Schema). Use when the project uses Effect or when Effect is the chosen architecture for a new TypeScript project.
+description: Effect TypeScript 写法指南（typed errors、services、layers、Schema）。项目使用 Effect、或新 TypeScript 项目选定 Effect 架构时使用。
 ---
 
-# Effect TypeScript patterns in hapilon
+# Effect TypeScript 实战模式
 
-Use these patterns when implementing Effect code. Read `patterns.md` and the cited source before making a substantial change; the examples below are from hapilon itself.
+写 Effect 代码时遵循这些模式。做实质性改动前先读 `patterns.md` 与其引用的源码；下面的例子全部取自 hapilon 本体。
 
-## 1. Typed errors
+## 1. 类型化错误
 
-Represent expected failures with `Data.TaggedError` and `Effect.fail`; do not use bare `throw` inside Effect contexts. See [`src/config/hapilon-home.ts`](../../../src/config/hapilon-home.ts), `HapilonHomeError` and `hapilonHomeEffect`.
+用 `Data.TaggedError` + `Effect.fail` 表达可预期的失败；Effect 上下文里不裸 throw。见 [`src/config/hapilon-home.ts`](../../../src/config/hapilon-home.ts) 的 `HapilonHomeError` 与 `hapilonHomeEffect`。
 
-## 2. Never-failing degradation
+## 2. 永不失败的降级
 
-When the public behavior is warning-and-fallback, catch the side effect and expose `Effect<Success, never>`. See [`src/config/config-io.ts`](../../../src/config/config-io.ts), `readHapilonConfigEffect`, and [`src/extensions/hpl-effect-policy/inspector.ts`](../../../src/extensions/hpl-effect-policy/inspector.ts), `inspectProjectEffect`.
+对外行为是「警告并回落」时，接住副作用、暴露 `Effect<Success, never>`。见 [`src/config/config-io.ts`](../../../src/config/config-io.ts) 的 `readHapilonConfigEffect`，与 [`src/extensions/hpl-effect-policy/inspector.ts`](../../../src/extensions/hpl-effect-policy/inspector.ts) 的 `inspectProjectEffect`。
 
-## 3. Thin synchronous wrappers
+## 3. 薄同步包装
 
-Keep legacy sync signatures as thin `Effect.runSync(Effect.either(...))` wrappers and inspect `_tag`. Translate typed failures to ordinary `Error` only where the legacy API requires it; preserve domain instances where callers use `instanceof`. See [`src/config/hapilon-home.ts`](../../../src/config/hapilon-home.ts), `hapilonHome`, and [`src/mcp/config-store.ts`](../../../src/mcp/config-store.ts).
+遗留同步签名保留为 `Effect.runSync(Effect.either(...))` 的薄包装并检查 `_tag`。仅在遗留 API 强制时把类型化失败翻译成普通 `Error`；调用方用 `instanceof` 的地方保留领域实例。见 [`src/config/hapilon-home.ts`](../../../src/config/hapilon-home.ts) 的 `hapilonHome` 与 [`src/mcp/config-store.ts`](../../../src/mcp/config-store.ts)。
 
-## 4. Composition
+## 4. 组合
 
-Use `Effect.gen` for sequential workflows, then `try`, `map`, `mapError`, and `catchTag` at the boundary that owns the policy. See [`src/cli/startup.ts`](../../../src/cli/startup.ts), `prepareStartupEffect`.
+顺序流程用 `Effect.gen`；`try`、`map`、`mapError`、`catchTag` 放在拥有策略的边界上。见 [`src/cli/startup.ts`](../../../src/cli/startup.ts) 的 `prepareStartupEffect`。
 
-## 5. Bounded asynchronous work
+## 5. 有界异步
 
-Wrap callback APIs with `Effect.async`, honor `AbortSignal`, and bound external work with a timeout; kill the child on timeout and return the established fallback. See [`src/extensions/hpl-add-dir/tools.ts`](../../../src/extensions/hpl-add-dir/tools.ts), `searchExternalFilesEffect`.
+回调 API 用 `Effect.async` 包装，尊重 `AbortSignal`，外部工作用超时封界；超时杀掉子进程并返回既定回落值。见 [`src/extensions/hpl-add-dir/tools.ts`](../../../src/extensions/hpl-add-dir/tools.ts) 的 `searchExternalFilesEffect`。
 
-## 6. Keep pure logic pure
+## 6. 纯逻辑保持纯净
 
-Do not Effect-wrap deterministic decisions. Keep pure functions free of Effect and Node imports, and use Effect only around side effects. See [`src/extensions/hpl-effect-policy/policy.ts`](../../../src/extensions/hpl-effect-policy/policy.ts), `decideEffectMode`.
+确定性决策不做 Effect 包装。纯函数不引 Effect 与 Node 依赖，Effect 只裹副作用。见 [`src/extensions/hpl-effect-policy/policy.ts`](../../../src/extensions/hpl-effect-policy/policy.ts) 的 `decideEffectMode`。

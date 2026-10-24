@@ -1,160 +1,149 @@
 ---
 name: understand-this-codebase
-description: Build the minimum useful mental model of unfamiliar or partially understood code — scoped to the current goal, following end-to-end flows rather than file lists, with conclusions labeled Observed / Inferred / Unknown. Use when onboarding to a repo, investigating how a feature or runtime flow works, or preparing a change.
+description: 对陌生或半熟的代码建立够用的最小心智模型——按当前目标裁剪范围，顺着端到端流程而非文件清单走，结论标注 实测 / 推断 / 未知。上手新仓库、调查某功能或运行时流程、准备改动时使用。
 ---
 
-# Understand This Codebase
+# 读懂这个代码库
 
-## Purpose
+## 目标
 
-Build the minimum useful mental model of unfamiliar or partially understood code.
+对陌生或半熟的代码建立**够用的最小心智模型**。
 
-The goal is not to read or explain everything. Understand enough of the relevant system to navigate it, reason about it, make a change safely, and know where to investigate next.
+不是读完讲全。是理解相关系统到这个程度：能导航、能推理、能安全动手、知道下一步该查哪。
 
-## Principles
+## 原则
 
-- Scope understanding to the current goal.
-- Treat unrelated parts of a large codebase as opaque unless they affect the current scope.
-- Understand behavior and architecture before low-level implementation details.
-- Prefer end-to-end flows over file-by-file explanations.
-- Spend attention according to business importance and risk.
-- Distinguish what the code proves from what is only inferred.
+- 理解范围跟着当前目标走。
+- 大仓库里与本范围无关的部分当黑盒，除非它影响当前范围。
+- 先懂行为与架构，再钻底层实现。
+- 端到端流程优先，逐文件讲解靠后。
+- 注意力按业务重要性与风险分配。
+- 分清代码证明了的和只是推断出来的。
 
-## Workflow
+## 流程
 
-### 1. Scope
+### 1. 定范围
 
-Determine what needs to be understood:
+先定要理解什么：
 
-- Whole system
-- Business area
-- Feature
-- Module or service
-- Runtime flow
-- Bug
-- Planned change
+- 整个系统
+- 业务域
+- 某功能
+- 模块或服务
+- 运行时流程
+- 某个 bug
+- 计划中的改动
 
-When a scope exists, do not explain the whole repository.
+有了范围，就不讲整个仓库。只有为理解上游触发、下游影响、共享数据、关键约束或外部依赖时才越界。
 
-Expand outside it only when necessary to understand upstream triggers, downstream effects, shared data, important constraints, or external dependencies.
+### 2. 画地图
 
-### 2. Map
+给相关区域建一张紧凑地图：
 
-Build a compact map of the relevant area:
+- 入口
+- 重要组件
+- 业务逻辑
+- 持久化
+- 基础设施
+- 外部集成
 
-- Entry points
-- Important components
-- Business logic
-- Persistence
-- Infrastructure
-- External integrations
+按职责讲清每个重要组件——不是只报文件名。关系难懂时配一张小图。
 
-Explain each important component by responsibility, not merely by filename.
+### 3. 走流程
 
-Use a small diagram when it makes the relationships easier to understand.
+顺着当前目标最重要的端到端流程走。每条流程讲清：
 
-### 3. Trace
+- 什么触发它
+- 从哪进入
+- 哪些组件参与
+- 关键决策发生在哪
+- 什么数据变了
+- 产生哪些副作用
+- 产出什么结果
 
-Follow the most important end-to-end flows for the current goal.
+有用时引用具体的文件、类、函数、测试。
 
-For each flow explain:
+### 4. 划边界
 
-- What triggers it
-- Where it enters
-- Which components participate
-- Where important decisions happen
-- What data changes
-- Which side effects occur
-- What result is produced
+识别：
 
-Reference concrete files, classes, functions, or tests when useful.
+- 谁拥有重要行为与数据
+- 关键依赖
+- 公共接口或契约
+- 副作用边界
+- 可疑的耦合与归属不清
 
-### 4. Boundaries
+不发明仓库里实际不存在的更干净架构。
 
-Identify:
+### 5. 找规则
 
-- Who owns important behavior and data
-- Important dependencies
-- Public interfaces or contracts
-- Side-effect boundaries
-- Suspicious coupling or unclear ownership
+识别对当前范围要紧的约束：
 
-Do not invent a cleaner architecture than the repository actually has.
+- 业务规则
+- 重要不变量
+- 一致性假设
+- 权限或归属规则
+- 其他必须恒真的条件
 
-### 5. Rules
+结论标注三档：
 
-Identify the constraints that matter to the current scope:
+- **实测**——有代码、配置或测试直接支撑。
+- **推断**——证据指向的大概率意图。
+- **未知**——无法可靠确立。
 
-- Business rules
-- Important invariants
-- Consistency assumptions
-- Authorization or ownership rules
-- Other conditions that must remain true
+### 6. 风险与下一钻
 
-Label conclusions as:
+只点出值得更深理解的区域：
 
-- **Observed** — directly supported by code, configuration, or tests.
-- **Inferred** — likely intent based on evidence.
-- **Unknown** — cannot be established reliably.
+- 核心业务行为
+- 重要副作用
+- 数据一致性
+- 并发或事务
+- 安全边界
+- 复杂耦合
+- 测试薄弱或缺失
 
-### 6. Risk & Next Depth
+推荐少量有用的深钻点，然后停。
 
-Highlight only the areas where deeper understanding is valuable:
+## 改动模式
 
-- Core business behavior
-- Important side effects
-- Data consistency
-- Concurrency or transactions
-- Security boundaries
-- Complex coupling
-- Weak or missing tests
+目标是一次具体改动时，分析围绕这条线收敛：
 
-Recommend a small number of useful deep dives, then stop.
+**当前行为 → 改动面 → 依赖 → 不变量 → 风险 → 验证**
 
-## Change Mode
+只理解到能安全改动的程度。实现后，把实际改动与预期改动面对账，报告有意义的意外影响。
 
-When the goal is a specific change, focus the analysis around:
+## 默认产出
 
-**Current Behavior → Change Surface → Dependencies → Invariants → Risks → Verification**
+第一轮保持紧凑：
 
-Understand only enough surrounding code to make the change safely.
+1. 范围
+2. 系统一段话
+3. 相关地图
+4. 关键流程
+5. 重要规则与不变量
+6. 风险区
+7. 下一步看哪
 
-After implementation, compare the actual change with the expected change surface and report meaningful unexpected impact.
+不自动滑进穷尽式实现细节。解释用项目既定领域术语（`.hapilon/CONTEXT.md` 有词汇表就用），说团队的语言。
 
-## Default Output
+## 护栏
 
-Keep the first pass compact:
+- 不倒仓库目录树。
+- 不讲无关模块。
+- 不拿文件清单冒充理解。
+- 不用自信的语气藏不确定性。
+- 不展开对当前目标无益的深层实现细节。
+- 人有足够上下文做下一个决策了，就停。
 
-1. Scope
-2. System in one paragraph
-3. Relevant map
-4. Critical flows
-5. Important rules and invariants
-6. Risk areas
-7. Where to look next
+## 表达
 
-Do not automatically continue into exhaustive implementation details.
+平实、具体。
 
-Use the project's established domain terms (`.hapilon/CONTEXT.md` when a glossary exists) so the explanation speaks the team's language.
-
-## Guardrails
-
-- Do not dump the repository tree.
-- Do not explain unrelated modules.
-- Do not equate a list of files with understanding.
-- Do not hide uncertainty behind confident language.
-- Do not expand into deep implementation details unless they help the current goal.
-- Stop when the human has enough context to make the next decision.
-
-## Communication
-
-Use plain, concrete language.
-
-- Translate unclear project terminology into plain language while preserving real identifiers for search.
-- Explain unfamiliar abbreviations on first use.
-- Prefer concrete execution flows over abstract descriptions.
-- Keep identifiers attached to their meaning and responsibility.
-- Separate observed facts, inference, and unknowns.
-- Avoid invented terminology, slogans, filler, repeated summaries, and unnecessary headings.
-- Start simple and add detail only when needed.
-
+- 项目行话翻成大白话，同时保留真实标识符供搜索。
+- 生僻缩写首现即释。
+- 具体执行流程优先于抽象描述。
+- 标识符永远连着它的含义与职责。
+- 实测事实、推断、未知分开说。
+- 不造词、不喊口号、不注水、不反复总结、不加没用的小标题。
+- 从简单起，确有必要再加细节。

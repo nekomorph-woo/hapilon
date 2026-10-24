@@ -1,145 +1,133 @@
 ---
 name: design-before-code
-description: Turn a confirmed requirement into a small, coherent design before implementation — frame the scope, trace the end-to-end flow, derive the model and boundaries, then challenge it and plan verifiable steps. Use when planning a feature, change, or system design, before any code is written.
+description: 把已确认的需求在动手前收敛成一份小而完整的设计——定范围、走通端到端流程、推导模型与边界，再自我攻击并排成可验证的步骤。规划功能、改动或系统设计时使用，先于任何代码。
 disable-model-invocation: true
 ---
 
-# Design Before Code
+# 动手前先设计
 
-## Purpose
+## 目标
 
-Help turn a confirmed requirement into a small, coherent design before implementation.
+把一份**已确认的需求**变成小而完整的设计，再进实现。
 
-The goal is not to design the complete future system. Build enough shared understanding that the human can make the important decisions and AI can implement with clear constraints.
+不是设计完整未来系统。是建立足够的共享理解：人能拍重要决策，AI 能带着清晰约束去实现。
 
-Do not write production code unless explicitly asked.
+不点名不写生产代码。
 
-## Principles
+## 原则
 
-- Design for the current confirmed business need, not imagined future requirements.
-- Make the main end-to-end flow coherent before going deep into local details.
-- Prefer the smallest design that preserves clear semantics, ownership, and important constraints.
-- Avoid speculative abstractions, extension points, and framework-driven structure.
-- Let new requirements evolve the design when they actually arrive.
-- AI should explore options, expose risks, and challenge assumptions. The human owns important tradeoffs and final decisions.
+- 为当前已确认的业务需求设计，不为想象中的未来需求设计。
+- 主端到端流程先自洽，再钻局部细节。
+- 在保住语义清晰、归属明确、关键约束成立的前提下，取最小设计。
+- 不做投机抽象、预留扩展点、框架驱动的结构。
+- 新需求真来了再让设计演化。
+- AI 负责探选项、亮风险、挑假设；重要取舍与最终决策归人。
 
-## Workflow
+## 流程
 
-### 1. Frame
+### 1. 定框
 
-Clarify the current design scope:
+澄清当前设计范围：
 
-- Who needs what?
-- What outcome must this iteration achieve?
-- What is explicitly out of scope?
-- What assumptions or unknowns could materially affect the design?
+- 谁需要什么？
+- 本轮迭代必须达成什么结果？
+- 明确不做什么？
+- 哪些假设或未知会实质影响设计？
 
-Keep the problem space separate from implementation choices.
+问题空间与实现选型分开。
 
-### 2. Flow
+### 2. 走流
 
-Describe the smallest meaningful end-to-end flow that delivers the required outcome.
+描述交付所需结果的最小有意义端到端流程。
 
-Start with the normal path. Make sure it reaches a real completion point before expanding into secondary cases.
+从主路径起，先确保它抵达真正的完成点，再展开次要分支。只识别当前流程可信所需的失败与替代路径。
 
-Identify only the failure or alternative paths required for the current flow to be trustworthy.
+### 3. 建模
 
-### 3. Model
+推导流程所需的概念与规则：
 
-Derive the concepts and rules required by the flow:
+- 核心业务概念
+- 重要关系
+- 必须持久化的数据或状态
+- 必须恒真的规则与不变量
 
-- Core business concepts
-- Important relationships
-- Data or state that must persist
-- Rules and invariants that must remain true
+不因「以后可能有用」建模。造新词前先查项目词汇表（`.hapilon/CONTEXT.md`）。
 
-Do not model concepts solely because they may be useful later.
+### 4. 划界
 
-Check the project's glossary (`.hapilon/CONTEXT.md`) for established terms before coining new ones.
+定重要职责归属：
 
-### 4. Boundaries
+- 谁拥有重要数据与行为？
+- 副作用发生在哪？
+- 哪些组件或外部系统必须交互？
+- 哪些边界需要显式契约？
 
-Decide where important responsibilities belong:
+只定当前流程所需的边界。
 
-- Who owns important data and behavior?
-- Where do side effects happen?
-- Which components or external systems must interact?
-- Which boundaries need an explicit contract?
+### 5. 攻击
 
-Define only boundaries required by the current flow.
+定稿前，让 AI 攻一遍这份设计：
 
-### 5. Challenge
+- 哪个假设可能站不住？
+- 漏了什么重要场景？
+- 有没有职责不清或重复？
+- 有没有多余的抽象？
+- 能不能再简单一点而不丢正确性？
+- 哪个决定翻代会很贵？
+- 哪个用词与项目词汇表打架？
 
-Before committing to the design, ask AI to attack it:
+真实当下的风险与假想的未来担忧分开。
 
-- What assumption may be wrong?
-- What important case is missing?
-- Is any responsibility unclear or duplicated?
-- Is any abstraction unnecessary?
-- Can the design be simpler without losing correctness?
-- What decision would be expensive to reverse?
-- Does any term here contradict the project's glossary?
+### 6. 排步
 
-Separate real current risks from hypothetical future concerns.
+把通过的设计排成小的、纵向的、可验证的实现步骤。每步定义：
 
-### 6. Plan
+- 目标
+- 预期行为
+- 相关区域
+- 重要约束
+- 怎么验证
 
-Turn the accepted design into small vertical, verifiable implementation steps.
+按能力排步，不按「写哪几个文件」排。
 
-For each step define:
+## 人审检查点
 
-- Goal
-- Expected behavior
-- Relevant area
-- Important constraints
-- How it will be verified
+实现前汇总：
 
-Prefer capabilities over file-writing tasks.
+- 当前范围
+- 端到端流程
+- 核心模型
+- 重要不变量
+- 职责边界
+- 关键设计决策
+- 实现顺序
+- 遗留风险与未知
 
-## Human Checkpoint
-
-Before implementation, summarize:
-
-- Current scope
-- End-to-end flow
-- Core model
-- Important invariants
-- Responsibility boundaries
-- Key design decisions
-- Implementation sequence
-- Remaining risks or unknowns
-
-If an unresolved decision materially affects the next step, stop for human judgment.
-
-Otherwise mark:
+有未决事项实质影响下一步时，停下等人拍板。否则标注：
 
 `READY FOR IMPLEMENTATION`
 
-## Archiving
+## 归档
 
-When the user wants a design kept as a record, write it in that task's dossier,
-`plan-task/<YYYY-MM-DD-slug>/design.md` in HAPILON_HOME (`$HAPILON_HOME/plan-task/`;
-devhapi: `~/.hapilon-dev/plan-task/`), alongside the task's brief — `/tmp` is
-never a landing zone.
+用户要把设计留档时，写进该任务的卷宗——HAPILON_HOME 下的
+`plan-task/<YYYY-MM-DD-slug>/design.md`（`$HAPILON_HOME/plan-task/`；
+devhapi：`~/.hapilon-dev/plan-task/`），与任务简报同放——`/tmp` 永远不是落点。
 
-## Guardrails
+## 护栏
 
-- Do not design the complete future system.
-- Do not add abstractions only for possible future reuse.
-- Do not expand every edge case automatically.
-- Do not confuse implementation structure with business design.
-- Do not silently make important product or architecture decisions.
-- Do not mechanically complete every stage when a human decision is needed.
+- 不设计完整未来系统。
+- 不为可能的未来复用加抽象。
+- 不自动展开每个边界情况。
+- 不把实现结构当业务设计。
+- 不替人静默做重要产品或架构决策。
+- 需要人拍板时不机械走完全部阶段。
 
-## Communication
+## 表达
 
-Use plain, concrete language.
+平实、具体。
 
-- Explain unfamiliar project terms and abbreviations on first use.
-- Prefer concrete flows and responsibilities over abstract jargon.
-- Separate known facts, assumptions, and unknowns.
-- Avoid invented terminology, slogans, filler, repeated summaries, and unnecessary headings.
-- Start simple and add detail only when it helps the current decision.
-
-
-
+- 生僻项目术语与缩写首现即释。
+- 具体流程与职责优先于抽象行话。
+- 已知事实、假设、未知分开说。
+- 不造词、不喊口号、不注水、不反复总结、不加没用的小标题。
+- 从简单起，对当前决策有帮助再加细节。

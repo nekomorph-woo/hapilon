@@ -1,10 +1,10 @@
-# Effect TypeScript pattern references
+# Effect TypeScript 模式参考
 
-These excerpts are intentionally tied to hapilon source paths so they can be read alongside the live implementation.
+以下摘录刻意钉在 hapilon 源码路径上，便于对照活实现阅读。
 
-## Typed errors and Fail
+## 类型化错误与 Fail
 
-Source: `src/config/hapilon-home.ts`.
+来源：`src/config/hapilon-home.ts`。
 
 ```ts
 export class HapilonHomeError extends Data.TaggedError("HapilonHomeError")<{
@@ -22,9 +22,9 @@ export const hapilonHomeEffect: Effect.Effect<string, HapilonHomeError> = Effect
 });
 ```
 
-## Never-failing degradation
+## 永不失败的降级
 
-Source: `src/config/config-io.ts` and `src/extensions/hpl-effect-policy/inspector.ts`.
+来源：`src/config/config-io.ts` 与 `src/extensions/hpl-effect-policy/inspector.ts`。
 
 ```ts
 export const readHapilonConfigEffect: Effect.Effect<HapilonConfig, never> = Effect.sync(() => {
@@ -43,9 +43,9 @@ export const inspectProjectEffect = (
 ): Effect.Effect<ProjectSignals, never> => Effect.sync(() => inspectProjectSync(cwd));
 ```
 
-## Thin wrappers
+## 薄包装
 
-Source: `src/config/hapilon-home.ts` and `src/mcp/config-store.ts`.
+来源：`src/config/hapilon-home.ts` 与 `src/mcp/config-store.ts`。
 
 ```ts
 export function hapilonHome(): string {
@@ -55,11 +55,11 @@ export function hapilonHome(): string {
 }
 ```
 
-MCP config wrappers deliberately rethrow the `McpConfigError` instance because callers test its domain type; do not blindly translate every typed error to a plain `Error`.
+MCP 配置的包装刻意重抛 `McpConfigError` 实例——调用方按领域类型判定；不要盲目把每个类型化错误都翻译成普通 `Error`。
 
-## Composition and catchTag
+## 组合与 catchTag
 
-Source: `src/cli/startup.ts`.
+来源：`src/cli/startup.ts`。
 
 ```ts
 export const prepareStartupEffect = (args: string[]) => Effect.gen(function* () {
@@ -74,13 +74,13 @@ export const prepareStartupEffect = (args: string[]) => Effect.gen(function* () 
 });
 ```
 
-## Bounded `Effect.async`
+## 有界的 `Effect.async`
 
-Source: `src/extensions/hpl-add-dir/tools.ts` (`searchExternalFilesEffect`). The implementation registers an abort handler, kills the child process on abort, and applies `Effect.timeout("10 seconds")` so a stuck `find` cannot hang the tool.
+来源：`src/extensions/hpl-add-dir/tools.ts`（`searchExternalFilesEffect`）。实现注册了 abort 处理器，中止时杀掉子进程，并用 `Effect.timeout("10 seconds")` 封界——卡死的 `find` 拖不挂工具。
 
-## Pure logic
+## 纯逻辑
 
-Source: `src/extensions/hpl-effect-policy/policy.ts`.
+来源：`src/extensions/hpl-effect-policy/policy.ts`。
 
 ```ts
 export function decideEffectMode(signals: ProjectSignals): EffectMode {

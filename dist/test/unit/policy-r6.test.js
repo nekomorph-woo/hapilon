@@ -114,7 +114,7 @@ describe("Policy R6 effect-typescript skill", () => {
         assert.ok(existsSync(skillPath));
         assert.match(content, /^name: effect-typescript/m);
         assert.match(content, /^description: .+/m);
-        for (const title of ["Typed errors", "Never-failing degradation", "Thin synchronous wrappers", "Composition", "Bounded asynchronous work", "Keep pure logic pure"]) {
+        for (const title of ["类型化错误", "永不失败的降级", "薄同步包装", "组合", "有界异步", "纯逻辑保持纯净"]) {
             assert.match(content, new RegExp(`## \\d+\\. ${title}`));
         }
         const paths = [...content.matchAll(/`(src\/[^`]+\.ts)`/g)].map((match) => match[1]);
