@@ -30,7 +30,7 @@
     "@amaster.ai/pi-browser-use": "^0.1.31",
     "@amaster.ai/pi-computer-use": "^0.1.31",
     "@anthropic-ai/sandbox-runtime": "^0.0.74",
-    "@dietrichgebert/ponytail": "^4.9.0",
+    "@dietrichgebert/ponytail": "^4.10.0",
     "@earendil-works/pi-ai": "1.4.0",
     "@earendil-works/pi-coding-agent": "1.4.0",
     "@earendil-works/pi-tui": "1.4.0",
