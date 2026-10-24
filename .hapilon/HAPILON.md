@@ -12,6 +12,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 
 - 沟通、代码注释、文档统一简体中文；专业术语保持原始语种（不翻译）。
 - 代码、标识符遵循英文惯例；commit message 统一简体中文（标题与正文，含 type/scope 后的描述）。
+- skill 中文化改造：正文简体中文且标题用中文名（如 `# 提交快照`）；frontmatter 的 name 保持英文（它是调用 id）。
 
 ## 构建与验证
 

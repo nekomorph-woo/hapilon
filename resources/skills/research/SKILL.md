@@ -3,7 +3,7 @@ name: research
 description: 对一个问题做高信源调研并把结论沉淀为仓库内的 Markdown 笔记。用户要调研某个主题、收集文档或 API 事实、或把阅读腿活交给后台 agent 时使用。
 ---
 
-# research
+# 调研
 
 起一个**后台 agent** 去做调研——它读书的时候你继续干活。
 

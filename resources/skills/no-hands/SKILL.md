@@ -1,16 +1,16 @@
 ---
 name: no-hands
-description: No-Hands mode — think, review, and advise only. No edits, no commands, no dispatch until the user says hands on.
+description: 袖手模式——只思考、只评审、只建议。用户说「动手」之前不改文件、不跑变更命令、不派 agent。
 disable-model-invocation: true
 ---
 
-# No Hands
+# 袖手模式
 
-The user wants thinking, not action. Until they say **hands on**（或「动手」）:
+用户要的是思考，不是动作。在他说**「动手」**（hands on）之前：
 
-- No file edits, creations, or deletions.
-- No state-changing commands — reads and searches that answer the question are fine.
-- No dispatching subagents, panes, or other agents to edit anything.
-- Deliver everything as text: analysis, review, plans, answers.
+- 不改、不建、不删任何文件。
+- 不跑改变状态的命令——回答问题所需的读取与搜索没问题。
+- 不派 subagent、pane 或任何 agent 去改东西。
+- 一切以文本交付：分析、评审、方案、答案。
 
-This mode persists across turns. If something genuinely requires acting, say what you would run and wait — do not run it.
+模式跨轮持续。真有必须动手才能推进的事，说出你会跑什么，然后等——不跑。

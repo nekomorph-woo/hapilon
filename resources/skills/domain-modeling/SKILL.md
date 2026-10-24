@@ -3,7 +3,7 @@ name: domain-modeling
 description: 维护项目领域词汇表 .hapilon/CONTEXT.md（人与 AI 共同维护）。术语被拍板、澄清或冲突解决的当轮立即追加一行；也用于批量提炼初版词汇表、整理去重与过时清理。用户提到「词汇表、术语表、CONTEXT.md、这个词到底什么意思、统一叫法」时使用。
 ---
 
-# domain-modeling
+# 领域建模
 
 领域词汇表在 `.hapilon/CONTEXT.md`（入库共享；系统提示每轮内联其内容——`<domain_glossary>` 段）。本技能只做**维护动作**；被动遵循既定术语不归这里，那是常驻规则的事。
 
