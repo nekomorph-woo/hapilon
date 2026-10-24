@@ -1,100 +1,125 @@
 ---
 name: snap
-description: MANDATORY before every git commit — no commit happens without this skill, including trivial one-file commits. Writes one conventional-commit message for the staged diff (business-altitude subject, why-only body) and commits it, linking any issue the conversation already references.
+description: 提交快照（强制）：每次 git commit 前必须使用本技能，包括微小的单文件提交。持续任务中每完成一个可独立说明、已做必要检查的小阶段成果，就立即暂存并创建本地提交，不等整个需求完成或用户提醒。为暂存差异编写规范提交信息（业务高度优先，正文只讲为什么），关联上下文已有议题；修复坑的提交在正文末追加 Pit trailer。只读任务、没有改动或尚未形成可保存成果时不创建空提交；用户明确禁止提交时遵从用户。
 ---
 
-# Snap
+# 提交快照
 
-Write one conventional-commit message for the staged diff, then commit. Link any issue the conversation already references.
+为暂存区差异编写一条规范提交信息，然后提交。关联对话中已经提及的议题；修复坑的提交额外做 Pit 标记。
 
-Snap serves any project. It detects the commit language from the repo's own history and rules, and infers `type` / `scope` from the paths touched. It does not bump versions or run project-specific release flow — pair it with a project-level skill when a commit must also version something.
+本技能适用于任何项目。根据仓库历史和规则判断提交语言，根据变更路径推断类型与作用域。本技能不提升版本号、不执行项目专属的发布流程；项目有自己的版本规范时按项目规则配合执行（如随提交自增 patch）。
 
-## Process
+## 阶段性成果与主动调用
 
-### 1. Read the staged diff, recall the intent
+- 在持续修改中主动识别可独立说明的小阶段成果：修复一个缺陷、完成一个组件或子流程、补全一段文档、完成一轮可验证的调整。完成必要检查后立即调用本技能，提交后继续剩余工作，不把任务结束当作唯一提交时机。
+- 切换子任务、开始可能覆盖现有成果的较大改动、交接或收尾前，再检查一次是否有未提交的阶段成果。不按每次保存机械拆分，不为频繁提交制造空提交。
+- 阶段成果可以只是总需求的一部分，但提交内容应自洽，保留其正常工作所需的关联改动；不把已知失败或仍在随意试验的中间状态伪装成成果。在用户授权的修改范围内创建本地提交无需反复询问；提交不代表推送、发布或合并，不自动执行这些操作。
 
-Run `git diff --cached --stat` and `git diff --cached`. From the diff pick a **type** and a **scope**; from the conversation recall **why the change exists** — the task behind it, in one sentence.
+## 执行流程
 
-The two sources have different jobs: the diff says *what moved* and keeps the message honest; the conversation says *what it was for* and gives the description its words. A change whose intent cannot be traced in the conversation falls to technical phrasing (step 3).
+### 1. 阅读暂存差异，回顾意图
 
-Completion: every staged file maps to one type and one scope, and the change's purpose is at hand in one sentence.
+先运行 `git status --short`、`git diff --stat` 与 `git diff --cached --stat`，识别工作区、未跟踪文件与已有暂存内容。只将本阶段所需、已确认属于当前任务的改动加入暂存区；必要时按差异块暂存，不盲目 `git add .` / `git add -A`，不夹带其他任务的改动，不提交密钥凭据与无关生成物。范围无法判断时先澄清，保留现状。
 
-### 2. Detect the commit language
+再读 `git diff --cached`。从差异中选定一个类型和一个作用域；从对话中回顾这项修改为何存在——背后的任务，一句话。
 
-Pick the language for `description`, in priority order:
+两种信息各有用途：差异说明实际改了什么，保证信息真实；对话说明为什么改，为描述提供措辞。对话中追溯不到意图的修改，退到第 3 步的技术性表述，不编造业务价值。
 
-1. The language of the last 5 commit messages.
-2. The language of the project's rule file (`HAPILON.md` / `.hapilon/agents/rules/*.md`).
-3. English.
+完成条件：每个暂存文件都归入选定的类型与作用域，修改目的一句话在手。没有可提交差异时直接结束，不创建空提交。
 
-Completion: one language is chosen before the message is written.
+### 2. 判断提交语言
 
-### 3. Write the message
+先遵守用户与项目明确的提交语言要求；没有明确要求时按优先级：
 
-Format:
+1. 最近 5 条提交信息使用的语言。
+2. 项目规则文件使用的语言（如 `HAPILON.md`、`AGENTS.md`）。
+3. 英语。
+
+完成条件：写信息前已确定一种语言。
+
+### 3. 编写提交信息
+
+格式：
 
     <type>(<scope>): <description>
 
-- `description` in the detected language, single line, imperative.
-- **Altitude ladder — start at the top, drop only when forced:**
-  - **Business altitude (default).** Say what the product or system can now do, or what problem no longer exists: what a user notices, which workflow changed, what got fixed for them. The reader should understand the commit without knowing any file name. Use the project's own terms for them (see `.hapilon/CONTEXT.md` when a glossary exists).
-  - **Technical fallback.** Only when the change has no business face at all — pure refactor, deps bump, CI, tooling — state the technical fact plainly instead.
-- **One line, one idea.** Never enumerate code points: a description listing functions, fields, or files means the altitude is wrong — climb back up until the scattered items collapse into one purpose.
-- **Body.** Optional but recommended for non-trivial changes; at most three short lines. It answers **why the change exists**, in the reader's language — a colleague who wasn't in the conversation reads subject and body and understands both problem and fix. The diff already says **what** moved: never enumerate file names, version numbers, flag names, or counts. If a line could be a changelog entry, delete it. Same altitude ladder as the subject: problem gone / capability gained first; mechanism only when it is the point.
+- `description` 用选定语言，单行，祈使语气。
+- **表述层次——从成果出发，只在必要时退到技术细节：**
+  - **业务高度（默认）。** 说产品或系统现在能做什么、哪个问题不复存在：用户能感知什么、哪个工作流变了、为用户修好了什么。读者不需要知道任何文件名也应理解这次提交。用项目自己的术语；项目有术语表（如 `.hapilon/CONTEXT.md`）时参考其约定。
+  - **技术表述（后备）。** 仅当修改完全没有业务表现——纯重构、依赖升级、CI、工具调整——时直接陈述技术事实。
+- **一行一个核心目的。** 不罗列函数、字段、文件：描述变成修改清单说明层次错了，向上概括直到散点汇成一个目的。
+- **正文。** 可选但建议非平凡修改添加，最多三行短句。回答**为什么需要这项修改**，用读者语言——未参与对话的同事看完标题和正文能理解问题与解决。差异已说明改了什么：不罗列文件名、版本号、开关名、数量。某一行若能直接当变更日志条目用，删掉。与标题同一表述层次：先说消除的问题/获得的能力，机制只在机制本身是重点时才讲。
 
-Completion: one line names the capability gained or the problem closed — or, when none exists, the single technical fact.
+完成条件：一行说清获得的能力或解决的问题；确实没有业务成果时，说单一技术事实。
 
-### 4. Link issues already in context
+### 4. 关联上下文中已有的议题
 
-Scan the conversation for issue signals. **No signal → append no footer, ask nothing.**
+检查对话中的议题信号。**没有信号就不加页脚、不询问。**
 
-| Signal | Example |
-|--------|---------|
-| `#<n>` in the user's message | "fixes #42", "links #7 and #13" |
-| issue URL | `https://github.com/owner/repo/issues/42` |
-| an issue created earlier this session | its number is in context |
-| the draft message already cites one | `description` carries `#<n>` |
+| 信号 | 示例 |
+|------|------|
+| 用户消息中的 `#<编号>` | "修复 #42"、"关联 #7 和 #13" |
+| 议题链接 | `https://github.com/owner/repo/issues/42` |
+| 本次会话前面创建的议题 | 编号已在上下文 |
+| 信息草稿已引用 | `description` 中带 `#<编号>` |
 
-On match, collect every number and append a footer:
+匹配后收集全部编号。本次提交完整解决议题时用关闭页脚，仅提及或无法确认解决关系时用关联页脚（避免提前关闭）：
 
     Closes #42, closes #13
+    Refs #42, refs #13
 
-`Closes` is the keyword — GitHub and GitLab both accept `Closes` / `Fixes` / `Resolves`.
+`Closes` 是平台识别关键字，GitHub 与 GitLab 均支持 `Closes` / `Fixes` / `Resolves`。
 
-Completion: every issue referenced in context is cited, or the message has no footer.
+完成条件：上下文引用的每个议题都被引用，并按是否解决选对关键字；无信号则无页脚。
 
-### 5. Commit and summarize
+### 5. 坑标记（Pit）
 
-`git commit` with the message. Print a short summary: the type and scope chosen, any linked issues, and how many commits sit ahead of `origin`.
+本次提交修复的是一个「坑」时，在正文末追加 trailer：
 
-Completion: the commit exists; the summary states the type, scope, any linked issues, and the count of commits ahead of `origin`.
+    Pit: <一句话症状> [fact|habit]
 
-## type
+- 事实坑（不查必错、错了难定位，如环境目录、锚点失配）**一次即标**；习惯坑（写法纪律，如裸 throw、吞错降级）**第二次遇到才标**。
+- 阈值细则与回溯流程以项目的坑规范为准（本仓库见 HAPILON.md「坑的记录与确认」）；`git log --grep='^Pit: '` 的回溯由人类主导，本技能不做统计。
+- 与议题页脚同一纪律：不是坑修复就不加、不问。
 
-Infer from what the change does.
+完成条件：是坑修复则带格式正确的 trailer，否则无此行。
 
-| type | when |
-|------|------|
-| feat | new file / function / capability |
-| fix | bug fix |
-| docs | docs only |
-| style | formatting, no logic change |
-| refactor | restructure, behavior unchanged |
-| perf | performance |
-| test | tests |
-| chore | build / tooling / deps |
-| ci | CI config |
+### 6. 提交并汇总
 
-## scope
+多行信息优先写入临时文件，用 `git commit -F` 提交，避免正文换行、引号或特殊字符被 shell 解释。
 
-Infer from the primary path touched; multiple paths → the dominant one.
+提交失败时保留工作区与暂存内容并说明原因；只修当前任务范围内的问题后重试，不跳过钩子、不撤销用户修改、不以重置或改写历史绕过错误；不自动修改上一条提交。
 
-| path | scope |
-|------|-------|
-| `src/**/<area>/**` | the area, e.g. `auth`, `api` |
+确认提交存在后简要汇总：所选类型与作用域、关联议题（如有）、Pit 标记（如有）、当前分支领先 `origin` 的提交数。优先比较对应上游分支；无法取得时明确说明，不虚构数量，不为计数自动推送。
+
+完成条件：提交确实存在，汇总涵盖以上要素；阶段性快照完成后继续原任务。
+
+## 提交类型
+
+按修改的实际作用推断。
+
+| 类型 | 适用情况 |
+|------|----------|
+| `feat` | 新文件、新函数或新能力 |
+| `fix` | 修复缺陷 |
+| `docs` | 仅文档修改 |
+| `style` | 仅格式调整，不改逻辑 |
+| `refactor` | 结构调整，行为不变 |
+| `perf` | 性能改善 |
+| `test` | 测试相关 |
+| `chore` | 构建、工具或依赖 |
+| `ci` | 持续集成配置 |
+
+## 作用域
+
+按主要变更路径推断；多路径时取主导路径。
+
+| 路径 | 作用域 |
+|------|--------|
+| `src/**/<领域>/**` | 对应领域，如 `auth`、`api` |
 | `tests/**` / `**/*.test.*` | test |
 | `docs/**` | docs |
 | `package.json` / `*.lock` | deps |
 | `.github/workflows/**` | ci |
-| root config files | config |
-| unclear | the project name, or `core` |
+| 根目录配置文件 | config |
+| 无法明确判断 | 项目名，或 `core` |
