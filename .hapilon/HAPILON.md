@@ -54,7 +54,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 - `src/extensions/hpl-*` — 内置扩展：hpl-system-prompt（系统提示全量组装，含提交纪律小节）、hpl-safety-gate、hpl-model-tiers、hpl-subagent-models（subagent 派发模型列表，Agent/TaskExecute 拦截改写）、hpl-orchestra（team/pane 编排）、hpl-herdr（herdr 内的 hapi 身份与状态上报）等。
 - `resources/skills/` — 内置技能库（随版本分发）。
 - `src/patch/ensure-pi-patch.ts` — 对 node_modules 的幂等补丁表（pi 包：中段 slash 触发门、状态行追加不覆盖；hapilon 自身依赖：后台任务插件的 Windows shell 与耗时展示、pi-subagents 的 workflow 派发模型钩子）；上游变更导致锚点失配时只有启动警告，需对照新源码更新锚点表。
-- MCP 走 pi 内置（builtin:mcp）：`~/.hapilon*/agent/mcp.json` 由内核直接读取，渐进式暴露（tool_search 按需加载）。
+- MCP 走 pi 内置（builtin:mcp）：`~/.hapilon*/agent/mcp.json` 由内核直接读取，渐进式暴露（tool_search 按需加载）。web-access MCP 条目由 ensure-configs 开箱预置（subagent 搜索通道，与主会话同一份 web-search.json；删除条目会被补回，要禁用就改名或改指向自己的 server）。
 - 上下文压缩走 billion-context-pi（npm-extensions 挂载）：它 cancel 了 pi 原生 compaction，补丁 hapiCompactHide 把 /compact 从命令表移除（billion-context 在场时 /compact 是静默无反应的死命令，不该露出）。压缩入口是模型自动折叠（compress 工具），手动压缩直接对模型说；查看水位用 /acp-status。内置 delegate 已由 ~/.pi/acp.json 种子关闭；⚠ 永不 `bili plugin install pi`（native 形态与 standalone 双开 = 双压）。
 - pi-subagents 项目配置在 `.hapilon/subagents.json`（补丁 hapiSubagentsDir 从 .pi 迁移）。
 - `.hapilon/` — 本地运行时目录（gitignored）：artifacts、handoff 等 skill 产物。

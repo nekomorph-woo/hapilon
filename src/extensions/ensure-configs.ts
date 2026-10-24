@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { Effect } from "effect";
 import { ConfigWriteError } from "../config/config-io.js";
 
@@ -210,6 +211,40 @@ const ensureVisionAgentEffect = (agentDir: string): Effect.Effect<void, ConfigWr
 const BILI_CONFIG_DEFAULTS = { delegate: { enabled: false } };
 
 /**
+ * web-access MCP 预置（开箱即用）：主会话的搜索工具经 npm-extensions 注入但不进
+ * subagent；MCP 形态（同一代码库的 mcp-cli）补齐这条通道，key 缺失即补。
+ * 删除后下次启动会补回；要禁用就改名或把条目改成自己的定义。
+ * env 钉 PI_CODING_AGENT_DIR：mcp-cli 与扩展读同一份 web-search.json（provider 配置同源）。
+ */
+const ensureWebAccessMcpEffect = (agentDir: string): Effect.Effect<void, ConfigWriteError> => Effect.gen(function* () {
+  const path = join(agentDir, "mcp.json");
+  if (!existsSync(path)) return; // 骨架由 MCP_CONFIG_DEFAULTS 先写
+  let cfg: unknown;
+  try {
+    cfg = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    console.warn(`Warning: ${path} 解析失败，跳过 web-access MCP 预置`);
+    return;
+  }
+  if (typeof cfg !== "object" || cfg === null || Array.isArray(cfg)) return;
+  const servers = (cfg as Record<string, unknown>).mcpServers;
+  if (typeof servers !== "object" || servers === null || Array.isArray(servers)) return;
+  const record = servers as Record<string, unknown>;
+  if ("web-access" in record) return; // 用户已有（含自定义）不碰
+  const mcpCli = createRequire(import.meta.url).resolve("pi-web-access/dist/mcp-cli.js");
+  record["web-access"] = {
+    type: "stdio",
+    command: process.execPath,
+    args: [mcpCli],
+    env: { PI_CODING_AGENT_DIR: agentDir },
+  };
+  yield* Effect.try({
+    try: () => writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n", "utf8"),
+    catch: (err) => new ConfigWriteError({ message: err instanceof Error ? err.message : String(err) }),
+  });
+});
+
+/**
  * 预置扩展的全局默认配置（幂等，首次启动生效）。
  */
 export const ensureExtensionConfigsEffect = (agentDir: string): Effect.Effect<void, ConfigWriteError> => Effect.gen(function* () {
@@ -218,6 +253,8 @@ export const ensureExtensionConfigsEffect = (agentDir: string): Effect.Effect<vo
   yield* ensureJsonConfigEffect(agentDir, "web-search.json", WEB_ACCESS_CONFIG_DEFAULTS);
   // mcp.json：空骨架给一个明确落点；用户配置永不覆盖
   yield* ensureJsonConfigEffect(agentDir, "mcp.json", MCP_CONFIG_DEFAULTS);
+  // web-access MCP：补齐 subagent 搜索通道（主会话已由 npm-extensions 注入）
+  yield* ensureWebAccessMcpEffect(agentDir);
   // hpl-econ：组合甲默认实体化
   yield* ensureJsonConfigEffect(agentDir, "econ-config.json", ECON_CONFIG_DEFAULTS);
   // vision 子代理定义：全局 agents 目录播种（用户已自定义则不碰）

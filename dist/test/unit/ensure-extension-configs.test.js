@@ -51,12 +51,12 @@ describe("ensureExtensionConfigs()", () => {
         const cfg = JSON.parse(readFileSync(path, "utf8"));
         assert.equal(cfg.workflow, "none");
     });
-    it("首次调用写入 mcp.json 空骨架（pi-mcp-adapter 配置）", () => {
+    it("首次调用写入 mcp.json 骨架并预置 web-access MCP 条目", () => {
         ensureExtensionConfigs(agentDir);
         const path = join(agentDir, "mcp.json");
         assert.ok(existsSync(path));
         const cfg = JSON.parse(readFileSync(path, "utf8"));
-        assert.deepEqual(cfg, { mcpServers: {} });
+        assert.ok(cfg.mcpServers["web-access"], "web-access 开箱预置");
     });
     it("mcp.json 用户已配置时不覆盖", () => {
         const fresh = join(agentDir, "user-mcp");
@@ -129,5 +129,38 @@ describe("ensureExtensionConfigs()", () => {
         writeFileSync(join(fresh, "settings.json"), JSON.stringify({ tuiMode: "fullscreen" }, null, 2));
         ensureExtensionConfigs(fresh);
         assert.equal(JSON.parse(readFileSync(join(fresh, "settings.json"), "utf8")).tuiMode, "fullscreen");
+    });
+    it("web-access MCP 预置：首次种子 stdio 条目（node + mcp-cli 绝对路径 + env 钉配置目录）", () => {
+        const fresh = join(agentDir, "webaccess-seed");
+        ensureExtensionConfigs(fresh);
+        const cfg = JSON.parse(readFileSync(join(fresh, "mcp.json"), "utf8"));
+        const entry = cfg.mcpServers["web-access"];
+        assert.ok(entry, "web-access 条目被种入");
+        assert.equal(entry.type, "stdio");
+        assert.equal(entry.command, process.execPath, "command 是当前 node 可执行，跨平台不依赖 PATH");
+        assert.ok(entry.args[0].includes(join("pi-web-access", "dist", "mcp-cli.js")), `args[0] 指向 mcp-cli: ${entry.args[0]}`);
+        assert.ok(existsSync(entry.args[0]), "mcp-cli.js 真实存在");
+        assert.equal(entry.env.PI_CODING_AGENT_DIR, fresh, "env 钉住配置目录，与主会话同源 web-search.json");
+    });
+    it("web-access MCP 预置：用户已有同名条目或其他 server 时保留，不覆盖", () => {
+        const fresh = join(agentDir, "webaccess-keep");
+        mkdirSync(fresh, { recursive: true });
+        writeFileSync(join(fresh, "mcp.json"), JSON.stringify({ mcpServers: { "web-access": { type: "stdio", command: "my-own" }, other: { type: "http", url: "https://x" } } }, null, 2));
+        ensureExtensionConfigs(fresh);
+        const cfg = JSON.parse(readFileSync(join(fresh, "mcp.json"), "utf8"));
+        assert.deepEqual(cfg.mcpServers["web-access"], { type: "stdio", command: "my-own" }, "用户自定义 web-access 不被顶掉");
+        assert.deepEqual(cfg.mcpServers.other, { type: "http", url: "https://x" }, "相邻 server 保留");
+    });
+    it("web-access MCP 预置：损坏 mcp.json 不碰，二次调用幂等不重写", () => {
+        const fresh = join(agentDir, "webaccess-corrupt");
+        mkdirSync(fresh, { recursive: true });
+        writeFileSync(join(fresh, "mcp.json"), "{ broken");
+        ensureExtensionConfigs(fresh);
+        assert.equal(readFileSync(join(fresh, "mcp.json"), "utf8"), "{ broken", "损坏文件原样保留");
+        const seeded = join(agentDir, "webaccess-idem");
+        ensureExtensionConfigs(seeded);
+        const afterFirst = readFileSync(join(seeded, "mcp.json"), "utf8");
+        ensureExtensionConfigs(seeded);
+        assert.equal(readFileSync(join(seeded, "mcp.json"), "utf8"), afterFirst, "条目在就不再写");
     });
 });
