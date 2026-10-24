@@ -42,6 +42,7 @@ export default function hplSystemPrompt(pi) {
                 agentDirPath: agentDir(),
                 runModeText: buildRunModeText(),
                 team: getTeamSections(),
+                extensionSections: opts.sections,
             });
             return { systemPrompt };
         }

@@ -1,25 +1,28 @@
 /**
  * ponytail 集成——加载顺序稳定性验证
  *
- * 核心风险：ponytail 的 before_agent_start 是「尾部追加」语义
- * （返回 event.systemPrompt + "\n\n" + ponytail 指令），hpl-system-prompt
- * 是「全量替换」语义。内核 runner 对多扩展 handler 按加载顺序链式传递
- * currentSystemPrompt（runner.js emitBeforeAgentStart）。
+ * 核心风险：ponytail 5.x 的 before_agent_start 是「sections 贡献」语义
+ * （写 systemPromptOptions.sections.ponytail 后返回空），hpl-system-prompt
+ * 是「全量替换」语义（返回 systemPrompt → forceSystemPrompt）。pi 中
+ * forceSystemPrompt 与 sections 互斥——若 hpl 不内联，先跑的 ponytail
+ * 贡献会被整体丢弃，ponytail 静默失效，无任何报错。
  *
- * 若 ponytail 先于 hpl-system-prompt 执行：ponytail 的追加会被 hpl 的
- * 全量替换抹掉——ponytail 静默失效，无任何报错。
+ * hapilon 的防护（两层）：
+ * 1. startup 拼接序固定 [npm-BEFORE-HPL(ponytail), ...hpl, ...npm]，
+ *    ponytail 先于 hpl-system-prompt 执行；
+ * 2. hpl 组装把 opts.sections 的全部贡献内联到 XML 之后
+ *    （assembleSystemPrompt 的 extensionSections）。
  *
- * hapilon 的防护：cli.ts 固定 [...hpl, ...npm] 顺序 + NPM_EXTENSIONS
- * 声明序把 ponytail 放末位。本测试用内核公开 loader
- * （discoverAndLoadExtensions，真实 jiti 加载链）按 hapilon 的注入顺序
- * 加载两个扩展，跑 ExtensionRunner.emitBeforeAgentStart，断言最终
- * prompt = hpl XML + ponytail 尾部追加，把该前提钉进 CI。
+ * 本测试用内核公开 loader（discoverAndLoadExtensions，真实 jiti 加载链）
+ * 按 hapilon 的注入顺序加载两个扩展，跑 ExtensionRunner.emitBeforeAgentStart，
+ * 断言最终 prompt = hpl XML + sections 贡献内联，把该前提钉进 CI。
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { createExtensionRuntime, createEventBus, discoverAndLoadExtensions, ExtensionRunner, } from "@earendil-works/pi-coding-agent";
+import { createExtensionRuntime, discoverAndLoadExtensions, ExtensionRunner, } from "@earendil-works/pi-coding-agent";
 import hplSystemPromptEntry from "../../extensions/hpl-system-prompt/index.js";
-import { resolveNpmExtensionPaths } from "../../extensions/npm-extensions.js";
+import { resolveNpmExtensionsBeforeHplEffect, resolveNpmExtensionPathsEffect } from "../../extensions/npm-extensions.js";
+import { Effect } from "effect";
 const CWD = process.cwd();
 /** runner 构造依赖的 stub（本测试只触发 before_agent_start） */
 const stub = (() => ({}));
@@ -28,40 +31,40 @@ const promptOpts = {
     cwd: CWD,
     toolSnippets: { read: "Read files", bash: "Run commands", edit: "Edit files", write: "Write files" },
 };
-describe("加载顺序稳定性（hpl 先于 ponytail）", () => {
-    it("链式语义：追加型扩展的输出在替换型扩展之后（runner 真实链路）", async () => {
+describe("加载顺序稳定性（ponytail 先于 hpl）", () => {
+    it("链式语义：sections 贡献被全量替换内联到 XML 之后（runner 真实链路）", async () => {
         const runtime = createExtensionRuntime();
-        // hpl-system-prompt：替换型（真实模块，经内核 loader 走 dist 入口）
+        // sections 贡献型扩展（与 ponytail 5.x index.js 同语义），先加载
+        const sectionExt = (await discoverAndLoadExtensions(["./dist/test/fixtures/append-extension.js"], CWD, "./nonexistent-agent-dir")).extensions[0];
+        assert.ok(sectionExt, "sections 贡献型扩展加载成功");
+        // hpl-system-prompt：替换型（真实模块，经内核 loader 走 dist 入口），后加载
         const hplRes = await discoverAndLoadExtensions(["./dist/extensions/hpl-system-prompt/index.js"], CWD, "./nonexistent-agent-dir");
         const hplExt = hplRes.extensions[0];
         assert.ok(hplExt, "hpl-system-prompt 加载成功");
-        // 追加型模拟扩展（与 ponytail index.js:204-209 同语义）
-        const appendExt = (await discoverAndLoadExtensions(["./dist/test/fixtures/append-extension.js"], CWD, "./nonexistent-agent-dir")).extensions[0];
-        assert.ok(appendExt, "追加型扩展加载成功");
-        const runner = new ExtensionRunner([hplExt, appendExt], runtime, CWD, stub, stub);
+        const runner = new ExtensionRunner([sectionExt, hplExt], runtime, CWD, stub, stub);
         const result = await runner.emitBeforeAgentStart({ messageType: "user", prompt: "hello" }, promptOpts);
         const prompt = result.systemPromptOptions.forceSystemPrompt;
         assert.ok(prompt, "返回了修改后的 prompt");
         // hpl 全量替换已生效（XML 结构存在，Pi 基础 prompt 被换掉）
         assert.ok(prompt.includes("<system_prompt>"), "hpl XML 结构存在");
         assert.ok(!prompt.includes("PI-BASE-PROMPT"), "hpl 全量替换抹掉了 Pi 基础 prompt");
-        // 追加在替换之后（尾部，未被抹掉）——顺序错误的实现此处即红
-        assert.ok(prompt.includes("PONYTAIL-TAIL-MARKER"), "追加存活");
-        assert.ok(prompt.indexOf("</system_prompt>") < prompt.indexOf("PONYTAIL-TAIL-MARKER"), "追加在 hpl XML 之后（尾部追加语义）");
+        // sections 贡献被内联在替换之后（尾部）——不内联的实现在此处即红
+        assert.ok(prompt.includes("PONYTAIL-TAIL-MARKER"), "sections 贡献存活");
+        assert.ok(prompt.indexOf("</system_prompt>") < prompt.indexOf("PONYTAIL-TAIL-MARKER"), "贡献内联在 hpl XML 之后（等价旧尾部追加位置）");
     });
     it("真实 ponytail 扩展可被内核 loader 加载（防包结构/exports 漂移）", async () => {
-        const paths = resolveNpmExtensionPaths();
-        const ponytailEntry = paths[paths.length - 1];
-        assert.ok(ponytailEntry.includes("@dietrichgebert/ponytail"), "末位是 ponytail");
+        const ponytailEntry = Effect.runSync(resolveNpmExtensionsBeforeHplEffect)[0];
+        assert.ok(ponytailEntry.includes("@dietrichgebert/ponytail"), "先行组首位是 ponytail");
         const { extensions, errors } = await discoverAndLoadExtensions([ponytailEntry], CWD, "./nonexistent-agent-dir");
         assert.equal(errors.length, 0, `加载无错误: ${JSON.stringify(errors)}`);
         assert.equal(extensions.length, 1, "ponytail 加载为一个扩展");
     });
     it("hpl → ponytail 按 hapilon 注入顺序加载后 prompt 链式拼接正确（端到端）", async () => {
-        const paths = resolveNpmExtensionPaths();
-        const ponytailEntry = paths[paths.length - 1];
-        // 与 cli.ts:105 同序：hpl 组在前、npm 组（ponytail 末位）在后
-        const { extensions, errors } = await discoverAndLoadExtensions(["./dist/extensions/hpl-system-prompt/index.js", ponytailEntry], CWD, "./nonexistent-agent-dir");
+        const ponytailEntry = Effect.runSync(resolveNpmExtensionsBeforeHplEffect)[0];
+        const npmRest = Effect.runSync(resolveNpmExtensionPathsEffect);
+        assert.ok(!npmRest.some((p) => p.includes("ponytail")), "ponytail 不在主体组");
+        // 与 startup 同序：BEFORE_HPL 组在前、hpl 在后
+        const { extensions, errors } = await discoverAndLoadExtensions([ponytailEntry, "./dist/extensions/hpl-system-prompt/index.js"], CWD, "./nonexistent-agent-dir");
         assert.equal(errors.length, 0, `双扩展加载无错误: ${JSON.stringify(errors)}`);
         assert.equal(extensions.length, 2, "加载两个扩展");
         const runner = new ExtensionRunner(extensions, createExtensionRuntime(), CWD, stub, stub);
@@ -70,10 +73,9 @@ describe("加载顺序稳定性（hpl 先于 ponytail）", () => {
         assert.ok(prompt, "返回修改后 prompt");
         assert.ok(prompt.includes("<system_prompt>"), "hpl XML 存在");
         assert.ok(prompt.toLowerCase().includes("ponytail"), "真实 ponytail 指令文本出现在最终 prompt");
-        assert.ok(prompt.indexOf("</system_prompt>") < prompt.toLowerCase().indexOf("ponytail"), "ponytail 指令位于 hpl XML 之后（尾部追加）");
-        // code_style section 与 ponytail 追加共存
+        assert.ok(prompt.indexOf("</system_prompt>") < prompt.toLowerCase().indexOf("ponytail"), "ponytail 指令位于 hpl XML 之后（内联尾部）");
+        // code_style section 与 ponytail 内联共存
         assert.ok(prompt.includes("<code_style>"), "code_style section 与 ponytail 共存");
     });
 });
 void hplSystemPromptEntry;
-void createEventBus;

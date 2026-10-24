@@ -203,7 +203,7 @@ function collectHapilonContext(cwd, userHome, globalBase = hapilonHome()) {
  * 两个 builder，保证语义一致。
  */
 export function assembleSystemPrompt(opts) {
-    const { toolSnippets, selectedTools, promptGuidelines, appendSystemPrompt, cwd, contextFiles, skills, hapilonMd, hapilonRules, agentDirPath, runModeText, team, } = opts;
+    const { toolSnippets, selectedTools, promptGuidelines, appendSystemPrompt, cwd, contextFiles, skills, hapilonMd, hapilonRules, agentDirPath, runModeText, team, extensionSections, } = opts;
     // 统一归一化：undefined = Pi 默认工具集（两个 builder 语义一致）
     const tools = selectedTools ?? DEFAULT_TOOLS;
     const roleSection = buildRoleSection();
@@ -265,7 +265,7 @@ export function assembleSystemPrompt(opts) {
             environment: envSection.length,
         },
     });
-    return wrapSystemPrompt([
+    const prompt = wrapSystemPrompt([
         roleSection,
         toolsSection,
         customToolsNote,
@@ -287,6 +287,10 @@ export function assembleSystemPrompt(opts) {
         appendSection,
         envSection,
     ]);
+    // 兄弟扩展的 sections 贡献内联在 XML 之后（等价旧版「尾部追加」语义，
+    // 4.x ponytail 的追加位置就在这里）；无贡献时不引入多余空行
+    const contributed = Object.values(extensionSections ?? {}).filter((text) => text.length > 0);
+    return contributed.length > 0 ? `${prompt}\n\n${contributed.join("\n\n")}` : prompt;
 }
 // Re-export for index.ts
 export { collectHapilonContext };

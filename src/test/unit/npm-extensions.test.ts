@@ -4,14 +4,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveNpmExtensionPaths, resolveExtensionEntry } from "../../extensions/npm-extensions.js";
+import { Effect } from "effect";
+import { resolveNpmExtensionPaths, resolveExtensionEntry, resolveNpmExtensionsBeforeHplEffect } from "../../extensions/npm-extensions.js";
 
 describe("resolveNpmExtensionPaths()", () => {
   it("解析出全部 npm 扩展的绝对入口路径", () => {
     const paths = resolveNpmExtensionPaths();
     // 2 个 tintinweb 包 + 集成四包
-    // + @nklisch/pi-background-tasks + 用户实测对（computer-use/browser-use）+ ponytail
-    assert.equal(paths.length, 10);
+    // + @nklisch/pi-background-tasks + 用户实测对（computer-use/browser-use）；ponytail 在 BEFORE_HPL 先行组
+    assert.equal(paths.length, 9);
     for (const p of paths) {
       assert.ok(existsSync(p), `入口文件应存在: ${p}`);
     }
@@ -36,23 +37,15 @@ describe("resolveNpmExtensionPaths()", () => {
     assert.ok(!paths.some((p) => p.includes("mcp")), `不应再有 MCP 扩展条目: ${paths.filter((p) => p.includes("mcp"))}`);
   });
 
-  it("pi-background-tasks 入口在 ponytail 之前（包内 pi.extensions 声明）", () => {
+  it("ponytail 不在 NPM_EXTENSIONS 主体里（已移入 BEFORE_HPL 先行组）", () => {
     const paths = resolveNpmExtensionPaths();
-    const bg = paths.find((p) => p.includes("@nklisch/pi-background-tasks"));
-    assert.ok(bg?.endsWith("extensions/background-tasks.ts"), `background-tasks: ${bg}`);
-    const bgIndex = paths.findIndex((p) => p.includes("@nklisch"));
-    const ponytailIndex = paths.findIndex((p) => p.includes("ponytail"));
-    assert.ok(bgIndex < ponytailIndex, "background-tasks 必须先于 ponytail 加载");
+    assert.ok(!paths.some((p) => p.includes("ponytail")), `主体组不应再含 ponytail: ${paths.filter((p) => p.includes("ponytail"))}`);
   });
 
-  it("ponytail 入口在 NPM_EXTENSIONS 末位（保证 hpl 先跑、ponytail 尾部追加）", () => {
-    const paths = resolveNpmExtensionPaths();
-    const ponytail = paths[paths.length - 1];
-    assert.ok(ponytail.includes("@dietrichgebert/ponytail"), `末位应是 ponytail: ${ponytail}`);
-    assert.ok(ponytail.endsWith("ponytail/pi-extension/index.js"), `入口与包内 pi.extensions 声明一致: ${ponytail}`);
-    // 前置条件：全部 hpl-* 扩展通过 -e 在 npm 组之前传入（cli.ts:105 固定 [...hpl, ...npm]）
-    // ponytail 的 before_agent_start 是「尾部追加」语义——若它先于 hpl-system-prompt 执行，
-    // hpl 的全量替换会抹掉其追加。此断言钉死加载顺序前提。
+  it("ponytail 入口在 BEFORE_HPL 先行组（sections 贡献需先于 hpl-system-prompt 落地）", () => {
+    const paths = Effect.runSync(resolveNpmExtensionsBeforeHplEffect);
+    assert.equal(paths.length, 1, `先行组应只有 ponytail: ${paths}`);
+    assert.ok(paths[0].endsWith("ponytail/pi-extension/index.js"), `入口与包内 pi.extensions 声明一致: ${paths[0]}`);
   });
 
   it("hapilon package.json 未设 piConfig（adapter getAgentDir 依赖此前提）", () => {

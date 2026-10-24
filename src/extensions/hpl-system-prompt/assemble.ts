@@ -66,6 +66,12 @@ export interface AssembleOptions {
   runModeText?: string;
   /** Team personality; the two fields are mutually exclusive at assembly time. */
   team?: { orchestrator?: string; role?: string };
+  /**
+   * 先于本扩展加载的兄弟扩展经 systemPromptOptions.sections 贡献的段落
+   * （如 ponytail 5.x）。pi 中 forceSystemPrompt 与 sections 互斥——全量
+   * 替换会丢弃 sections，这里收下来内联到 XML 尾部，保住它们的注入。
+   */
+  extensionSections?: Record<string, string>;
 }
 
 // ── Individual builders ────────────────────────────────────────────────
@@ -310,6 +316,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     agentDirPath,
     runModeText,
     team,
+    extensionSections,
   } = opts;
 
   // 统一归一化：undefined = Pi 默认工具集（两个 builder 语义一致）
@@ -376,7 +383,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     },
   });
 
-  return wrapSystemPrompt([
+  const prompt = wrapSystemPrompt([
     roleSection,
     toolsSection,
     customToolsNote,
@@ -398,6 +405,10 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     appendSection,
     envSection,
   ]);
+  // 兄弟扩展的 sections 贡献内联在 XML 之后（等价旧版「尾部追加」语义，
+  // 4.x ponytail 的追加位置就在这里）；无贡献时不引入多余空行
+  const contributed = Object.values(extensionSections ?? {}).filter((text) => text.length > 0);
+  return contributed.length > 0 ? `${prompt}\n\n${contributed.join("\n\n")}` : prompt;
 }
 
 // Re-export for index.ts

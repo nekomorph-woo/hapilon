@@ -19,7 +19,7 @@ export class NpmExtensionError extends Data.TaggedError("NpmExtensionError")<{
  * 这样用户在任意目录启动 hapilon 都能找到正确版本的扩展。
  */
 
-/** 纳入 hapilon 的第三方扩展（npm 包名 → 包内扩展入口） */
+/** 纳入 hapilon 的第三方扩展（npm 包名 → 包内扩展入口）；需先于 hpl 组加载的见 NPM_EXTENSIONS_BEFORE_HPL */
 const NPM_EXTENSIONS: readonly [pkg: string, entry: string][] = [
   ["@tintinweb/pi-tasks", "dist/index.js"],
   ["@tintinweb/pi-subagents", "dist/index.js"],
@@ -41,9 +41,16 @@ const NPM_EXTENSIONS: readonly [pkg: string, entry: string][] = [
   // 两者都只在主会话可用（-e 不进 subagent），S7 的实测驾驶由主会话执行。
   ["@amaster.ai/pi-computer-use", "dist/index.js"],
   ["@amaster.ai/pi-browser-use", "dist/index.js"],
-  // 极简编码规则（防御性编程减脂）。必须在末位：其 before_agent_start
-  // 是「尾部追加」语义，先于 hpl-system-prompt（全量替换）执行会被抹掉。
-  // 顺序由 npm-extensions.test.ts 的末位断言 + ponytail-load-order 集成测试钉死。
+];
+
+/**
+ * 先于 hpl 组加载的 npm 扩展。ponytail 5.x 改用结构化 sections 注入
+ * （systemPromptOptions.sections），而 pi 中 forceSystemPrompt 与 sections
+ * 互斥——它必须排在 hpl-system-prompt 之前，贡献才会被内联进全量替换的
+ * prompt 尾部（见 assembleSystemPrompt 的 extensionSections）。
+ * 顺序由 startup 的拼接序 + npm-extensions.test + ponytail-load-order 集成测试钉死。
+ */
+export const NPM_EXTENSIONS_BEFORE_HPL: readonly [pkg: string, entry: string][] = [
   ["@dietrichgebert/ponytail", "pi-extension/index.js"],
 ];
 
@@ -108,6 +115,15 @@ export const resolveExtensionEntryEffect = (
 ): Effect.Effect<string, NpmExtensionError> => Effect.try({
   try: () => resolveExtensionEntry(pkg, entry, resolve),
   catch: (err) => new NpmExtensionError({ message: err instanceof Error ? err.message : String(err) }),
+});
+
+/** 解析需先于 hpl 组加载的 npm 扩展入口（与 NPM_EXTENSIONS_BEFORE_HPL 同序） */
+export const resolveNpmExtensionsBeforeHplEffect: Effect.Effect<string[], NpmExtensionError> = Effect.gen(function* () {
+  const require = createRequire(import.meta.url);
+  return yield* Effect.forEach(
+    NPM_EXTENSIONS_BEFORE_HPL,
+    ([pkg, entry]) => resolveExtensionEntryEffect(pkg, entry, (id) => require.resolve(id)),
+  );
 });
 
 export const resolveNpmExtensionPathsEffect: Effect.Effect<string[], NpmExtensionError> = Effect.gen(function* () {

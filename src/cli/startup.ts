@@ -12,7 +12,7 @@ import { ensureSafetyExtensionsEffect, isSafetyExtensionPath, removeSafetyExtens
 import { discoverExtensionsEffect, extensionNames } from "../extensions/loader.js";
 import { ensureExtensionConfigsEffect } from "../extensions/ensure-configs.js";
 import { ensurePiPatch, warnIfPiPatchStale } from "../patch/ensure-pi-patch.js";
-import { resolveNpmExtensionPathsEffect } from "../extensions/npm-extensions.js";
+import { resolveNpmExtensionPathsEffect, resolveNpmExtensionsBeforeHplEffect } from "../extensions/npm-extensions.js";
 import { deriveCliIdentity } from "./identity.js";
 import { rewriteTierModelArg, pickTierModel } from "./tier-model-arg.js";
 import { readResolvedTiersEffect } from "../extensions/hpl-model-tiers/resolved.js";
@@ -126,6 +126,8 @@ export const prepareStartupEffect = (args: string[]): Effect.Effect<PiLaunchPlan
     (extension) => !isSafetyExtensionPath(extension),
   );
   const npmExtensions = yield* resolveNpmExtensionPathsEffect.pipe(Effect.mapError(toStartupError));
+  // ponytail 等先于 hpl 组加载：其 sections 贡献才能被 hpl-system-prompt 内联
+  const npmExtensionsBeforeHpl = yield* resolveNpmExtensionsBeforeHplEffect.pipe(Effect.mapError(toStartupError));
   // herdr 集成探测须读用户的原生 PI_CODING_AGENT_DIR，而非下方 piEnv 覆盖后的 hapilon agentDir。
   // 默认不再加载：herdr 的 pi 集成会把 pane 上报为「pi」并让 herdr 按 pi
   // 的恢复命令处理（hapilon 的壳全丢）；改由 hpl-herdr 扩展以 hapi 身份上报。
@@ -133,7 +135,7 @@ export const prepareStartupEffect = (args: string[]): Effect.Effect<PiLaunchPlan
   const herdrExtension = process.env.HAPILON_HERDR_PI_INTEGRATION === "1"
     ? discoverHerdrPiExtension(process.env["PI_CODING_AGENT_DIR"])
     : undefined;
-  const extensionFlags = [...allExtensions, ...npmExtensions, ...herdrExtension ? [herdrExtension] : []]
+  const extensionFlags = [...npmExtensionsBeforeHpl, ...allExtensions, ...npmExtensions, ...herdrExtension ? [herdrExtension] : []]
     .flatMap((extension) => ["-e", extension]);
 
   if (noEcon) {
