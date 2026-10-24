@@ -73,7 +73,7 @@ describe("hpl-add-dir 注入经 bridge 进入最终 prompt（生产字母序链�
     const runner = new ExtensionRunner(extensions, runtime, CWD, sessionManager, stub);
     await runner.emit({ type: "session_start" } as never);
 
-    const result = await runner.emitBeforeAgentStart("hello", undefined, promptOpts);
+    const result = await runner.emitBeforeAgentStart({ messageType: "user", prompt: "hello" }, promptOpts);
     const prompt = result.systemPromptOptions.forceSystemPrompt;
     assert.ok(prompt, "返回了修改后的 prompt");
 
@@ -95,7 +95,7 @@ describe("hpl-add-dir 注入经 bridge 进入最终 prompt（生产字母序链�
     const runner = new ExtensionRunner(extensions, runtime, CWD, sessionManager, stub);
     await runner.emit({ type: "session_start" } as never);
 
-    const result = await runner.emitBeforeAgentStart("hello", undefined, promptOpts);
+    const result = await runner.emitBeforeAgentStart({ messageType: "user", prompt: "hello" }, promptOpts);
     const prompt = result.systemPromptOptions.forceSystemPrompt;
     assert.ok(prompt);
     assert.ok(!prompt.includes("<external_directories>"));

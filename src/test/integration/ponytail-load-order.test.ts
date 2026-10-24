@@ -64,7 +64,7 @@ describe("加载顺序稳定性（hpl 先于 ponytail）", () => {
     assert.ok(appendExt, "追加型扩展加载成功");
 
     const runner = new ExtensionRunner([hplExt, appendExt], runtime, CWD, stub, stub);
-    const result = await runner.emitBeforeAgentStart("hello", undefined, promptOpts);
+    const result = await runner.emitBeforeAgentStart({ messageType: "user", prompt: "hello" }, promptOpts);
 
     const prompt = result.systemPromptOptions.forceSystemPrompt;
     assert.ok(prompt, "返回了修改后的 prompt");
@@ -107,7 +107,7 @@ describe("加载顺序稳定性（hpl 先于 ponytail）", () => {
     assert.equal(extensions.length, 2, "加载两个扩展");
 
     const runner = new ExtensionRunner(extensions, createExtensionRuntime(), CWD, stub, stub);
-    const result = await runner.emitBeforeAgentStart("hi", undefined, promptOpts);
+    const result = await runner.emitBeforeAgentStart({ messageType: "user", prompt: "hi" }, promptOpts);
 
     const prompt = result.systemPromptOptions.forceSystemPrompt;
     assert.ok(prompt, "返回修改后 prompt");

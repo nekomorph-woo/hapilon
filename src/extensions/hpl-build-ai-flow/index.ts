@@ -11,6 +11,7 @@ import type {
   AgentToolResult,
   ExtensionAPI,
   ExtensionCommandContext,
+  ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
 import { Effect } from "effect";
 import {
@@ -392,7 +393,7 @@ export default function hplBuildAiFlow(pi: ExtensionAPI): void {
       params: { slug?: unknown },
       _signal: AbortSignal | undefined,
       _onUpdate: unknown,
-      toolCtx: ExtensionCommandContext,
+      toolCtx: ExtensionToolContext,
     ): Promise<AgentToolResult<unknown>> => {
       const cwd = toolCtx.cwd;
       const goal = takePendingGoal(cwd);

@@ -31,9 +31,9 @@
     "@amaster.ai/pi-computer-use": "^0.1.22",
     "@anthropic-ai/sandbox-runtime": "^0.0.74",
     "@dietrichgebert/ponytail": "^4.9.0",
-    "@earendil-works/pi-ai": "0.87.1",
-    "@earendil-works/pi-coding-agent": "0.87.1",
-    "@earendil-works/pi-tui": "0.87.1",
+    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@earendil-works/pi-tui": "1.4.0",
     "@ff-labs/pi-fff": "^0.11.0",
     "@narumitw/pi-btw": "^0.61.0",
     "@nklisch/pi-background-tasks": "^0.1.8",
@@ -41,7 +41,6 @@
     "@tintinweb/pi-tasks": "^0.9.0",
     "@zhushanwen/pi-ask-user": "^7.3.1",
     "effect": "^3.22.1",
-    "pi-mcp-adapter": "^2.37.0",
     "pi-web-access": "^0.31.0",
     "typescript": "5.9.3",
     "undici": "^8.10.0"
@@ -53,9 +52,6 @@
     "@zhushanwen/pi-ask-user": {
       "@earendil-works/pi-coding-agent": "$@earendil-works/pi-coding-agent",
       "@earendil-works/pi-tui": "$@earendil-works/pi-tui"
-    },
-    "pi-mcp-adapter": {
-      "@earendil-works/pi-ai": "$@earendil-works/pi-ai"
     }
   }
 }
