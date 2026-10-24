@@ -18,6 +18,8 @@ import {
   type FileEntry,
   type RuleEntry,
 } from "../../shared/files.js";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { xmlEscape } from "../../shared/format.js";
 import { wrapSystemPrompt } from "./xml.js";
 import {
@@ -66,6 +68,8 @@ export interface AssembleOptions {
   runModeText?: string;
   /** Team personality; the two fields are mutually exclusive at assembly time. */
   team?: { orchestrator?: string; role?: string };
+  /** 项目 .hapilon/CONTEXT.md 领域词汇表内容（null=未建）——存在时内联进 prompt */
+  domainGlossary?: string | null;
   /**
    * 先于本扩展加载的兄弟扩展经 systemPromptOptions.sections 贡献的段落
    * （如 ponytail 5.x）。pi 中 forceSystemPrompt 与 sections 互斥——全量
@@ -192,6 +196,23 @@ export function buildHapilonRules(rules: RuleEntry[]): string {
   return `<hapilon_rules>\n\n${items}\n\n</hapilon_rules>`;
 }
 
+/**
+ * 领域词汇表段：内容存在时整段内联（术语每轮在场，免去反复解释）；
+ * 未建时注一行提示——拍板术语的那一刻规则已在上下文里，不依赖 skill 调用。
+ */
+export function buildDomainGlossarySection(glossary: string | null | undefined): string {
+  if (glossary === null || glossary === undefined || glossary === "") {
+    return `<domain_glossary>
+<!-- 未建。术语被拍板/澄清的当轮，按 domain-modeling 技能在 .hapilon/CONTEXT.md 建表并追加一行 -->
+</domain_glossary>`;
+  }
+  return `<domain_glossary>
+以下是本项目已积累的领域术语（.hapilon/CONTEXT.md，人与 AI 共同维护）。用词遵循既定术语；新术语拍板即追加一行，不攒批次。
+
+${xmlEscape(glossary)}
+</domain_glossary>`;
+}
+
 export function buildContextSection(contextFiles?: FileEntry[]): string {
   if (!contextFiles || contextFiles.length === 0) {
     // 无论是否为空都输出 section，空时显示注释（防将来去掉 --no-context-files）
@@ -277,6 +298,7 @@ export function buildEnvironmentSection(
 
 const HAPILON_RELATIVE = "HAPILON.md";
 const RULES_RELATIVE = "agents/rules";
+const GLOSSARY_RELATIVE = "CONTEXT.md";
 
 /** Pi 默认工具集（与 Pi system-prompt.ts 的 selectedTools 缺省一致） */
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write"];
@@ -286,14 +308,20 @@ function collectHapilonContext(
   cwd: string,
   userHome: string,
   globalBase: string = hapilonHome(),
-): { hapilonMd: FileEntry[]; hapilonRules: RuleEntry[] } {
+): { hapilonMd: FileEntry[]; hapilonRules: RuleEntry[]; domainGlossary: string | null } {
   const hapilonMdPaths = collectUpward(cwd, userHome, HAPILON_RELATIVE, globalBase);
   const hapilonMd = readHapilonMd(hapilonMdPaths);
 
   const ruleDirs = collectUpward(cwd, userHome, RULES_RELATIVE, globalBase);
   const hapilonRules = readRules(ruleDirs);
 
-  return { hapilonMd, hapilonRules };
+  // 领域词汇表：项目/祖先层就近取第一份（项目覆盖祖先），全局层兜底
+  const glossaryPaths = collectUpward(cwd, userHome, GLOSSARY_RELATIVE, globalBase);
+  const glossaryFile = glossaryPaths.find((path) => existsSync(path));
+  const domainGlossary =
+    glossaryFile !== undefined ? readFileSync(glossaryFile, "utf8").trim() || null : null;
+
+  return { hapilonMd, hapilonRules, domainGlossary };
 }
 
 /**
@@ -317,6 +345,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     runModeText,
     team,
     extensionSections,
+    domainGlossary,
   } = opts;
 
   // 统一归一化：undefined = Pi 默认工具集（两个 builder 语义一致）
@@ -349,6 +378,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   const piDocSection = buildPiDocSection();
   const hapilonInstructions = buildHapilonInstructions(hapilonMd);
   const hapilonRulesSection = buildHapilonRules(hapilonRules);
+  const domainGlossarySection = buildDomainGlossarySection(domainGlossary);
   const contextFilesSection = buildContextSection(contextFiles);
   const externalDirsSection = buildExternalDirsSection();
   const skillsSection = buildSkillsSection(skills, tools);
@@ -373,6 +403,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
       writingStyle: writingStyleSection.length,
       hapilonInstructions: hapilonInstructions.length,
       hapilonRules: hapilonRulesSection.length,
+      domainGlossary: domainGlossarySection.length,
       contextFiles: contextFilesSection.length,
       externalDirectories: externalDirsSection.length,
       skills: skillsSection.length,
@@ -398,6 +429,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     piDocSection,
     hapilonInstructions,
     hapilonRulesSection,
+    ...(domainGlossarySection ? [domainGlossarySection] : []),
     contextFilesSection,
     externalDirsSection,
     skillsSection,

@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { xmlEscape } from "../../shared/format.js";
 import { wrapSystemPrompt } from "../../extensions/hpl-system-prompt/xml.js";
 import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildRunModeText, BUILTIN_GUIDELINES, COMMIT_DISCIPLINE_TEXT, ROLE_COMMIT_BOUNDARY_TEXT, WORKFLOW_TEXT, } from "../../extensions/hpl-system-prompt/sections.js";
-import { buildRoleSection, buildCodeStyleSection, buildCommitDisciplineSection, buildRoleCommitBoundarySection, buildWorkflowSection, buildToolsSection, buildCustomToolsNote, buildGuidelinesSection, buildPiDocSection, buildHapilonInstructions, buildHapilonRules, buildContextSection, buildSkillsSection, buildAppendSection, buildExternalDirsSection, buildEnvironmentSection, assembleSystemPrompt, collectHapilonContext, } from "../../extensions/hpl-system-prompt/assemble.js";
+import { buildRoleSection, buildCodeStyleSection, buildCommitDisciplineSection, buildRoleCommitBoundarySection, buildWorkflowSection, buildToolsSection, buildCustomToolsNote, buildGuidelinesSection, buildPiDocSection, buildHapilonInstructions, buildHapilonRules, buildContextSection, buildSkillsSection, buildAppendSection, buildExternalDirsSection, buildEnvironmentSection, buildDomainGlossarySection, assembleSystemPrompt, collectHapilonContext, } from "../../extensions/hpl-system-prompt/assemble.js";
 import hplSystemPrompt from "../../extensions/hpl-system-prompt/index.js";
 import { setAddedDirs, resetAddedDirs } from "../../extensions/hpl-add-dir/bridge.js";
 import { fillOrchestratorSection } from "../../extensions/hpl-orchestra/roles.js";
@@ -108,6 +108,22 @@ describe("sections", () => {
     });
 });
 // ── assemble.ts: individual builders ──────────────────────────────────
+describe("buildDomainGlossarySection", () => {
+    it("未建时输出提示注释（拍板即建的规则在场）", () => {
+        const section = buildDomainGlossarySection(null);
+        assert.ok(section.includes("<domain_glossary>"));
+        assert.ok(section.includes("domain-modeling"), "提示应指向维护技能");
+    });
+    it("存在时内联术语原文并带用法一行", () => {
+        const section = buildDomainGlossarySection("| 坑 | 不查必错的事实型陷阱 | 2026-10-24 |");
+        assert.ok(section.includes("坑"), "术语原文应在场");
+        assert.ok(section.includes("共同维护"));
+        assert.ok(section.includes("拍板即追加"), "写规则应在场");
+    });
+    it("空串视同未建", () => {
+        assert.ok(buildDomainGlossarySection("").includes("未建"));
+    });
+});
 describe("buildWorkflowSection", () => {
     it("正常路径: 包裹 <workflow> 标签且含四步工作流核心", () => {
         const result = buildWorkflowSection();

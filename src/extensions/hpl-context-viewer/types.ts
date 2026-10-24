@@ -23,6 +23,7 @@ export interface SystemPromptMeta {
     writingStyle: number;
     hapilonInstructions: number;
     hapilonRules: number;
+  domainGlossary: number;
     contextFiles: number;
     externalDirectories: number;
     skills: number;

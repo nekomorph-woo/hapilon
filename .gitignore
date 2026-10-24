@@ -125,6 +125,7 @@ Desktop.ini
 # 例外：项目上下文（HAPILON.md 与 rules）是要入库的约定文件，其余仍忽略
 .hapilon/*
 !.hapilon/HAPILON.md
+!.hapilon/CONTEXT.md
 !.hapilon/agents/
 
 # --- Claude ---

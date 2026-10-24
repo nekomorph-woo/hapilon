@@ -30,6 +30,7 @@ describe("metadata", () => {
       workflow: 0,
       writingStyle: 0,
       hapilonInstructions: 0,
+      domainGlossary: 0,
       hapilonRules: 800,
       contextFiles: 0,
       externalDirectories: 0,

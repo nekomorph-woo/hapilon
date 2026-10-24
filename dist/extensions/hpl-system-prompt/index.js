@@ -39,6 +39,7 @@ export default function hplSystemPrompt(pi) {
                 skills: opts.skills,
                 hapilonMd: hapilonCtx.hapilonMd,
                 hapilonRules: hapilonCtx.hapilonRules,
+                domainGlossary: hapilonCtx.domainGlossary,
                 agentDirPath: agentDir(),
                 runModeText: buildRunModeText(),
                 team: getTeamSections(),

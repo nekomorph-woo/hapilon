@@ -55,7 +55,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 - `src/patch/ensure-pi-patch.ts` — 对 node_modules 的幂等补丁表（pi 包：中段 slash 触发门、状态行追加不覆盖；hapilon 自身依赖：后台任务插件的 Windows shell 与耗时展示、pi-subagents 的 workflow 派发模型钩子）；上游变更导致锚点失配时只有启动警告，需对照新源码更新锚点表。
 - MCP 走 pi 内置（builtin:mcp）：`~/.hapilon*/agent/mcp.json` 由内核直接读取，渐进式暴露（tool_search 按需加载）。
 - `.hapilon/` — 本地运行时目录（gitignored）：artifacts、handoff 等 skill 产物。
-- 文档落盘：调研笔记 → `.hapilon/research/`（research skill 默认）；用户明示留存的交付物 → `docs/artifacts/`；临时产物 → `.hapilon/<skill>/` 或 OS temp；领域词汇表（若启用 domain-modeling）→ `.hapilon/CONTEXT.md`。
+- 文档落盘：调研笔记 → `.hapilon/research/`（research skill 默认）；用户明示留存的交付物 → `docs/artifacts/`；临时产物 → `.hapilon/<skill>/` 或 OS temp；领域词汇表 → `.hapilon/CONTEXT.md`（入库共享；系统提示每轮内联，domain-modeling 技能管维护动作）。
 
 ## 坑的记录与确认
 
