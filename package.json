@@ -27,15 +27,15 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@amaster.ai/pi-browser-use": "^0.1.22",
-    "@amaster.ai/pi-computer-use": "^0.1.22",
+    "@amaster.ai/pi-browser-use": "^0.1.31",
+    "@amaster.ai/pi-computer-use": "^0.1.31",
     "@anthropic-ai/sandbox-runtime": "^0.0.74",
     "@dietrichgebert/ponytail": "^4.9.0",
     "@earendil-works/pi-ai": "1.4.0",
     "@earendil-works/pi-coding-agent": "1.4.0",
     "@earendil-works/pi-tui": "1.4.0",
     "@ff-labs/pi-fff": "^0.11.0",
-    "@narumitw/pi-btw": "^0.61.0",
+    "@narumitw/pi-btw": "^0.62.0",
     "@nklisch/pi-background-tasks": "^0.1.8",
     "@tintinweb/pi-subagents": "^0.22.0",
     "@tintinweb/pi-tasks": "^0.9.1",
