@@ -162,11 +162,11 @@ describe("buildDomainGlossarySection", () => {
     assert.ok(section.includes("domain-modeling"), "提示应指向维护技能");
   });
 
-  it("存在时内联术语原文并带用法一行", () => {
-    const section = buildDomainGlossarySection("| 坑 | 不查必错的事实型陷阱 | 2026-10-24 |");
-    assert.ok(section.includes("坑"), "术语原文应在场");
-    assert.ok(section.includes("共同维护"));
-    assert.ok(section.includes("拍板即追加"), "写规则应在场");
+  it("存在时输出路径引用（内容不内联——前缀缓存稳定）", () => {
+    const section = buildDomainGlossarySection("exists");
+    assert.ok(section.includes(".hapilon/CONTEXT.md"), "路径应在场");
+    assert.ok(section.includes("read 该文件"), "读取指导应在场");
+    assert.ok(!section.includes("坑"), "术语原文不应内联");
   });
 
   it("空串视同未建", () => {

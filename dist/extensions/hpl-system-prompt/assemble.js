@@ -11,7 +11,7 @@
  * （Pi 原生 prompt 是 markdown 纯文本，无此结构，不构成参照）。
  */
 import { collectUpward, readHapilonMd, readRules, } from "../../shared/files.js";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { xmlEscape } from "../../shared/format.js";
 import { wrapSystemPrompt } from "./xml.js";
 import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildMcpSectionText, BUILTIN_GUIDELINES, CODE_STYLE_TEXT, COMMIT_DISCIPLINE_TEXT, ROLE_COMMIT_BOUNDARY_TEXT, WORKFLOW_TEXT, CONFIRM_BEFORE_BUILDING_TEXT, WRITING_STYLE_TEXT, } from "./sections.js";
@@ -117,20 +117,14 @@ export function buildHapilonRules(rules) {
     return `<hapilon_rules>\n\n${items}\n\n</hapilon_rules>`;
 }
 /**
- * 领域词汇表段：内容存在时整段内联（术语每轮在场，免去反复解释）；
- * 未建时注一行提示——拍板术语的那一刻规则已在上下文里，不依赖 skill 调用。
+ * 领域词汇表段：静态路径引用（byte 级恒定，不随词汇表内容变化——前缀缓存不受影响）。
+ * 内容侧指导模型按需 read；写侧（拍板即追加）由 domain-modeling 技能承载。
  */
 export function buildDomainGlossarySection(glossary) {
     if (glossary === null || glossary === undefined || glossary === "") {
-        return `<domain_glossary>
-<!-- 未建。术语被拍板/澄清的当轮，按 domain-modeling 技能在 .hapilon/CONTEXT.md 建表并追加一行 -->
-</domain_glossary>`;
+        return `<domain_glossary>\n领域词汇表未建。术语被拍板/澄清时，按 domain-modeling 技能在 .hapilon/CONTEXT.md 建表。\n</domain_glossary>`;
     }
-    return `<domain_glossary>
-以下是本项目已积累的领域术语（.hapilon/CONTEXT.md，人与 AI 共同维护）。用词遵循既定术语；新术语拍板即追加一行，不攒批次。
-
-${xmlEscape(glossary)}
-</domain_glossary>`;
+    return `<domain_glossary>\n领域词汇表在 .hapilon/CONTEXT.md（人与 AI 共同维护）。涉及领域命名/用词的任务开工前先 read 该文件，遵循既定术语。新术语拍板即追加一行（domain-modeling 技能）。\n</domain_glossary>`;
 }
 export function buildContextSection(contextFiles) {
     if (!contextFiles || contextFiles.length === 0) {
@@ -211,10 +205,9 @@ function collectHapilonContext(cwd, userHome, globalBase = hapilonHome()) {
     const hapilonMd = readHapilonMd(hapilonMdPaths);
     const ruleDirs = collectUpward(cwd, userHome, RULES_RELATIVE, globalBase);
     const hapilonRules = readRules(ruleDirs);
-    // 领域词汇表：项目/祖先层就近取第一份（项目覆盖祖先），全局层兜底
+    // 领域词汇表：只判存在性（内容不内联——前缀缓存稳定）；项目/祖先层就近，全局层兜底
     const glossaryPaths = collectUpward(cwd, userHome, GLOSSARY_RELATIVE, globalBase);
-    const glossaryFile = glossaryPaths.find((path) => existsSync(path));
-    const domainGlossary = glossaryFile !== undefined ? readFileSync(glossaryFile, "utf8").trim() || null : null;
+    const domainGlossary = glossaryPaths.some((path) => existsSync(path)) ? "exists" : null;
     return { hapilonMd, hapilonRules, domainGlossary };
 }
 /**

@@ -196,26 +196,26 @@ export function buildHapilonRules(rules: RuleEntry[]): string {
 }
 
 /**
- * 领域词汇表段：内容存在时整段内联（术语每轮在场，免去反复解释）；
- * 未建时注一行提示——拍板术语的那一刻规则已在上下文里，不依赖 skill 调用。
+ * 领域词汇表段：静态路径引用（byte 级恒定，不随词汇表内容变化——前缀缓存不受影响）。
+ * 内容侧指导模型按需 read；写侧（拍板即追加）由 domain-modeling 技能承载。
  */
 export function buildDomainGlossarySection(glossary: string | null | undefined): string {
   if (glossary === null || glossary === undefined || glossary === "") {
-    return `<domain_glossary>
-<!-- 未建。术语被拍板/澄清的当轮，按 domain-modeling 技能在 .hapilon/CONTEXT.md 建表并追加一行 -->
-</domain_glossary>`;
+    return `<domain_glossary>\n领域词汇表未建。术语被拍板/澄清时，按 domain-modeling 技能在 .hapilon/CONTEXT.md 建表。\n</domain_glossary>`;
   }
-  return `<domain_glossary>
-以下是本项目已积累的领域术语（.hapilon/CONTEXT.md，人与 AI 共同维护）。用词遵循既定术语；新术语拍板即追加一行，不攒批次。
-
-${xmlEscape(glossary)}
-</domain_glossary>`;
+  return `<domain_glossary>\n领域词汇表在 .hapilon/CONTEXT.md（人与 AI 共同维护）。涉及领域命名/用词的任务开工前先 read 该文件，遵循既定术语。新术语拍板即追加一行（domain-modeling 技能）。\n</domain_glossary>`;
 }
 
+
+
 export function buildContextSection(contextFiles?: FileEntry[]): string {
+
   if (!contextFiles || contextFiles.length === 0) {
+
     // 无论是否为空都输出 section，空时显示注释（防将来去掉 --no-context-files）
+
     return `<project_context>\n<!-- 当前为空；hapilon 使用 --no-context-files -->\n</project_context>`;
+
   }
   // path 属性与正文均转义
   const entries = contextFiles
@@ -314,11 +314,9 @@ function collectHapilonContext(
   const ruleDirs = collectUpward(cwd, userHome, RULES_RELATIVE, globalBase);
   const hapilonRules = readRules(ruleDirs);
 
-  // 领域词汇表：项目/祖先层就近取第一份（项目覆盖祖先），全局层兜底
+  // 领域词汇表：只判存在性（内容不内联——前缀缓存稳定）；项目/祖先层就近，全局层兜底
   const glossaryPaths = collectUpward(cwd, userHome, GLOSSARY_RELATIVE, globalBase);
-  const glossaryFile = glossaryPaths.find((path) => existsSync(path));
-  const domainGlossary =
-    glossaryFile !== undefined ? readFileSync(glossaryFile, "utf8").trim() || null : null;
+  const domainGlossary = glossaryPaths.some((path) => existsSync(path)) ? "exists" : null;
 
   return { hapilonMd, hapilonRules, domainGlossary };
 }
