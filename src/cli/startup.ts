@@ -31,6 +31,23 @@ export interface PiLaunchPlan {
   agentDirPath: string;
 }
 
+/**
+ * taste-skill inspect.mjs 的 Chrome 兜底：优先 settings.json 里 pi-browser-use 的
+ * playwright chromium 路径；缺失返回 undefined（不注入，由 inspect 自带的系统
+ * Chrome/Edge 候选表接管）。
+ */
+function resolvePlaywrightChrome(agentDir: string): string | undefined {
+  try {
+    const settings = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8")) as {
+      "pi-browser-use"?: { executablePath?: string };
+    };
+    const candidate = settings["pi-browser-use"]?.executablePath;
+    return candidate !== undefined && existsSync(candidate) ? candidate : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const toStartupError = (error: unknown): StartupError =>
   new StartupError({ message: error instanceof Error ? error.message : String(error) });
 
@@ -153,6 +170,8 @@ export const prepareStartupEffect = (args: string[]): Effect.Effect<PiLaunchPlan
   // 面板重新拉起完整 hapilon（扩展跑在 pi 子进程里，argv[1] 是 pi 的 cli.js，
   // 重新拉起时必须用 hapilon 自己的入口）。本模块编译后在 dist/cli/ 下，上一级即 dist/cli.js。
   const hapilonCliPath = fileURLToPath(new URL("../cli.js", import.meta.url));
+  // answer-me-with-html 的数据目录：项目级 .hapilon/amwh（页面/drafts 落项目内，gitignore 已覆盖）
+  const amHome = join(process.cwd(), ".hapilon", "amwh");
   const piEnv = {
     ...process.env,
     PI_CODING_AGENT_DIR: agentDirPath,
@@ -160,6 +179,13 @@ export const prepareStartupEffect = (args: string[]): Effect.Effect<PiLaunchPlan
     HAPILON_EXTENSIONS: JSON.stringify(extensionNames(displayedExtensions)),
     HAPILON_VERSION: getVersion(),
     HAPILON_CLI_PATH: hapilonCliPath,
+    // 未设 AM_HOME 时才注入，用户显式指定优先
+    ...(process.env.AM_HOME === undefined ? { AM_HOME: amHome } : {}),
+    // taste-skill inspect.mjs 的 CDP 兜底：找不到系统 Chrome 时指向 playwright chromium
+    ...(() => {
+      const chrome = process.env.CHROME_PATH !== undefined ? undefined : resolvePlaywrightChrome(agentDirPath);
+      return chrome !== undefined ? { CHROME_PATH: chrome } : {};
+    })(),
     // role 只注入 pi 子进程自身的 env（随进程生灭），不在 pane shell 留残留
     ...(teamRole ? { HAPI_ORCH_ROLE: teamRole } : {}),
     // 角色 pane 的任务列表：每个 role 一份自己的（不共享），owner 与非 team pane 不注入。
