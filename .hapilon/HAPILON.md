@@ -37,7 +37,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 
 ## 提交纪律
 
-- 一切修改提交必须走 snap 技能；Conventional commits：type/scope 英文，描述与正文简体中文（覆盖 snap 按历史提交推断语言的默认优先级——历史是英文，新提交仍走中文）；业务高度（用户视角，一行一个想法，禁止罗列文件/版本号）；正文 ≤3 行只讲 why——即 snap skill 的标准。
+- 一切修改提交必须走 snap 技能；Conventional commits：type/scope 英文，描述与正文简体中文（覆盖 snap 按历史提交推断语言的默认优先级——历史是英文，新提交仍走中文）；业务高度（用户视角，一行一个想法，禁止罗列文件/版本号）；正文 ≤3 行只讲 why——即 snap skill 的标准。修复坑的提交另需在正文末加 `Pit:` trailer（格式见「坑的记录与确认」）。
 - 仓库常有并行会话写入：commit 前 `git status` 逐条过目，显式路径 staging，禁 `git add -A`。
 - 不主动 push；用户明确要求才 push / 走 PR。
 
@@ -57,10 +57,17 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 - `.hapilon/` — 本地运行时目录（gitignored）：artifacts、handoff 等 skill 产物。
 - 文档落盘：调研/决策笔记 → `docs/research/`；用户明示留存的交付物 → `docs/artifacts/`；临时产物 → `.hapilon/<skill>/` 或 OS temp；领域词汇表（ubiquitous language）→ `.hapilon/CONTEXT.md`。
 
+## 坑的记录与确认
+
+- 不随手编辑「已知坑」：踩坑时在**修复它的 snap 提交**正文末加 trailer `Pit: <一句话症状> [fact|habit]`；人类回溯后确认的坑才写进「已知坑」。
+- 事实坑（不查必错、错了难定位，如环境目录、锚点失配）**一次即标**；习惯坑（写法纪律，如裸 throw、吞错降级）**第二次遇到才标**。
+- 回溯（人类主导，低频）：`git log --grep='^Pit: '`——既可分析内容，也可按次数/时间衰减统计；确认的坑更新进「已知坑」，过期的删。
+- 「已知坑」上限约 10 条，每条一句话症状 + 根因 + 避法（或可删判据）；超出时先删已失效的。
+
 ## 已知坑
 
-- Effect 风格是高频失守点：连写过 Effect 的人也会在赶活时退回裸 throw/async——review 与自检时优先看这条。
+- Effect 风格是高频失守点：连写过 Effect 的人也会在赶活时退回裸 throw/async——review 与自检时优先看这条。（习惯坑）
 
-- dev 模式 `devhapi` 的 HAPILON_HOME 是 `~/.hapilon-dev`（配置、sessions、模型档位都在那边，别查错家目录）。
-- model-tiers 双层配置：全局 `~/.hapilon*/model-tiers.json` + 项目 `.hapilon/model-tiers.json`，项目按档覆盖全局。
-- teams 配置（`~/.hapilon-dev/teams/`）的 role.model 支持 `tier:<name>[<index>]` 指代与具体 id，过期 id 自动回落档位[0]。
+- dev 模式 `devhapi` 的 HAPILON_HOME 是 `~/.hapilon-dev`（配置、sessions、模型档位都在那边，别查错家目录）。（事实坑）
+- model-tiers 双层配置：全局 `~/.hapilon*/model-tiers.json` + 项目 `.hapilon/model-tiers.json`，项目按档覆盖全局。（事实坑）
+- teams 配置（`~/.hapilon-dev/teams/`）的 role.model 支持 `tier:<name>[<index>]` 指代与具体 id，过期 id 自动回落档位[0]。（事实坑）
