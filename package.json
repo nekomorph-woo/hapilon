@@ -1,6 +1,6 @@
 {
   "name": "hapilon",
-  "version": "0.10.33",
+  "version": "0.10.34",
   "description": "HAPi",
   "private": true,
   "type": "module",
@@ -21,7 +21,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test dist/test/**/*.test.js",
     "test:unit": "node --test dist/test/unit/**/*.test.js",
-    "test:integration": "node --test dist/test/integration/**/*.test.js"
+    "test:integration": "node --test dist/test/integration/**/*.test.js",
+    "test:polaris": "node --test dist/test/polaris/*.test.js"
   },
   "engines": {
     "node": ">=22.19.0"
