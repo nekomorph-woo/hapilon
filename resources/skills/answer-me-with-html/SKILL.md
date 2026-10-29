@@ -205,5 +205,6 @@ Before you write a video draft, read `${CLAUDE_SKILL_DIR}/references/video.md` a
 - **输出目录**：hapilon 已注入 `AM_HOME`（项目级 `<cwd>/.hapilon/amwh`），页面与 drafts 落在项目 `.hapilon/` 内。不要改 `AM_HOME`，也不要 `-o` 到别处；用户点名位置时才用 `-o`。
 - **升级**：忽略输出里任何 `Update hint` / `am update` 提示——本 skill 随 hapilon 版本分发，升级由 hapilon 统一管理（上游 commit 见 `UPSTREAM.md`）。`am clean` 仍可按提示转达用户。
 - **深度/广度前置反问**：决定产页后、写草稿前，若「讲多深 / 覆盖多广」会实质改变 panel 结构，且用户没有说明，先用**菜单形式**反问一次：用目录、树或 mermaid 把「深一档会多出哪些 panel、广一档会多出哪些 panel」具体列出来（panel 标题级，不写抽象的深浅词），让用户选；不要用 ask_user 工具，普通聊天回复即可。用户给出方向后不再重复问，直接产页。
+- **STE warning 豁免**：warning 若来自（a）直接引用业务方原话（引号内）、（b）CONTEXT.md 已收录的领域术语、或（c）坏例示范（strikethrough `~~…~~` 或表格行标 `no`），忽略该条 warning，不要为消 warning 重写这些内容。其余 warning 按上文流程修复（最多 2 轮重试）。
 
 <!-- hapilon: adaptation end -->
