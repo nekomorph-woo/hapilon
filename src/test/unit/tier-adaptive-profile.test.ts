@@ -237,8 +237,10 @@ describe("tier-adaptive 事实日志与画像", () => {
       event({ kind: "provider_limit", ts, provider: "zai", window: "5h", percent: 95 }),
       event({ kind: "provider_failure", ts, provider: "zai", detail: "500" }),
     ];
-    const first = deriveProfile(events, new Date().toISOString());
-    const second = deriveProfile(events, new Date().toISOString());
+    // now 只取一次：generatedAt 会盖进 profile，两次取now中间时钟走动必然不等
+    const now = new Date().toISOString();
+    const first = deriveProfile(events, now);
+    const second = deriveProfile(events, now);
     assert.deepEqual(first, second);
     assert.deepEqual(first.providers["zai"], { limits: 1, failures: 1 });
   });
