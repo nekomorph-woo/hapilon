@@ -27,9 +27,9 @@ describe("parseExtensionsEnv", () => {
     });
 });
 describe("logo 与布局随机", () => {
-    it("logo 返回 8 行非空字符串", () => {
+    it("logo 返回 10 行非空字符串", () => {
         const logo = hapilonLogo();
-        assert.equal(logo.length, 8);
+        assert.equal(logo.length, 10);
         assert.ok(logo.every((l) => typeof l === "string"));
     });
     it("布局索引为 0 或 1（A/B）", () => {
