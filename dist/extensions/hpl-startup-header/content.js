@@ -269,38 +269,19 @@ function expandedInfoLines(data, width) {
     if (data.extensions && data.extensions.length > 0) {
         lines.push(`Extensions (${data.extensions.length})`);
         lines.push("");
-        // 卡片宽度：名称行最长 = icon(2) + space(1) + 最长名(~17) = 20；描述行最长 = 6 中文≈12 列
-        // 卡片内宽取 22，加边框 2 = 24；间隔 1
-        const cardW = 24;
-        const gap = 1;
-        const perRow = Math.max(1, Math.floor((width - 2) / (cardW + gap)));
-        // 按行分组，每张卡片 4 行（上框/名称/描述/下框），行内拼接
-        for (let row = 0; row < data.extensions.length; row += perRow) {
-            const batch = data.extensions.slice(row, row + perRow);
-            const tops = [];
-            const names = [];
-            const descs = [];
-            const bots = [];
-            for (const ext of batch) {
-                const [icon, desc] = EXT_CARDS[ext] ?? EXT_FALLBACK;
-                const name = extDisplayName(ext);
-                const inner = cardW - 2;
-                // 虚线边框
-                tops.push(`╌${"┄".repeat(inner)}╌`);
-                // 名称行：icon + name 居中
-                const nameText = `${icon} ${name}`;
-                const namePad = Math.max(0, Math.floor((inner - nameText.length) / 2));
-                names.push(`┆${" ".repeat(namePad)}${nameText}${" ".repeat(Math.max(0, inner - namePad - nameText.length))}┆`);
-                // 描述行：居中
-                const descPad = Math.max(0, Math.floor((inner - desc.length) / 2));
-                descs.push(`┆${" ".repeat(descPad)}${desc}${" ".repeat(Math.max(0, inner - descPad - desc.length))}┆`);
-                bots.push(`╌${"┄".repeat(inner)}╌`);
-            }
-            const join = " ".repeat(gap);
-            lines.push(" " + tops.join(join));
-            lines.push(" " + names.join(join));
-            lines.push(" " + descs.join(join));
-            lines.push(" " + bots.join(join));
+        // 一行一张卡片，宽度随终端
+        const cardW = Math.min(width - 4, 44);
+        const inner = cardW - 2;
+        for (const ext of data.extensions) {
+            const [icon, desc] = EXT_CARDS[ext] ?? EXT_FALLBACK;
+            const name = extDisplayName(ext);
+            lines.push(`╌${"┄".repeat(inner)}╌`);
+            const nameText = `${icon} ${name}`;
+            const namePad = Math.max(0, Math.floor((inner - nameText.length) / 2));
+            lines.push(`┆${" ".repeat(namePad)}${nameText}${" ".repeat(Math.max(0, inner - namePad - nameText.length))}┆`);
+            const descPad = Math.max(0, Math.floor((inner - desc.length) / 2));
+            lines.push(`┆${" ".repeat(descPad)}${desc}${" ".repeat(Math.max(0, inner - descPad - desc.length))}┆`);
+            lines.push(`╌${"┄".repeat(inner)}╌`);
             lines.push("");
         }
     }
