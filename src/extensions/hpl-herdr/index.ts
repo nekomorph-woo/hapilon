@@ -8,12 +8,14 @@
  * 状态来自两路事实的合成（state.ts）：主循环起跑/沉淀，加上后台 subagent 的
  * 生命周期——否则主循环 settle、subagent 还在跑时会误报 idle。
  *
- * 仅在 herdr pane 内生效（HERDR_ENV=1 且 HERDR_BIN_PATH/HERDR_PANE_ID 齐全），
- * 其余环境严格 no-op。
+ * 双通道：herdr-tui 走官方 CLI 集成（HERDR_ENV=1 且 HERDR_BIN_PATH/HERDR_PANE_ID
+ * 齐全时激活）；herdr-app 无这些环境变量，改走 OSC 7501 直接写 pty（osc.ts）。
+ * 两路互斥，同一 pane 只有一条通道；都不满足时严格 no-op。
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { defaultSpawn, type SpawnFn } from "../hpl-orchestra/herdr.js";
-import { blockMessage, createHerdrReporter, type HerdrEnv } from "./report.js";
+import { blockMessage, createHerdrReporter, type HerdrEnv, type HerdrReporter } from "./report.js";
+import { createOscReporter } from "./osc.js";
 import { createHerdrState, type DerivedReport } from "./state.js";
 
 function sessionPathOf(ctx: ExtensionContext): string | undefined {
@@ -28,13 +30,23 @@ interface SubagentLifecycleEvent {
 	id?: unknown;
 }
 
-export function registerHerdrReporting(pi: ExtensionAPI, deps: { spawn: SpawnFn; env: HerdrEnv }): void {
-	const reporter = createHerdrReporter({ spawn: deps.spawn, env: deps.env });
-	if (!reporter.enabled) return;
+export function registerHerdrReporting(
+	pi: ExtensionAPI,
+	deps: { spawn: SpawnFn; env: HerdrEnv; osc?: { isTTY?: boolean | undefined; write?: (sequence: string) => void } },
+): void {
+	// 两条出口同接口，激活哪条走哪条；sessionPath 这类 CLI 专有参数由各出口自行忽略
+	const sinks: HerdrReporter[] = [
+		createHerdrReporter({ spawn: deps.spawn, env: deps.env }),
+		createOscReporter({ env: deps.env, ...deps.osc }),
+	].filter((sink) => sink.enabled);
+	if (sinks.length === 0) return;
 
 	const state = createHerdrState();
 	const report = (derived: DerivedReport | undefined) => {
-		if (derived) reporter.report(derived.state, derived.message ? { message: derived.message } : undefined);
+		if (!derived) return;
+		for (const sink of sinks) {
+			sink.report(derived.state, derived.message ? { message: derived.message } : undefined);
+		}
 	};
 	const subagentId = (event: unknown): string | undefined => {
 		const id = (event as SubagentLifecycleEvent | undefined)?.id;
@@ -44,7 +56,7 @@ export function registerHerdrReporting(pi: ExtensionAPI, deps: { spawn: SpawnFn;
 	// 起始：新会话重置状态机，并带上 session 路径（herdr 展示/resume 判断用）
 	pi.on("session_start", (_event, ctx) => {
 		state.reset();
-		reporter.report("idle", { sessionPath: sessionPathOf(ctx) });
+		for (const sink of sinks) sink.report("idle", { sessionPath: sessionPathOf(ctx) });
 	});
 
 	// 主循环：起跑与每轮开始算 working；完全沉淀（无重试/压缩/排队续跑）才是
@@ -72,8 +84,11 @@ export function registerHerdrReporting(pi: ExtensionAPI, deps: { spawn: SpawnFn;
 	pi.on("ui_prompt_start", (event) => report(state.promptStart(blockMessage(event))));
 	pi.on("ui_prompt_end", () => report(state.promptEnd()));
 
-	// 退出：释放生命周期权威，herdr 不再把这个 pane 当活跃 agent
-	pi.on("session_shutdown", () => reporter.release());
+	// 退出：释放生命周期权威（CLI 的 release-agent / OSC 的 state=clear），
+	// herdr 不再把这个 pane 当活跃 agent
+	pi.on("session_shutdown", () => {
+		for (const sink of sinks) sink.release();
+	});
 }
 
 export default function hplHerdr(pi: ExtensionAPI): void {
