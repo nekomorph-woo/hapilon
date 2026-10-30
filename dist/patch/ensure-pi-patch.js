@@ -37,6 +37,10 @@ const HAPI_SUBAGENTS_DIR_MARKER = "hapiSubagentsDir";
 const HAPI_COMPACT_HIDE_MARKER = "hapiCompactHide";
 /** bg-task 完成通知从聊天区永久行改为 footer 短暂展示的 marker */
 const HAPI_BG_DONE_MARKER = "hapiBgDone";
+/** ponytail 图标去 emoji（🌿⚡🔥🐴 → 盲文点阵）的 marker */
+const HAPI_PONYTAIL_GLYPH_MARKER = "hapiPonytailGlyph";
+/** ponytail 包名（hapilon 自身的依赖） */
+const PONYTAIL_PACKAGE = "@dietrichgebert/ponytail";
 /** /compact 条目移除后数组空洞的源头过滤（补全项不含 undefined）的 marker */
 const HAPI_COMPACT_FILTER_MARKER = "hapiCompactFilter";
 /** SubagentWorkflow 派发模型列表钩子的 marker */
@@ -202,9 +206,20 @@ export const PATCH_RULES = [
         package: BACKGROUND_TASKS_PACKAGE,
         file: "extensions/background-tasks.ts",
         find: '      notify(ok ? "success" : "error", `background job #${job.id} "${label}" finished: ${reason}`, job);',
-        replace: '      // hapilon: hapiBgDone — 完成通知走 footer 短暂展示，不占聊天区\n      // （hapiStatusStack 补丁使 notify 永久堆积，完成消息会刷屏）\n      lastUi?.setStatus?.("bg-done", `${ok ? "\u2705" : "\u274c"} #${job.id} ${label}: ${reason}`);\n      setTimeout(() => lastUi?.setStatus?.("bg-done", undefined), 5000);',
+        replace: '      // hapilon: hapiBgDone — 完成通知走 footer 短暂展示，不占聊天区\n      // （hapiStatusStack 补丁使 notify 永久堆积，完成消息会刷屏）\n      lastUi?.setStatus?.("bg-done", `${ok ? "⠧" : "⠭"} #${job.id} ${label}: ${reason}`);\n      setTimeout(() => lastUi?.setStatus?.("bg-done", undefined), 5000);',
         occurrences: 1,
         marker: HAPI_BG_DONE_MARKER,
+    },
+    // ── ponytail 图标去 emoji：档位图标与状态栏的马（🌿⚡🔥🐴）换成盲文点阵——
+    //    档位密度递进 ⠿/⣿/⡷，马换 ⠓（盲文 h，与 startup 猫头同源）。纯视觉，行为不变。
+    {
+        base: "hapilon",
+        package: PONYTAIL_PACKAGE,
+        file: "pi-extension/index.js",
+        find: '    const levelIcons = { lite: "🌿", full: "⚡", ultra: "🔥" };\n    const icon = levelIcons[currentMode] || "";\n    const label = currentMode.toUpperCase();\n    const indicator = isActive ? theme.fg("accent", "●") : theme.fg("dim", "○");\n    c.ui.setStatus("ponytail", indicator + " 🐴 " + theme.fg("muted", "ponytail: ") + theme.fg("text", icon + " " + label));',
+        replace: '    const levelIcons = { lite: "⠿", full: "⣿", ultra: "⡷" };\n    const icon = levelIcons[currentMode] || "";\n    const label = currentMode.toUpperCase();\n    const indicator = isActive ? theme.fg("accent", "●") : theme.fg("dim", "○");\n    // hapilon: hapiPonytailGlyph — 图标去 emoji（补丁表），⠓ 与 startup 猫头同源\n    c.ui.setStatus("ponytail", indicator + " ⠓ " + theme.fg("muted", "ponytail: ") + theme.fg("text", icon + " " + label));',
+        occurrences: 1,
+        marker: HAPI_PONYTAIL_GLYPH_MARKER,
     },
     // ── 状态行追加不覆盖：pi 的 showStatus 对连续状态就地替换（防刷屏），扩展经
     //    ctx.ui.notify 发的多条提示会互相顶掉。去掉替换分支后每条通知各占一行；
