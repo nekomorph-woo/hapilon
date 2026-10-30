@@ -136,8 +136,7 @@ const LOGOS: readonly string[][] = [
 
 // 模块加载时定一只 + 定一个布局：resize / 重绘复用同一只，不会闪跳。
 const LOGO_INDEX = Math.floor(Math.random() * LOGOS.length);
-/** 0 = A（猫左+状态右），1 = B（猫居中+底部条） */
-const LAYOUT_INDEX = Math.floor(Math.random() * 2);
+
 
 /**
  * V2 撞色：猫身保持主题 accent，只给小元素换色——warning（黄）给月/蝶/窗
@@ -204,9 +203,9 @@ export function hapilonLogo(): string[] {
   return [...LOGOS[LOGO_INDEX]!];
 }
 
-/** 当前随机选中的布局：0=A（猫左+状态右），1=B（猫居中+底部条） */
+/** 布局常量：B（猫居中+底部条）。保留导出以兼容测试。 */
 export function currentLayoutIndex(): number {
-  return LAYOUT_INDEX;
+  return 1;
 }
 
 // ─── 共享工具 ─────────────────────────────────────────────────────────
@@ -263,7 +262,7 @@ export function shortenWorkspacePath(cwd: string, homeDir: string): string {
 /** 一行状态摘要：hapi vX.Y.Z · provider/model · 路径 */
 function statusLine(data: HeaderData): string {
   const parts: string[] = [];
-  if (data.version) parts.push(`hapi v${data.version}`);
+  if (data.version) parts.push(`hapilon v${data.version}`);
   if (data.modelProvider && data.modelName) {
     parts.push(`${data.modelProvider}/${data.modelName}`);
   }
@@ -286,32 +285,6 @@ function expandedInfoLines(data: HeaderData): string[] {
   }
   lines.push("");
   lines.push("esc interrupt · ctrl+c/d exit · shift+tab thinking · ctrl+p model · / commands · ! bash");
-  return lines;
-}
-
-// ─── 布局 A：猫左 + 状态右 ────────────────────────────────────────────
-
-function buildLayoutA(data: HeaderData, expanded: boolean, _width: number): string[] {
-  const logo = hapilonLogo();
-  const lines: string[] = [];
-  const logoWidth = Math.max(...logo.map((l) => l.length));
-  // 猫+文字锁定组合：间距固定 3 字符列，不随终端宽度漂移
-  const gap = logoWidth + 3;
-
-  if (!expanded) {
-    const status = statusLine(data);
-    const hint = "ctrl+o expand";
-    for (let i = 0; i < logo.length; i++) {
-      const right = i === 3 ? status : i === 5 ? hint : "";
-      lines.push(` ${logo[i]!.padEnd(gap)}${right}`);
-    }
-  } else {
-    const info = expandedInfoLines(data);
-    const rows = Math.max(logo.length, info.length + 1);
-    for (let i = 0; i < rows; i++) {
-      lines.push(` ${(logo[i] ?? "").padEnd(gap)}${info[i] ?? ""}`);
-    }
-  }
   return lines;
 }
 
@@ -358,7 +331,7 @@ function colorStartupLine(line: string, theme: Theme): string {
   if (trimmed.startsWith("esc ")) return theme.fg("muted", line);
   if (trimmed.startsWith("Extensions")) return theme.fg("text", line);
   if (trimmed.startsWith("Pi ")) return theme.fg("muted", line);
-  if (/^hapi v/.test(trimmed)) return theme.fg("text", line);
+  if (/^hapilon v/.test(trimmed)) return theme.fg("text", line);
   return theme.fg("text", line);
 }
 
@@ -392,9 +365,7 @@ export function createStartupHeader(
         piUpdate: state.piUpdate,
       };
 
-      const raw = LAYOUT_INDEX === 0
-        ? buildLayoutA(data, state.expanded, width)
-        : buildLayoutB(data, state.expanded, width);
+      const raw = buildLayoutB(data, state.expanded, width);
 
       // 上色：logo 行走撞色管线，其余行走文本管线
       let logoRow = 0;
