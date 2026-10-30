@@ -150,6 +150,9 @@ export const prepareStartupEffect = (args) => Effect.gen(function* () {
         HAPILON_CLI_PATH: hapilonCliPath,
         // 未设 AM_HOME 时才注入，用户显式指定优先
         ...(process.env.AM_HOME === undefined ? { AM_HOME: amHome } : {}),
+        // 关掉 pi 原生 OSC 7501 上报（app 硬编码 pi，herdr-app 会把 pane 认成 pi）；
+        // 通道让给 hpl-herdr 扩展（app=hapilon）。显式设置过的用户优先。
+        ...(process.env.PI_PROGRAM_STATUS === undefined ? { PI_PROGRAM_STATUS: "0" } : {}),
         // taste-skill inspect.mjs 的 CDP 兜底：找不到系统 Chrome 时指向 playwright chromium
         ...(() => {
             const chrome = process.env.CHROME_PATH !== undefined ? undefined : resolvePlaywrightChrome(agentDirPath);

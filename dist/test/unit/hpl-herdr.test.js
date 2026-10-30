@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { HERDR_AGENT, HERDR_SOURCE, blockMessage, createHerdrReporter, releaseAgentArgs, reportAgentArgs, reporterEnabled, } from "../../extensions/hpl-herdr/report.js";
 import { createHerdrState } from "../../extensions/hpl-herdr/state.js";
 import { registerHerdrReporting } from "../../extensions/hpl-herdr/index.js";
+import { createOscReporter, oscEnabled, programStatusSequence, } from "../../extensions/hpl-herdr/osc.js";
 /** 记录 spawn 调用的假 SpawnFn */
 function makeSpawn(result = {}) {
     const calls = [];
@@ -228,5 +229,94 @@ describe("registerHerdrReporting() 接线", () => {
         // 重置后旧的在跑标记不再撑状态
         handlers.get("agent_settled")();
         assert.deepEqual(states(calls).slice(-2), ["idle", "idle"]);
+    });
+});
+describe("oscEnabled()", () => {
+    const BARE = { herdrEnv: undefined, binPath: undefined, paneId: undefined };
+    it("有 TTY 且 CLI 通道未激活才启用", () => {
+        assert.equal(oscEnabled(BARE, true), true);
+        assert.equal(oscEnabled(ENV, true), false); // herdr-tui CLI 通道在场，让路
+        assert.equal(oscEnabled(BARE, false), false);
+        assert.equal(oscEnabled(BARE, undefined), false);
+    });
+});
+describe("programStatusSequence()", () => {
+    it("app=hapilon，working 不带 msg", () => {
+        assert.equal(programStatusSequence("working"), "\x1b]7501;state=working:app=hapilon\x1b\\");
+    });
+    it("blocked 的说明文本编码为 base64 msg", () => {
+        const b64 = Buffer.from("select: 选哪个", "utf8").toString("base64");
+        assert.equal(programStatusSequence("blocked", "select: 选哪个"), `\x1b]7501;state=blocked:app=hapilon:msg=${b64}\x1b\\`);
+    });
+});
+describe("createOscReporter()", () => {
+    const BARE = { herdrEnv: undefined, binPath: undefined, paneId: undefined };
+    it("无 TTY 严格 no-op（不写任何序列）", () => {
+        const writes = [];
+        const reporter = createOscReporter({ env: BARE, isTTY: false, write: (s) => writes.push(s) });
+        reporter.report("working");
+        reporter.release();
+        assert.deepEqual(writes, []);
+    });
+    it("报告写 pty，release 收尾写 state=clear", () => {
+        const writes = [];
+        const reporter = createOscReporter({ env: BARE, isTTY: true, write: (s) => writes.push(s) });
+        reporter.report("idle");
+        reporter.report("blocked", { message: "权限确认" });
+        reporter.release();
+        assert.deepEqual(writes, [
+            "\x1b]7501;state=idle:app=hapilon\x1b\\",
+            `\x1b]7501;state=blocked:app=hapilon:msg=${Buffer.from("权限确认", "utf8").toString("base64")}\x1b\\`,
+            "\x1b]7501;state=clear\x1b\\",
+        ]);
+    });
+});
+describe("registerHerdrReporting() OSC 通道接线", () => {
+    function fakePi() {
+        const handlers = new Map();
+        const events = new Map();
+        const pi = {
+            on: (name, handler) => void handlers.set(name, handler),
+            events: { on: (name, handler) => void events.set(name, handler) },
+        };
+        return { pi: pi, handlers, events };
+    }
+    it("非 herdr 环境 + TTY：走 OSC 上报，subagent 撑住 working", () => {
+        const writes = [];
+        const { pi, handlers, events } = fakePi();
+        registerHerdrReporting(pi, {
+            spawn: makeSpawn().spawn,
+            env: { herdrEnv: undefined, binPath: undefined, paneId: undefined },
+            osc: { isTTY: true, write: (s) => writes.push(s) },
+        });
+        handlers.get("turn_start")();
+        handlers.get("agent_settled")();
+        (events.get("subagents:started"))({ id: "a1" });
+        handlers.get("agent_settled")();
+        assert.deepEqual(writes, [
+            "\x1b]7501;state=working:app=hapilon\x1b\\",
+            "\x1b]7501;state=idle:app=hapilon\x1b\\",
+            "\x1b]7501;state=working:app=hapilon\x1b\\",
+        ]);
+    });
+    it("herdr-tui 环境 + TTY：CLI 通道独占，OSC 不写", () => {
+        const writes = [];
+        const { spawn, calls } = makeSpawn();
+        const { pi, handlers } = fakePi();
+        registerHerdrReporting(pi, { spawn, env: ENV, osc: { isTTY: true, write: (s) => writes.push(s) } });
+        handlers.get("turn_start")();
+        assert.deepEqual(writes, []);
+        assert.equal(calls.length, 1);
+    });
+    it("session_shutdown 走 OSC 时写 state=clear", () => {
+        const writes = [];
+        const { pi, handlers } = fakePi();
+        registerHerdrReporting(pi, {
+            spawn: makeSpawn().spawn,
+            env: { herdrEnv: undefined, binPath: undefined, paneId: undefined },
+            osc: { isTTY: true, write: (s) => writes.push(s) },
+        });
+        handlers.get("session_shutdown")();
+        assert.deepEqual(writes, ["\x1b]7501;state=clear\x1b\\"]);
     });
 });
