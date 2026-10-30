@@ -44,7 +44,8 @@ export function buildPiDocText(): string {
     `(docs/prompt-templates.md), TUI components (docs/tui.md), keybindings ` +
     `(docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers ` +
     `(docs/custom-provider.md), adding models (docs/models.md), pi packages ` +
-    `(docs/packages.md)\n` +
+    `(docs/packages.md), MCP servers (docs/mcp.md), codemode scripts and ` +
+    `non-LLM models such as classifiers and image models (docs/codemode.md)\n` +
     `- Read pi .md files completely and follow links to related docs ` +
     `(e.g., tui.md for TUI API details)\n\n` +
     `hapilon-specific paths (where user extensions/skills/rules actually live):\n` +
