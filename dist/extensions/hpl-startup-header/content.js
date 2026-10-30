@@ -9,6 +9,7 @@
  */
 import { hyperlink, getCapabilities } from "@earendil-works/pi-tui";
 import { homedir } from "node:os";
+import { VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 // ─── Logo ─────────────────────────────────────────────────────────────
 // 首屏 logo：8 只盲文点阵猫，每次启动随机出现一只。
 // 点阵图取自参考图直接降采样编码（2×4 点/字符），8 行 × 10 列恒定，
@@ -212,8 +213,10 @@ function statusLine(data) {
     const parts = [];
     if (data.version)
         parts.push(`hapilon v${data.version}`);
+    if (data.piVersion)
+        parts.push(`Pi v${data.piVersion}`);
     if (data.modelProvider && data.modelName) {
-        parts.push(`${data.modelProvider}/${data.modelName}`);
+        parts.push(`${data.modelProvider.toLowerCase()}/${data.modelName.toLowerCase()}`);
     }
     parts.push(shortenWorkspacePath(data.cwd, data.homeDir));
     return parts.join(" · ");
@@ -292,6 +295,7 @@ export function createStartupHeader(ctx, _tui, theme, state) {
             const modelName = ctx.model?.name ?? process.env["HAPILON_MODEL_NAME"];
             const data = {
                 version: process.env["HAPILON_VERSION"],
+                piVersion: PI_VERSION,
                 modelProvider: provider,
                 modelName,
                 cwd: ctx.cwd,

@@ -13,11 +13,13 @@ import type { TUI } from "@earendil-works/pi-tui";
 import { hyperlink, getCapabilities } from "@earendil-works/pi-tui";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
+import { VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 
 // ─── Types ────────────────────────────────────────────────────────────
 
 export interface HeaderData {
   version: string | undefined;
+  piVersion: string | undefined;
   modelProvider: string | undefined;
   modelName: string | undefined;
   cwd: string;
@@ -263,8 +265,9 @@ export function shortenWorkspacePath(cwd: string, homeDir: string): string {
 function statusLine(data: HeaderData): string {
   const parts: string[] = [];
   if (data.version) parts.push(`hapilon v${data.version}`);
+  if (data.piVersion) parts.push(`Pi v${data.piVersion}`);
   if (data.modelProvider && data.modelName) {
-    parts.push(`${data.modelProvider}/${data.modelName}`);
+    parts.push(`${data.modelProvider.toLowerCase()}/${data.modelName.toLowerCase()}`);
   }
   parts.push(shortenWorkspacePath(data.cwd, data.homeDir));
   return parts.join(" · ");
@@ -355,6 +358,7 @@ export function createStartupHeader(
 
       const data: HeaderData = {
         version: process.env["HAPILON_VERSION"],
+        piVersion: PI_VERSION,
         modelProvider: provider,
         modelName,
         cwd: ctx.cwd,
