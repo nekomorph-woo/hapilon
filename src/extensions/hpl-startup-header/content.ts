@@ -275,38 +275,38 @@ function statusLine(data: HeaderData): string {
 
 /** 扩展卡片：图标 + 名称（去 hpl- 前缀）+ 一句话描述 */
 const EXT_CARDS: Record<string, [icon: string, desc: string]> = {
-  "hpl-add-dir": ["⠿", "external dir inject"],
-  "hpl-blocked-files": ["⠫", "block file reads"],
-  "hpl-econ": ["⣤", "bash output compress"],
-  "hpl-editor-slash": ["⠅", "mid slash complete"],
-  "hpl-effect-policy": ["⠮", "effect policy inject"],
-  "hpl-exit": ["⠫", "exit command"],
-  "hpl-footer": ["⠢", "footer render"],
-  "hpl-herdr": ["⠷", "herdr status report"],
-  "hpl-metrics": ["⠔", "usage metrics"],
-  "hpl-model-tiers": ["⠭", "model tier manage"],
-  "hpl-openai-fast-mode": ["⠪", "openai fast mode"],
-  "hpl-orchestra": ["⠿", "team pane orchestrate"],
-  "hpl-panel-viewer": ["⠶", "panel viewer"],
-  "hpl-protected-paths": ["⠕", "protect sensitive paths"],
-  "hpl-quota-usage": ["⠟", "quota check"],
-  "hpl-recap": ["⠗", "session recap"],
-  "hpl-safety-gate": ["⠎", "danger command gate"],
-  "hpl-skills-discover": ["⠙", "skill discovery"],
-  "hpl-startup-header": ["⠓", "startup header"],
-  "hpl-subagent-models": ["⠍", "subagent model rewrite"],
-  "hpl-system-prompt": ["⠎", "system prompt assembly"],
-  "ponytail": ["⠏", "lazy coding rules"],
-  "pi-subagents": ["⠎", "subagent dispatch"],
-  "billion-context-pi": ["⠧", "context compression"],
-  "pi-background-tasks": ["⠞", "background tasks"],
-  "pi-web-access": ["⠺", "web search"],
-  "pi-computer-use": ["⠉", "computer control"],
-  "pi-browser-use": ["⠃", "browser control"],
-  "pi-fff": ["⠋", "fff integration"],
-  "pi-ask-user": ["⠁", "structured ask"],
-  "pi-btw": ["⠃", "btw"],
-  "pi-tasks": ["⠞", "task manage"],
+  "hpl-add-dir": ["⠿", "inject external project dirs into session context"],
+  "hpl-blocked-files": ["⠫", "block agent from reading selected instruction files"],
+  "hpl-econ": ["⣤", "compress oversized bash output, retrievable via ctx_more"],
+  "hpl-editor-slash": ["⠅", "trigger slash command completion mid text"],
+  "hpl-effect-policy": ["⠮", "inject effect typescript coding policy per project"],
+  "hpl-exit": ["⠫", "exit command with confirmation"],
+  "hpl-footer": ["⠢", "render footer with quota and context usage"],
+  "hpl-herdr": ["⠷", "report pane status to herdr orchestrator"],
+  "hpl-metrics": ["⠔", "track skill and command usage statistics"],
+  "hpl-model-tiers": ["⠭", "resolve model tier references to concrete models"],
+  "hpl-openai-fast-mode": ["⠪", "toggle openai service tier for faster responses"],
+  "hpl-orchestra": ["⠿", "orchestrate team panes, dispatch tasks, collect reports"],
+  "hpl-panel-viewer": ["⠶", "floating panel viewer for tool outputs"],
+  "hpl-protected-paths": ["⠕", "confirm before writing to sensitive paths"],
+  "hpl-quota-usage": ["⠟", "query coding plan quota and check water level"],
+  "hpl-recap": ["⠗", "summarize session activity for quick catch up"],
+  "hpl-safety-gate": ["⠎", "intercept dangerous bash commands with auto judge"],
+  "hpl-skills-discover": ["⠙", "discover and inject skills from project and npm"],
+  "hpl-startup-header": ["⠓", "render startup header with mascot and status"],
+  "hpl-subagent-models": ["⠍", "rewrite subagent dispatch to tier models"],
+  "hpl-system-prompt": ["⠎", "assemble full system prompt with hapilon conventions"],
+  "ponytail": ["⠏", "lazy coding discipline, minimal solution wins"],
+  "pi-subagents": ["⠎", "in process subagent delegation and workflows"],
+  "billion-context-pi": ["⠧", "incremental context compression, reversible folds"],
+  "pi-background-tasks": ["⠞", "background jobs, monitors, and wake on exit"],
+  "pi-web-access": ["⠺", "web search, url fetch, github clone, video analysis"],
+  "pi-computer-use": ["⠉", "desktop automation via accessibility tree"],
+  "pi-browser-use": ["⠃", "browser automation via cdp"],
+  "pi-fff": ["⠋", "fff four package integration suite"],
+  "pi-ask-user": ["⠁", "structured question with typed options"],
+  "pi-btw": ["⠃", "quick contextual notes"],
+  "pi-tasks": ["⠞", "persistent task list with cascading"],
 };
 
 /** 未登记的扩展用这个兜底 */
@@ -327,7 +327,7 @@ function expandedInfoLines(data: HeaderData, width: number): string[] {
     lines.push("");
 
     // 一行一张卡片，宽度随终端
-    const cardW = Math.min(width - 4, 44);
+    const cardW = Math.min(width - 4, 64);
     const inner = cardW - 2;
 
     for (const ext of data.extensions) {
