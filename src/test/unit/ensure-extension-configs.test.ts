@@ -140,18 +140,37 @@ describe("ensureExtensionConfigs()", () => {
     assert.equal(readFileSync(join(fresh, "settings.json"), "utf8"), before);
   });
 
-  it("defaultTools/tuiMode 未设置时种子（tool_search + regular）", () => {
+  it("defaultTools/tuiMode 未设置时种子（tool_search + codemode + regular）", () => {
     const fresh = join(agentDir, "settings-seed");
     mkdirSync(fresh, { recursive: true });
     writeFileSync(join(fresh, "settings.json"), JSON.stringify({ theme: "dark" }, null, 2));
     ensureExtensionConfigs(fresh);
     const settings = JSON.parse(readFileSync(join(fresh, "settings.json"), "utf8"));
-    assert.deepEqual(settings.defaultTools, ["+tool_search"]);
+    assert.deepEqual(settings.defaultTools, ["+tool_search", "+codemode"]);
     assert.equal(settings.tuiMode, "regular");
     // 二次调用幂等，且用户显式配置不被覆盖
     writeFileSync(join(fresh, "settings.json"), JSON.stringify({ tuiMode: "fullscreen" }, null, 2));
     ensureExtensionConfigs(fresh);
     assert.equal(JSON.parse(readFileSync(join(fresh, "settings.json"), "utf8")).tuiMode, "fullscreen");
+  });
+
+  it("存量 defaultTools 数组追加 +codemode，用户条目保留；-codemode 显式关闭不补", () => {
+    const fresh = join(agentDir, "settings-append");
+    mkdirSync(fresh, { recursive: true });
+    writeFileSync(join(fresh, "settings.json"), JSON.stringify({ defaultTools: ["+tool_search"] }, null, 2));
+    ensureExtensionConfigs(fresh);
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(fresh, "settings.json"), "utf8")).defaultTools,
+      ["+tool_search", "+codemode"],
+      "缺则追加，已有条目不动",
+    );
+    writeFileSync(join(fresh, "settings.json"), JSON.stringify({ defaultTools: ["-codemode", "+tool_search"] }, null, 2));
+    ensureExtensionConfigs(fresh);
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(fresh, "settings.json"), "utf8")).defaultTools,
+      ["-codemode", "+tool_search"],
+      "-codemode 是显式关闭，不再补回",
+    );
   });
 
   it("web-access MCP 预置：首次种子 stdio 条目（node + mcp-cli 绝对路径 + env 钉配置目录）", () => {

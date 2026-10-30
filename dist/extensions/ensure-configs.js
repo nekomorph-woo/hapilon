@@ -82,9 +82,10 @@ function isHapilonThemesPath(entry) {
     return entry.replaceAll("\\", "/").endsWith("/resources/themes");
 }
 /**
- * settings.json 种子（均未设置时写一次，用户已配置永不覆盖）：
- * - defaultTools: ["+tool_search"]——pi 内置 MCP 工具默认 codemode 暴露（不占模型
- *   上下文），需 tool_search 才能被搜索加载；
+ * settings.json 种子（均未设置时写一次，用户已配置不覆盖）：
+ * - defaultTools: ["+tool_search", "+codemode"]——pi 内置 MCP 工具默认 codemode
+ *   暴露（不占模型上下文），需 tool_search 才能被搜索加载；codemode 是捆绑发行
+ *   方才知道值得开的批量工具通道，存量数组缺它时追加，-codemode 视为显式关闭。
  * - tuiMode: "regular"——pi 1.4 起默认全屏，但 hapi 的浮动面板/折叠等鼠标功能
  *   在全屏下退避，种子保持升级前的 regular 体验。
  */
@@ -103,7 +104,13 @@ const seedPiSettingsEffect = (agentDir) => Effect.gen(function* () {
         return;
     const seeds = [];
     if (!Array.isArray(settings.defaultTools))
-        seeds.push(["defaultTools", ["+tool_search"]]);
+        seeds.push(["defaultTools", ["+tool_search", "+codemode"]]);
+    else {
+        const entries = settings.defaultTools.filter((e) => typeof e === "string");
+        const codemodeDecided = entries.some((e) => e === "+codemode" || e === "codemode" || e === "-codemode");
+        if (!codemodeDecided)
+            seeds.push(["defaultTools", [...settings.defaultTools, "+codemode"]]);
+    }
     if (typeof settings.tuiMode !== "string")
         seeds.push(["tuiMode", "regular"]);
     if (seeds.length === 0)
