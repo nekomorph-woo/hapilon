@@ -173,4 +173,15 @@ describe("ensureExtensionConfigs()", () => {
         ensureExtensionConfigs(seeded);
         assert.equal(readFileSync(join(seeded, "mcp.json"), "utf8"), afterFirst, "条目在就不再写");
     });
+    it("pi-goal-x 预置：种子 maxAutonomousRuns=25，用户已设的键不碰", () => {
+        const fresh = join(agentDir, "goalx-seed");
+        ensureExtensionConfigs(fresh);
+        const cfg = JSON.parse(readFileSync(join(fresh, "pi-goal-x-settings.json"), "utf8"));
+        assert.equal(cfg.maxAutonomousRuns, 25);
+        const keep = join(agentDir, "goalx-keep");
+        ensureExtensionConfigs(keep);
+        writeFileSync(join(keep, "pi-goal-x-settings.json"), JSON.stringify({ maxAutonomousRuns: 5 }));
+        ensureExtensionConfigs(keep);
+        assert.equal(JSON.parse(readFileSync(join(keep, "pi-goal-x-settings.json"), "utf8")).maxAutonomousRuns, 5, "用户已设值保留");
+    });
 });

@@ -9,9 +9,9 @@ import { resolveNpmExtensionPaths, resolveExtensionEntry, resolveNpmExtensionsBe
 describe("resolveNpmExtensionPaths()", () => {
     it("解析出全部 npm 扩展的绝对入口路径", () => {
         const paths = resolveNpmExtensionPaths();
-        // 2 个 tintinweb 包 + 集成四包 + billion-context-pi
+        // 2 个 tintinweb 包 + 集成四包 + goal 自治循环（pi-goal-x）+ billion-context-pi
         // + @nklisch/pi-background-tasks + 用户实测对（computer-use/browser-use）；ponytail 在 BEFORE_HPL 先行组
-        assert.equal(paths.length, 10);
+        assert.equal(paths.length, 11);
         for (const p of paths) {
             assert.ok(existsSync(p), `入口文件应存在: ${p}`);
         }
@@ -22,11 +22,12 @@ describe("resolveNpmExtensionPaths()", () => {
         assert.ok(subagents.includes("@tintinweb/pi-subagents"), `第二个应是 pi-subagents: ${subagents}`);
     });
     it("四包入口与各自 pi.extensions 声明一致", () => {
-        const [, , fff, askUser, btw, webAccess] = resolveNpmExtensionPaths();
+        const [, , fff, askUser, btw, webAccess, goalX] = resolveNpmExtensionPaths();
         assert.ok(fff.endsWith("@ff-labs/pi-fff/src/index.ts"), `fff: ${fff}`);
         assert.ok(askUser.endsWith("@zhushanwen/pi-ask-user/index.ts"), `ask-user: ${askUser}`);
         assert.ok(btw.endsWith("@narumitw/pi-btw/dist/index.ts"), `btw: ${btw}`);
         assert.ok(webAccess.endsWith("pi-web-access/index.ts"), `web-access: ${webAccess}`);
+        assert.ok(goalX.endsWith("pi-goal-x/extensions/goal.ts"), `goal-x: ${goalX}`);
     });
     it("MCP 走 pi 内置（builtin:mcp），npm 扩展里没有 adapter", () => {
         const paths = resolveNpmExtensionPaths();

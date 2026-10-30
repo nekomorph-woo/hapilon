@@ -1,6 +1,6 @@
 {
   "name": "hapilon",
-  "version": "0.10.53",
+  "version": "0.10.54",
   "description": "HAPi",
   "private": true,
   "type": "module",
@@ -43,6 +43,7 @@
     "@zhushanwen/pi-ask-user": "^7.4.1",
     "billion-context-pi": "^0.1.83",
     "effect": "^3.22.1",
+    "pi-goal-x": "^0.34.1",
     "pi-web-access": "^0.44.0",
     "typescript": "5.9.3",
     "undici": "^8.10.0"

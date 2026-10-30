@@ -29,6 +29,12 @@ const NPM_EXTENSIONS: readonly [pkg: string, entry: string][] = [
   ["@zhushanwen/pi-ask-user", "index.ts"],
   ["@narumitw/pi-btw", "dist/index.ts"],
   ["pi-web-access", "index.ts"],
+  // goal 自治循环：任务树/自动续跑/auditor 完成门。goalsRoot 经 startup 注入
+  // PI_GOAL_ROOT 重定向到项目 .hapilon/goals；auditor 走 createAgentSession
+  // 程序化派生，不经 Agent/TaskExecute 工具，故 hpl-subagent-models 不改写其模型
+  // （settings 不配 model 时回落当前会话模型，跟随 model-tiers）；
+  // maxAutonomousRuns 默认值由 ensure-configs 种子到 agentDir 的 pi-goal-x-settings.json。
+  ["pi-goal-x", "extensions/goal.ts"],
   // MCP 桥接已切 pi 内置（builtin:mcp）：agentDir/mcp.json 由内核直接读取，不再需要 adapter 扩展。
   // 后台任务原语（background/monitor/jobs 三 tool）：命令退出经
   // pi.sendMessage(triggerTurn) 唤醒 agent。选极简版 @nklisch 而非

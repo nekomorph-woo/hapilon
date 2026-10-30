@@ -46,6 +46,12 @@ const MCP_CONFIG_DEFAULTS = { mcpServers: {} };
  */
 const ECON_CONFIG_DEFAULTS = { enabled: true, threshold: 8192, headLines: 40, tailLines: 20 };
 /**
+ * pi-goal-x 预置：有界自治——每个 goal 创建/续跑期最多 25 次自动续跑，
+ * 到限停下等 /goal-resume，防失控循环；goalx 状态行会展示 used/limit。
+ * 不设此键时 goalx 默认无限续跑。
+ */
+const GOALX_CONFIG_DEFAULTS = { maxAutonomousRuns: 25 };
+/**
  * 文件不存在时写入 defaults；存在时补齐缺失的顶层键，用户已设置的键与损坏
  * 文件（解析失败）一律不碰。agentDir 不存在时创建（与 ensureQuietStartup 同模式）。
  */
@@ -265,6 +271,7 @@ export const ensureExtensionConfigsEffect = (agentDir) => Effect.gen(function* (
     yield* ensureWebAccessMcpEffect(agentDir);
     // hpl-econ：组合甲默认实体化
     yield* ensureJsonConfigEffect(agentDir, "econ-config.json", ECON_CONFIG_DEFAULTS);
+    yield* ensureJsonConfigEffect(agentDir, "pi-goal-x-settings.json", GOALX_CONFIG_DEFAULTS);
     // vision 子代理定义：全局 agents 目录播种（用户已自定义则不碰）
     yield* ensureVisionAgentEffect(agentDir);
     // MCP 渐进式暴露 + TUI 模式保持 regular（均未设置时种子一次）
