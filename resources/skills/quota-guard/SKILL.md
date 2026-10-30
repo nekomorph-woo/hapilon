@@ -42,4 +42,6 @@ description: 额度哨兵——长任务中主动用 quota_check 工具盯 codin
 
 - 只盯当前模型 provider 的额度；多 provider 任务每个都查（工具可传 provider 参数）。
 - 查询本身走一次配额接口调用，不是模型推理——不会烧 coding plan 额度。
+- 5h 与周/月**同时 HOT**：先处理 `hot_fixed`（等不起），再处理 `hot_rolling`——fixed 暂停意味着 rolling 挂起也无意义。
+- quota_check **工具失败**（网络错、provider 不支持等）：视为 WARN——告知用户一次，继续干活，下个批次再试。
 - 挂起期间用户发了新消息：正常响应——断点续做与响应新指令不冲突，醒来时用户指令优先。
