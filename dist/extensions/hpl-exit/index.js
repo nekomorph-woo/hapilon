@@ -5,11 +5,4 @@ export default function hplExit(pi) {
             ctx.shutdown();
         },
     });
-    pi.on("input", (event, ctx) => {
-        if (event.source !== "interactive" || event.text.trim() !== "exit") {
-            return undefined;
-        }
-        ctx.shutdown();
-        return { action: "handled" };
-    });
 }
