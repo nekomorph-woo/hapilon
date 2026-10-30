@@ -1,6 +1,10 @@
 /**
  * content.ts — 纯函数：header 内容构建 + 布局
  *
+ * 双布局随机（与猫猫随机同机制）：
+ *   A = 猫左 + 状态右（collapsed 一行 / expanded 完整面板）
+ *   B = 猫居中 + 底部信息条（collapsed 一行横带 / expanded 多行面板）
+ *
  * 数据与渲染分离，所有业务逻辑无副作用可单测。
  */
 
@@ -78,10 +82,10 @@ const LOGOS: readonly string[][] = [
     "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
     "⠀⠀⠀⡀⣀⠀⠀⠀⠀⠀",
     "⠀⠀⢰⣿⣿⡄⠀⠀⠀⠀",
-    "⢀⠀⠈⣹⣿⣿⣄⠀⢠⣄",
+    "⠀⠀⢸⣿⣿⣿⠀⠀⠀⠀",
+    "⠀⠀⠈⣹⣿⣿⣄⠀⢠⣄",
     "⣼⣷⠄⢿⣿⣿⣿⡄⠀⣿",
     "⢶⣷⠀⣼⣿⣿⣿⣣⡴⠋",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
     "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
   ],
   // 4 蜷猫
@@ -130,8 +134,10 @@ const LOGOS: readonly string[][] = [
   ],
 ];
 
-// 模块加载时定一只：resize / 重绘复用同一只，不会闪跳。
+// 模块加载时定一只 + 定一个布局：resize / 重绘复用同一只，不会闪跳。
 const LOGO_INDEX = Math.floor(Math.random() * LOGOS.length);
+/** 0 = A（猫左+状态右），1 = B（猫居中+底部条） */
+const LAYOUT_INDEX = Math.floor(Math.random() * 2);
 
 /**
  * V2 撞色：猫身保持主题 accent，只给小元素换色——warning（黄）给月/蝶/窗
@@ -198,210 +204,37 @@ export function hapilonLogo(): string[] {
   return [...LOGOS[LOGO_INDEX]!];
 }
 
-/** logo 专用 accent 通道，交给 Pi 主题在明暗终端中选择可读颜色。 */
-export function isLogoLine(line: string): boolean {
-  const inner = line.startsWith("│") && line.endsWith("│")
-    ? line.slice(1, -1)
-    : line;
-  // 宽屏布局把左右列拼在同一行；这类行不能整行染成 logo accent。
-  if (inner.includes("│")) return false;
-  // 方块元素（▀▁…▟ 含 ░▒▓）与盲文点阵（U+2800–U+28FF）都算 logo 笔画。
-  return /^\s*[\u2580-\u259F\u2800-\u28FF]/.test(inner);
+/** 当前随机选中的布局：0=A（猫左+状态右），1=B（猫居中+底部条） */
+export function currentLayoutIndex(): number {
+  return LAYOUT_INDEX;
 }
 
-// ─── Box Drawing ──────────────────────────────────────────────────────
+// ─── 共享工具 ─────────────────────────────────────────────────────────
 
 const H_BAR = "─";
-const TL = "╭";
-const TR = "╮";
-const BL = "╰";
-const BR = "╯";
-const V = "│";
 
-export function drawBox(
-  lines: string[],
-  width: number,
-  title?: string,
-): string[] {
-  // Guard: Pi's TUI renderer rejects lines wider than available width.
-  // At width < 3, borders alone would overflow. Return empty to avoid crash.
-  if (width < 3) return [];
-  const innerW = width - 2;
-  const result: string[] = [];
-
-  if (title) {
-    const remain = innerW - title.length;
-    if (remain > 0) {
-      result.push(TL + title + H_BAR.repeat(remain) + TR);
-    } else {
-      const display = title.length > innerW
-        ? title.slice(0, innerW - 1) + "…"
-        : title;
-      result.push(TL + display.slice(0, innerW) + TR);
-    }
-  } else {
-    result.push(TL + H_BAR.repeat(innerW) + TR);
-  }
-
-  for (const line of lines) {
-    const trimmed = line.length > innerW ? line.slice(0, innerW) : line;
-    const padded =
-      trimmed + " ".repeat(Math.max(0, innerW - trimmed.length));
-    result.push(V + padded + V);
-  }
-
-  result.push(BL + H_BAR.repeat(innerW) + BR);
-  return result;
-}
-
-// ─── Column Layout ────────────────────────────────────────────────────
-
-export function layoutColumns(
-  left: string[],
-  right: string[],
-  width: number,
-): string[] {
-  // Guard: prevent RangeError on String.repeat(negative) at tiny widths
-  if (width < 3) return [];
-  if (width < 80) {
-    const result: string[] = [...left];
-    if (right.length > 0) {
-      result.push(H_BAR.repeat(width - 2));
-      result.push(...right);
-    }
-    return result;
-  }
-
-  const innerW = width - 2;
-  const sep = " │ ";
-  const leftW = Math.floor((innerW - sep.length) * 0.55);
-  const rightW = innerW - leftW - sep.length;
-
-  const maxRows = Math.max(left.length, right.length);
-  const result: string[] = [];
-
-  for (let i = 0; i < maxRows; i++) {
-    const l = i < left.length ? left[i] : "";
-    const r = i < right.length ? right[i] : "";
-
-    const lTrimmed = l.length > leftW ? l.slice(0, leftW) : l;
-    const rTrimmed = r.length > rightW ? r.slice(0, rightW) : r;
-
-    const lp = lTrimmed + " ".repeat(leftW - lTrimmed.length);
-    const rp = rTrimmed + " ".repeat(rightW - rTrimmed.length);
-
-    result.push(lp + sep + rp);
-  }
-  return result;
+function isLogoLine(line: string): boolean {
+  return /[\u2580-\u259F\u2800-\u28FF]/.test(line);
 }
 
 function isExtensionListLine(line: string, extensions: string[] | undefined): boolean {
   if (!extensions || extensions.length === 0) return false;
-  const inner = line.startsWith(V) && line.endsWith(V)
-    ? line.slice(1, -1)
-    : line;
-  const separator = inner.indexOf(" │ ");
-  const right = separator >= 0 ? inner.slice(separator + 3) : inner;
-  const trimmedRight = right.trimEnd();
-  return extensions.some((extension) => trimmedRight === `  ${extension}`);
+  return extensions.some((ext) => line.includes(ext));
 }
 
-function colorStartupLine(
-  line: string,
-  theme: Theme,
-  hasLinks: boolean,
-): string {
-  let colored = line;
-
-  // Hyperlink: replace raw URL with clickable link (includes its own dim)
-  if (hasLinks && colored.includes("pi.dev/changelog")) {
-    colored = colored.replace(
-      "pi.dev/changelog",
-      hyperlink("pi.dev/changelog", "https://pi.dev/changelog"),
-    );
-  }
-
-  // Headers — bold
-  if (
-    colored.includes("Tips for getting started") ||
-    colored.includes("Extensions (")
-  ) {
-    return theme.fg("text", theme.bold(colored));
-  }
-  // Divider — dim
-  if (colored.trim().match(/^─+$/)) {
-    return theme.fg("dim", colored);
-  }
-  // ctrl+o 提示保持 dim。
-  if (colored.includes("ctrl+o for")) {
-    return theme.fg("dim", colored);
-  }
-  // 其余缩进行（Tips 内容 / 快捷键）保持 dim。
-  if (/^  \S/.test(colored)) {
-    return theme.fg("dim", colored);
-  }
-  // Changelog line — dim (the raw text before hyperlink replacement)
-  if (colored.includes("pi.dev/")) {
-    return theme.fg("dim", colored);
-  }
-  // Body
-  return theme.fg("text", colored);
-}
-
-// ─── Env Helper ───────────────────────────────────────────────────────
-
-export function parseExtensionsEnv(
-  raw: string | undefined,
-): string[] | undefined {
-  if (raw === undefined) return undefined;
+export function parseExtensionsEnv(raw: string | undefined): string[] | undefined {
+  if (!raw) return undefined;
   try {
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string")) {
-      return parsed as string[];
-    }
+    return Array.isArray(parsed) ? parsed.map(String).slice(0, 30) : undefined;
   } catch {
-    // fall through
+    return undefined;
   }
-  notify(
-    "[hpl-startup-header] Invalid HAPILON_EXTENSIONS env, ignoring",
-  );
-  return undefined;
-}
-
-// ─── Content Builders ─────────────────────────────────────────────────
-
-function centerLine(line: string, maxWidth: number): string {
-  if (line.length >= maxWidth) return line;
-  const pad = Math.floor((maxWidth - line.length) / 2);
-  return " ".repeat(pad) + line;
-}
-
-/**
- * 将多行文本在给定宽度内居中（左边补空格）。
- *
- * 首部连续非空行视为「块」（logo），整体共享 pad 居中——
- * 行间相对位置固定，resize 时整块平移不变形（把「逐行独立取整」改成整体取整）。其余行保持独立居中。
- */
-export function centerLines(lines: string[], maxWidth: number): string[] {
-  let blockEnd = 0;
-  while (blockEnd < lines.length && lines[blockEnd] !== "") blockEnd++;
-
-  if (blockEnd >= 2) {
-    const block = lines.slice(0, blockEnd);
-    const blockWidth = Math.max(...block.map((l) => l.length));
-    const pad = blockWidth >= maxWidth ? 0 : Math.floor((maxWidth - blockWidth) / 2);
-    const paddedBlock = block.map((l) => " ".repeat(pad) + l);
-    const rest = lines.slice(blockEnd);
-    return [...paddedBlock, ...rest.map((l) => centerLine(l, maxWidth))];
-  }
-
-  return lines.map((l) => centerLine(l, maxWidth));
 }
 
 /**
  * 将 workspace 路径压缩为 header 友好格式。
- * home 下保留 ~ 和首段、末两段；其它绝对路径保留根下前两段和末段，
- * 使 /Volumes/Under_M2 这类工作盘锚点仍然可辨认。
+ * home 下保留 ~ 和首段、末两段；其它绝对路径保留根下前两段和末段。
  */
 export function shortenWorkspacePath(cwd: string, homeDir: string): string {
   const normalizedCwd = cwd.replace(/[\\/]+$/, "") || cwd;
@@ -427,90 +260,108 @@ export function shortenWorkspacePath(cwd: string, homeDir: string): string {
   return `${root}${prefix}/…/${parts.at(-1)}`;
 }
 
-export function buildLeftColumn(data: HeaderData): string[] {
-  const left: string[] = [];
-
-  for (const line of hapilonLogo()) {
-    left.push(line);
-  }
-  left.push("");
-
-  left.push("Welcome back!");
-
+/** 一行状态摘要：hapi vX.Y.Z · provider/model · 路径 */
+function statusLine(data: HeaderData): string {
+  const parts: string[] = [];
+  if (data.version) parts.push(`hapi v${data.version}`);
   if (data.modelProvider && data.modelName) {
-    left.push(`${data.modelProvider} · ${data.modelName}`);
-  } else {
-    left.push("no model selected");
+    parts.push(`${data.modelProvider}/${data.modelName}`);
   }
-
-  left.push(shortenWorkspacePath(data.cwd, data.homeDir));
-
-  return left;
+  parts.push(shortenWorkspacePath(data.cwd, data.homeDir));
+  return parts.join(" · ");
 }
 
-export function buildRightColumn(
-  data: HeaderData,
-  expanded: boolean,
-): string[] {
-  const right: string[] = [];
-
-  // ── Tips（仅 expanded）──
-  if (expanded) {
-    right.push("Tips for getting started");
-    right.push("  Run /context to check usage");
-    right.push("  " + H_BAR.repeat(26));
-  }
-
-  // ── Extensions (N) + 扩展名列表（恒显示）──
+/** 展开面板的信息行（扩展/版本/快捷键） */
+function expandedInfoLines(data: HeaderData): string[] {
+  const lines: string[] = [];
   if (data.extensions && data.extensions.length > 0) {
-    right.push(`Extensions (${data.extensions.length})`);
-    for (const extName of data.extensions) {
-      right.push(`  ${extName}`);
+    lines.push(`Extensions (${data.extensions.length})`);
+    for (const ext of data.extensions) {
+      lines.push(`  ${ext}`);
     }
-    right.push("  " + H_BAR.repeat(26));
+    lines.push("");
   }
-
-  // ── What's new ──
   if (data.piUpdate) {
-    right.push(`Pi ${data.piUpdate} available`);
-    right.push("  pi.dev/changelog");
-  } else {
-    right.push("Pi is up to date");
+    lines.push(`Pi ${data.piUpdate} available · pi.dev/changelog`);
   }
-
-  // ── Help ──
-  if (expanded) {
-    right.push("  " + H_BAR.repeat(26));
-    right.push("Keyboard shortcuts");
-    right.push("  esc         interrupt");
-    right.push("  ctrl+c/d    clear / exit");
-    right.push("  shift+tab   cycle thinking");
-    right.push("  ctrl+p      select model");
-    right.push("  /           commands");
-    right.push("  !           bash");
-    right.push("  ctrl+g      external editor");
-  } else {
-    right.push("");
-    right.push("ctrl+o for more");
-  }
-
-  return right;
+  lines.push("");
+  lines.push("esc interrupt · ctrl+c/d exit · shift+tab thinking · ctrl+p model · / commands · ! bash");
+  return lines;
 }
 
-/**
- * 构建完整 header 内容（含左/右栏），不包含外边框。
- * 合并 buildLeftColumn 与 buildRightColumn 的结果，方便测试和简单场景使用。
- */
-export function buildHeaderLines(
-  data: HeaderData,
-  expanded: boolean,
-): string[] {
-  const left = buildLeftColumn(data);
-  const right = buildRightColumn(data, expanded);
-  const innerW = 78; // 80 - 2
-  const sepLen = " │ ".length;
-  const leftW = Math.floor((innerW - sepLen) * 0.55);
-  return layoutColumns(centerLines(left, leftW), right, 80);
+// ─── 布局 A：猫左 + 状态右 ────────────────────────────────────────────
+
+function buildLayoutA(data: HeaderData, expanded: boolean, width: number): string[] {
+  const logo = hapilonLogo();
+  const lines: string[] = [];
+  const logoWidth = Math.max(...logo.map((l) => l.length));
+  const pad = Math.max(2, Math.floor((width - logoWidth - 30) / 2));
+
+  if (!expanded) {
+    // collapsed：猫 + 右侧一行状态 + 一行提示
+    const status = statusLine(data);
+    const hint = "ctrl+o expand";
+    for (let i = 0; i < logo.length; i++) {
+      const left = logo[i]!.padEnd(pad);
+      const right = i === 3 ? status : i === 5 ? hint : "";
+      lines.push(` ${left}${right}`);
+    }
+  } else {
+    // expanded：猫 + 右侧完整面板
+    const info = expandedInfoLines(data);
+    const rows = Math.max(logo.length, info.length + 1);
+    for (let i = 0; i < rows; i++) {
+      const left = (logo[i] ?? "").padEnd(pad);
+      const right = info[i] ?? "";
+      lines.push(` ${left}${right}`);
+    }
+  }
+  return lines;
+}
+
+// ─── 布局 B：猫居中 + 底部信息条 ─────────────────────────────────────
+
+function buildLayoutB(data: HeaderData, expanded: boolean, width: number): string[] {
+  const logo = hapilonLogo();
+  const lines: string[] = [];
+  const logoWidth = Math.max(...logo.map((l) => l.length));
+  const leftPad = Math.max(1, Math.floor((width - logoWidth) / 2));
+
+  // 猫居中
+  for (const row of logo) {
+    lines.push(" ".repeat(leftPad) + row);
+  }
+  lines.push("");
+
+  if (!expanded) {
+    // collapsed：一条横带
+    const bar = H_BAR.repeat(Math.min(width - 2, 60));
+    lines.push(` ${bar}`);
+    const status = statusLine(data);
+    lines.push(` ${status} · ctrl+o expand`);
+  } else {
+    // expanded：完整面板
+    const bar = H_BAR.repeat(Math.min(width - 2, 60));
+    lines.push(` ${bar}`);
+    for (const info of expandedInfoLines(data)) {
+      lines.push(` ${info}`);
+    }
+  }
+  return lines;
+}
+
+// ─── 上色 ─────────────────────────────────────────────────────────────
+
+function colorStartupLine(line: string, theme: Theme): string {
+  const trimmed = line.trim();
+  if (trimmed === "") return line;
+  if (line.startsWith("─")) return theme.fg("border", line);
+  if (trimmed.startsWith("ctrl+o")) return theme.fg("dim", line);
+  if (trimmed.startsWith("esc ")) return theme.fg("muted", line);
+  if (trimmed.startsWith("Extensions")) return theme.fg("text", line);
+  if (trimmed.startsWith("Pi ")) return theme.fg("muted", line);
+  if (/^hapi v/.test(trimmed)) return theme.fg("text", line);
+  return theme.fg("text", line);
 }
 
 // ─── Component Factory ────────────────────────────────────────────────
@@ -543,77 +394,25 @@ export function createStartupHeader(
         piUpdate: state.piUpdate,
       };
 
-      const versionStr = data.version ? ` v${data.version}` : "";
-      const title = `─── Hapilon${versionStr}`;
+      const raw = LAYOUT_INDEX === 0
+        ? buildLayoutA(data, state.expanded, width)
+        : buildLayoutB(data, state.expanded, width);
 
-      // Build columns
-      const innerW = width - 2;
-      const sepLen = " │ ".length;
-      const leftW = Math.floor((innerW - sepLen) * 0.55);
-      const rightW = innerW - leftW - sepLen;
-
-      const rawLeft = buildLeftColumn(data);
-      const rawRight = buildRightColumn(data, state.expanded);
-
-      const centeredLeft = centerLines(rawLeft, leftW);
-      const columns = layoutColumns(centeredLeft, rawRight, width);
-      const boxed = drawBox(columns, width, title);
-
-      // Apply visual hierarchy
-      const hasLinks = getCapabilities().hyperlinks;
-      // logo 行按出现顺序编号（与 LOGOS 行号对应），供撞色区间取行。
+      // 上色：logo 行走撞色管线，其余行走文本管线
       let logoRow = 0;
-      return boxed.map((line, idx) => {
-        if (idx === 0 || idx === boxed.length - 1) {
-          return theme.fg("border", line);
+      return raw.map((line) => {
+        if (line.trim() === "") return line;
+        if (isLogoLine(line)) {
+          return paintLogoLine(line, LOGO_PAINTS[LOGO_INDEX]!, logoRow++, theme);
         }
-        if (line.length === 0) return line;
-
-        let colored = line;
-
-        if (isLogoLine(colored)) {
-          return paintLogoLine(colored, LOGO_PAINTS[LOGO_INDEX]!, logoRow++, theme);
-        }
-
-        // Hyperlink: replace raw URL with clickable link (includes its own dim)
-        if (hasLinks && colored.includes("pi.dev/changelog")) {
-          colored = colored.replace(
-            "pi.dev/changelog",
-            hyperlink("pi.dev/changelog", "https://pi.dev/changelog"),
-          );
-        }
-
-        // 宽屏 logo 与右栏同行时，只给左段上 accent，右段继续走原分类管线。
-        const columnSeparator = colored.indexOf(" │ ");
-        if (
-          columnSeparator >= 1 &&
-          isLogoLine(colored.slice(1, columnSeparator))
-        ) {
-          const logoPart = paintLogoLine(
-            colored.slice(0, columnSeparator),
-            LOGO_PAINTS[LOGO_INDEX]!,
-            logoRow++,
+        // Hyperlink: 版本更新行
+        if (getCapabilities().hyperlinks && line.includes("pi.dev/changelog")) {
+          return colorStartupLine(
+            line.replace("pi.dev/changelog", hyperlink("pi.dev/changelog", "https://pi.dev/changelog")),
             theme,
           );
-          const rightPart = colored.slice(columnSeparator);
-          return logoPart + (
-            isExtensionListLine(colored, data.extensions)
-              ? theme.fg("muted", rightPart)
-            : colorStartupLine(rightPart, theme, false)
-          );
         }
-
-        // 宽屏扩展名行只降低右栏，左栏保留原有 text/body 分类。
-        if (columnSeparator >= 0 && isExtensionListLine(colored, data.extensions)) {
-          return colorStartupLine(colored.slice(0, columnSeparator), theme, false) +
-            theme.fg("muted", colored.slice(columnSeparator));
-        }
-
-        // 扩展名是次要信息，但在暗色主题中需比 dim 更亮一档。
-        if (isExtensionListLine(colored, data.extensions)) {
-          return theme.fg("muted", colored);
-        }
-        return colorStartupLine(colored, theme, false);
+        return colorStartupLine(line, theme);
       });
     },
 
