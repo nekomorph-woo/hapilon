@@ -326,46 +326,13 @@ function expandedInfoLines(data: HeaderData, width: number): string[] {
     lines.push(`Extensions (${data.extensions.length})`);
     lines.push("");
 
-    // 一行两张卡片，间距 2
-    const gap = 2;
-    const cardW = Math.min(Math.floor((width - 4 - gap) / 2), 46);
-    const inner = cardW - 2;
-
-    for (let i = 0; i < data.extensions.length; i += 2) {
-      const batch = data.extensions.slice(i, i + 2);
-      const tops: string[] = [];
-      const names: string[] = [];
-      const descs: string[] = [];
-      const bots: string[] = [];
-
-      for (const ext of batch) {
-        const [icon, desc] = EXT_CARDS[ext] ?? EXT_FALLBACK;
-        const name = extDisplayName(ext);
-        tops.push(`╌${"┄".repeat(inner)}╌`);
-        const nameText = `${icon} ${name}`;
-        const namePad = Math.max(0, Math.floor((inner - nameText.length) / 2));
-        names.push(`┆${" ".repeat(namePad)}${nameText}${" ".repeat(Math.max(0, inner - namePad - nameText.length))}┆`);
-        const descPad = Math.max(0, Math.floor((inner - desc.length) / 2));
-        descs.push(`┆${" ".repeat(descPad)}${desc}${" ".repeat(Math.max(0, inner - descPad - desc.length))}┆`);
-        bots.push(`╌${"┄".repeat(inner)}╌`);
-      }
-
-      // 奇数个时补空卡片占位
-      while (batch.length < 2) {
-        tops.push(" ".repeat(cardW));
-        names.push(" ".repeat(cardW));
-        descs.push(" ".repeat(cardW));
-        bots.push(" ".repeat(cardW));
-        batch.push(""); // never read, just pad
-      }
-
-      const join = " ".repeat(gap);
-      lines.push(" " + tops.join(join));
-      lines.push(" " + names.join(join));
-      lines.push(" " + descs.join(join));
-      lines.push(" " + bots.join(join));
-      lines.push("");
+    // 一行一个：icon name : description
+    for (const ext of data.extensions) {
+      const [icon, desc] = EXT_CARDS[ext] ?? EXT_FALLBACK;
+      const name = extDisplayName(ext);
+      lines.push(`${icon} ${name} : ${desc}`);
     }
+    lines.push("");
   }
 
   // ── 版本信息 ──
