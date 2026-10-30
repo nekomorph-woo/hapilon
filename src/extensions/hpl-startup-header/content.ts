@@ -291,29 +291,25 @@ function expandedInfoLines(data: HeaderData): string[] {
 
 // ─── 布局 A：猫左 + 状态右 ────────────────────────────────────────────
 
-function buildLayoutA(data: HeaderData, expanded: boolean, width: number): string[] {
+function buildLayoutA(data: HeaderData, expanded: boolean, _width: number): string[] {
   const logo = hapilonLogo();
   const lines: string[] = [];
   const logoWidth = Math.max(...logo.map((l) => l.length));
-  const pad = Math.max(2, Math.floor((width - logoWidth - 30) / 2));
+  // 猫+文字锁定组合：间距固定 3 字符列，不随终端宽度漂移
+  const gap = logoWidth + 3;
 
   if (!expanded) {
-    // collapsed：猫 + 右侧一行状态 + 一行提示
     const status = statusLine(data);
     const hint = "ctrl+o expand";
     for (let i = 0; i < logo.length; i++) {
-      const left = logo[i]!.padEnd(pad);
       const right = i === 3 ? status : i === 5 ? hint : "";
-      lines.push(` ${left}${right}`);
+      lines.push(` ${logo[i]!.padEnd(gap)}${right}`);
     }
   } else {
-    // expanded：猫 + 右侧完整面板
     const info = expandedInfoLines(data);
     const rows = Math.max(logo.length, info.length + 1);
     for (let i = 0; i < rows; i++) {
-      const left = (logo[i] ?? "").padEnd(pad);
-      const right = info[i] ?? "";
-      lines.push(` ${left}${right}`);
+      lines.push(` ${(logo[i] ?? "").padEnd(gap)}${info[i] ?? ""}`);
     }
   }
   return lines;
@@ -334,17 +330,19 @@ function buildLayoutB(data: HeaderData, expanded: boolean, width: number): strin
   lines.push("");
 
   if (!expanded) {
-    // collapsed：一条横带
-    const bar = H_BAR.repeat(Math.min(width - 2, 60));
-    lines.push(` ${bar}`);
-    const status = statusLine(data);
-    lines.push(` ${status} · ctrl+o expand`);
+    const bar = H_BAR.repeat(Math.min(width - 4, 60));
+    const barPad = Math.max(1, Math.floor((width - bar.length) / 2));
+    lines.push(" ".repeat(barPad) + bar);
+    const status = statusLine(data) + " · ctrl+o expand";
+    const statusPad = Math.max(1, Math.floor((width - status.length) / 2));
+    lines.push(" ".repeat(Math.max(0, statusPad)) + status);
   } else {
-    // expanded：完整面板
-    const bar = H_BAR.repeat(Math.min(width - 2, 60));
-    lines.push(` ${bar}`);
+    const bar = H_BAR.repeat(Math.min(width - 4, 60));
+    const barPad = Math.max(1, Math.floor((width - bar.length) / 2));
+    lines.push(" ".repeat(barPad) + bar);
     for (const info of expandedInfoLines(data)) {
-      lines.push(` ${info}`);
+      const infoPad = Math.max(1, Math.floor((width - info.length) / 2));
+      lines.push(" ".repeat(Math.max(0, infoPad)) + info);
     }
   }
   return lines;
