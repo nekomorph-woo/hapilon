@@ -29,14 +29,14 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
             getFlag: () => undefined,
         });
         assert.ok(commands.has("tiers"));
-        const selections = ["Opus", "添加模型", "anthropic/claude-opus-4", "完成"];
+        const selections = ["Opus（0 个模型）", "添加模型", "anthropic/claude-opus-4", "完成"];
         const notices = [];
         await commands.get("tiers").handler("", {
             cwd: mkdtempSync(join(tmpdir(), "hapilon-model-tiers-command-cwd-")),
             ui: {
                 select: async (_title, options) => {
                     const next = selections.shift();
-                    assert.ok(next === undefined || options.includes(next), `${next} 应在候选项中`);
+                    assert.ok(next === undefined || options.includes(next), `${next} 应在候选项中: ${JSON.stringify(options)}`);
                     return next;
                 },
                 notify: (message) => notices.push(message),
@@ -66,14 +66,14 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
             registerFlag: () => { },
             getFlag: () => undefined,
         });
-        const cancelSelections = ["Opus", "添加模型", "anthropic/claude-opus-4", undefined];
+        const cancelSelections = ["Opus（0 个模型）", "添加模型", "anthropic/claude-opus-4", undefined];
         const cancelNotices = [];
         await cancelCommands.get("tiers").handler("", {
             cwd: home,
             ui: {
                 select: async (_title, options) => {
                     const next = cancelSelections.shift();
-                    assert.ok(next === undefined || options.includes(next), `${next} 应在候选项中`);
+                    assert.ok(next === undefined || options.includes(next), `${next} 应在候选项中: ${JSON.stringify(options)}`);
                     return next;
                 },
                 notify: (message) => cancelNotices.push(message),
@@ -99,7 +99,7 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
         const initial = { sonnet: ["glm-a", "glm-b", "glm-c"], haiku: ["deepseek-chat"] };
         writeFileSync(join(home, "model-tiers.json"), JSON.stringify(initial));
         // 菜单选 Sonnet → 调整顺序 → 选 "2. glm-b"（与 1 交换）→ 完成
-        const selections = ["Sonnet", "调整顺序", "2. glm-b", "完成"];
+        const selections = ["Sonnet（3 个模型）", "调整顺序", "2. glm-b", "完成"];
         const seenTitles = [];
         await commands.get("tiers").handler("", {
             cwd: home,
@@ -107,7 +107,7 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
                 select: async (title, options) => {
                     seenTitles.push(title);
                     const next = selections.shift();
-                    assert.ok(next !== undefined && options.includes(next), `${next} 应在候选项中: ${JSON.stringify(options)}`);
+                    assert.ok(next === undefined || options.includes(next), `${next} 应在候选项中: ${JSON.stringify(options)}`);
                     return next;
                 },
                 notify: () => { },
@@ -119,13 +119,13 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
         assert.ok(seenTitles.some((t) => t.includes("越靠前优先级越高")));
         // esc（undefined）：顺序改动不保存
         writeFileSync(join(home, "model-tiers.json"), JSON.stringify(initial));
-        const escSelections = ["Sonnet", "调整顺序", "2. glm-b", undefined];
+        const escSelections = ["Sonnet（3 个模型）", "调整顺序", "2. glm-b", undefined];
         await commands.get("tiers").handler("", {
             cwd: home,
             ui: {
                 select: async (_title, options) => {
                     const next = escSelections.shift();
-                    assert.ok(next === undefined || options.includes(next));
+                    assert.ok(next === undefined || options.includes(next), `${next} 应在候选项中: ${JSON.stringify(options)}`);
                     return next;
                 },
                 notify: () => { },
@@ -144,13 +144,13 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
         });
         // 追加：选模型 → 选 level
         writeFileSync(join(home, "model-tiers.json"), JSON.stringify({ sonnet: ["glm-a", "glm-b"] }));
-        const setSelections = ["Sonnet", "设置 thinking", "glm-a", "high"];
+        const setSelections = ["Sonnet（2 个模型）", "设置 thinking", "glm-a", "high"];
         await commands.get("tiers").handler("", {
             cwd: home,
             ui: {
                 select: async (_title, options) => {
                     const next = setSelections.shift();
-                    assert.ok(next !== undefined && options.includes(next), `${next} 应在候选项中: ${JSON.stringify(options)}`);
+                    assert.ok(next === undefined || options.includes(next), `${next} 应在候选项中: ${JSON.stringify(options)}`);
                     return next;
                 },
                 notify: () => { },
@@ -159,13 +159,13 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
         });
         assert.deepEqual(JSON.parse(readFileSync(join(home, "model-tiers.json"), "utf8")).sonnet, ["glm-a:high", "glm-b"]);
         // 覆盖：已带后缀的条目显示原样，重选改 level
-        const overrideSelections = ["Sonnet", "设置 thinking", "glm-a:high", "max"];
+        const overrideSelections = ["Sonnet（2 个模型）", "设置 thinking", "glm-a:high", "max"];
         await commands.get("tiers").handler("", {
             cwd: home,
             ui: {
                 select: async (_title, options) => {
                     const next = overrideSelections.shift();
-                    assert.ok(next !== undefined && options.includes(next));
+                    assert.ok(next === undefined || options.includes(next), `${next} 应在候选项中: ${JSON.stringify(options)}`);
                     return next;
                 },
                 notify: () => { },
@@ -174,13 +174,13 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
         });
         assert.deepEqual(JSON.parse(readFileSync(join(home, "model-tiers.json"), "utf8")).sonnet, ["glm-a:max", "glm-b"]);
         // 清除：选「清除（跟随全局默认）」移除后缀
-        const clearSelections = ["Sonnet", "设置 thinking", "glm-a:max", "清除（跟随全局默认）"];
+        const clearSelections = ["Sonnet（2 个模型）", "设置 thinking", "glm-a:max", "清除（跟随全局默认）"];
         await commands.get("tiers").handler("", {
             cwd: home,
             ui: {
                 select: async (_title, options) => {
                     const next = clearSelections.shift();
-                    assert.ok(next !== undefined && options.includes(next));
+                    assert.ok(next === undefined || options.includes(next), `${next} 应在候选项中: ${JSON.stringify(options)}`);
                     return next;
                 },
                 notify: () => { },
@@ -199,13 +199,13 @@ describe("hpl-model-tiers /tiers 命令", { concurrency: false }, () => {
         });
         writeFileSync(join(home, "model-tiers.json"), JSON.stringify({ sonnet: [] }));
         const notices = [];
-        const selections = ["Sonnet", "设置 thinking"];
+        const selections = ["Sonnet（0 个模型）", "设置 thinking"];
         await commands.get("tiers").handler("", {
             cwd: home,
             ui: {
                 select: async (_title, options) => {
                     const next = selections.shift();
-                    assert.ok(next !== undefined && options.includes(next));
+                    assert.ok(next === undefined || options.includes(next), `${next} 应在候选项中: ${JSON.stringify(options)}`);
                     return next;
                 },
                 notify: (message) => notices.push(message),

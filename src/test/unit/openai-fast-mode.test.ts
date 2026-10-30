@@ -130,16 +130,19 @@ test("/fast shortcuts, completions, and menu manage the allowlist and settings",
 
     picks.push(0);
     await command.handler("", ctx);
-    assert.match(selectCalls[0].title, /全局 Fast：关闭/);
-    assert.match(selectCalls[0].title, /当前模型：openai-codex\/gpt-5\.6-sol（未命中）/);
-    assert.match(selectCalls[0].title, /模型白名单：（空）/);
+    // 常驻菜单：状态进标签，标题固定
+    assert.equal(selectCalls[0].title, "Fast 模式");
+    assert.match(selectCalls[0].options[0], /添加当前模型：openai-codex\/gpt-5\.6-sol/);
+    assert.match(selectCalls[0].options[3], /移除白名单条目（0）/);
+    assert.match(selectCalls[0].options[5], /全局 Fast 开关（当前：关闭）/);
     assert.deepEqual(Effect.runSync(readFastModeSettingsEffect(join(root, "agent"))).models, [
       "openai-codex/gpt-5.6-sol",
     ]);
 
     picks.push(1, 1);
     await command.handler("", ctx);
-    assert.deepEqual(selectCalls.at(-1)?.options, [
+    // at(-1) 是 action 执行后重开的主菜单；模型候选列表在 at(-2)
+    assert.deepEqual(selectCalls.at(-2)?.options, [
       "openai-codex/gpt-5.6-luna",
       "openai/gpt-5.6-sol",
     ]);
@@ -155,7 +158,7 @@ test("/fast shortcuts, completions, and menu manage the allowlist and settings",
     }));
     picks.push(3, 2);
     await command.handler("", ctx);
-    assert.deepEqual(selectCalls.at(-1)?.options, [
+    assert.deepEqual(selectCalls.at(-2)?.options, [
       "openai-codex/gpt-5.6-sol",
       "openai/gpt-5.6-sol",
       "gpt-5*",
@@ -197,7 +200,7 @@ test("/fast shortcuts, completions, and menu manage the allowlist and settings",
       inputs.push(response);
       picks.push(2);
       await command.handler("", ctx);
-      assert.deepEqual(selectCalls.at(-1)?.options[2], "按模式添加（glob）");
+      assert.equal(selectCalls.at(-1)?.options[2], "添加白名单模式（glob）");
       assert.equal(inputCalls.length, inputCount + 1);
       assert.equal(readFileSync(settingsPath, "utf8"), savedSettings);
       assert.equal(statSync(settingsPath, { bigint: true }).mtimeNs, savedMtime);
@@ -208,7 +211,7 @@ test("/fast shortcuts, completions, and menu manage the allowlist and settings",
     const savedMtime = statSync(settingsPath, { bigint: true }).mtimeNs;
     picks.push(1);
     await command.handler("", ctx);
-    assert.equal(selectCalls.at(-1)?.title, "添加 OpenAI 系模型");
+    assert.equal(selectCalls.at(-2)?.title, "添加 OpenAI 系模型");
     assert.equal(readFileSync(settingsPath, "utf8"), savedSettings);
     assert.equal(statSync(settingsPath, { bigint: true }).mtimeNs, savedMtime);
 

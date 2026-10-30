@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { runMenuLoop } from "../../shared/menu-loop.js";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { agentGet, agentSubmitPrompt, buildPaneRunCommand, defaultSpawn, paneAgentAlive, paneGet, paneRead, paneRename, paneRun, paneSplit, paneSplitEnvArgs, paneWidths, resolveDiscussantModel, resolveRoleModel, resolveTierModelByTier, } from "./herdr.js";
 import { deleteCustomRoleDef, getAllRoleDefs, getRoleDef, saveCustomRoleDef, } from "./role-registry.js";
@@ -1140,26 +1141,55 @@ export async function handleTeamCommand(pi, args, ctx, spawn = defaultSpawn) {
     if (clearTarget) {
         return clearRoleBySelector(ctx, spawn, clearTarget[1], defs);
     }
-    const persisted = await readPersistedState(ctx, defs);
-    const enabled = Boolean(persisted && persisted.enabled && isTeamOwner(persisted, defs));
-    const candidates = persisted ? [] : takeoverCandidates(resolveSessionStatePath(), spawn);
-    const canResume = Boolean(persisted?.owner.session && persisted.owner.session !== ctx.sessionManager.getSessionFile());
-    const options = buildTeamMenuOptions(enabled, Boolean(persisted && !persisted.enabled), {
-        takeover: candidates.map(takeoverLabel),
-        canResume,
-    });
     const requested = args.trim();
     const explicit = requested ? actionForArgs(args, Object.values(TEAM_ACTIONS)) : undefined;
-    const action = explicit ?? await ctx.ui.select("Team 编排", options);
-    // 接管项是动态标签（带 owner pane id），菜单选中与显式传参两种来源都要认出来
-    const candidate = candidates.find((entry) => takeoverLabel(entry) === action)
-        ?? (requested ? candidates.find((entry) => takeoverLabel(entry).startsWith(requested)) : undefined);
+    if (explicit) {
+        // 显式参数保持单发语义：执行一次即返回
+        await runTeamAction(pi, ctx, spawn, defs, explicit, requested);
+        return;
+    }
+    if (requested) {
+        // 部分参数前缀匹配接管项（接管项标签含动态 pane id，actionForArgs 认不出）
+        const persisted = await readPersistedState(ctx, defs);
+        if (!persisted) {
+            const candidate = takeoverCandidates(resolveSessionStatePath(), spawn)
+                .find((entry) => takeoverLabel(entry).startsWith(requested));
+            if (candidate) {
+                await takeoverTeam(ctx, spawn, candidate);
+                return;
+            }
+        }
+    }
+    // 常驻菜单：每轮现读 persisted 状态（编排状态会被菜单项改变），
+    // 做完一个动作回到菜单，esc/退出才离开
+    await runMenuLoop(ctx, {
+        title: "Team 编排",
+        build: async () => {
+            const persisted = await readPersistedState(ctx, defs);
+            const enabled = Boolean(persisted && persisted.enabled && isTeamOwner(persisted, defs));
+            const candidates = persisted ? [] : takeoverCandidates(resolveSessionStatePath(), spawn);
+            const canResume = Boolean(persisted?.owner.session && persisted.owner.session !== ctx.sessionManager.getSessionFile());
+            const options = buildTeamMenuOptions(enabled, Boolean(persisted && !persisted.enabled), {
+                takeover: candidates.map(takeoverLabel),
+                canResume,
+            });
+            return options.map((label) => ({
+                label,
+                run: () => runTeamAction(pi, ctx, spawn, defs, label, "", persisted ?? undefined, candidates),
+            }));
+        },
+    });
+}
+/** 执行一个 team 动作；接管项按动态标签匹配（菜单选中与显式传参两种来源）。 */
+async function runTeamAction(pi, ctx, spawn, defs, action, requested, persisted, candidates) {
+    const allCandidates = candidates
+        ?? (persisted ? [] : takeoverCandidates(resolveSessionStatePath(), spawn));
+    const candidate = allCandidates.find((entry) => takeoverLabel(entry) === action)
+        ?? (requested ? allCandidates.find((entry) => takeoverLabel(entry).startsWith(requested)) : undefined);
     if (candidate) {
         await takeoverTeam(ctx, spawn, candidate);
         return;
     }
-    if (!action)
-        return;
     switch (action) {
         case TEAM_ACTIONS.start:
             await startOrchestration(ctx, spawn);

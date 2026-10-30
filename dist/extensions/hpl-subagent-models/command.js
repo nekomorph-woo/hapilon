@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { THINKING_LEVELS, splitThinkingSuffix } from "../hpl-model-tiers/resolved.js";
 import { pickFromList } from "../../shared/list-picker.js";
-const OPERATIONS = ["开关扩展", "添加模型", "设置 thinking", "调整顺序", "移除模型", "清空列表"];
+import { runMenuLoop } from "../../shared/menu-loop.js";
 /** 概览：两层现状 + 生效层判定 + 检查入口提示。 */
 function showOverview(ctx, io, layers) {
     const fmt = (layer) => layer
@@ -17,30 +17,6 @@ function showOverview(ctx, io, layers) {
         `项目 ${io.projectPath(ctx.cwd)}：${fmt(layers.project)}`,
         ...io.rules,
     ].join("\n"), "info");
-}
-async function pickTarget(ctx, io, layers) {
-    const choice = await ctx.ui.select("编辑哪一层？（项目文件存在即整体替换全局）", [
-        `全局（${layers.global ? `${layers.global.models.length} 条` : "未配置"}）`,
-        `项目（${layers.project ? `${layers.project.models.length} 条` : "未配置"}）`,
-        "取消",
-    ]);
-    if (!choice || choice === "取消")
-        return undefined;
-    if (choice.startsWith("全局")) {
-        return {
-            label: "全局",
-            path: io.globalPath(),
-            layer: layers.global ? { ...layers.global, models: [...layers.global.models] } : { enabled: true, models: [] },
-        };
-    }
-    if (!layers.project) {
-        ctx.ui.notify(`将新建项目 ${io.projectPath(ctx.cwd).split("/").pop()}；它存在即整体替换全局（包括空列表）。`, "warning");
-    }
-    return {
-        label: "项目",
-        path: io.projectPath(ctx.cwd),
-        layer: layers.project ? { ...layers.project, models: [...layers.project.models] } : { enabled: true, models: [] },
-    };
 }
 async function saveLayer(ctx, io, target) {
     const saved = await Effect.runPromise(io.saveLayer(target.path, target.layer));
@@ -68,9 +44,16 @@ async function addModels(ctx, io, target) {
         return;
     }
     let changed = false;
+    const pushed = [];
     while (available.length > 0) {
         const selected = await pickFromList(ctx, "添加模型（可连续选择）", available, "完成");
         if (selected === undefined) {
+            // 取消退出本轮推入的条目，保持「取消即未保存」——菜单循环下 target 还会被后续操作用到
+            for (const entry of pushed) {
+                const index = target.layer.models.indexOf(entry);
+                if (index >= 0)
+                    target.layer.models.splice(index, 1);
+            }
             ctx.ui.notify("已取消，本次改动未保存", "info");
             return;
         }
@@ -80,6 +63,7 @@ async function addModels(ctx, io, target) {
         if (index < 0)
             break;
         target.layer.models.push(selected);
+        pushed.push(selected);
         available.splice(index, 1);
         changed = true;
     }
@@ -132,27 +116,65 @@ async function removeModel(ctx, io, target) {
     target.layer.models = target.layer.models.filter((value) => value !== selected);
     await saveLayer(ctx, io, target);
 }
+/** 单层操作菜单：做完一个操作回到操作菜单，计数实时刷新。 */
+async function runTargetOperations(ctx, io, target) {
+    await runMenuLoop(ctx, {
+        title: `操作（${target.label}，当前 ${target.layer.models.length} 条）`,
+        build: () => [
+            { label: "开关扩展", run: () => toggleEnabled(ctx, io, target) },
+            { label: "添加模型", run: () => addModels(ctx, io, target) },
+            { label: "设置 thinking", run: () => setThinking(ctx, io, target) },
+            { label: "调整顺序", run: () => reorderModels(ctx, io, target) },
+            { label: "移除模型", run: () => removeModel(ctx, io, target) },
+            {
+                label: "清空列表",
+                run: async () => {
+                    target.layer.models = [];
+                    await saveLayer(ctx, io, target);
+                },
+            },
+        ],
+    });
+}
 async function runEditor(ctx, io) {
     const layers = await Effect.runPromise(io.readLayers(ctx.cwd));
     showOverview(ctx, io, layers);
-    const target = await pickTarget(ctx, io, layers);
-    if (!target)
-        return;
-    const operation = await ctx.ui.select(`操作（${target.label}，当前 ${target.layer.models.length} 条）`, [...OPERATIONS]);
-    if (!operation)
-        return;
-    if (operation === "开关扩展")
-        return toggleEnabled(ctx, io, target);
-    if (operation === "添加模型")
-        return addModels(ctx, io, target);
-    if (operation === "设置 thinking")
-        return setThinking(ctx, io, target);
-    if (operation === "调整顺序")
-        return reorderModels(ctx, io, target);
-    if (operation === "移除模型")
-        return removeModel(ctx, io, target);
-    target.layer.models = [];
-    await saveLayer(ctx, io, target);
+    // 常驻菜单：一层编辑完回到选层（counts 现读刷新），可继续编辑另一层
+    await runMenuLoop(ctx, {
+        title: "编辑哪一层？（项目文件存在即整体替换全局）",
+        build: async () => {
+            const current = await Effect.runPromise(io.readLayers(ctx.cwd));
+            return [
+                {
+                    label: `全局（${current.global ? `${current.global.models.length} 条` : "未配置"}）`,
+                    run: async () => {
+                        const fresh = await Effect.runPromise(io.readLayers(ctx.cwd));
+                        const target = {
+                            label: "全局",
+                            path: io.globalPath(),
+                            layer: fresh.global ? { ...fresh.global, models: [...fresh.global.models] } : { enabled: true, models: [] },
+                        };
+                        await runTargetOperations(ctx, io, target);
+                    },
+                },
+                {
+                    label: `项目（${current.project ? `${current.project.models.length} 条` : "未配置"}）`,
+                    run: async () => {
+                        const fresh = await Effect.runPromise(io.readLayers(ctx.cwd));
+                        if (!fresh.project) {
+                            ctx.ui.notify(`将新建项目 ${io.projectPath(ctx.cwd).split("/").pop()}；它存在即整体替换全局（包括空列表）。`, "warning");
+                        }
+                        const target = {
+                            label: "项目",
+                            path: io.projectPath(ctx.cwd),
+                            layer: fresh.project ? { ...fresh.project, models: [...fresh.project.models] } : { enabled: true, models: [] },
+                        };
+                        await runTargetOperations(ctx, io, target);
+                    },
+                },
+            ];
+        },
+    });
 }
 // ── 两个具体命令 ──────────────────────────────────────────────────
 import { globalSubagentModelsPath, globalVisionModelsPath, projectSubagentModelsPath, projectVisionModelsPath, readSubagentLayersEffect, readVisionLayersEffect, saveSubagentModelsLayerEffect, saveVisionModelsLayerEffect, } from "./config.js";

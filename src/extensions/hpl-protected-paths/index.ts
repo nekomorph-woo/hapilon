@@ -16,6 +16,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { argumentCompletions } from "../../shared/argument-completion.js";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { classifyPath, resolveTarget } from "./classifier.js";
+import { runMenuLoop } from "../../shared/menu-loop.js";
 import { requestConfirm, requestHighRiskConfirm } from "./confirm.js";
 import { addTrust, isTrusted, isSessionTrusted, clearSessionTrust, listSessionTrust, listProjectTrust, initProjectTrust } from "../../config/trust-store.js";
 
@@ -207,7 +208,41 @@ export default function (pi: ExtensionAPI) {
       }
 
       if (args.paths.length === 0) {
-        notify("用法：/allow <path>... | --list | --clear", "warning");
+        // 无参开常驻菜单：查看/添加/清空连续操作，esc 退出
+        await runMenuLoop(ctx, {
+          title: "Allow 白名单（会话级临时）",
+          build: () => [
+            {
+              label: "添加路径到 session 白名单",
+              run: async () => {
+                const prompted = await ctx.ui?.input?.("输入路径（相对或绝对）", "");
+                if (!prompted) return;
+                const resolved = resolveTarget(prompted.trim(), ctx.cwd);
+                addTrust("bash", resolved, "session", ctx.cwd);
+                notify(`已加入 session 白名单：${resolved}`);
+              },
+            },
+            {
+              label: "查看白名单（session + 项目）",
+              run: () => {
+                const session = listSessionTrust();
+                const project = listProjectTrust(ctx.cwd);
+                const lines: string[] = [];
+                if (session.length > 0) for (const g of session) lines.push(`session ${g.toolName}: ${g.targets.join(", ")}`);
+                if (project.length > 0) for (const g of project) lines.push(`project ${g.toolName}: ${g.targets.join(", ")}`);
+                notify(lines.length > 0 ? lines.join("\n") : "白名单为空");
+              },
+            },
+            {
+              label: "清空 session 白名单",
+              run: () => {
+                const count = listSessionTrust().reduce((n, g) => n + g.targets.length, 0);
+                clearSessionTrust();
+                notify(`已清空 ${count} 条 session 白名单`);
+              },
+            },
+          ],
+        });
         return;
       }
 

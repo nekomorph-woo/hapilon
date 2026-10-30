@@ -15,6 +15,7 @@ import { Effect } from "effect";
 import { state, POP_ICON } from "./shared.js";
 import { improvePanelAppearance, findNewestPanel, navigableExpandables, panelTitle } from "./panels.js";
 import { argumentCompletions } from "../../shared/argument-completion.js";
+import { runMenuLoop } from "../../shared/menu-loop.js";
 import { launchViewer } from "./viewer.js";
 import { attachInputListener } from "./input.js";
 import { loadPopConfigEffect, applyPopConfig } from "./config.js";
@@ -71,7 +72,53 @@ export default function hplPanelViewer(pi: ExtensionAPI): void {
         query,
       ),
     handler: async (args, ctx) => {
-      const parts = (args ?? "list").trim().split(/\s+/);
+      const trimmed = (args ?? "").trim();
+      if (trimmed === "") {
+        // 无参开常驻菜单：show/hide/remove 连续配置，esc 退出
+        await runMenuLoop(ctx, {
+          title: `${POP_ICON} hapi-pop config`,
+          build: () => [
+            {
+              label: "show <pattern>",
+              run: async () => {
+                const pattern = (await ctx.ui.input("show pattern（面板标题包含即显示）", ""))?.trim();
+                if (pattern) ctx.ui.notify(`${POP_ICON} ${applyPopConfig("show", pattern)}`, "info");
+              },
+            },
+            {
+              label: "hide <pattern>",
+              run: async () => {
+                const pattern = (await ctx.ui.input("hide pattern", ""))?.trim();
+                if (pattern) ctx.ui.notify(`${POP_ICON} ${applyPopConfig("hide", pattern)}`, "info");
+              },
+            },
+            {
+              label: "remove <pattern>",
+              run: async () => {
+                const pattern = (await ctx.ui.input("remove pattern", ""))?.trim();
+                if (pattern) ctx.ui.notify(`${POP_ICON} ${applyPopConfig("remove", pattern)}`, "info");
+              },
+            },
+            {
+              label: "maxlines <n>",
+              run: async () => {
+                const n = (await ctx.ui.input("collapsed panels 最大行数（0 = off）", ""))?.trim();
+                if (n) ctx.ui.notify(`${POP_ICON} ${applyPopConfig("maxlines", n)}`, "info");
+              },
+            },
+            {
+              label: "list",
+              run: () => ctx.ui.notify(`${POP_ICON} ${applyPopConfig("list")}`, "info"),
+            },
+            {
+              label: "reset",
+              run: () => ctx.ui.notify(`${POP_ICON} ${applyPopConfig("reset")}`, "info"),
+            },
+          ],
+        });
+        return;
+      }
+      const parts = trimmed.split(/\s+/);
       const action = parts.shift() ?? "list";
       ctx.ui.notify(`${POP_ICON} ${applyPopConfig(action, parts.join(" "))}`, "info");
     },

@@ -650,13 +650,13 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
     const disabled = makeContext();
     const noSpawn = makeSpawn();
     await handleTeamCommand(makePi().pi, "", disabled.ctx, noSpawn.spawn);
-    assert.deepEqual(disabled.selectedOptions[0], ["开始编排", "打开面板", "管理自定义角色", "查看面板分工"]);
+    assert.deepEqual(disabled.selectedOptions[0], ["开始编排", "打开面板", "管理自定义角色", "查看面板分工", "退出"]);
 
     saveState();
     const enabled = makeContext();
     await handleTeamCommand(makePi().pi, "", enabled.ctx, noSpawn.spawn);
     assert.deepEqual(enabled.selectedOptions[0], [
-      "打开面板", "暂停编排", "结束编排", "踢出角色", "解散团队", "清空面板上下文", "创建自定义角色", "管理自定义角色", "派发给 Worker", "查看面板分工",
+      "打开面板", "暂停编排", "结束编排", "踢出角色", "解散团队", "清空面板上下文", "创建自定义角色", "管理自定义角色", "派发给 Worker", "查看面板分工", "退出",
     ]);
 
     process.env.HAPI_ORCH_ROLE = "worker";

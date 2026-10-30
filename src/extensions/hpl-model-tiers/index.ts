@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
 import { argumentCompletions } from "../../shared/argument-completion.js";
 import { pickFromList } from "../../shared/list-picker.js";
+import { runMenuLoop } from "../../shared/menu-loop.js";
 import { readModelTiersEffect, saveModelTiersEffect } from "./config.js";
 import { readTierAdaptiveConfig, setTierAdaptiveEnabled, setTierAdaptiveSessionOverride, tierAdaptiveEnabled, planTierSelection } from "./adaptive.js";
 import { readAdaptiveProfile, EVIDENCE_WINDOW_DAYS } from "./adaptive-events.js";
@@ -243,8 +244,6 @@ export default function hplModelTiers(pi: ExtensionAPI): void {
   });
 }
 
-const TIER_OPERATIONS = ["添加模型", "移除模型", "设置 thinking", "调整顺序", "清空档位"] as const;
-
 /** 自适应选模本轮只服务 Worker pane，状态页也就只看 Worker 的档位（sonnet）。 */
 const ADAPTIVE_TIER: ModelTier = "sonnet";
 const TIER_ADAPTIVE_MODE_USAGE = "用法：/tier-adaptive-mode [on|off]（不带参数查看状态）";
@@ -365,9 +364,16 @@ async function addModels(
   }
 
   let changed = false;
+  const pushed: string[] = [];
   while (available.length > 0) {
     const selected = await pickFromList(ctx, "添加模型（可连续选择）", available, "完成");
     if (selected === undefined) {
+      // 取消：把本轮已推入的条目退出内存，保持「取消即未保存」的语义——
+      // 菜单循环下 tiers 对象还会被后续操作继续使用，不能留下幽灵条目。
+      for (const entry of pushed) {
+        const index = tiers[tier].indexOf(entry);
+        if (index >= 0) tiers[tier].splice(index, 1);
+      }
       ctx.ui.notify("已取消，本次改动未保存", "info");
       return;
     }
@@ -375,6 +381,7 @@ async function addModels(
     const index = available.indexOf(selected);
     if (index < 0) break;
     tiers[tier].push(selected);
+    pushed.push(selected);
     available.splice(index, 1);
     changed = true;
   }
@@ -438,43 +445,54 @@ async function reorderModels(
   await saveEditedTiers(ctx, tiers, tier);
 }
 
-async function handleTiersCommand(ctx: ExtensionCommandContext): Promise<void> {
-  const tiers = yieldTiers(ctx.cwd);
-  await showTiersOverview(ctx, tiers);
-  const tier = await ctx.ui.select("选择模型档位", MODEL_TIERS.map((t) => TIER_DISPLAY[t]));
-  if (!tier) return;
-  const selectedTier = MODEL_TIERS.find((t) => TIER_DISPLAY[t] === tier);
-  if (!selectedTier) return;
-  const operation = await ctx.ui.select(`操作 ${TIER_DISPLAY[selectedTier]}（当前 ${tiers[selectedTier].length} 个模型）`, [...TIER_OPERATIONS]);
-  if (!operation) return;
-
-  if (operation === "清空档位") {
-    tiers[selectedTier] = [];
-    await saveEditedTiers(ctx, tiers, selectedTier);
-    return;
-  }
-  if (operation === "添加模型") {
-    await addModels(ctx, tiers, selectedTier);
-    return;
-  }
-  if (operation === "调整顺序") {
-    await reorderModels(ctx, tiers, selectedTier);
-    return;
-  }
-  if (operation === "设置 thinking") {
-    await setModelThinking(ctx, tiers, selectedTier);
-    return;
-  }
-
-  const configured = [...tiers[selectedTier]];
+/** 移除档位条目。 */
+async function removeModelEntry(
+  ctx: ExtensionCommandContext,
+  tiers: TierModels,
+  tier: ModelTier,
+): Promise<void> {
+  const configured = [...tiers[tier]];
   if (configured.length === 0) {
     ctx.ui.notify("该档位当前为空。", "warning");
     return;
   }
   const selected = await ctx.ui.select("选择要移除的模型", [...configured, "取消"]);
   if (!selected || selected === "取消") return;
-  tiers[selectedTier] = configured.filter((value) => value !== selected);
-  await saveEditedTiers(ctx, tiers, selectedTier);
+  tiers[tier] = configured.filter((value) => value !== selected);
+  await saveEditedTiers(ctx, tiers, tier);
+}
+
+/** 清空档位。 */
+async function clearTier(ctx: ExtensionCommandContext, tiers: TierModels, tier: ModelTier): Promise<void> {
+  tiers[tier] = [];
+  await saveEditedTiers(ctx, tiers, tier);
+}
+
+/** 单档操作菜单：做完一个操作回到操作菜单，计数实时刷新。 */
+async function runTierOperations(ctx: ExtensionCommandContext, tiers: TierModels, tier: ModelTier): Promise<void> {
+  await runMenuLoop(ctx, {
+    title: `操作 ${TIER_DISPLAY[tier]}（当前 ${tiers[tier].length} 个模型）`,
+    build: () => [
+      { label: "添加模型", run: () => addModels(ctx, tiers, tier) },
+      { label: "移除模型", run: () => removeModelEntry(ctx, tiers, tier) },
+      { label: "设置 thinking", run: () => setModelThinking(ctx, tiers, tier) },
+      { label: "调整顺序", run: () => reorderModels(ctx, tiers, tier) },
+      { label: "清空档位", run: () => clearTier(ctx, tiers, tier) },
+    ],
+  });
+}
+
+async function handleTiersCommand(ctx: ExtensionCommandContext): Promise<void> {
+  const tiers = yieldTiers(ctx.cwd);
+  await showTiersOverview(ctx, tiers);
+  // 常驻菜单：改完一档回到根菜单可继续改其它档，esc/退出才离开
+  await runMenuLoop(ctx, {
+    title: "Tiers 编辑（选择档位进入操作）",
+    build: () => MODEL_TIERS.map((tier) => ({
+      label: `${TIER_DISPLAY[tier]}（${tiers[tier].length} 个模型）`,
+      run: () => runTierOperations(ctx, tiers, tier),
+    })),
+  });
 }
 
 function yieldTiers(cwd: string): TierModels {

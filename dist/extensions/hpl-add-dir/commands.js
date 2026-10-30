@@ -4,7 +4,7 @@
  * handler 依赖工厂闭包内的状态与核心操作，通过 CommandOps 注入，
  * index.ts 组装注册，行为与拆分前一致。
  */
-import { pickFromList } from "../../shared/list-picker.js";
+import { runMenuLoop } from "../../shared/menu-loop.js";
 import { suggestDirectories } from "./suggestions.js";
 import { scanDirContext, resolveDir } from "./context.js";
 // ─── 命令注册 ─────────────────────────────────────────────────────────
@@ -14,37 +14,42 @@ export function registerCommands(pi, ops) {
         handler: async (args, ctx) => {
             let inputPath = args?.trim();
             if (!inputPath) {
-                // 无参数调用时显示建议
-                const suggestions = suggestDirectories({
-                    cwd: ctx.cwd,
-                    alreadyAdded: ops.getDirs().map((d) => d.absolutePath),
+                // 无参调用进入常驻菜单：加完一个目录回到菜单（建议列表现读，已加的不再出现），可连续添加
+                await runMenuLoop(ctx, {
+                    title: "Add directory（连续添加；esc 退出）",
+                    build: () => {
+                        const suggestions = suggestDirectories({
+                            cwd: ctx.cwd,
+                            alreadyAdded: ops.getDirs().map((d) => d.absolutePath),
+                        });
+                        const items = suggestions.map((s) => ({
+                            label: `${s.label} — ${s.absolutePath} (${s.reasons.slice(0, 2).join(", ")})`,
+                            run: () => {
+                                const result = ops.addDir(s.absolutePath, ctx.cwd, ctx);
+                                ctx.ui.notify(result.message, result.ok ? "info" : "error");
+                                if (result.extensionHints.length > 0) {
+                                    ctx.ui.notify(result.extensionHints.join("\n"), "warning");
+                                }
+                            },
+                        }));
+                        items.push({
+                            label: "📝 Enter a custom path...",
+                            run: async () => {
+                                const prompted = await ctx.ui.input("Directory path:", "");
+                                if (!prompted)
+                                    return;
+                                const resolved = ops.resolveInputPath(prompted, ctx.cwd);
+                                const result = ops.addDir(resolved, ctx.cwd, ctx);
+                                ctx.ui.notify(result.message, result.ok ? "info" : "error");
+                                if (result.extensionHints.length > 0) {
+                                    ctx.ui.notify(result.extensionHints.join("\n"), "warning");
+                                }
+                            },
+                        });
+                        return items;
+                    },
                 });
-                if (suggestions.length > 0) {
-                    const choices = suggestions.map((s) => {
-                        const reasons = s.reasons.slice(0, 2).join(", ");
-                        return `${s.label} — ${s.absolutePath} (${reasons})`;
-                    });
-                    // 选「自定义路径」项（固定在顶部）落 input 分支；esc 取消
-                    const selected = await pickFromList(ctx, "Add directory:", choices, "📝 Enter a custom path...");
-                    if (selected === undefined)
-                        return;
-                    if (selected === null) {
-                        const prompted = await ctx.ui.input("Directory path:", "");
-                        if (!prompted)
-                            return;
-                        inputPath = prompted;
-                    }
-                    else {
-                        const selectedIdx = choices.indexOf(selected);
-                        inputPath = suggestions[selectedIdx].absolutePath;
-                    }
-                }
-                else {
-                    const prompted = await ctx.ui.input("Directory path (no suggestions found):", "");
-                    if (!prompted)
-                        return;
-                    inputPath = prompted;
-                }
+                return;
             }
             inputPath = ops.resolveInputPath(inputPath, ctx.cwd);
             const result = ops.addDir(inputPath, ctx.cwd, ctx);
@@ -66,25 +71,23 @@ export function registerCommands(pi, ops) {
                 ctx.ui.notify("No suggestions found. Try /add-dir <path> to add manually.", "info");
                 return;
             }
-            const choices = suggestions.map((s) => {
-                const score = Math.round(s.score * 100);
-                const reasons = s.reasons.slice(0, 2).join(", ");
-                return `${s.label} (${score}%) — ${reasons}`;
+            // 常驻：加完一个回菜单（建议现读，已加的不再出现）
+            await runMenuLoop(ctx, {
+                title: "Suggested directories — pick to add",
+                build: () => suggestDirectories({
+                    cwd: ctx.cwd,
+                    alreadyAdded: ops.getDirs().map((d) => d.absolutePath),
+                }).map((s) => ({
+                    label: `${s.label} (${Math.round(s.score * 100)}%) — ${s.reasons.slice(0, 2).join(", ")}`,
+                    run: () => {
+                        const result = ops.addDir(s.absolutePath, ctx.cwd, ctx);
+                        ctx.ui.notify(result.message, result.ok ? "info" : "error");
+                        if (result.extensionHints.length > 0) {
+                            ctx.ui.notify(result.extensionHints.join("\n"), "warning");
+                        }
+                    },
+                })),
             });
-            const selected = await pickFromList(ctx, "Suggested directories — pick to add:", choices);
-            if (selected === undefined)
-                return;
-            const selectedIdx = choices.indexOf(selected);
-            if (selectedIdx === -1)
-                return;
-            const picked = suggestions[selectedIdx];
-            if (!picked)
-                return;
-            const result = ops.addDir(picked.absolutePath, ctx.cwd, ctx);
-            ctx.ui.notify(result.message, result.ok ? "info" : "error");
-            if (result.extensionHints.length > 0) {
-                ctx.ui.notify(result.extensionHints.join("\n"), "warning");
-            }
         },
     });
     pi.registerCommand("remove-dir", {
@@ -112,17 +115,19 @@ export function registerCommands(pi, ops) {
                 absolutePath = byLabel ? byLabel.absolutePath : resolveDir(input, ctx.cwd);
             }
             else {
-                // 交互模式：从列表中选择
-                const choices = dirs.map((d) => `${d.label} — ${d.absolutePath}`);
-                const selected = await ctx.ui.select("Remove which directory?", choices);
-                if (selected === undefined)
-                    return;
-                const selectedIdx = choices.indexOf(selected);
-                const selectedDir = selectedIdx >= 0 ? dirs[selectedIdx] : undefined;
-                absolutePath = selectedDir?.absolutePath;
-            }
-            if (!absolutePath)
+                // 交互模式：常驻菜单，删完一个回菜单（列表现读），esc 退出
+                await runMenuLoop(ctx, {
+                    title: "Remove which directory?",
+                    build: () => ops.getDirs().map((d) => ({
+                        label: `${d.label} — ${d.absolutePath}`,
+                        run: () => {
+                            const result = ops.removeDir(d.absolutePath, ctx);
+                            ctx.ui.notify(result.message, result.ok ? "info" : "error");
+                        },
+                    })),
+                });
                 return;
+            }
             const result = ops.removeDir(absolutePath, ctx);
             ctx.ui.notify(result.message, result.ok ? "info" : "error");
         },
