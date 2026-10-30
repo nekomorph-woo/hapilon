@@ -221,20 +221,89 @@ function statusLine(data) {
     parts.push(shortenWorkspacePath(data.cwd, data.homeDir));
     return parts.join(" · ");
 }
-/** 展开面板的信息行（扩展/版本/快捷键） */
-function expandedInfoLines(data) {
+/** 扩展卡片：图标 + 名称（去 hpl- 前缀）+ 一句话描述 */
+const EXT_CARDS = {
+    "hpl-add-dir": ["📂", "外部目录注入"],
+    "hpl-blocked-files": ["🚫", "禁读指定文件"],
+    "hpl-econ": ["📦", "bash 输出压缩"],
+    "hpl-editor-slash": ["⌨️", "中段 slash 补全"],
+    "hpl-effect-policy": ["🎭", "Effect 策略注入"],
+    "hpl-exit": ["🚪", "退出命令"],
+    "hpl-footer": ["📊", "底栏渲染"],
+    "hpl-herdr": ["🔔", "herdr 状态上报"],
+    "hpl-metrics": ["📈", "使用统计"],
+    "hpl-model-tiers": ["🏷️", "模型档位管理"],
+    "hpl-openai-fast-mode": ["⚡", "OpenAI Fast 模式"],
+    "hpl-orchestra": ["🎹", "team/pane 编排"],
+    "hpl-panel-viewer": ["🖥️", "面板查看器"],
+    "hpl-protected-paths": ["🔒", "敏感路径保护"],
+    "hpl-quota-usage": ["🔋", "额度查询"],
+    "hpl-recap": ["📝", "会话回顾"],
+    "hpl-safety-gate": ["🛡️", "危险命令拦截"],
+    "hpl-skills-discover": ["🔍", "技能发现注入"],
+    "hpl-startup-header": ["🐱", "启动头部"],
+    "hpl-subagent-models": ["🤖", "派发模型改写"],
+    "hpl-system-prompt": ["📋", "系统提示全量组装"],
+    "ponytail": ["🐎", "极简编码纪律"],
+    "pi-subagents": ["🔀", "子代理派发"],
+    "billion-context-pi": ["🗜️", "上下文增量压缩"],
+    "pi-background-tasks": ["⏰", "后台任务原语"],
+    "pi-web-access": ["🌐", "网络搜索"],
+    "pi-computer-use": ["🖱️", "计算机驾驶"],
+    "pi-browser-use": ["🪟", "浏览器驾驶"],
+    "pi-fff": ["🌀", "fff 四包"],
+    "pi-ask-user": ["❓", "结构化提问"],
+    "pi-btw": ["💬", " btw"],
+    "pi-tasks": ["📋", "任务管理"],
+};
+/** 未登记的扩展用这个兜底 */
+const EXT_FALLBACK = ["◈", ""];
+/** 取扩展的显示名（去 hpl- 前缀） */
+function extDisplayName(name) {
+    return name.startsWith("hpl-") ? name.slice(4) : name;
+}
+/** 展开面板：卡片宫格 + 版本信息 + 快捷键 */
+function expandedInfoLines(data, width) {
     const lines = [];
+    // ── 扩展卡片宫格 ──
     if (data.extensions && data.extensions.length > 0) {
         lines.push(`Extensions (${data.extensions.length})`);
-        for (const ext of data.extensions) {
-            lines.push(`  ${ext}`);
-        }
         lines.push("");
+        // 卡片宽度：名称行最长 = icon(2) + space(1) + 最长名(~17) = 20；描述行最长 = 6 中文≈12 列
+        // 卡片内宽取 22，加边框 2 = 24；间隔 1
+        const cardW = 24;
+        const gap = 1;
+        const perRow = Math.max(1, Math.floor((width - 2) / (cardW + gap)));
+        // 按行分组，每张卡片 4 行（上框/名称/描述/下框），行内拼接
+        for (let row = 0; row < data.extensions.length; row += perRow) {
+            const batch = data.extensions.slice(row, row + perRow);
+            const tops = [];
+            const names = [];
+            const descs = [];
+            const bots = [];
+            for (const ext of batch) {
+                const [icon, desc] = EXT_CARDS[ext] ?? EXT_FALLBACK;
+                const name = extDisplayName(ext);
+                const inner = cardW - 2;
+                tops.push(`┌${"─".repeat(inner)}┐`);
+                const nameText = `${icon} ${name}`;
+                names.push(`│${nameText.padEnd(inner)}│`);
+                descs.push(`│${desc.padEnd(inner)}│`);
+                bots.push(`└${"─".repeat(inner)}┘`);
+            }
+            const join = " ".repeat(gap);
+            lines.push(" " + tops.join(join));
+            lines.push(" " + names.join(join));
+            lines.push(" " + descs.join(join));
+            lines.push(" " + bots.join(join));
+            lines.push("");
+        }
     }
+    // ── 版本信息 ──
     if (data.piUpdate) {
         lines.push(`Pi ${data.piUpdate} available · pi.dev/changelog`);
     }
-    lines.push("");
+    // ── 快捷键 ──
     lines.push("esc interrupt · ctrl+c/d exit · shift+tab thinking · ctrl+p model · / commands · ! bash");
     return lines;
 }
@@ -261,7 +330,7 @@ function buildLayoutB(data, expanded, width) {
         const bar = H_BAR.repeat(Math.min(width - 4, 60));
         const barPad = Math.max(1, Math.floor((width - bar.length) / 2));
         lines.push(" ".repeat(barPad) + bar);
-        for (const info of expandedInfoLines(data)) {
+        for (const info of expandedInfoLines(data, width)) {
             const infoPad = Math.max(1, Math.floor((width - info.length) / 2));
             lines.push(" ".repeat(Math.max(0, infoPad)) + info);
         }
