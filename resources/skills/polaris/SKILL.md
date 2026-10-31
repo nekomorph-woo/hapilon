@@ -29,6 +29,7 @@ description: 北极星，带着用户推进业务设计、场景验收和交付�
 | 6. 实现业务与 Runner、执行并报告 | [实现、执行与报告](references/execution.md) |
 | 7. 人工体验、反馈与交付决定 | [人工体验](references/experience.md) |
 | 实现中登记、结转待确认决定 | [决策记录](references/decisions.md) |
+| AFK 长任务循环：拆块、自动跑完、收尾汇总 | [长任务编排](references/long-run.md) |
 | 保存进度、恢复工作、归档 Case | [工作记录](references/work-records.md) |
 
 进入 Case 设计、技术与验收计划、实现与执行时，必须先完整读取 [Scenario Acceptance 工作约束](references/scenario_acceptance_spec.md)。它是共用验收底线；阶段参考说明如何执行，三种模式决定本轮是否允许改业务及什么算完成。
