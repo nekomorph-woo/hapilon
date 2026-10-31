@@ -41,6 +41,15 @@ export const COMMANDS = [
         },
     },
     {
+        name: "setup-herdr",
+        description: "初始化 herdr-app 集成（start-agent 菜单 + 图标 + 启动 shim）",
+        usage: `${cliIdentity.cliName} setup-herdr`,
+        handler: async () => {
+            const { setupHerdr } = await import("./setup-herdr.js");
+            await setupHerdr();
+        },
+    },
+    {
         name: "doctor",
         description: "诊断 hapilon 配置状态（版本、目录、provider 认证）",
         usage: `${cliIdentity.cliName} doctor`,

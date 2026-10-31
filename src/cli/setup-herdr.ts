@@ -1,0 +1,148 @@
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { argv } from "node:process";
+import { Data, Effect } from "effect";
+import { hapilonHome } from "../config/hapilon-home.js";
+
+export class HerdrSetupError extends Data.TaggedError("HerdrSetupError")<{
+  message: string;
+}> {}
+
+// ─── 内置资产 ─────────────────────────────────────────────────────────
+
+// 像素小屋图标（7×7 点阵，29 个圆角方点）——与启动 header 的盲文点阵同族
+const HOUSE_ICON_SVG =
+  '<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>hapilon</title>' +
+  '<rect x="10.85" y="4.3" width="1.9" height="1.9" rx="0.5"/>' +
+  '<rect x="8.5" y="6.65" width="1.9" height="1.9" rx="0.5"/><rect x="10.85" y="6.65" width="1.9" height="1.9" rx="0.5"/><rect x="13.2" y="6.65" width="1.9" height="1.9" rx="0.5"/>' +
+  '<rect x="6.15" y="9" width="1.9" height="1.9" rx="0.5"/><rect x="8.5" y="9" width="1.9" height="1.9" rx="0.5"/><rect x="10.85" y="9" width="1.9" height="1.9" rx="0.5"/><rect x="13.2" y="9" width="1.9" height="1.9" rx="0.5"/><rect x="15.55" y="9" width="1.9" height="1.9" rx="0.5"/>' +
+  '<rect x="3.8" y="11.35" width="1.9" height="1.9" rx="0.5"/><rect x="6.15" y="11.35" width="1.9" height="1.9" rx="0.5"/><rect x="8.5" y="11.35" width="1.9" height="1.9" rx="0.5"/><rect x="10.85" y="11.35" width="1.9" height="1.9" rx="0.5"/><rect x="13.2" y="11.35" width="1.9" height="1.9" rx="0.5"/><rect x="15.55" y="11.35" width="1.9" height="1.9" rx="0.5"/><rect x="17.9" y="11.35" width="1.9" height="1.9" rx="0.5"/>' +
+  '<rect x="3.8" y="13.7" width="1.9" height="1.9" rx="0.5"/><rect x="6.15" y="13.7" width="1.9" height="1.9" rx="0.5"/><rect x="15.55" y="13.7" width="1.9" height="1.9" rx="0.5"/><rect x="17.9" y="13.7" width="1.9" height="1.9" rx="0.5"/>' +
+  '<rect x="3.8" y="16.05" width="1.9" height="1.9" rx="0.5"/><rect x="6.15" y="16.05" width="1.9" height="1.9" rx="0.5"/><rect x="15.55" y="16.05" width="1.9" height="1.9" rx="0.5"/><rect x="17.9" y="16.05" width="1.9" height="1.9" rx="0.5"/>' +
+  '<rect x="3.8" y="18.4" width="1.9" height="1.9" rx="0.5"/><rect x="6.15" y="18.4" width="1.9" height="1.9" rx="0.5"/><rect x="10.85" y="18.4" width="1.9" height="1.9" rx="0.5"/><rect x="15.55" y="18.4" width="1.9" height="1.9" rx="0.5"/><rect x="17.9" y="18.4" width="1.9" height="1.9" rx="0.5"/>' +
+  "</svg>\n";
+
+const PROGRAM_ENTRY = {
+  name: "Hapilon",
+  icon: "", // setup 时按内容 hash 填
+  run: ["hapilon"],
+  tint: true,
+  tile: "#1c1d21",
+  color: "#ffffff",
+};
+
+// ─── 纯函数（单测覆盖） ────────────────────────────────────────────────
+
+export function shimScript(cliPath: string, home: string): string {
+  return `#!/bin/sh\n# herdr-app start-agent 检测用的可执行入口（setup-herdr 生成）\nHAPILON_HOME="${home}" exec node "${cliPath}" "$@"\n`;
+}
+
+export function iconFileName(svg: string): string {
+  const hash = createHash("sha256").update(svg).digest("hex").slice(0, 8);
+  return `hapilon-house-${hash}.svg`;
+}
+
+/** 合并 hapilon 条目进 programs.json 原文；raw 为 null 表示新建。其余条目原样保留 */
+export function mergePrograms(raw: string | null, entry: Record<string, unknown>): string {
+  let data: Record<string, unknown>;
+  try {
+    data = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+  } catch {
+    throw new Error("programs.json 不是合法 JSON，请手工修复后重跑 setup-herdr");
+  }
+  const programs = { ...((data.programs ?? {}) as Record<string, unknown>), hapilon: entry };
+  return JSON.stringify({ ...data, programs }, null, 2) + "\n";
+}
+
+/** 从当前进程推导运行形态：dev checkout 里跑出 dev shim，release 安装跑出 release shim */
+export function deriveShimInputs(): { cliPath: string; home: string } {
+  const cliPath = realpathSync(argv[1] ?? "");
+  return { cliPath, home: hapilonHome() };
+}
+
+// ─── 文件写入 Effect ──────────────────────────────────────────────────
+
+const writeTextEffect = (path: string, content: string, mode?: number) =>
+  Effect.try({
+    try: () => {
+      writeFileSync(path, content, "utf8");
+      if (mode !== undefined) chmodSync(path, mode);
+    },
+    catch: (err) =>
+      new HerdrSetupError({ message: `写入 ${path} 失败: ${err instanceof Error ? err.message : String(err)}` }),
+  });
+
+const forceSymlinkEffect = (target: string, linkPath: string) =>
+  Effect.try({
+    try: () => {
+      try {
+        unlinkSync(linkPath);
+      } catch {
+        // 不存在即目标状态
+      }
+      symlinkSync(target, linkPath);
+    },
+    catch: (err) =>
+      new HerdrSetupError({ message: `创建链接 ${linkPath} 失败: ${err instanceof Error ? err.message : String(err)}` }),
+  });
+
+// ─── 主流程 ───────────────────────────────────────────────────────────
+
+export function setupHerdr(): Promise<void> {
+  const program = Effect.gen(function* () {
+    const herdrDir = join(homedir(), ".config", "herdr-app");
+    if (!existsSync(herdrDir)) {
+      console.log("未检测到 herdr-app（~/.config/herdr-app 不存在）。先安装 herdr-app，再跑本命令。");
+      return;
+    }
+
+    const { cliPath, home } = deriveShimInputs();
+    const icon = iconFileName(HOUSE_ICON_SVG);
+    const entry = { ...PROGRAM_ENTRY, icon: `my-icons/${icon}` };
+
+    // 图标：按内容 hash 命名——herdr 按 icon 路径缓存 SVG 内容，同路径覆盖写不刷新，
+    // 内容变化时换新文件名；旧 hapilon-*.svg 清掉防堆积
+    const myIcons = join(herdrDir, "my-icons");
+    mkdirSync(myIcons, { recursive: true });
+    yield* writeTextEffect(join(myIcons, icon), HOUSE_ICON_SVG);
+    for (const f of readdirSync(myIcons)) {
+      if (f.startsWith("hapilon-") && f !== icon) unlinkSync(join(myIcons, f));
+    }
+
+    // shim：~/.local/bin/hapilon + hapi 链接（start-agent 菜单按「本机是否装了命令」过滤）
+    const localBin = join(homedir(), ".local", "bin");
+    mkdirSync(localBin, { recursive: true });
+    const shimPath = join(localBin, "hapilon");
+    yield* writeTextEffect(shimPath, shimScript(cliPath, home), 0o755);
+    yield* forceSymlinkEffect("hapilon", join(localBin, "hapi"));
+
+    // programs.json：合并写，保留用户其他条目
+    const programsPath = join(herdrDir, "programs.json");
+    const raw = existsSync(programsPath) ? readFileSync(programsPath, "utf8") : null;
+    yield* writeTextEffect(programsPath, mergePrograms(raw, entry));
+
+    console.log("herdr-app 集成就绪：");
+    console.log(`  图标    ${join(myIcons, icon)}`);
+    console.log(`  入口    ${shimPath}（HAPILON_HOME=${home}）`);
+    console.log(`  程序表  ${programsPath}`);
+    console.log("programs.json 热生效；herdr 里 ⌥⌘A 即可启动 Hapilon。");
+  });
+
+  return Effect.runPromise(program).catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`setup-herdr 失败: ${msg}`);
+    process.exitCode = 1;
+  });
+}
