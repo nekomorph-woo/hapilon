@@ -1,144 +1,127 @@
 ---
 name: write-judge-prompt
-description: >
-  Design LLM-as-Judge evaluators for subjective criteria that code-based checks
-  cannot handle. Use when a failure mode requires interpretation (tone,
-  faithfulness, relevance, completeness). Do NOT use when the failure mode can be
-  checked with code (regex, schema validation, execution tests); use
-  `write-code-eval`. To validate an existing judge, use `validate-evaluator`.
+description: 为代码检查不了的主观标准设计 LLM-as-Judge 评测器。失败模式需要解释判断（语气、忠实度、相关性、完整性）时使用；能用代码查的（正则、schema 校验、执行测试）不要用，改用 `write-code-eval`；已写好的 judge 用 `validate-evaluator` 校验。
 ---
 
-# Write LLM-as-Judge Prompt
+# 编写 LLM-as-Judge 提示词
 
-Design a binary Pass/Fail LLM-as-Judge evaluator for one specific failure mode. Each judge checks exactly one thing.
+为一个具体失败模式设计二元的 Pass/Fail LLM-as-Judge 评测器。每个 judge 只检查一件事。
 
-## Prerequisites
+## 前置条件
 
-- Error analysis is complete. The failure mode is identified.
-- You have human-labeled traces for this failure mode (at least 20 Pass and 20 Fail examples).
-- A code-based evaluator cannot check this failure mode. Exhaust code-based options before reaching for a judge — many failure modes that seem subjective reduce to keyword checks, regex, or API calls when you understand the domain. Example: detecting whether an AI interviewing coach suggests "general" questions (asking about typical behavior instead of a specific past event) seems to require semantic understanding, but in practice a keyword check for words like "usually," "typical," and "normally" could work quite well.
+- 错误分析已完成，失败模式已确定。
+- 有人工标注的 trace：该失败模式至少 20 条 Pass、20 条 Fail。
+- 代码评测器查不了这个失败模式。上 judge 前先穷尽代码手段——很多看似主观的失败模式，理解领域后能简化成关键词、正则或 API 调用。例：判断 AI 面试教练是否在问「泛泛的」问题（问典型行为而非具体往事）看似需要语义理解，实际检查「通常」「一般」「往往」这类词就能查得八九不离十。
 
-## The Four Components
+## 四个组成部分
 
-Every judge prompt requires exactly four components:
+每个 judge 提示词必须恰好包含四个部分。
 
-### 1. Task and Evaluation Criterion
+### 1. 任务与判定标准
 
-State what the judge evaluates. One failure mode per judge.
-
-```
-You are an evaluator assessing whether a real estate assistant's email
-uses the appropriate tone for the client's persona.
-```
-
-Not: "Evaluate whether the email is good" or "Rate the email quality from 1-5."
-
-### 2. Pass/Fail Definitions
-
-Outcomes are strictly binary: Pass or Fail. No Likert scales, no letter grades, no partial credit. Define exactly what constitutes Pass and Fail. These definitions come from your error analysis failure mode descriptions.
+写明 judge 评什么。一个 judge 一个失败模式。
 
 ```
-## Definitions
-
-PASS: The email matches the expected communication style for the client persona:
-- Luxury Buyers: formal language, emphasis on exclusive features, premium
-  market positioning, no casual slang
-- First-Time Homebuyers: warm and encouraging tone, educational explanations,
-  avoids jargon, patient and supportive
-- Investors: data-driven language, ROI-focused, market analytics, concise
-  and professional
-
-FAIL: The email uses a tone mismatched to the client persona. Examples:
-- Using casual slang ("hey, check out this pad!") for a luxury buyer
-- Using heavy financial jargon for a first-time homebuyer
-- Using overly emotional language for an investor
+你是一名评审，评估房产助手的邮件对客户画像是否用了合适的语气。
 ```
 
-### 3. Few-Shot Examples
+不要写成「评估这封邮件好不好」或「给邮件质量打 1-5 分」。
 
-Include labeled Pass and Fail examples from your human-labeled data.
+### 2. Pass/Fail 定义
+
+结果严格二元：Pass 或 Fail。不用 Likert 量表，不打字母等级，不给部分分。精确定义什么算 Pass、什么算 Fail。定义来自错误分析里的失败模式描述。
 
 ```
-## Examples
+## 定义
 
-### Example 1: PASS
-Client Persona: Luxury Buyer
-Email: "Dear Mr. Harrington, I am pleased to present an exclusive listing
-at 1200 Pacific Heights Drive. This distinguished property features..."
-Critique: The email opens with a formal salutation and uses language
-consistent with luxury positioning — "exclusive listing," "distinguished
-property." No casual slang or informal phrasing. The tone matches the
-luxury buyer persona throughout.
-Result: Pass
+PASS：邮件符合客户画像对应的沟通风格：
+- 豪华盘买家：正式用语，强调稀缺属性与高端定位，无随意俚语
+- 首次购房者：语气温暖、有鼓励性，解释有教学感，避开行话，耐心且支持
+- 投资客：数据驱动的语言，围绕 ROI，给市场分析，简洁专业
 
-### Example 2: FAIL
-Client Persona: Luxury Buyer
-Email: "Hey! Just found this awesome place you might like. It's got a
-pool and stuff, super cool neighborhood..."
-Critique: The greeting "Hey!" is informal. Phrases like "awesome place,"
-"got a pool and stuff," and "super cool" are casual slang inappropriate
-for a luxury buyer. The email reads like a text message, not a
-professional communication for a high-end client.
-Result: Fail
-
-### Example 3: PASS (borderline)
-Client Persona: First-Time Homebuyer
-Email: "Hi Sarah, I found a property that might be a great fit for your
-first home. The neighborhood has good schools nearby, and the monthly
-payment would be similar to what you're currently paying in rent..."
-Critique: The greeting is warm but not overly casual. The email explains
-the property in relatable terms — comparing mortgage to rent, mentioning
-schools — which is educational without being condescending. It avoids
-jargon like "amortization" or "LTV ratio." While not deeply technical,
-this matches the supportive tone expected for a first-time buyer.
-Result: Pass
+FAIL：邮件语气与客户画像不匹配。例子：
+- 对豪华盘买家使用随意俚语（「嘿，快看看这套房！」）
+- 对首次购房者堆砌金融行话
+- 对投资客使用过度煽情的语言
 ```
 
-**Rules for selecting examples:**
-- Include at least one clear Pass, one clear Fail, and one borderline case. Borderline examples are the most valuable — they teach nuance.
-- Draw examples from the training split (10-20% of labeled data set aside for this purpose).
-- Any example used in the judge prompt must be excluded from dev and test sets. Using dev/test examples is data leakage.
-- 2-4 examples is typical. Performance plateaus after 4-8.
+### 3. Few-Shot 示例
 
-### 4. Structured Output Format
+从人工标注数据里选已标 Pass/Fail 的示例。
 
-Enforce structured output using your LLM provider's schema enforcement (e.g., `response_format` in OpenAI, tool definitions in Anthropic) or a library like Instructor or Outlines. If the provider doesn't support schema enforcement, specify the JSON schema in the prompt.
+```
+## 示例
 
-The output must include a critique before the verdict. Placing the critique first forces the judge to articulate its assessment before committing to a decision.
+### 示例 1：PASS
+客户画像：豪华盘买家
+邮件：「Harrington 先生台鉴，谨此呈报 Pacific Heights 衡 1200 号一处独家房源。
+该物业品质卓然……」
+评语：邮件以正式称呼开头，用语与高端定位一致——「独家房源」「品质卓然」。
+无随意俚语或口语化表达。全文语气符合豪华盘买家画像。
+结果：Pass
+
+### 示例 2：FAIL
+客户画像：豪华盘买家
+邮件：「嘿！刚发现一套超棒的房子你可能会喜欢。带泳池，地段超酷……」
+评语：称呼「嘿！」不正式。「超棒的房子」「带泳池」「超酷」都是随意俚语，
+不适合豪华盘买家。这封邮件读起来像随手发的短信，不是面向高端客户的专业沟通。
+结果：Fail
+
+### 示例 3：PASS（边界情形）
+客户画像：首次购房者
+邮件：「Sarah 你好，找到一套很适合你首套房的房源。附近学校不错，
+月供和你现在付的房租差不多……」
+评语：称呼热情但不过分随意。邮件用可感知的方式介绍房源——月供对比房租、
+提到学校——有教学感而不居高临下。避开了「摊销」「LTV」这类行话。
+虽然不算深入技术，但符合首次购房者期待的支持性语气。
+结果：Pass
+```
+
+**选示例的规则：**
+- 至少一条清晰的 Pass、一条清晰的 Fail、一条边界情形。边界示例最有价值——它教分寸。
+- 示例取自 training split（标注数据中留出 10-20% 作此用途）。
+- 进了 judge 提示词的示例必须从 dev、test 集中排除。用了就是数据泄漏。
+- 2-4 条是常规配置；4-8 条之后效果趋平。
+
+### 4. 结构化输出格式
+
+用模型供应商的 schema 强制（如 OpenAI 的 `response_format`、Anthropic 的 tool 定义）或 Instructor、Outlines 这类库。供应商不支持时，在提示词里写明 JSON schema。
+
+输出必须先给 critique 再给判定。critique 在前，迫使 judge 先说清评估依据、再下结论。
 
 ```json
 {
-  "critique": "string — detailed assessment of the output against the criterion",
-  "result": "Pass or Fail"
+  "critique": "string — 对照判定标准对输出的详细评估",
+  "result": "Pass 或 Fail"
 }
 ```
 
-Critiques must be detailed, not terse. A good critique explains what specifically was correct or incorrect and references concrete evidence from the output. The critiques in your few-shot examples set the bar for the level of detail the judge will produce.
+critique 要详细，不敷衍：说清具体哪里对、哪里错，引用输出中的具体证据。few-shot 示例里的 critique 决定 judge 输出详细程度的天花板。
 
-## Choosing What to Pass to the Judge
+## 选择传给 judge 的内容
 
-Feed only what the judge needs for an accurate decision:
+只喂 judge 做出准确判定所需的内容：
 
-| Failure Mode | What the Judge Needs |
-|-------------|---------------------|
-| Tone mismatch | Client persona + generated email |
-| Answer faithfulness | Retrieved context + generated answer |
-| SQL correctness | User query + generated SQL + schema |
-| Instruction following | System prompt rules + generated response |
-| Tool call justification | Conversation history + tool call + tool result |
+| 失败模式 | judge 需要什么 |
+|---|---|
+| 语气不匹配 | 客户画像 + 生成的邮件 |
+| 回答忠实度 | 检索到的上下文 + 生成的回答 |
+| SQL 正确性 | 用户问题 + 生成的 SQL + schema |
+| 指令遵循 | 系统提示词规则 + 生成的回复 |
+| 工具调用合理性 | 对话历史 + 工具调用 + 工具结果 |
 
-For long documents, feed only the relevant snippet, not the entire document.
+长文档只喂相关片段，不整篇塞入。
 
-## Model Selection
+## 模型选择
 
-Start with the most capable model available. The same model used for the main task works as judge (the judge performs a different, narrower task). Optimize for cost later once alignment is confirmed.
+从能拿到的最强模型起步。主任务用的模型可以当 judge（judge 做的是另一件更窄的任务）。对齐确认后再优化成本。
 
-## Anti-Patterns
+## 反模式
 
-- **Vague criteria like "is this helpful?"** Target a specific, observable failure mode from error analysis.
-- **Holistic judge for the entire trace.** A single judge covering multiple dimensions produces unactionable verdicts.
-- **No few-shot examples.** Without examples, the model won't know what counts as a failure in your application.
-- **Dev/test examples used as few-shot.** This is data leakage. Use only the training split.
-- **Likert scales (1-5, letter grades, etc.).** Binary pass/fail only. Likert scales produce scores that sound precise but can't be calibrated: annotators disagree on the difference between a 3 and a 4, and the judge inherits that noise. Binary forces you to define a clear decision boundary upfront, which makes inter-annotator agreement measurable and the judge's errors actionable. If you need to capture severity, use multiple binary judges (e.g., "factually wrong" and "dangerously wrong") rather than one ordinal scale.
-- **Skipping validation.** Measure alignment with human labels using validate-evaluator before trusting the judge.
-- **Judges for specification failures without fixing the prompt first.** If the prompt never asked for the behavior, add the instruction before building an evaluator. For critical requirements, a judge can still serve as a regression guard.
+- **判定标准含糊（「这条有用吗？」）。** 目标锁定错误分析里具体、可观察的失败模式。
+- **一审到底的整体 judge。** 覆盖多个维度的单一 judge，给不出可行动的判定。
+- **没有 few-shot 示例。** 没有示例，模型不知道你的应用里什么算失败。
+- **拿 dev/test 示例当 few-shot。** 这是数据泄漏，只用 training split。
+- **Likert 量表（1-5 分、字母等级）。** 只许二元 Pass/Fail。Likert 分数听着精确却没法校准：标注人对 3 分和 4 分的分歧会原样传给 judge。二元迫使你事先划清判定边界，标注人间一致性才可测，judge 的错误才可行动。要体现严重程度，用多个二元 judge（如「事实错误」「危险错误」），不用一个序数量表。
+- **跳过校验。** 信 judge 之前，先用 `validate-evaluator` 对照人工标注测一致率。
+- **提示词没提的要求也上 judge。** 提示词从没要求过的行为，先补指令再谈评测器；关键要求的 judge 仍可留作回归护栏。

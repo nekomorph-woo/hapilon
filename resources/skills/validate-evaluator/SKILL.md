@@ -1,76 +1,72 @@
 ---
 name: validate-evaluator
-description: >
-  Calibrate an LLM judge against human labels using data splits, TPR/TNR, and
-  bias correction. Use after writing a judge prompt (write-judge-prompt) when you
-  need to verify alignment before trusting its outputs. Do NOT use for code-based
-  evaluators (those are deterministic; test with unit tests per `write-code-eval`).
+description: 用数据切分、TPR/TNR 和偏差校准，把 LLM judge 校准到人工标注水平。在写好 judge 提示词（`write-judge-prompt`）之后、信任其输出之前使用，验证它与人类判断对齐。代码评测器不适用（那些是确定性的，按 `write-code-eval` 用单元测试测）。
 ---
 
-# Validate Evaluator
+# 校验评测器
 
-Calibrate an LLM judge against human judgment.
+用人工判断校准 LLM judge。
 
-## Overview
+## 概览
 
-1. Split human-labeled data into train (10-20%), dev (40-45%), test (40-45%)
-2. Run judge on dev set and measure TPR/TNR
-3. Iterate on the judge until TPR and TNR > 90% on dev set
-4. Run once on held-out test set for final TPR/TNR
-5. Apply bias correction formula to production data
+1. 把人工标注数据切成 train（10-20%）、dev（40-45%）、test（40-45%）
+2. 在 dev 集上跑 judge，测 TPR/TNR
+3. 迭代改进 judge，直到 dev 集 TPR、TNR 都超过 90%
+4. 在留出的 test 集上跑一次，得最终 TPR/TNR
+5. 用偏差校正公式修正生产数据的通过率
 
-## Prerequisites
+## 前置条件
 
-- A built LLM judge prompt (from write-judge-prompt)
-- Human-labeled data: ~100 traces with binary Pass/Fail labels per failure mode
-  - Aim for ~50 Pass and ~50 Fail (balanced, even if real distribution is skewed)
-  - Labels must come from a domain expert, not outsourced annotators
-- Candidate few-shot examples from your labeled data
+- 已写好的 LLM judge 提示词（来自 `write-judge-prompt`）
+- 人工标注数据：每个失败模式约 100 条带二元 Pass/Fail 标签的 trace
+  - 目标约 50 Pass、50 Fail（保持均衡，哪怕真实分布偏斜）
+  - 标注必须来自领域专家，不能外包给众包标注
+- 从标注数据里选出的候选 few-shot 示例
 
-## Core Instructions
+## 核心步骤
 
-### Step 1: Create Data Splits
+### 第 1 步：切分数据
 
-Split human-labeled data into three disjoint sets:
+把人工标注数据切成三个互不重叠的集合：
 
-| Split | Size | Purpose | Rules |
-|-------|------|---------|-------|
-| **Training** | 10-20% (~10-20 examples) | Source of few-shot examples for the judge prompt | Only clear-cut Pass and Fail cases. Used directly in the prompt. |
-| **Dev** | 40-45% (~40-45 examples) | Iterative evaluator refinement | Never include in the prompt. Evaluate against repeatedly. |
-| **Test** | 40-45% (~40-45 examples) | Final unbiased accuracy measurement | Do NOT look at during development. Used once at the end. |
+| 集合 | 占比 | 用途 | 规则 |
+|---|---|---|---|
+| **Training** | 10-20%（约 10-20 条） | judge 提示词的 few-shot 示例来源 | 只放边界清晰的 Pass 和 Fail。直接进提示词。 |
+| **Dev** | 40-45%（约 40-45 条） | 迭代打磨评测器 | 绝不进提示词。反复用它评估。 |
+| **Test** | 40-45%（约 40-45 条） | 最终无偏准确率 | 开发期间不看。最后只用一次。 |
 
-Target: 30-50 examples of each class (Pass and Fail) across dev and test combined. Use balanced splits even if real-world prevalence is skewed — you need enough Fail examples to measure TNR reliably.
+目标：dev 与 test 合计每类 30-50 条（Pass 和 Fail）。哪怕真实占比偏斜也保持均衡切分——Fail 样例不够，TNR 就测不稳。
 
 ```python
 from sklearn.model_selection import train_test_split
 
-# First split: separate test set
+# 第一次切分：先分离 test 集
 train_dev, test = train_test_split(
     labeled_data, test_size=0.4, stratify=labeled_data['label'], random_state=42
 )
-# Second split: separate training examples from dev set
+# 第二次切分：从剩余数据中分离 training 示例与 dev 集
 train, dev = train_test_split(
     train_dev, test_size=0.75, stratify=train_dev['label'], random_state=42
 )
-# Result: ~15% train, ~45% dev, ~40% test
+# 结果：约 15% train、45% dev、40% test
 ```
 
-### Step 2: Run Evaluator on Dev Set
+### 第 2 步：在 dev 集上跑评测器
 
-Run the judge on every example in the dev set. Compare predictions to human labels.
+对 dev 集每条样例跑 judge，把预测与人工标签比对。
 
-### Step 3: Measure TPR and TNR
+### 第 3 步：测 TPR 和 TNR
 
-**TPR (True Positive Rate):** When a human says Pass, how often does the judge also say Pass?
-
-```
-TPR = (judge says Pass AND human says Pass) / (human says Pass)
-```
-
-**TNR (True Negative Rate):** When a human says Fail, how often does the judge also say Fail?
+**TPR（真阳性率）**：人工说 Pass 时，judge 也说 Pass 的比例。
 
 ```
-TNR = (judge says Fail AND human says Fail) / (human says Fail)
+TPR = (judge 说 Pass 且人工说 Pass) / (人工说 Pass)
+```
+
+**TNR（真阴性率）**：人工说 Fail 时，judge 也说 Fail 的比例。
+
+```
+TNR = (judge 说 Fail 且人工说 Fail) / (人工说 Fail)
 ```
 
 ```python
@@ -82,77 +78,79 @@ tpr = tp / (tp + fn)
 tnr = tn / (tn + fp)
 ```
 
-Use TPR/TNR, not Precision/Recall or raw accuracy. These two metrics directly map to the bias correction formula. Use Cohen's Kappa only for measuring agreement between two human annotators, not for judge-vs-ground-truth.
+用 TPR/TNR，不用 Precision/Recall 或裸准确率：这两个指标直接进偏差校正公式。Cohen's Kappa 只用于测两个标注人之间的一致性，不用于 judge 对真值。
 
-### Step 4: Inspect Disagreements
+### 第 4 步：逐条审查分歧
 
-Examine every case where the judge disagrees with human labels:
+检查 judge 与人工标签不一致的每一处：
 
-| Disagreement Type | Judge | Human | Fix |
-|-------------------|-------|-------|-----|
-| **False Pass** | Pass | Fail | Judge is too lenient. Strengthen Fail definitions or add edge-case examples. |
-| **False Fail** | Fail | Pass | Judge is too strict. Clarify Pass definitions or adjust examples. |
+| 分歧类型 | judge | 人工 | 修法 |
+|---|---|---|---|
+| **假 Pass** | Pass | Fail | judge 太宽松。收紧 Fail 定义，或补边界情形示例。 |
+| **假 Fail** | Fail | Pass | judge 太严。澄清 Pass 定义，或调整示例。 |
 
-For each disagreement, determine whether to:
-- Clarify wording in the judge prompt
-- Swap or add few-shot examples from the training set
-- Add explicit rules for the edge case
-- Split the criterion into more specific sub-checks
+对每处分歧决定采取哪种手段：
 
-### Step 5: Iterate
+- 澄清 judge 提示词的措辞
+- 从 training set 换掉或补充 few-shot 示例
+- 给边界情形加显式规则
+- 把判定标准拆成更小的子检查
 
-Refine the judge prompt and re-run on the dev set. Repeat until TPR and TNR stabilize.
+### 第 5 步：迭代
 
-**Stopping criteria:**
-- **Target:** TPR > 90% AND TNR > 90%
-- **Minimum acceptable:** TPR > 80% AND TNR > 80%
+改 judge 提示词，在 dev 集重跑，直到 TPR 和 TNR 稳定。
 
-**If alignment stalls:**
+**停止条件：**
+- **目标**：TPR > 90% 且 TNR > 90%
+- **可接受下限**：TPR > 80% 且 TNR > 80%
 
-| Problem | Solution |
-|---------|---------|
-| TPR and TNR both low | Use a more capable LLM for the judge |
-| One metric low, one acceptable | Inspect disagreements for the low metric specifically |
-| Both plateau below target | Decompose the criterion into smaller, more atomic checks |
-| Consistently wrong on certain input types | Add targeted few-shot examples from training set |
-| Labels themselves seem inconsistent | Re-examine human labels; the rubric may need refinement |
+**对齐停滞时：**
 
-### Step 6: Final Measurement on Test Set
+| 问题 | 对策 |
+|---|---|
+| TPR、TNR 都低 | 给 judge 换更强的 LLM |
+| 一项低、另一项可接受 | 专查拖低那一项的分歧样例 |
+| 两项都停在目标之下 | 把判定标准拆成更小、更原子的检查 |
+| 某类输入一直判错 | 从 training set 补针对性的 few-shot 示例 |
+| 标签本身就互相矛盾 | 回查人工标注；评判标准可能需要打磨 |
 
-Run the judge **exactly once** on the held-out test set. Record final TPR and TNR.
+### 第 6 步：test 集终测
 
-Do not iterate after seeing test set results. Go back to step 4 with new dev data if needed.
+在留出的 test 集上只跑一次。记录最终 TPR 和 TNR。
 
-### Step 7 (Optional): Estimate True Success Rate (Rogan-Gladen Correction)
+看过 test 结果后不再迭代。需要继续改，回第 4 步并换新的 dev 数据。
 
-Raw judge scores on unlabeled production data are biased. If you need an accurate aggregate pass rate, correct for known judge errors:
+### 第 7 步（可选）：估计真实成功率（Rogan-Gladen 校正）
+
+未标注生产数据上的原始 judge 通过率有偏。需要准确的总体通过率时，用已知的 judge 错误率校正：
 
 ```
 theta_hat = (p_obs + TNR - 1) / (TPR + TNR - 1)
 ```
 
-Where:
-- `p_obs` = fraction of unlabeled traces the judge scored as Pass
-- `TPR`, `TNR` = from test set measurement
-- `theta_hat` = corrected estimate of true success rate
+其中：
 
-Clip to [0, 1]. Invalid when TPR + TNR - 1 is near 0 (judge is no better than random).
+- `p_obs` = judge 判为 Pass 的未标注 trace 占比
+- `TPR`、`TNR` = test 集终测值
+- `theta_hat` = 校正后的真实成功率估计
 
-**Example:**
-- Judge TPR = 0.92, TNR = 0.88
-- 500 production traces: 400 scored Pass -> p_obs = 0.80
+结果截断到 [0, 1]。TPR + TNR - 1 接近 0 时无效（judge 不比随机强）。
+
+**例子：**
+- judge TPR = 0.92，TNR = 0.88
+- 500 条生产 trace 中 400 条判 Pass → p_obs = 0.80
 - theta_hat = (0.80 + 0.88 - 1) / (0.92 + 0.88 - 1) = 0.68 / 0.80 = **0.85**
-- True success rate is ~85%, not the raw 80%
+- 真实成功率约 85%，不是原始的 80%
 
-### Step 8: Confidence Interval
+### 第 8 步：置信区间
 
-Compute a bootstrap confidence interval. A point estimate alone is not enough.
+算 bootstrap 置信区间。只有点估计不够。
 
 ```python
 import numpy as np
 
 def bootstrap_ci(human_labels, eval_labels, p_obs, n_bootstrap=2000):
-    """Bootstrap 95% CI for corrected success rate."""
+    """校正成功率的 bootstrap 95% 置信区间。"""
     n = len(human_labels)
     estimates = []
     for _ in range(n_bootstrap):
@@ -180,12 +178,12 @@ lower, upper = bootstrap_ci(test_human, test_eval, p_obs=0.80)
 print(f"95% CI: [{lower:.2f}, {upper:.2f}]")
 ```
 
-Or use `judgy` (`pip install judgy`):
+或直接用 `judgy`（`pip install judgy`）：
 
 ```python
 from judgy import estimate_success_rate
 
-# judgy expects 0/1 integer labels (1 = Pass, 0 = Fail)
+# judgy 期望 0/1 整数标签（1 = Pass，0 = Fail）
 test_labels = [1 if l == 'Pass' else 0 for l in test_human_labels]
 test_preds = [1 if l == 'Pass' else 0 for l in test_eval_labels]
 unlabeled_preds = [1 if l == 'Pass' else 0 for l in prod_eval_labels]
@@ -193,23 +191,23 @@ unlabeled_preds = [1 if l == 'Pass' else 0 for l in prod_eval_labels]
 theta_hat, lower, upper = estimate_success_rate(
     test_labels, test_preds, unlabeled_preds
 )
-print(f"Corrected rate: {theta_hat:.2f}")
+print(f"校正后比率: {theta_hat:.2f}")
 print(f"95% CI: [{lower:.2f}, {upper:.2f}]")
 ```
 
-## Practical Guidance
+## 实操要点
 
-- **Pin exact model versions** for LLM judges (a dated snapshot id like `<model>-<YYYY-MM-DD>`, not a floating alias). Providers update models without notice, causing silent drift.
-- **Re-validate** after changing the judge prompt, switching models, or when production confidence intervals widen unexpectedly.
-- Use ~100 labeled examples (50 Pass, 50 Fail). Below 60, confidence intervals become wide.
-- **One trusted domain expert** is the most efficient labeling path. If not feasible, have two annotators label 20-50 traces independently and resolve disagreements before proceeding.
-- **Improving TPR narrows the confidence interval more than improving TNR.** The correction divides by `(TPR + TNR - 1)`, so a low TPR shrinks the denominator and amplifies estimation errors into wide CIs.
+- **钉死确切模型版本**（形如 `<model>-<YYYY-MM-DD>` 的快照 id，不用浮动别名）。供应商会不声不响更新模型，造成静默漂移。
+- 改了 judge 提示词、换了模型、或生产置信区间意外变宽时，**重新校验**。
+- 标注样例约 100 条（50 Pass、50 Fail）；低于 60 条，置信区间明显变宽。
+- **一位可信的领域专家**是最高效的标注路径。做不到，就两个标注人独立标 20-50 条，分歧解决后再继续。
+- **提高 TPR 比提高 TNR 更能收窄置信区间。** 校正公式除以 `(TPR + TNR - 1)`，TPR 低会缩小分母，把估计误差放大成宽区间。
 
-## Anti-Patterns
+## 反模式
 
-- **Assuming judges "just work" without validation.** A judge may consistently miss failures or flag passing traces.
-- **Using raw accuracy or percent agreement.** Use TPR and TNR. With class imbalance, raw accuracy is misleading.
-- **Dev/test examples as few-shot examples.** This is data leakage.
-- **Reporting dev set performance as final accuracy.** Dev numbers are optimistic. The test set gives the unbiased estimate.
-- **Raw judge scores without bias correction.** If you report an aggregate pass rate, apply the Rogan-Gladen formula (Step 7).
-- **Point estimates without confidence intervals.** A corrected rate of 85% could easily be 78-92% with small test sets. Report the range so stakeholders know how much to trust the number.
+- **默认「judge 开箱即用」。** judge 可能一直漏报失败，或把通过的判成失败。
+- **报裸准确率或一致百分比。** 类别不均衡时裸准确率有误导性，用 TPR 和 TNR。
+- **拿 dev/test 样例当 few-shot。** 这是数据泄漏。
+- **把 dev 集成绩当最终准确率报。** dev 数字偏乐观，test 集才给无偏估计。
+- **不校正偏差就报原始 judge 分数。** 报总体通过率必须套 Rogan-Gladen 公式（第 7 步）。
+- **只报点估计不给置信区间。** 小 test 集下「85%」实际可能是 78-92%。报区间，读的人才知道这个数能信多少。

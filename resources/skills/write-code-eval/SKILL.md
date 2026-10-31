@@ -1,27 +1,24 @@
 ---
 name: write-code-eval
-description: >
-  Write code evaluators for known failure modes with objective rules. Use when
-  code can check the rule from a trace, with or without a reference answer.
-  Use `write-judge-prompt` when the rule requires interpretation.
+description: 为已知失败模式编写代码评测器，用客观规则判定。规则能从 trace 用代码检查（有或没有参考答案都行）时使用；规则需要主观解释时改用 `write-judge-prompt`。
 ---
 
-# Write a code evaluator
+# 编写代码评测器
 
-Start with a failure mode found through error analysis. Write one check for that failure mode, much like a unit test that asserts what should hold for each trace.
+从错误分析得到的失败模式入手。为它写一条检查，像单元测试一样断言每条 trace 应满足什么。
 
-1. State the rule and identify the trace fields or reference data the check needs. If the rule requires interpretation, use `write-judge-prompt`.
-2. Implement the check in the project's language and eval framework. Return a result and a reason in the format that framework expects.
-3. Test known passes and failures, including borderline cases. Run the check on available traces and inspect mistakes. If the rule uses a proxy for human judgment, compare its results with human labels.
+1. 写明规则，确定检查需要的 trace 字段或参考数据。规则需要主观解释时，改用 `write-judge-prompt`。
+2. 用项目的语言和评测框架实现检查，按框架要求的格式返回结果与原因。
+3. 用已知的通过与失败样例测试，含边界情形。在可用 trace 上运行检查并审查误判；规则若用代理指标替代人工判断，拿它和人工标注对比验证。
 
-## Examples
+## 示例
 
-| Failure mode | Possible check |
+| 失败模式 | 可用检查 |
 |---|---|
-| Invalid output structure | Parse the output and check required fields |
-| Missing or forbidden text | Match a string or pattern |
-| Citation not in retrieved documents | Compare cited IDs with retrieved IDs |
-| Bad tool call | Check arguments against the tool schema or run the call in a safe test environment |
-| Wrong value | Compare the output with a reference value |
+| 输出结构非法 | 解析输出，检查必填字段 |
+| 缺失或含禁止文本 | 匹配字符串或模式 |
+| 引用不在检索文档中 | 比对引用 ID 与检索到的 ID |
+| 工具调用错误 | 对照工具 schema 检查参数，或在安全的测试环境实际执行 |
+| 数值错误 | 与参考值比对 |
 
-Choose the check from the failure rule. For a failure with both objective and interpretive parts, check the objective part with code and use a judge for the rest.
+检查方式由失败规则决定。失败同时含客观与主观部分时，客观部分用代码查，其余交给 judge。
