@@ -64,6 +64,22 @@ export async function setupInteractive(): Promise<void> {
     return done ? "" : value;
   }
 
+  // 秘密输入不回显（对齐 wizard ask_secret 约束）。readline 无公开静音接口，
+  // _writeToOutput 是回显唯一出口；同一 stdin 不能换接口重读，只能临时替换后恢复。
+  const echoGate = rl as unknown as { _writeToOutput: (s: string) => void };
+  async function questionSecret(q: string): Promise<string> {
+    stdout.write(q);
+    const orig = echoGate._writeToOutput;
+    echoGate._writeToOutput = () => {};
+    try {
+      const { value, done } = await lines.next();
+      stdout.write("\n");
+      return done ? "" : value;
+    } finally {
+      echoGate._writeToOutput = orig;
+    }
+  }
+
   const dirs = Effect.runSync(ensureHapilonDirsEffect);
 
   // 先读已有配置，交互提示"已配置"状态，写入时增量合并
@@ -76,48 +92,45 @@ export async function setupInteractive(): Promise<void> {
 
   const collected: Record<string, string> = {};
 
-  try {
-    console.log("\n══════ Hapilon Provider Setup ══════\n");
+  console.log("\n══════ Hapilon Provider Setup ══════\n");
 
-    for (const p of COMMON) {
-      const configured = Object.hasOwn(existingAuth, p.id);
-      const prompt = configured
-        ? `你有 ${p.name} API Key？（已配置 ${maskKey(existingAuth[p.id].key)}，重新输入将覆盖）`
-        : `你有 ${p.name} API Key？`;
-      if (await yesno(prompt)) {
-        const key = (await question(`  输入 ${p.name} API Key（留空跳过）: `)).trim();
-        if (key) collected[p.id] = key;
-      }
+  for (const p of COMMON) {
+    const configured = Object.hasOwn(existingAuth, p.id);
+    const prompt = configured
+      ? `你有 ${p.name} API Key？（已配置 ${maskKey(existingAuth[p.id].key)}，重新输入将覆盖）`
+      : `你有 ${p.name} API Key？`;
+    if (await yesno(prompt)) {
+      const key = (await questionSecret(`  输入 ${p.name} API Key（留空跳过）: `)).trim();
+      if (key) collected[p.id] = key;
     }
-
-    const remaining = ALL_PROVIDERS.filter(
-      (p) => !Object.hasOwn(collected, p.id),
-    );
-
-    if (remaining.length > 0 && (await yesno("\n还有其他 provider 要配置吗？"))) {
-      console.log("\n可用的 Provider（输入 ID 添加）:");
-      for (const p of remaining) {
-        console.log(`  ${p.id}  — ${p.name}`);
-      }
-      while (true) {
-        const answer = (await question("\n输入 provider ID（留空结束）: ")).trim();
-        if (!answer) break;
-        const match = ALL_PROVIDERS.find((p) => p.id === answer);
-        if (!match) {
-          console.log(`  ❌ 未知 provider: ${answer}`);
-          continue;
-        }
-        if (Object.hasOwn(collected, answer)) {
-          console.log(`  ℹ ${match.name} 已配置`);
-          continue;
-        }
-        const key = (await question(`  输入 ${match.name} API Key（留空跳过）: `)).trim();
-        if (key) collected[match.id] = key;
-      }
-    }
-  } finally {
-    rl.close();
   }
+
+  const remaining = ALL_PROVIDERS.filter(
+    (p) => !Object.hasOwn(collected, p.id),
+  );
+
+  if (remaining.length > 0 && (await yesno("\n还有其他 provider 要配置吗？"))) {
+    console.log("\n可用的 Provider（输入 ID 添加）:");
+    for (const p of remaining) {
+      console.log(`  ${p.id}  — ${p.name}`);
+    }
+    while (true) {
+      const answer = (await question("\n输入 provider ID（留空结束）: ")).trim();
+      if (!answer) break;
+      const match = ALL_PROVIDERS.find((p) => p.id === answer);
+      if (!match) {
+        console.log(`  ❌ 未知 provider: ${answer}`);
+        continue;
+      }
+      if (Object.hasOwn(collected, answer)) {
+        console.log(`  ℹ ${match.name} 已配置`);
+        continue;
+      }
+      const key = (await questionSecret(`  输入 ${match.name} API Key（留空跳过）: `)).trim();
+      if (key) collected[match.id] = key;
+    }
+  }
+  rl.close();
 
   // 增量合并——已有条目（含 OAuth token）保留，本次输入覆盖同名条目
   const auth = mergeAuthEntries(existingAuth, collected);
