@@ -76,5 +76,7 @@ export default function hplHerdr(pi) {
             binPath: process.env.HERDR_BIN_PATH,
             paneId: process.env.HERDR_PANE_ID,
         },
+        // 不传 TTY 信息 OSC 通道永远 no-op（isTTY undefined → enabled false）
+        osc: { isTTY: process.stdout.isTTY },
     });
 }
