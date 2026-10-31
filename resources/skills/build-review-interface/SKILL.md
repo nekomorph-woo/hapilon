@@ -1,96 +1,93 @@
 ---
 name: build-review-interface
-description: >
-  Build a custom browser-based annotation interface tailored to your data for
-  reviewing LLM traces and collecting structured feedback. Use when you need to
-  build an annotation tool, review traces, or collect human labels.
+description: 搭一个贴合自己数据的浏览器标注界面，用来审 LLM trace、收集结构化反馈。需要建标注工具、审 trace、收集人工标签时使用。
 ---
 
-# Build a Custom Annotation Interface
+# 搭建自定义标注界面
 
-## Overview
+## 概览
 
-Build an HTML page that loads traces from a data source (JSON/CSV file), displays one trace at a time with Pass/Fail buttons, a free-text notes field, and Next/Previous navigation. Save labels to a local file (CSV/SQLite/JSON). Then customize to the domain using the guidelines below.
+先搭一个 HTML 页面：从数据源（JSON/CSV 文件）加载 trace，一次显示一条，配 Pass/Fail 按钮、自由文本备注框、Next/Previous 导航，把标签存到本地文件（CSV/SQLite/JSON）。然后按下面的准则做领域定制。
 
-## Data Display
+## 数据展示
 
-Format all data in the most human-readable representation for the domain. Emails should look like emails. Code should have syntax highlighting. Markdown should be rendered. Tables should be tables. JSON should be pretty-printed and collapsible.
+所有数据用该领域最易读的形态呈现。邮件要像邮件，代码要有语法高亮，Markdown 要渲染，表格要成表格，JSON 要缩进美化且可折叠。
 
-- **Collapse repetitive elements.** If every trace shares the same system prompt, put it in a `<details>` toggle.
-- **Extract and surface key metadata.** If traces contain a property name, client type, or session ID buried in the data, extract it and display it prominently as a header or badge.
-- **Color-code by role or status.** Use left-border colors to distinguish user messages, assistant messages, tool calls, and system prompts at a glance.
-- **Group related elements visually.** Tool calls and their responses should be visually linked (indentation, shared border).
-- **Collapse what doesn't help judgment.** Verbose tool response JSON, intermediate reasoning steps, and debugging context go behind toggles.
-- **Highlight what matters most.** Make the primary content reviewers judge visually dominant. Bold key entities (prices, dates, names). Use font size and spacing to create hierarchy.
-- **Show the full trace.** Include all intermediate steps (tool calls, retrieved context, reasoning), not just the final output. Collapse them by default but keep them accessible.
-- **Sanitize rendered content.** Strip raw HTML from LLM outputs before rendering. Disable images in rendered markdown if they could be tracking pixels.
+- **折叠重复元素。** 每条 trace 都相同的系统提示词，放进 `<details>` 折叠。
+- **提取并突出关键元数据。** 数据里埋着的属性名、客户端类型、会话 ID，提取出来放到页眉或徽标里醒目展示。
+- **按角色或状态配色。** 用左边框颜色区分用户消息、助手消息、工具调用和系统提示词，一眼可辨。
+- **视觉上归组相关元素。** 工具调用与它的响应用缩进或共享边框连在一起。
+- **折叠对判断没帮助的内容。** 冗长的工具响应 JSON、中间推理步骤、调试上下文都收进折叠。
+- **突出最关键的内容。** 评审人要判断的主体内容在视觉上占主导；价格、日期、人名等关键实体加粗；用字号和留白建立层级。
+- **展示完整 trace。** 中间步骤（工具调用、检索上下文、推理）全都要在，默认折叠但随时可展开。
+- **净化渲染内容。** 渲染前剥掉 LLM 输出里的原始 HTML；渲染的 Markdown 里禁用图片，防止追踪像素。
 
-## Feedback Collection
+## 反馈收集
 
-Annotate at the trace level. The reviewer judges the whole trace, not individual spans.
+按 trace 整体标注。评审人判断的是整条 trace，不是其中的片段。
 
-- Binary Pass/Fail buttons as the primary action.
-- Free-text notes field for the reviewer to describe what went wrong (or right).
-- Defer button for uncertain cases.
-- Auto-save on every action.
+- 二元 Pass/Fail 按钮作为主操作。
+- 自由文本备注框，让评审人写哪里出了问题（或哪里对）。
+- 不确定的情形用 Defer（暂缓）按钮。
+- 每次操作自动保存。
 
-Once you have established failure categories from error analysis, you can later add predefined failure mode tags as clickable checkboxes, dropdowns or picklists so reviewers can select from known categories in addition to writing notes. But don't add these in the initial build.
+错误分析确立了失败类别之后，可以再加预定义的失败模式标签（可点选的 checkbox、下拉或列表），让评审人在写备注之外从已知类别里选。初版不要加。
 
-## Navigation and Status
+## 导航与状态
 
-- Next/Previous buttons and keyboard arrow keys.
-- Trace counter showing position and progress ("12 of 87 remaining").
-- Jump to specific trace by ID.
-- Counts of labeled vs unlabeled traces.
+- Next/Previous 按钮和键盘方向键。
+- 进度计数，显示位置和剩余量（「剩余 87 条中的第 12 条」）。
+- 按 ID 跳到指定 trace。
+- 已标注与未标注的计数。
 
-## Keyboard Shortcuts
+## 键盘快捷键
 
 ```
-Arrow keys = Navigate traces
+方向键 = 切换 trace
 1 = Pass              2 = Fail
-D = Defer             U = Undo last action
-Cmd+S = Save          Cmd+Enter = Save and next
+D = Defer             U = 撤销上一步
+Cmd+S = 保存          Cmd+Enter = 保存并下一条
 ```
 
-## Selecting Traces to Load
+## 选择要加载的 trace
 
-Build the app to accept traces from any source (JSON/CSV file). Keep sampling logic outside the app in a separate script. Start with random sampling.
+应用接受任意来源的 trace（JSON/CSV 文件）。抽样逻辑放在应用外的独立脚本里，先从随机抽样起步。
 
-## Additional Features
+## 附加功能
 
-**Reference panel:** Toggle-able panel showing ground truth, expected answers, or rubric definitions alongside the trace.
+**参考面板：** 可开关的侧栏，与 trace 并排显示真值、期望答案或评判标准。
 
-**Filtering:** Filter traces by metadata dimensions relevant to the product (channel, user type, pipeline version).
+**筛选：** 按产品相关的元数据维度过滤 trace（渠道、用户类型、流水线版本）。
 
-**Clustering:** Group traces by metadata or semantic similarity. Show representative traces per cluster with drill-down.
+**聚类：** 按元数据或语义相似度分组，每组展示代表性 trace，支持下钻。
 
-## Design Checklist
+## 设计清单
 
-- [ ] Same layout, controls, and terminology on every trace
-- [ ] Pass and Fail buttons are visually distinct (color, size)
-- [ ] Keyboard shortcuts work for all primary actions
-- [ ] Full trace accessible even when sections are collapsed
-- [ ] Labels persist automatically without explicit save
-- [ ] Trace-level annotation (not span-level) as the default
-- [ ] All data rendered in its native format (markdown as HTML, code with highlighting, JSON pretty-printed, tables as HTML tables, URLs as clickable links)
+- [ ] 每条 trace 用同一套布局、控件和术语
+- [ ] Pass 和 Fail 按钮视觉上可区分（颜色、大小）
+- [ ] 键盘快捷键覆盖全部主操作
+- [ ] 折叠的分区随时可展开，完整 trace 始终可达
+- [ ] 标签自动持久化，无需手动保存
+- [ ] 默认按 trace 整体标注（不按片段）
+- [ ] 所有数据按原生形态渲染（Markdown 转 HTML、代码高亮、JSON 美化、表格成表、URL 可点）
 
-## Testing
+## 测试
 
-After building the interface, verify it with Playwright.
+界面搭好后用 Playwright 验证。
 
-**Visual review:** Take screenshots of the interface with representative trace data loaded. Review each screenshot for:
-- Layout and spacing: is the visual hierarchy clear? Can you immediately see what matters?
-- Readability: is all data rendered in its native format? Are there any raw JSON blobs, unrendered markdown, or unstyled content?
-- Aesthetics: does the interface look professional and clean? Would a domain expert use this?
-- Responsiveness: does the layout hold at different window sizes?
+**视觉审查：** 装入有代表性的 trace 数据截图，逐张检查：
+- 布局与留白：视觉层级清楚吗？能立刻看出什么最重要吗？
+- 可读性：所有数据都是原生形态吗？有没有裸 JSON 块、没渲染的 Markdown、无样式内容？
+- 观感：界面专业干净吗？领域专家愿意用吗？
+- 响应式：不同窗口尺寸下布局撑得住吗？
 
-**Functional test:** Write a Playwright script that performs a full annotation workflow:
-1. Load the app and verify traces are displayed
-2. Click Pass on a trace, verify the label is saved
-3. Click Fail on a trace, add a note, verify both are saved
-4. Click Defer, verify it is recorded
-5. Navigate forward and backward with buttons and keyboard shortcuts
-6. Verify the trace counter updates correctly
-7. Verify auto-save by reloading the page and checking labels persist
-8. Expand collapsed sections (system prompts, tool calls) and verify content is accessible
-9. Test that all keyboard shortcuts trigger the correct actions
+**功能测试：** 写一个 Playwright 脚本走完整个标注流程：
+1. 启动应用，确认 trace 正常显示
+2. 给一条 trace 点 Pass，确认标签已保存
+3. 点 Fail 并写备注，确认两者都保存
+4. 点 Defer，确认已记录
+5. 用按钮和键盘快捷键前后导航
+6. 确认进度计数更新正确
+7. 刷新页面验证自动保存，确认标签仍在
+8. 展开折叠分区（系统提示词、工具调用），确认内容可达
+9. 逐个测试键盘快捷键触发正确动作

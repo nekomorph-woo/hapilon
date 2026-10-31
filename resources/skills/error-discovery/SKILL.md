@@ -1,203 +1,203 @@
 ---
 name: error-discovery
-description: Run error analysis on a dataset. Build a review UI, select diverse samples, monitor annotations, and organize failure modes.
+description: 对数据集做错误分析。搭审查界面、选多样样本、监听标注、归组失败模式。
 ---
 
-# Error Discovery Skill
+# 错误发现（Error Discovery）
 
-You are running an interactive error analysis session. The user has a dataset (JSONL, CSV, JSON, etc.) of LLM outputs or traces and wants to discover failure modes by reviewing samples.
+你在主持一场交互式错误分析。用户有一份 LLM 输出或 trace 的数据集（JSONL、CSV、JSON 等），想通过审样本发现失败模式。
 
-This skill is meant for interactive sessions only.
+本技能只用于交互式会话。
 
-This skill has two parts:
-- This file covers phases 1 through 4. You read the data, design the UI, build it, and select samples.
-- [review-loop.md](review-loop.md) covers phase 5. You run the interactive review session.
+两部分：
+- 本文件覆盖第 1–4 阶段：读数据、设计界面、搭建、选样本。
+- [review-loop.md](review-loop.md) 覆盖第 5 阶段：跑交互式审查会话。
 
-Read this file first to build everything. Once the app is running and the human starts reviewing, follow [review-loop.md](review-loop.md).
+先读本文件把东西搭起来。应用跑起来、人开始审查后，按 [review-loop.md](review-loop.md) 执行。
 
-## Progress updates
+## 进度播报
 
-Each phase takes time, especially building the interface. Tell the user what you are doing at each step. Before starting a phase, say what you are about to do and why. When a step finishes, say what you did and what comes next. For example: "Reading 10 sample records to understand the data shape", "Building the HTML app with three views: article, map, and progress", "Clustering on 5 features to select diverse samples." Do not go silent for long stretches.
+每个阶段都耗时，搭界面尤甚。每步告诉用户你在做什么。开始一个阶段前，说要做什么、为什么；做完一步，说做了什么、下一步是什么。例如：「读 10 条样本了解数据形状」「搭三视图的 HTML 应用：正文、地图、进度」「在 5 个特征上聚类以选出多样样本」。不要长时间沉默。
 
-## Phase 1: Understand the domain and data
+## 第 1 阶段：理解领域与数据
 
-Before building anything, study the dataset thoroughly.
+动手搭任何东西之前，先把数据集吃透。
 
-### 1a: Read and inventory the data
+### 1a：读数据并盘点
 
-Load the file. Examine 5 to 10 records across the distribution. For each record, identify:
-- All fields, their types, and what they represent
-- Which fields are the primary content the human needs to judge
-- Which fields are metadata (context for understanding, but not the thing being judged)
-- Which fields vary across records and which are constant
+加载文件，跨分布看 5–10 条记录。每条记录识别：
+- 全部字段、类型和含义
+- 哪些字段是人要判断的主体内容
+- 哪些字段是元数据（理解上下文用，不是判断对象）
+- 哪些字段在记录间变化、哪些恒定
 
-### 1b: Identify the content structure
+### 1b：识别内容结构
 
-The data could take many forms. Determine which pattern fits:
+数据形态多样，判断属于哪种模式：
 
-- Single text field, e.g., article, summary, email, essay, translation
-- Input/output pair, e.g., prompt + completion, question + answer, instruction + result
-- Multi-turn trace, e.g., a sequence of messages with different roles (system, human, assistant, tool calls, tool results, thinking/reasoning blocks). This is common for agent traces, chatbot logs, and agentic workflows.
-- Code, e.g., source files, patches, diffs, with or without surrounding context
-- Structured output, e.g., JSON, function calls, extracted entities, classifications
-- Composite, e.g., a task description + an agent trace + a final output
+- 单文本字段：文章、摘要、邮件、作文、翻译
+- 输入/输出对：prompt + completion，问答，指令 + 结果
+- 多轮 trace：带角色的消息序列（system、human、assistant、工具调用、工具结果、thinking/推理块）。agent trace、聊天记录、agentic 工作流常见此形态。
+- 代码：源码、补丁、diff，含或不含上下文
+- 结构化输出：JSON、函数调用、抽取的实体、分类结果
+- 组合：任务描述 + agent trace + 最终输出
 
-For multi-turn traces specifically, identify:
-- What roles or authors exist (system, user, assistant, tool, thinking, etc.)
-- Whether there are tool call / tool result pairs
-- Whether there are thinking/reasoning blocks
-- What the logical grouping of turns is, e.g., one "step" = thinking + tool call + tool result
+多轮 trace 还要识别：
+- 有哪些角色（system、user、assistant、tool、thinking 等）
+- 有没有工具调用 / 工具结果配对
+- 有没有 thinking/推理块
+- 轮次的逻辑分组，如一个「步骤」= thinking + 工具调用 + 工具结果
 
-### 1c: Identify dimensions of variation
+### 1c：识别差异维度
 
-Think about what differs between data points and within each data point. You will use these dimensions to decide the visual design.
+想清楚数据点之间、数据点内部各有什么不同。视觉设计就按这些维度定。
 
-Between data points (vary across records):
-- Metadata, e.g., topic, model, difficulty, source, label, task type
-- Structural, e.g., length, number of turns, number of tool calls
-- Outcome, e.g., success/failure, score
+数据点之间（记录间变化）：
+- 元数据：主题、模型、难度、来源、标签、任务类型
+- 结构：长度、轮数、工具调用次数
+- 结果：成败、得分
 
-Within each data point (vary across parts of one record):
-- Author/role of each segment (human vs agent vs system vs tool)
-- Content type of each segment (natural language vs code vs JSON vs thinking)
-- Importance/relevance of each segment (boilerplate system prompt vs the actual response)
+数据点内部（同一记录内各部分差异）：
+- 每段的角色（人 / agent / 系统 / 工具）
+- 每段的内容类型（自然语言 / 代码 / JSON / thinking）
+- 每段的重要性（样板系统提示词 vs 真正的回答）
 
-### 1d: Think about what "bad" means
+### 1d：想清楚「坏」是什么
 
-Think of a few plausible failure categories in this domain. Expect the human to discover most of them during review.
+给这个领域预想几类说得通的失败。大部分类别会由人在审查中发现。
 
-## Phase 2: Design the visual encoding
+## 第 2 阶段：设计视觉编码
 
-Before writing any code, design how every dimension of variation maps to a visual property. Use Gestalt principles and information visualization fundamentals.
+写代码之前，先把每个差异维度映射到一个视觉属性。用格式塔原理和信息可视化基础。
 
-### Core Gestalt principles to apply
+### 要用的核心格式塔原理
 
-- Similarity (color, shape). Viewers perceive things that share a visual property as related. Use this for categorical dimensions. Give different message roles different colors, and different labels different badge colors.
-- Proximity (spacing). Viewers perceive things that are close together as grouped. Use this for logical units. Place turns in a conversation step close together, and separate steps by more space.
-- Common region (containers, backgrounds). Viewers perceive things inside a shared boundary as grouped. Use this for multi-part content, e.g., a tool call and its result share a container.
-- Figure/ground (opacity, contrast). Important content should be high-contrast (figure). Less important content should recede (ground). Use this for emphasis. Show boilerplate at low opacity.
+- 相似（颜色、形状）：共享视觉属性的东西被感知为一组。用于类别维度——不同消息角色不同颜色，不同标签不同徽标色。
+- 邻近（间距）：靠近的东西被感知为一组。用于逻辑单元——同一对话步骤的轮次紧挨，步骤之间留更大间距。
+- 共同区域（容器、背景）：同一边界内的东西被感知为一组。用于多段内容——工具调用和它的结果共用一个容器。
+- 图形/背景（透明度、对比）：重要内容高对比（图形），次要内容退后（背景）。用于强调——样板内容低透明度。
 
-### Visual encoding rules
+### 视觉编码规则
 
-Map each dimension of variation to exactly one visual channel. Do not use the same channel for two different things.
+每个差异维度只映射一个视觉通道，一个通道不做两件事。
 
-Color hue. Use for the categorical dimension with the most important distinction.
-- For multi-turn traces, use color for message role. Each role (human, assistant, system, tool, thinking) gets its own distinct hue at full saturation. Pick 3 to 5 easily distinguishable hues.
-- For single-content, use color for label or source category.
-- Do not use color hue for quantitative data.
+色相。给区分度最重要的类别维度。
+- 多轮 trace：色相编码消息角色。每个角色（human、assistant、system、tool、thinking）一个全饱和度的独立色相，选 3–5 个易区分的。
+- 单一内容：色相编码标签或来源类别。
+- 定量数据不用色相。
 
-Opacity / saturation. Use to show whether the human needs to read this content carefully.
-- Reduce opacity only for content the human genuinely does not need to read, e.g., repeated boilerplate that is identical across records, verbose tool schemas, auto-generated headers. Ask yourself: "if I removed this, would the human miss anything?"
-- Do not mute content by role. System messages, tool results, and thinking blocks can all contain the actual bug. Mute only specific content that is redundant or mechanical, regardless of which role produced it.
-- Normal content gets full opacity.
+透明度 / 饱和度。表达「人是否需要细读这段内容」。
+- 只对人确实不用读的内容降透明度：每条记录都相同的样板、冗长的工具 schema、自动生成的页眉。自问：「删掉它，人会漏掉什么吗？」
+- 不按角色静音。system 消息、工具结果、thinking 块都可能藏着真正的 bug；只静音冗余或机械的特定内容，不管它出自哪个角色。
+- 正常内容全透明度。
 
-Spacing. Use for hierarchical structure.
-- Tight spacing (4 to 8px) between items within a logical group, e.g., consecutive messages in one "step" of an agent trace.
-- Medium spacing (16 to 24px) between logical groups, e.g., between steps.
-- Large spacing (32 to 48px) between major sections.
+间距。表达层级结构。
+- 逻辑组内紧间距（4–8px），如 agent trace 同一步骤内相邻消息。
+- 逻辑组之间中间距（16–24px），如步骤之间。
+- 大区块之间大间距（32–48px）。
 
-Typography. Use for content type.
-- Natural language prose: proportional font, normal size.
-- Code: monospace font, slightly smaller.
-- Metadata: small, muted, compact.
-- Thinking/reasoning: italic or a distinct font treatment to signal "internal."
+字体。表达内容类型。
+- 自然语言正文：比例字体，正常字号。
+- 代码：等宽字体，略小。
+- 元数据：小号、弱化、紧凑。
+- thinking/推理：斜体或独立字体处理，示意「内部独白」。
 
-Border / container. Use for grouping related parts.
-- Put a tool call and its tool result in a shared container with a subtle border.
-- Separate an input/output pair with a clear divider, or place them side by side.
+边框 / 容器。表达部件归组。
+- 工具调用与工具结果放进带浅边框的共享容器。
+- 输入/输出对用清晰的分隔线，或并排摆放。
 
-Structural outlier flags. Show in the header only, not inline.
-- Pre-compute dataset-level averages for key structural features (length, heading count, paragraph count, etc.).
-- For each record, flag dimensions where it is a clear statistical outlier (e.g., top/bottom 10%).
-- Show these as small, compact badges in the header, e.g., "6 headings (more than 89%)" or "shorter than 95%."
-- Keep it minimal. Most records should have zero or one flag. Do not annotate inline content.
+结构离群标记。只放页眉，不内联。
+- 预计算全数据集关键结构特征（长度、标题数、段落数等）的均值。
+- 每条记录对明显统计离群的维度打标（如前后 10%）。
+- 页眉放紧凑小徽标，如「6 个标题（超过 89%）」「比 95% 的记录短」。
+- 保持克制。多数记录应零个或一个标记。不内联标注正文。
 
-## Phase 3: Build the review interface
+## 第 3 阶段：搭建审查界面
 
-### Architecture
+### 架构
 
-- Python HTTP server (stdlib `http.server`, no dependencies):
-  - `GET /` serves the HTML app
-  - `GET /api/samples` returns the current sample set
-  - `POST /api/samples` lets the agent push new samples
-  - `GET /api/annotations` returns the current annotations
-  - `POST /api/annotations` lets the app save annotations on every change
-  - `GET /api/graph` returns the 2D projection of all records for the cluster map
-  - `GET /api/patterns` returns the agent's current failure mode taxonomy
-  - `POST /api/patterns` lets the agent push the updated taxonomy
-  - `GET /api/suggestions` returns agent-suggested annotations
-  - `POST /api/suggestions` lets the agent push suggestions
-- On-disk files in an `error_discovery_data/` directory:
-  - `samples.json`, `annotations.json`, `graph.json`, `patterns.json`, `suggestions.json`
-- The HTML app auto-saves to the server on every annotation. It polls for new samples and suggestions.
+- Python HTTP server（标准库 `http.server`，零依赖）：
+  - `GET /` 返回 HTML 应用
+  - `GET /api/samples` 返回当前样本集
+  - `POST /api/samples` 供 agent 推送新样本
+  - `GET /api/annotations` 返回当前标注
+  - `POST /api/annotations` 供应用每次变更即保存标注
+  - `GET /api/graph` 返回全部记录的二维投影（聚类地图用）
+  - `GET /api/patterns` 返回 agent 当前的失败模式分类
+  - `POST /api/patterns` 供 agent 推送更新后的分类
+  - `GET /api/suggestions` 返回 agent 建议的标注
+  - `POST /api/suggestions` 供 agent 推送建议
+- 磁盘文件放在 `error_discovery_data/` 目录：
+  - `samples.json`、`annotations.json`、`graph.json`、`patterns.json`、`suggestions.json`
+- HTML 应用每次标注自动存到服务器，并轮询新样本与新建议。
 
-### HTML app structure
+### HTML 应用结构
 
-Three views, toggled from the top bar:
+三个视图，顶栏切换：
 
-1. Article/content view. The main review interface where the human reads and annotates.
-2. Map view. A 2D scatter plot (PCA or UMAP projection) of all records. It shows clusters, which items are in the sample, and which have been annotated. The reviewer can click a sample node to go to its content view.
-3. Progress view. Two sections:
-   - Failure modes: a treemap of modes the agent has categorized so far. Each block is a failure mode, sized by annotation count. Inside each block, list the notes. The reviewer can click a note to go to that annotation in the content view.
-   - Agent suggestions to review: a list of pending suggestions with checkboxes. Each row shows the failure mode, quoted text, and source record. The reviewer can click the text to go to that spot in the article. At the top, a "Select all" checkbox and "Accept selected" / "Dismiss selected" buttons. This lets the reviewer select all, uncheck the few they disagree with, and accept the rest in one click.
+1. 正文视图。人阅读和标注的主界面。
+2. 地图视图。全部记录的二维散点图（PCA 或 UMAP 投影），显示聚类、哪些在样本里、哪些已标注。评审人点样本节点跳到正文视图。
+3. 进度视图。两块：
+   - 失败模式：已归组模式的 treemap，每块一个模式、按标注数定大小，块内列出备注；点备注跳到正文视图对应标注。
+   - 待审的 agent 建议：带 checkbox 的建议列表，每行显示失败模式、引用文本、来源记录；点文本跳到正文对应位置。顶部有「全选」checkbox 和「接受所选」「忽略所选」按钮——评审人可以全选、取消个别不同意的、一键接受其余。
 
-Content view design. Apply the visual encoding from Phase 2:
+正文视图设计。套用第 2 阶段的视觉编码：
 
-- Header: title + label + topic. Keep it minimal. Add structural outlier flags (from Phase 2) only when the record is a genuine outlier.
-- Body: render the primary content using the appropriate treatment per content type.
+- 页眉：标题 + 标签 + 主题。保持极简，只有真正的离群记录才加结构离群标记。
+- 正文：按内容类型选用对应处理。
 
-  For multi-turn traces (agent logs, conversations, chat):
-  - Each message/turn is a block. Left-align all blocks but use a colored left-border or background tint per role.
-  - Role label (small, bold) at the top of each block, e.g., "System", "User", "Assistant", "Tool Call", "Tool Result", "Thinking".
-  - Assign a distinct hue to each role. Be consistent across all records. All roles at full opacity by default.
-  - Render thinking/reasoning blocks in a visually distinct way (e.g., lighter background, italic, or slightly indented) to show that they are internal monologue, while keeping full readability.
-  - Show tool call function names prominently. Put parameters in collapsible formatted JSON.
-  - Make tool results collapsible by default if they are long, with a summary line visible.
-  - Only reduce opacity for content that is literally identical across records, e.g., the same system prompt repeated verbatim in every trace. If system messages vary, keep them fully visible.
-  - Group related turns: a thinking block + the tool call it produces + the tool result, visually grouped with tight spacing and a shared container.
+  多轮 trace（agent 日志、对话、聊天）：
+  - 每条消息/轮次一个块。全部左对齐，按角色用彩色左边框或底色。
+  - 块顶放小号加粗的角色标签：「System」「User」「Assistant」「Tool Call」「Tool Result」「Thinking」。
+  - 每个角色一个独立色相，全记录一致，默认全透明度。
+  - thinking/推理块用可区分的视觉处理（浅背景、斜体或略缩进）示意内部独白，保持完整可读。
+  - 工具调用函数名醒目展示，参数放可折叠的格式化 JSON。
+  - 工具结果长则默认折叠，留一行摘要可见。
+  - 只对逐字重复的内容降透明度，如每条 trace 原样重复的系统提示词；system 消息有变化就完整显示。
+  - 归组相关轮次：thinking 块 + 它产生的工具调用 + 工具结果，紧间距共享容器。
 
-  For single text content (articles, summaries, etc.):
-  - Render markdown as formatted HTML (use marked.js or similar).
-  - Render plain text with paragraph breaks.
+  单文本内容（文章、摘要等）：
+  - Markdown 渲染成 HTML（用 marked.js 之类）。
+  - 纯文本按段落断行渲染。
 
-  For code / diffs:
-  - Use syntax highlighting (highlight.js or Prism via CDN).
-  - Show additions with green background and deletions with red background.
-  - Show line numbers.
+  代码 / diff：
+  - 语法高亮（CDN 引 highlight.js 或 Prism）。
+  - 新增行绿底、删除行红底。
+  - 显示行号。
 
-  For input/output pairs:
-  - Stack them with a clear divider, or place them side by side if both are short.
-  - Label each section.
+  输入/输出对：
+  - 竖排加清晰分隔线，两者都短则并排。
+  - 每段加标签。
 
-- Inline annotation: the reviewer selects text, a floating popover appears with a text input, they press Enter to save, and the span is highlighted. When the popover appears and the input is focused, the browser clears the native text selection. To prevent this, wrap the selected range in a temporary highlight span (e.g., class "pending-highlight" with a visible background) BEFORE focusing the input. Remove the temporary highlight when the annotation is saved, cancelled, or the popover is dismissed by clicking outside. This way the reviewer always sees what text they are annotating.
-- Margin notes: annotations and suggestions must appear as side notes in a right margin column, aligned vertically with their corresponding highlighted text. Use a two-column layout: the article body on the left (flex: 1, max-width ~720px) and a margin-notes column on the right (width ~240px). Each margin note is position: absolute inside the margin column, with its top offset calculated from the highlight element's position relative to the margin container (use getBoundingClientRect on both the highlight and the margin container, take the difference — do NOT add scrollTop, as that double-counts the scroll offset). Stack notes with a minimum gap so they do not overlap. Include hover linking: hovering a margin note outlines its highlight, and hovering a highlight outlines its margin note. Each margin note shows the quoted text, the reviewer's note, and edit/delete buttons (visible on hover). Do NOT use hover tooltips as the primary way to show annotation content — margin notes replace tooltips.
-- Agent suggestions: visually distinct from human annotations in both the inline highlight (dashed border, muted tint) and the margin note (different left-border color, an "agent suggestion" tag). The margin note shows accept/dismiss buttons (always visible, not hover-gated). The reviewer can accept (which promotes it to an annotation) or dismiss.
-- No quality labels, no dropdowns, no structured forms. Free-text notes only.
-- Auto-save to server on every change. Keep a localStorage backup.
-- Poll for new samples and suggestions periodically. Show a banner or toast when new ones arrive.
+- 内联标注：评审人选中文本，浮出带输入框的气泡，回车保存，选区高亮。气泡出现、输入框聚焦时浏览器会清除原生选区——为防止丢高亮，先给选区套一层临时高亮 span（如 class "pending-highlight"，带可见背景色）再聚焦输入框；保存、取消或点外部关闭气泡时移除临时高亮。这样评审人始终看得到自己在标注哪段文字。
+- 侧边注：标注和建议必须以旁注形式出现在右侧边栏，与对应高亮文本垂直对齐。用两栏布局：正文左栏（flex: 1，max-width 约 720px），旁注右栏（宽约 240px）。每条旁注在边栏内 position: absolute，top 偏移由高亮元素相对边栏容器的位置算出（对两者都取 getBoundingClientRect 后作差——不要加 scrollTop，那会把滚动偏移算重）。旁注堆叠留最小间距防止重叠。悬停联动：悬停旁注勾出对应高亮，悬停高亮勾出对应旁注。每条旁注显示引用文本、评审人备注、编辑/删除按钮（悬停可见）。不要用悬停 tooltip 展示标注内容——旁注取代 tooltip。
+- agent 建议：与人工标注视觉可分——内联高亮用虚线边框、弱化底色，旁注用不同左边框色加「agent 建议」标记。旁注上的接受/忽略按钮常显（不悬停才出）。评审人可接受（转为正式标注）或忽略。
+- 不做质量标签、不做下拉、不做结构化表单，只要自由文本备注。
+- 每次变更自动存服务器，另留 localStorage 备份。
+- 定期轮询新样本与新建议，到达时显示横幅或 toast。
 
-Map view:
-- 2D scatter of all records from PCA/UMAP projection.
-- Color by cluster (match hull colors), not by label.
-- Use shape to distinguish categories, e.g., circles for AI and squares for human.
-- Show sample items as larger nodes with a dark border.
-- Show annotated items in a distinct color, e.g., orange.
-- Draw cluster hulls or convex boundaries as subtle background shapes.
-- On hover, show a tooltip with title, metadata, and annotation count.
-- On click (sample nodes only), go to the content view for that item.
+地图视图：
+- 全部记录的 PCA/UMAP 二维散点。
+- 按聚类着色（与聚类边界同色），不按标签。
+- 用形状区分类别，如圆点为 AI、方点为人工。
+- 样本记录画大节点加深色边框。
+- 已标注记录用醒目色，如橙色。
+- 聚类边界画成淡背景形状。
+- 悬停显示 tooltip：标题、元数据、标注数。
+- 点击（仅样本节点）跳到该记录的正文视图。
 
-## Phase 4: Cluster and select initial samples
+## 第 4 阶段：聚类并选初始样本
 
-1. Extract features appropriate to the content type (see Phase 1c for the dimensions).
-2. Cluster using KMeans or similar on normalized features. Target 6 to 10 clusters.
-3. Build the initial sample (15 to 25 items for datasets over 50):
-   - Cluster representatives (about 60 to 70%): 1 to 2 items closest to each centroid, mixing categories/labels.
-   - Random samples (about 30 to 40%): from the full dataset regardless of cluster. The clustering may not capture every important dimension, so random picks help cover what it misses.
-   - Remove duplicates.
-4. Prioritize diversity. The goal is discovering failure modes, not estimating how common they are.
+1. 按内容类型抽取特征（用第 1c 阶段的维度）。
+2. 归一化特征上用 KMeans 之类聚类，目标 6–10 个簇。
+3. 组初始样本（超 50 条的数据集取 15–25 条）：
+   - 簇代表（约 60–70%）：每个质心取最近的 1–2 条，混合类别/标签。
+   - 随机样本（约 30–40%）：从全数据集随机取，不看簇。聚类覆盖不了所有重要维度，随机补盲区。
+   - 去重。
+4. 多样性优先。目标是发现失败模式，不是估计它们的出现频率。
 
-## Phase 5: Run the interactive review loop
+## 第 5 阶段：跑交互式审查循环
 
-Once the app is running and the human starts reviewing, follow [review-loop.md](review-loop.md) for the ongoing interactive session, including how to monitor annotations as they arrive.
+应用跑起来、人开始审查后，按 [review-loop.md](review-loop.md) 执行持续交互，包括标注到达时如何监听。
 
-If the session ends before a human can review (a non-interactive run, for example `codex exec` or `claude -p`), build and smoke-test the app, then stop the server and give the command to launch it later; never claim the review loop ran or that anything is still running.
+如果会话在人审查前就要结束（非交互运行，如 print 模式），把应用搭好、冒烟测试通过，然后停掉服务器、把后续启动命令交给人；绝不声称审查循环已跑过或有什么仍在后台运行。

@@ -1,83 +1,83 @@
-# Review Loop
+# 审查循环
 
-This is the ongoing interactive phase. The app is running and the human is reviewing. You are an active participant.
+这是持续的交互阶段。应用在跑，人在审查，你是积极参与方。
 
-## The two modes: breadth and depth
+## 两种模式：铺广与钻深
 
-Error discovery alternates between two modes.
+错误发现在这两种模式间交替。
 
-**Breadth**: cover as much of the dataset as possible. Pick diverse samples, fill cluster gaps, add random records. The goal is to find different failure modes.
+**铺广**：尽量覆盖数据集。选多样样本、补聚类盲区、加随机记录。目标是找出不同的失败模式。
 
-**Depth**: once a mode is found, examine it thoroughly. Re-review earlier items and refine the definition. After the human has annotated about 5 distinct records, scan all records for instances.
+**钻深**：发现一个模式后彻底摸透它。回看更早的记录、打磨定义。人标注了约 5 条不同的记录后，全量扫一遍找同类实例。
 
-Alternate between these. Review broadly until you find something, then examine that mode in depth, then go broad again.
+两者交替：广撒网直到有发现，深挖该模式，再回到铺广。
 
-## Progress updates
+## 进度播报
 
-Tell the user what you are doing at each step during the review loop. When you categorize annotations, say what modes you found. When you spawn a subagent, say which failure mode it is scanning for. When you propose new samples, say why you chose them. Do not go silent while background work runs.
+审查循环的每一步都告诉用户你在做什么。归组标注时，说发现了哪些模式；派子代理时，说它在扫哪个失败模式；推新样本时，说为什么选这些。后台任务运行期间不要沉默。
 
-## Launch and monitor
+## 启动与监听
 
-1. Start the Python server in the background.
-2. Open the app in the browser.
-3. Tell the user the app is ready. Explain the interaction briefly.
-4. **Monitor the annotations file.** Watch `error_discovery_data/annotations.json` for new or deleted annotations by comparing content every 2 seconds.
-   - Claude Code: use the Monitor tool with `persistent: true`. Each detected change becomes a notification, so you react in real time.
-   - Everything else: write a polling script, run it in the background with output appended to a log file, and read the new lines whenever you take a turn.
+1. 后台启动 Python server。
+2. 浏览器打开应用。
+3. 告诉用户应用就绪，简述交互方式。
+4. **监听标注文件。** 每 2 秒读一次 `error_discovery_data/annotations.json` 比对内容，发现新增或删除的标注。
+   - 用 monitor 工具轮询（如 `satisfy_on: "stdout_matches"` 配合比对脚本），每次检测到变化即唤醒，实时响应。
+   - 也可以写轮询脚本放后台、输出追加到日志文件，每次轮到你时读新行。
 
-   Tell the user how you are watching for annotations. Do not use `inotifywait` or filesystem events — poll with a simple read-compare loop for cross-platform reliability.
+   告诉用户你在怎么盯标注。不要用 `inotifywait` 或文件系统事件——用简单的读比对循环轮询，跨平台才稳。
 
-## Process annotations as they arrive
+## 标注到达即处理
 
-When new annotations appear:
-1. Read all annotations.
-2. Categorize each into a failure mode. Match to an existing mode or create a new one.
-3. Maintain a running taxonomy: `{mode_name: {description, count, example_ids, example_quotes[]}}`.
-4. Push the updated taxonomy to `POST /api/patterns`.
-5. Track which records have been reviewed and which clusters or dimensions are covered.
+出现新标注时：
+1. 读全部标注。
+2. 逐条归入失败模式：匹配已有模式，或新建一个。
+3. 维护运行中的分类表：`{mode_name: {description, count, example_ids, example_quotes[]}}`。
+4. 把更新后的分类推到 `POST /api/patterns`。
+5. 记录哪些记录已审、哪些簇或维度已覆盖。
 
-## Depth mode: scan for failure mode instances
+## 钻深：扫描失败模式的实例
 
-Wait until the human has annotated about 5 distinct records before the first corpus-wide scan; early annotations are too weak a signal of what the human considers a failure. Never scan before the human has reviewed anything. After that, when you discover a new failure mode (or an existing one becomes clearer), scan **all** records for instances. Include both reviewed and unreviewed records.
+人标注了约 5 条不同的记录之后才做第一次全量扫描；太早的标注不足以代表人对「失败」的判断。人一条没审之前绝不扫描。此后每当发现新失败模式（或既有模式更清晰了），就扫**全部**记录找实例，已审和未审的都算。
 
-**Spawn one background subagent per failure mode.** Give the subagent the mode name, description, and example quotes. It reads through all records and returns a list of suggested annotations: `{record_id, text, start, end}`. One mode = one subagent, not one per record. Multiple modes can run in parallel. This happens in the background while the human keeps reviewing.
+**每个失败模式派一个后台子代理。** 给子代理模式名、描述和示例引文，它通读全部记录，返回建议标注列表：`{record_id, text, start, end}`。一个模式一个子代理，不是一条记录一个。多个模式并行跑，人继续审查不受影响。
 
-When subagents return, merge their suggestions and push to `POST /api/suggestions`. The UI polls for new suggestions automatically and shows them in the Progress view queue and as purple highlights in the article view.
+子代理返回后合并建议，推到 `POST /api/suggestions`。UI 自动轮询新建议，显示在进度视图的待审队列和正文视图的紫色高亮里。
 
-There are two kinds of suggestions:
-1. **Already-reviewed records**: the reviewer may have missed an instance because the mode was not yet in their head when they read the record (criteria drift).
-2. **Unreviewed records**: new coverage. Add these records to the sample if they are not already in it.
+建议有两类：
+1. **已审记录**：评审人当时脑子里还没这个模式，读的时候漏掉了（标准漂移）。
+2. **未审记录**：新覆盖面。不在样本里的加进样本。
 
-Agent suggestions are not ground truth. The human accepts or dismisses each one. Favor recall over precision. Dismissing a false positive is quick. Missing a real instance is costly.
+agent 的建议不是真值。每条由人接受或忽略。宁可召回高，不必精确高——忽略一个误报很快，漏掉一个真例代价大。
 
-## Breadth mode: propose new samples
+## 铺广：推新样本
 
-After the human reviews a batch:
-1. **Cover gaps**: sample from unreviewed clusters, topics, or feature regions.
-2. **Random exploration**: always include a few random picks.
-3. Push new samples to `POST /api/samples`. The app shows a banner.
-4. Tell the human what was added and why.
+人审完一批后：
+1. **补盲区**：从未审的簇、主题或特征区域抽样。
+2. **随机探索**：始终混入几条随机抽取。
+3. 新样本推到 `POST /api/samples`，应用显示横幅。
+4. 告诉人加了什么、为什么加。
 
-## Encourage re-review
+## 鼓励复审
 
-Do not treat review as one pass. The reviewer's criteria shift as they see more data (criteria drift).
+不要把审查当成一遍过。评审人的标准随见的数据变多而漂移（标准漂移）。
 
-The agent handles part of this automatically. Background subagents scan already-reviewed records and push suggestions. But the agent cannot catch everything. After the reviewer has gone through a batch and found new modes, explicitly encourage them to re-read earlier records. Say something like: "You've found 3 new failure modes since you reviewed records 0 through 5. Worth a second pass. You will likely spot things you missed the first time."
+agent 能自动处理一部分：后台子代理会扫已审记录并推建议。但覆盖不全。评审人审完一批、发现新模式之后，明确建议他回读更早的记录，例如：「你在审完 0–5 号记录后发现了 3 个新失败模式，值得回头再看一遍，大概率能抓到第一遍漏掉的。」
 
-## Report and converge
+## 汇报与收敛
 
-Periodically:
-- Report the failure mode taxonomy with confirmed and suggested counts.
-- Report coverage: records reviewed, clusters or dimensions covered, what remains.
-- Track convergence: are new records mostly repeats of known modes, or are they revealing new ones?
-- When the rate of new discoveries drops, suggest stopping or narrowing focus.
+定期：
+- 汇报失败模式分类表，含已确认数和建议数。
+- 汇报覆盖面：已审记录、已覆盖的簇或维度、剩余部分。
+- 跟踪收敛：新记录多是已知模式的重复，还是在揭示新模式？
+- 新发现的速度降下来时，建议收尾或收窄范围。
 
-## Key principles
+## 关键原则
 
-1. **The human notices, the agent organizes.** Free-text notes become a structured taxonomy. Do not make the human categorize.
-2. **The agent proposes coverage.** Propose new samples based on what has been found and what is missing.
-3. **Live feedback loop.** Monitor and react as annotations come in.
-4. **Include random samples.** Always include random picks alongside cluster-based ones so you do not miss what the clustering did not capture.
-5. **Multiple passes.** The reviewer's criteria shift over time. Encourage re-review of earlier records.
-6. **Agent suggests, human confirms.** Suggestions are visually distinct and require accept or dismiss. Favor recall over precision.
-7. **Breadth then depth, repeat.** Review broadly to find modes, examine each mode in depth, then go broad again.
+1. **人发现，agent 归组。** 自由文本备注变成结构化分类表。不要让人做归类的活。
+2. **agent 提议覆盖面。** 按已发现与缺失的部分推新样本。
+3. **实时反馈循环。** 监听标注，到达即响应。
+4. **必含随机样本。** 聚类抽样之外始终混随机抽取，补聚类漏掉的。
+5. **多遍审查。** 评审人的标准会漂移，鼓励回读更早的记录。
+6. **agent 建议，人确认。** 建议视觉可分，必须接受或忽略。召回优先于精确。
+7. **先铺广再钻深，循环往复。** 广撒网找模式，逐个深挖，再广撒网。
