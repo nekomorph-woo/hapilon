@@ -11,7 +11,7 @@ describe("setup-herdr 纯函数", () => {
 
   it("icon 文件名由内容 hash 决定，同内容稳定、异内容换名", () => {
     const a = iconFileName("<svg>a</svg>");
-    assert.match(a, /^hapilon-house-[0-9a-f]{8}\.svg$/);
+    assert.match(a, /^hapilon-[0-9a-f]{8}\.svg$/);
     assert.equal(a, iconFileName("<svg>a</svg>"));
     assert.notEqual(a, iconFileName("<svg>b</svg>"));
   });

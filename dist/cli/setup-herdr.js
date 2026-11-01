@@ -8,16 +8,12 @@ import { hapilonHome } from "../config/hapilon-home.js";
 export class HerdrSetupError extends Data.TaggedError("HerdrSetupError") {
 }
 // ─── 内置资产 ─────────────────────────────────────────────────────────
-// 像素小屋图标（7×7 点阵，29 个圆角方点）——与启动 header 的盲文点阵同族
-const HOUSE_ICON_SVG = '<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>hapilon</title>' +
-    '<rect x="10.85" y="4.3" width="1.9" height="1.9" rx="0.5"/>' +
-    '<rect x="8.5" y="6.65" width="1.9" height="1.9" rx="0.5"/><rect x="10.85" y="6.65" width="1.9" height="1.9" rx="0.5"/><rect x="13.2" y="6.65" width="1.9" height="1.9" rx="0.5"/>' +
-    '<rect x="6.15" y="9" width="1.9" height="1.9" rx="0.5"/><rect x="8.5" y="9" width="1.9" height="1.9" rx="0.5"/><rect x="10.85" y="9" width="1.9" height="1.9" rx="0.5"/><rect x="13.2" y="9" width="1.9" height="1.9" rx="0.5"/><rect x="15.55" y="9" width="1.9" height="1.9" rx="0.5"/>' +
-    '<rect x="3.8" y="11.35" width="1.9" height="1.9" rx="0.5"/><rect x="6.15" y="11.35" width="1.9" height="1.9" rx="0.5"/><rect x="8.5" y="11.35" width="1.9" height="1.9" rx="0.5"/><rect x="10.85" y="11.35" width="1.9" height="1.9" rx="0.5"/><rect x="13.2" y="11.35" width="1.9" height="1.9" rx="0.5"/><rect x="15.55" y="11.35" width="1.9" height="1.9" rx="0.5"/><rect x="17.9" y="11.35" width="1.9" height="1.9" rx="0.5"/>' +
-    '<rect x="3.8" y="13.7" width="1.9" height="1.9" rx="0.5"/><rect x="6.15" y="13.7" width="1.9" height="1.9" rx="0.5"/><rect x="15.55" y="13.7" width="1.9" height="1.9" rx="0.5"/><rect x="17.9" y="13.7" width="1.9" height="1.9" rx="0.5"/>' +
-    '<rect x="3.8" y="16.05" width="1.9" height="1.9" rx="0.5"/><rect x="6.15" y="16.05" width="1.9" height="1.9" rx="0.5"/><rect x="15.55" y="16.05" width="1.9" height="1.9" rx="0.5"/><rect x="17.9" y="16.05" width="1.9" height="1.9" rx="0.5"/>' +
-    '<rect x="3.8" y="18.4" width="1.9" height="1.9" rx="0.5"/><rect x="6.15" y="18.4" width="1.9" height="1.9" rx="0.5"/><rect x="10.85" y="18.4" width="1.9" height="1.9" rx="0.5"/><rect x="15.55" y="18.4" width="1.9" height="1.9" rx="0.5"/><rect x="17.9" y="18.4" width="1.9" height="1.9" rx="0.5"/>' +
-    "</svg>\n";
+// 双子图标：大圆右上咬一口，小点嵌在缺口里（对比盲文/小屋方案后定稿）
+const GEMINI_ICON_SVG = '<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>hapilon</title>' +
+    '<defs><mask id="bite"><rect width="24" height="24" fill="#fff"/><circle cx="17.5" cy="6.5" r="4.6" fill="#000"/></mask></defs>' +
+    '<circle cx="10.5" cy="13.5" r="7.2" mask="url(#bite)"/>' +
+    '<circle cx="17.5" cy="6.5" r="2.4"/>' +
+    '</svg>\n';
 const PROGRAM_ENTRY = {
     name: "Hapilon",
     icon: "", // setup 时按内容 hash 填
@@ -32,7 +28,7 @@ export function shimScript(cliPath, home) {
 }
 export function iconFileName(svg) {
     const hash = createHash("sha256").update(svg).digest("hex").slice(0, 8);
-    return `hapilon-house-${hash}.svg`;
+    return `hapilon-${hash}.svg`;
 }
 /** 合并 hapilon 条目进 programs.json 原文；raw 为 null 表示新建。其余条目原样保留 */
 export function mergePrograms(raw, entry) {
@@ -81,13 +77,13 @@ export function setupHerdr() {
             return;
         }
         const { cliPath, home } = deriveShimInputs();
-        const icon = iconFileName(HOUSE_ICON_SVG);
+        const icon = iconFileName(GEMINI_ICON_SVG);
         const entry = { ...PROGRAM_ENTRY, icon: `my-icons/${icon}` };
         // 图标：按内容 hash 命名——herdr 按 icon 路径缓存 SVG 内容，同路径覆盖写不刷新，
         // 内容变化时换新文件名；旧 hapilon-*.svg 清掉防堆积
         const myIcons = join(herdrDir, "my-icons");
         mkdirSync(myIcons, { recursive: true });
-        yield* writeTextEffect(join(myIcons, icon), HOUSE_ICON_SVG);
+        yield* writeTextEffect(join(myIcons, icon), GEMINI_ICON_SVG);
         for (const f of readdirSync(myIcons)) {
             if (f.startsWith("hapilon-") && f !== icon)
                 unlinkSync(join(myIcons, f));
