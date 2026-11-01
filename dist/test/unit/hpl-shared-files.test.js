@@ -3,10 +3,10 @@
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listFiles, collectUpward, collectUpwardLocal, readHapilonMd, readRules, discoverSkillPaths, } from "../../shared/files.js";
+import { listFiles, collectUpward, collectUpwardLocal, collectDownward, readHapilonMd, readRules, discoverSkillPaths, } from "../../shared/files.js";
 describe("listFiles", () => {
     let dir;
     before(() => { dir = mkdtempSync(join(tmpdir(), "hapilon-files-test-")); });
@@ -307,5 +307,50 @@ describe("collectUpward — 边界条件补充", () => {
         finally {
             rmSync(dir, { recursive: true, force: true });
         }
+    });
+});
+describe("collectDownward", () => {
+    let root;
+    before(() => {
+        root = mkdtempSync(join(tmpdir(), "hapilon-down-"));
+        for (const layer of [".", "sub", "sub/deep"]) {
+            mkdirSync(join(root, layer, ".hapilon"), { recursive: true });
+            writeFileSync(join(root, layer, ".hapilon", "HAPILON.md"), `layer: ${layer}`);
+        }
+        writeFileSync(join(root, "sub", "deep", "h.ts"), "export {};");
+    });
+    after(() => { try {
+        rmSync(root, { recursive: true, force: true });
+    }
+    catch { } });
+    it("正常路径: cwd 与文件之间的所有层浅→深返回，不含 cwd 层", () => {
+        const result = collectDownward(root, join(root, "sub", "deep", "h.ts"), "HAPILON.md");
+        assert.deepEqual(result, [
+            join(root, "sub", ".hapilon", "HAPILON.md"),
+            join(root, "sub", "deep", ".hapilon", "HAPILON.md"),
+        ]);
+    });
+    it("边界条件: 文件直接在 cwd 下时返回空（cwd 层归 always 层管）", () => {
+        writeFileSync(join(root, "top.ts"), "export {};");
+        assert.deepEqual(collectDownward(root, join(root, "top.ts"), "HAPILON.md"), []);
+    });
+    it("边界条件: 目标文件不存在时返回空", () => {
+        assert.deepEqual(collectDownward(root, join(root, "sub", "no-such.ts"), "HAPILON.md"), []);
+    });
+    it("边界条件: symlink 逃出 cwd 的文件不注入", () => {
+        const outside = mkdtempSync(join(tmpdir(), "hapilon-down-out-"));
+        try {
+            writeFileSync(join(outside, "f.ts"), "export {};");
+            mkdirSync(join(root, "sub", "escape"), { recursive: true });
+            symlinkSync(outside, join(root, "sub", "escape", "link"), "dir");
+            assert.deepEqual(collectDownward(root, join(root, "sub", "escape", "link", "f.ts"), "HAPILON.md"), []);
+        }
+        finally {
+            rmSync(outside, { recursive: true, force: true });
+        }
+    });
+    it("边界条件: 相对路径按 cwd 解析", () => {
+        const result = collectDownward(root, join("sub", "deep", "h.ts"), "HAPILON.md");
+        assert.equal(result.length, 2, "相对路径与绝对路径结果一致");
     });
 });

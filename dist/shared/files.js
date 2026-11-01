@@ -4,8 +4,8 @@
  * 扫描 .hapilon/ 目录体系，收集 HAPILON.md / rules / skills 文件。
  * 由 hpl-skills-discover 和 hpl-system-prompt 两个扩展共用。
  */
-import { readdirSync, readFileSync, existsSync } from "node:fs";
-import { join, dirname, resolve, basename } from "node:path";
+import { readdirSync, readFileSync, existsSync, realpathSync } from "node:fs";
+import { join, dirname, resolve, basename, sep } from "node:path";
 import { Data, Effect } from "effect";
 export class ReadHapilonMdError extends Data.TaggedError("ReadHapilonMdError") {
 }
@@ -112,6 +112,46 @@ export function collectUpwardLocal(startDir, home, relative) {
     return walkUpward(startDir, home, relative).reverse();
 }
 export const collectUpwardEffect = (startDir, home, relative, globalBase) => Effect.sync(() => collectUpward(startDir, home, relative, globalBase));
+/**
+ * cwd 之下按需层：从文件所在目录（含）向下收集到 cwd（不含）之间的
+ * 每层 `<dir>/.hapilon/<relative>`，浅层在前。与 collectUpward 对偶——
+ * cwd 层及向上已由 always 层覆盖，这里只管子目录层。
+ *
+ * 目标文件按真实路径（realpath）判定归属：不存在、或 symlink 指向 cwd
+ * 之外，都视为无层可注入。
+ */
+export function collectDownward(cwd, filePath, relative) {
+    const realCwd = realpathSafe(cwd) ?? resolve(cwd);
+    const lexFile = resolve(cwd, filePath);
+    const realFile = realpathSafe(lexFile);
+    if (!realFile || !realFile.startsWith(realCwd + sep))
+        return [];
+    // 归属判定走 realpath（归一 symlink / ..），候选路径拼回调用方词法坐标
+    // （macOS /var↔/private/var 这类双坐标系下，展示与去重键才稳定）
+    const layers = [];
+    let lexDir = dirname(lexFile);
+    let realDir = dirname(realFile);
+    while (realDir !== realCwd && realDir.startsWith(realCwd + sep)) {
+        layers.push({ lex: lexDir, real: realDir });
+        lexDir = dirname(lexDir);
+        realDir = dirname(realDir);
+    }
+    const results = [];
+    for (const layer of layers.reverse()) {
+        const candidate = join(layer.lex, ".hapilon", relative);
+        if (existsSync(candidate))
+            results.push(candidate);
+    }
+    return results;
+}
+function realpathSafe(p) {
+    try {
+        return realpathSync(p);
+    }
+    catch {
+        return undefined;
+    }
+}
 /** 读取 HAPILON.md 文件，失败直接抛出（Fail Fast） */
 export function readHapilonMd(paths) {
     const result = Effect.runSync(Effect.either(readHapilonMdEffect(paths)));
