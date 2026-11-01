@@ -52,7 +52,7 @@ describe("buildLayoutB", () => {
         const lines = buildLayoutB(data, false, 100);
         const hints = lines.find((l) => l.includes("queue"));
         assert.ok(hints, "应有快捷键提示行");
-        assert.match(hints, /enter steer · queue: alt\+enter\/ctrl\+q · edit queue: alt\+up\/alt\+q \(mac\/linux · win\)/);
+        assert.match(hints, /enter steer · mac\/linux> alt\+enter queue, alt\+up edit queue · win> ctrl\+q queue, alt\+q edit queue/);
     });
     it("collapsed 提示行在 status 行下方", () => {
         const lines = buildLayoutB(data, false, 100);
