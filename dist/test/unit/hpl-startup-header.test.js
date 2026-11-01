@@ -1,7 +1,7 @@
 // startup header 纯函数测试：路径缩短 + 解析 + 布局构建
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { shortenWorkspacePath, parseExtensionsEnv, hapilonLogo, currentLayoutIndex, } from "../../extensions/hpl-startup-header/content.js";
+import { shortenWorkspacePath, parseExtensionsEnv, hapilonLogo, currentLayoutIndex, buildLayoutB, } from "../../extensions/hpl-startup-header/content.js";
 describe("shortenWorkspacePath", () => {
     it("home 直接返回 ~", () => {
         assert.equal(shortenWorkspacePath("/Users/alice", "/Users/alice"), "~");
@@ -35,5 +35,33 @@ describe("logo 与布局随机", () => {
     it("布局索引为 0 或 1（A/B）", () => {
         const idx = currentLayoutIndex();
         assert.ok(idx === 0 || idx === 1, `layout index: ${idx}`);
+    });
+});
+describe("buildLayoutB", () => {
+    const data = {
+        version: "0.0.0",
+        piVersion: "1.0.0",
+        modelProvider: "zai",
+        modelName: "glm-test",
+        cwd: "/tmp/proj",
+        homeDir: "/home/u",
+        extensions: [],
+        piUpdate: undefined,
+    };
+    it("collapsed 首屏含排队与引导快捷键提示行", () => {
+        const lines = buildLayoutB(data, false, 100);
+        const hints = lines.find((l) => l.includes("queue"));
+        assert.ok(hints, "应有快捷键提示行");
+        assert.match(hints, /enter steer · alt\+enter\/ctrl\+q queue · alt\+up\/alt\+q edit queue/);
+    });
+    it("collapsed 提示行在 status 行下方", () => {
+        const lines = buildLayoutB(data, false, 100);
+        const statusIdx = lines.findIndex((l) => l.includes("hapilon v"));
+        const hintsIdx = lines.findIndex((l) => l.includes("queue"));
+        assert.ok(statusIdx >= 0 && hintsIdx === statusIdx + 1, `status=${statusIdx} hints=${hintsIdx}`);
+    });
+    it("expanded 不含快捷键提示行", () => {
+        const lines = buildLayoutB(data, true, 100);
+        assert.ok(!lines.some((l) => l.includes("edit queue")));
     });
 });

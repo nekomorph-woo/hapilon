@@ -519,32 +519,33 @@ function expandedInfoLines(data: HeaderData, width: number): string[] {
 
 // ─── 布局 B：猫居中 + 底部信息条 ─────────────────────────────────────
 
-function buildLayoutB(data: HeaderData, expanded: boolean, width: number): string[] {
+function centerLine(line: string, width: number): string {
+  const pad = Math.max(1, Math.floor((width - line.length) / 2));
+  return " ".repeat(Math.max(0, pad)) + line;
+}
+
+export function buildLayoutB(data: HeaderData, expanded: boolean, width: number): string[] {
   const logo = hapilonLogo();
   const lines: string[] = [];
-  const logoWidth = Math.max(...logo.map((l) => l.length));
-  const leftPad = Math.max(1, Math.floor((width - logoWidth) / 2));
 
   // 猫居中
   for (const row of logo) {
-    lines.push(" ".repeat(leftPad) + row);
+    lines.push(centerLine(row, width));
   }
   lines.push("");
 
   if (!expanded) {
     const bar = H_BAR.repeat(Math.min(width - 4, 60));
-    const barPad = Math.max(1, Math.floor((width - bar.length) / 2));
-    lines.push(" ".repeat(barPad) + bar);
-    const status = statusLine(data) + " · ctrl+o expand";
-    const statusPad = Math.max(1, Math.floor((width - status.length) / 2));
-    lines.push(" ".repeat(Math.max(0, statusPad)) + status);
+    lines.push(centerLine(bar, width));
+    lines.push(centerLine(statusLine(data) + " · ctrl+o expand", width));
+    // 排队与引导键位双平台并列展示（左 mac 右 win），不判定当前平台
+    lines.push(
+      centerLine("enter steer · alt+enter/ctrl+q queue · alt+up/alt+q edit queue", width),
+    );
   } else {
-    const bar = H_BAR.repeat(Math.min(width - 4, 60));
-    const barPad = Math.max(1, Math.floor((width - bar.length) / 2));
-    lines.push(" ".repeat(barPad) + bar);
+    lines.push(centerLine(H_BAR.repeat(Math.min(width - 4, 60)), width));
     for (const info of expandedInfoLines(data, width)) {
-      const infoPad = Math.max(1, Math.floor((width - info.length) / 2));
-      lines.push(" ".repeat(Math.max(0, infoPad)) + info);
+      lines.push(centerLine(info, width));
     }
   }
   return lines;
