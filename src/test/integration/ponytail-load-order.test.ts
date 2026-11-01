@@ -119,8 +119,10 @@ describe("加载顺序稳定性（ponytail 先于 hpl）", () => {
       prompt.toLowerCase().includes("ponytail"),
       "真实 ponytail 指令文本出现在最终 prompt",
     );
+    // 用 lastIndexOf：仓库自身 .hapilon/HAPILON.md 正文可能合法提到 ponytail（XML 内部），
+    // 扩展 sections 贡献自身含该词且必然是最后一处——用首处会被自家文档假红
     assert.ok(
-      prompt.indexOf("</system_prompt>") < prompt.toLowerCase().indexOf("ponytail"),
+      prompt.indexOf("</system_prompt>") < prompt.toLowerCase().lastIndexOf("ponytail"),
       "ponytail 指令位于 hpl XML 之后（内联尾部）",
     );
     // code_style section 与 ponytail 内联共存

@@ -154,11 +154,15 @@ describe("vision 路由分流（Agent 派发按 subagent_type 选列表）", { c
   let home: string;
   let project: string;
   const originalHome = process.env.HAPILON_HOME;
+  const originalQuotaCache = process.env.HAPILON_QUOTA_CACHE;
 
   before(async () => {
     home = mkdtempSync(join(tmpdir(), "hapi-vision-route-home-"));
     project = mkdtempSync(join(tmpdir(), "hapi-vision-route-project-"));
     process.env.HAPILON_HOME = home;
+    // 配额快照通道隔离：否则读到机器上真实 /tmp 缓存，
+    // 活会话把 provider 烧到 ≥90% 时本用例会假红
+    process.env.HAPILON_QUOTA_CACHE = join(home, "quota-cache.json");
     writeFileSync(join(home, "vision-models.json"), JSON.stringify({ models: ["openai/gpt-5.2-vision"] }), "utf8");
     writeFileSync(join(home, "subagent-models.json"), JSON.stringify({ models: ["zai-coding-cn/glm-4.7"] }), "utf8");
   });
@@ -168,6 +172,8 @@ describe("vision 路由分流（Agent 派发按 subagent_type 选列表）", { c
     rmSync(project, { recursive: true, force: true });
     if (originalHome === undefined) delete process.env.HAPILON_HOME;
     else process.env.HAPILON_HOME = originalHome;
+    if (originalQuotaCache === undefined) delete process.env.HAPILON_QUOTA_CACHE;
+    else process.env.HAPILON_QUOTA_CACHE = originalQuotaCache;
   });
 
   it("subagent_type=vision → vision 列表；无类型 → subagent 列表；显式 model 不动", async () => {
