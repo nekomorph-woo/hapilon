@@ -2,7 +2,7 @@
 # release.sh — 发版全流程（README「发版打包流程」）
 #
 # 用法：
-#   ./scripts/release.sh <patch|minor> "<一句话内容>"
+#   ./scripts/release.sh <patch|minor|major> "<一句话内容>"
 #   ./scripts/release.sh --dry-run patch "修复 xxx"   # 只打印将执行的命令
 #
 # 流程：生成 release notes（机械映射 + haiku 兑底）→ 版本号升级 → 依赖精确锁定检查 →
@@ -32,10 +32,10 @@ BUMP="${ARGS[0]:-}"
 SUMMARY="${ARGS[1]:-}"
 
 usage() {
-  echo "用法: $0 [--dry-run] <patch|minor> \"<一句话内容>\"" >&2
+  echo "用法: $0 [--dry-run] <patch|minor|major> \"<一句话内容>\"" >&2
   exit 1
 }
-[[ "$BUMP" =~ ^(patch|minor)$ && -n "$SUMMARY" ]] || usage
+[[ "$BUMP" =~ ^(patch|minor|major)$ && -n "$SUMMARY" ]] || usage
 
 # ── 前置检查 ──────────────────────────────────────────────────────────
 if [[ -n "$(git status --porcelain)" ]]; then
