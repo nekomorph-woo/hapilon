@@ -9,7 +9,7 @@
 从 GitHub Release 安装 tarball：
 
 ```bash
-npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v<X.Y.Z>/hapilon-<版本>.tgz
+npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v0.20.4/hapilon-0.20.4.tgz
 ```
 
 首次使用：
@@ -23,6 +23,34 @@ hapilon          # 或 hapi —— 进入 TUI
 用户数据（provider 配置、sessions、扩展配置）都在 `~/.hapilon/`，与安装目录分离——多台机器各自独立，升级 hapilon 不影响配置。
 
 > 为什么是 tarball 而不是 `npm install -g github:nekomorph-woo/hapilon`？npm 对 git 依赖的 `prepare` 是强沙箱（目标机无 devDeps、无 npx 重入、无嵌套 install，无法构建 dist），且 git 依赖实时解析在 express 5 嵌套依赖树上存在 npm reify bug。tarball 是构建完成的完整快照，两条坑都绕开。
+
+## HAPILON.md 上下文体系
+
+hapilon 用 `HAPILON.md` 承载项目约定，分两层注入模型上下文：
+
+- **总是加载**：全局 `~/.hapilon/HAPILON.md`，加上从当前目录向上到 home 的每一层 `.hapilon/HAPILON.md`（monorepo 根、仓库根的约定随会话常驻）。
+- **按需加载**（v0.20.4）：当前目录之下任意子目录的 `<子目录>/.hapilon/HAPILON.md`，在模型首次读取或编辑该子树的文件时自动注入。每个文件每次会话只注入一次，上下文压缩后重新生效——monorepo 每个包可以有各自行事历，不用的包不占上下文。
+
+注意：通过 bash `cat` 读文件不会触发按需注入，用 read 工具（或让模型正常读写文件）才会。项目根与向上链的行为不受此影响。
+
+## 模型档位与派发
+
+- **档位选模**：CLI 与配置里用 `tier:<档位>[<序号>]` 指代模型（如 `tier:haiku`、`tier:sonnet[2]`）。档位定义在全局 `~/.hapilon/model-tiers.json`，项目可用 `.hapilon/model-tiers.json` 按档覆盖。序号越界自动绕回，整档为空则启动失败。
+- **Agent 派发列表**：子代理不点名模型时，按 `~/.hapilon/subagent-models.json` 的顺序取第一个可用项（图像类 `subagent_type=vision` 走 `vision-models.json`）。项目层的 `.hapilon/` 同名文件整体替换全局。列表项带 provider 配额感知：某 provider 已用 ≥90% 时自动顺延下一候选，全部紧张则回落父会话模型。
+- **额度可见**：状态栏实时显示各 provider 的窗口用量（如 `58%/5h 95%/wk`），烧到阈值前先看见。
+
+## 内置能力
+
+核心由 20 余个内置扩展与 20 余个随版本分发的技能组成（完整清单见 `src/extensions/` 与 `resources/skills/`），常用的几块：
+
+| 能力 | 做什么 |
+|---|---|
+| 危险命令防护 | 见下节，bash 调用先过分类门 |
+| bash 输出压缩 | 长输出自动收敛，`/econ` 随时开关 |
+| 上下文管理 | 自动折叠旧内容，`/context` 看面板，压缩水位另有浮层提示 |
+| 团队编排 | 多 pane / 多角色派发与收敛（`wait-pane` 为后台等待原语） |
+| 领域技能 | `snap`（提交快照）、`research`（调研沉淀）、`simplify`（事后清理）等，随版本分发 |
+| 主题 | 内置 `hapilon-dark` / `hapilon-light`，跟随终端明暗自动切换，`/settings` 可换 |
 
 ## Windows Terminal 换行键
 
@@ -50,7 +78,7 @@ WSL 里同样适用（sendInput 原样透传序列）。若 hapilon 跑在 herdr
 npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v<新版本>/hapilon-<新版本号>.tgz
 ```
 
-覆盖安装即可，`~/.hapilon/` 配置原样保留。版本号见 `package.json` 的 `version` 字段。
+覆盖安装即可，`~/.hapilon/` 配置原样保留。版本号见 `package.json` 的 `version` 字段，Release 页面列表见 GitHub Releases。
 
 ## 主题与 pi 补丁
 
@@ -58,11 +86,11 @@ npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v<新�
 
 代码块底色来自 `mdCodeBlockBg` 颜色 token，而上游 pi-tui 的 markdown 渲染没有代码块背景通道（颜色 token 只有前景）。hapilon 因此在安装时（postinstall）与每次启动时对 pi 包做**幂等字符串补丁**（`src/patch/ensure-pi-patch.ts`）：新增 `mdCodeBlockBg` 背景通道，并隐藏代码块围栏。补丁可重复执行，已打过即只读判标记。
 
-补丁锚点按 `pi-coding-agent` 0.85.1 的代码字符串写死。pi 大版本重构后锚点会失配——此时 hapilon 启动会打印 `⚠ pi 或插件已变更，hapilon 补丁（代码块背景/中段 slash/后台任务 shell）未应用` 警告并**优雅降级**：主题仍然生效，围栏与底色同色故视觉隐形，只是失去背景色块，其余功能完全不受影响。修复方式是对照新版 pi 源码更新 `src/patch/ensure-pi-patch.ts` 的锚点表，重新发版。
+补丁锚点按 `pi-coding-agent` 0.85.1 的代码字符串写死。pi 大版本重构后锚点会失配——此时 hapilon 启动会打印 `⚠ pi 或插件已变更，hapilon 补丁（…）未应用` 警告并**优雅降级**：主题仍然生效，围栏与底色同色故视觉隐形，只是失去背景色块，其余功能完全不受影响。修复方式是对照新版 pi 源码更新 `src/patch/ensure-pi-patch.ts` 的锚点表，重新发版。
 
-同一张表也补第三方扩展：后台任务插件（`@nklisch/pi-background-tasks`）把 shell 写死成 `/bin/sh`，而 Windows 上没有这个路径，`background`/`monitor` 直接 spawn 失败（team 模式的派发链就跑在 `background` 里）。补丁让 Windows 改走 pi 的 `getShellConfig()`（优先 Git Bash，尊重 settings 里的 `shellPath`），POSIX 仍用 `/bin/sh`。上游自行修复后可删掉这三条规则。
+同一张表也补第三方扩展：后台任务插件（`@nklisch/pi-background-tasks`）把 shell 写死成 `/bin/sh`，而 Windows 上没有这个路径，`background`/`monitor` 直接 spawn 失败（team 模式的派发链就跑在 `background` 里）。补丁让 Windows 改走 pi 的 `getShellConfig()`（优先 Git Bash，尊重 settings 里的 `shellPath`），POSIX 仍用 `/bin/sh`。上游自行修复后可删掉这条规则。
 
-> 开发环境提示：本仓库 `npm ci` 需要 `--legacy-peer-deps`。`@zhushanwen/pi-ask-user` 的 peer 声明 `pi@^0.84.1` 落后于根依赖，npm 会 ERESOLVE 报错——属上游待升问题，不是本地配置错误。
+> 开发环境提示：本仓库 `npm ci` 需要 `--legacy-peer-deps`。`@zhushanwen/pi-ask-user` 的 peer 声明落后于根依赖，npm 会 ERESOLVE 报错——属上游待升问题，不是本地配置错误。
 
 ## 危险命令防护
 
@@ -97,7 +125,7 @@ bash 工具调用先过安全门（`hpl-safety-gate`）分类为 block / confirm
 一条命令，notes 在发版现场自动生成：
 
 ```bash
-./scripts/release.sh <patch|minor> "<一句话内容>"
+./scripts/release.sh <patch|minor|major> "<一句话内容>"
 ./scripts/release.sh --dry-run patch "..."   # 只打印将执行的命令
 ```
 
@@ -137,23 +165,26 @@ gh release create v<X.Y.Z> /tmp/hapilon-<版本>.tgz --notes-file .hapilon/relea
 | `hapilon setup` | 交互式初始化配置 |
 | `hapilon doctor` | 环境体检 |
 | `hapilon --version` / `-v` | 查看 hapilon 版本 |
-| `hapi -p "…" --model tier:<档位>[<序号>]` | 一次性调用按档位选模型（如 `tier:haiku`）；序号越界自动绕回，整档为空则启动失败；发版脚本用它调 haiku 档分类 |
-| `hapilon mcp add <name> stdio\|http ...` | 添加 MCP server（写 `~/.hapilon/agent/mcp.json`） |
+| `hapi -p "…" --model tier:<档位>[<序号>]` | 一次性调用按档位选模型（如 `tier:haiku`）；发版脚本用它调 haiku 档 |
+| `hapilon mcp add <name> stdio -- <command> [args...]` | 添加本地子进程 MCP server（`--env K=V` 传环境变量；写 `~/.hapilon/agent/mcp.json`） |
+| `hapilon mcp add <name> http <url>` | 添加远程 MCP server（`--header "K: V"` 传请求头） |
 | `hapilon mcp list` / `remove <name>` | 列出 / 移除 MCP server |
 | `hapilon config show` | 查看配置 |
 
-TUI 内常用 slash command：`/econ`（bash 输出压缩开关）、`/simplify`（事后代码清理：check → 人工裁决 → apply）、`/ponytail lite|full|ultra|off`（极简编码强度）、`/context`（上下文面板）、`/hapi-metrics ponytail`（会话级统计：token/成本/文本-代码比/编辑规模，按 ponytail 档位·模型·天·项目分组；不带子命令只打印用法）。
+TUI 内常用 slash command：`/econ`（bash 输出压缩开关）、`/context`（上下文面板）、`/settings`(主题等)、`/mcp`（MCP server 管理）、`/ponytail lite|full|ultra|off`（极简编码强度）。
 
 ## 开发
 
 ```bash
-npm install
-npm run dev        # build + 启动
+npm install --legacy-peer-deps
+npm run dev              # build + 启动
 npm run typecheck
-npm test           # 全量（build 后跑 dist 测试）
+npm test                 # 全量（build 后跑 dist 测试，含 unit / integration / polaris）
+npm run test:unit        # 只跑单元测试
+npm run test:integration # 只跑集成测试
 ```
 
-- 源码 `src/`，扩展在 `src/extensions/`（`hpl-*` 自研 + npm 集成，见 `src/npm-extensions.ts` 的接线表）
+- 源码 `src/`，扩展在 `src/extensions/`（`hpl-*` 自研 + npm 集成，见 `src/extensions/npm-extensions.ts` 的接线表）
 - 任务/决策记录在 GitHub issues
 
 ### 开发版隔离运行（devhapi）
@@ -161,7 +192,7 @@ npm test           # 全量（build 后跑 dist 测试）
 开发中的 hapilon 与正式安装版数据隔离：`scripts/setup-dev-alias.sh` 向 shell rc 幂等写入 `devhapi` 别名，数据目录指向 `~/.hapilon-dev`，不影响正式版的 `~/.hapilon`：
 
 ```bash
-npm install && npm run build   # 换机器克隆后先构建
+npm install --legacy-peer-deps && npm run build   # 换机器克隆后先构建
 ./scripts/setup-dev-alias.sh   # 写入别名（幂等，重复执行只更新）
 source ~/.zshrc                # 或重开终端
 devhapi setup && devhapi doctor
