@@ -538,9 +538,9 @@ export function buildLayoutB(data: HeaderData, expanded: boolean, width: number)
     const bar = H_BAR.repeat(Math.min(width - 4, 60));
     lines.push(centerLine(bar, width));
     lines.push(centerLine(statusLine(data) + " · ctrl+o expand", width));
-    // 排队与引导键位按平台标注并列展示，不判定当前平台
+    // 排队与引导键位双平台并列展示，平台顺序在括号里声明一次，不判定当前平台
     lines.push(
-      centerLine("enter steer · mac/linux> alt+enter win> ctrl+q queue · mac/linux> alt+up win> alt+q edit queue", width),
+      centerLine("enter steer · queue: alt+enter/ctrl+q · edit queue: alt+up/alt+q (mac/linux · win)", width),
     );
   } else {
     lines.push(centerLine(H_BAR.repeat(Math.min(width - 4, 60)), width));

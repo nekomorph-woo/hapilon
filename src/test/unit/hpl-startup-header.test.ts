@@ -77,7 +77,7 @@ describe("buildLayoutB", () => {
     assert.ok(hints, "应有快捷键提示行");
     assert.match(
       hints!,
-      /enter steer · mac\/linux> alt\+enter win> ctrl\+q queue · mac\/linux> alt\+up win> alt\+q edit queue/,
+      /enter steer · queue: alt\+enter\/ctrl\+q · edit queue: alt\+up\/alt\+q \(mac\/linux · win\)/,
     );
   });
 
