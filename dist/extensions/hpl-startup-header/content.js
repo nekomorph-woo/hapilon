@@ -474,8 +474,8 @@ export function buildLayoutB(data, expanded, width) {
         const bar = H_BAR.repeat(Math.min(width - 4, 60));
         lines.push(centerLine(bar, width));
         lines.push(centerLine(statusLine(data) + " · ctrl+o expand", width));
-        // 排队与引导键位双平台并列展示（左 mac 右 win），不判定当前平台
-        lines.push(centerLine("enter steer · alt+enter/ctrl+q queue · alt+up/alt+q edit queue", width));
+        // 排队与引导键位按平台标注并列展示，不判定当前平台
+        lines.push(centerLine("enter steer · mac/linux> alt+enter win> ctrl+q queue · mac/linux> alt+up win> alt+q edit queue", width));
     }
     else {
         lines.push(centerLine(H_BAR.repeat(Math.min(width - 4, 60)), width));
