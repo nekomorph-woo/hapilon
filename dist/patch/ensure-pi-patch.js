@@ -37,6 +37,7 @@ const HAPI_SUBAGENTS_DIR_MARKER = "hapiSubagentsDir";
 const HAPI_COMPACT_HIDE_MARKER = "hapiCompactHide";
 /** bg-task 完成通知从聊天区永久行改为 footer 短暂展示的 marker */
 const HAPI_BG_DONE_MARKER = "hapiBgDone";
+const HAPI_BG_RUNNING_GLYPH_MARKER = "hapiBgRunningGlyph";
 /** ponytail 图标去 emoji（🌿⚡🔥🐴 → 盲文点阵）的 marker */
 const HAPI_PONYTAIL_GLYPH_MARKER = "hapiPonytailGlyph";
 /** ponytail 包名（hapilon 自身的依赖） */
@@ -51,7 +52,7 @@ const HAPI_STATUS_STACK_MARKER = "hapiStatusStack";
 const PI_BUNDLE_CHUNKS = "dist/bundle/chunks";
 /**
  * 全部改动均为字符串级替换，逐条 anchors 与实际 pi dist 产物 byte-for-byte 校验过
- * （pi-tui editor.js 2 条 + bundle chunk 4 条 + background-tasks.ts 4 条
+ * （pi-tui editor.js 2 条 + bundle chunk 4 条 + background-tasks.ts 5 条
  * + pi-subagents host.js/settings.js 2 条 + interactive-mode.js 1 条
  * + slash-commands.js 1 条）。
  */
@@ -209,6 +210,17 @@ export const PATCH_RULES = [
         replace: '      // hapilon: hapiBgDone — 完成通知走 footer 短暂展示，不占聊天区\n      // （hapiStatusStack 补丁使 notify 永久堆积，完成消息会刷屏）\n      lastUi?.setStatus?.("bg-done", `${ok ? "⠧" : "⠭"} #${job.id} ${label}: ${reason}`);\n      setTimeout(() => lastUi?.setStatus?.("bg-done", undefined), 5000);',
         occurrences: 1,
         marker: HAPI_BG_DONE_MARKER,
+    },
+    // ── 后台任务运行中状态行的 ⏳ 换 ⠧：与 ponytail 图标同一「emoji → 盲文」约定
+    //    （emoji 宽度表现形曾致状态行超宽崩溃）。纯视觉，行为不变。
+    {
+        base: "hapilon",
+        package: BACKGROUND_TASKS_PACKAGE,
+        file: "extensions/background-tasks.ts",
+        find: '    ui.setStatus(STATUS_KEY, `⏳ ${active.length} job${active.length === 1 ? "" : "s"}: ${labels}${more}`);',
+        replace: '    // hapilon: hapiBgRunningGlyph — ⏳ 换盲文 ⠧（emoji 去 emoji 约定，补丁表）\n    ui.setStatus(STATUS_KEY, `⠧ ${active.length} job${active.length === 1 ? "" : "s"}: ${labels}${more}`);',
+        occurrences: 1,
+        marker: HAPI_BG_RUNNING_GLYPH_MARKER,
     },
     // ── ponytail 图标去 emoji：档位图标与状态栏的马（🌿⚡🔥🐴）换成盲文点阵——
     //    档位密度递进 ⠿/⣿/⡷，马换 ⠓（盲文 h，与 startup 猫头同源）。纯视觉，行为不变。

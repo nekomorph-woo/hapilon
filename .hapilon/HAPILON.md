@@ -16,7 +16,6 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 
 ## 构建与验证
 
-- `npm ci` 需要 `--legacy-peer-deps`（ask-user 7.4 起 peer 已兼容 pi 1.x，flag 属历史遗留，撤销前需验证全量安装）。
 - `npm run build`（tsc → `dist/`）。**dist 入库**：src 改动必须同步 dist——随功能提交，或紧跟 `chore(build): sync dist ...`。
 - `npm run test:unit` 全量单测；改 extensions/prompt 后先跑相关文件再跑全量。
 - TypeScript 走 Effect 风格：typed errors（Data.TaggedError）、Effect.gen，见 effect-typescript 技能。

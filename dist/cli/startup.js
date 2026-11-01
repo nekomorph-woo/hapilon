@@ -158,6 +158,11 @@ export const prepareStartupEffect = (args) => Effect.gen(function* () {
         // 关掉 pi 原生 OSC 7501 上报（app 硬编码 pi，herdr-app 会把 pane 认成 pi）；
         // 通道让给 hpl-herdr 扩展（app=hapilon）。显式设置过的用户优先。
         ...(process.env.PI_PROGRAM_STATUS === undefined ? { PI_PROGRAM_STATUS: "0" } : {}),
+        // codemode 并行 worker 数：pi 默认 2，team/workflow 扇出时排队甚至 60s 超时失败；
+        // QuickJS worker 轻，10 核机器抬到 4。用户显式设置优先
+        ...(process.env.PI_CODEMODE_MAX_WORKERS === undefined
+            ? { PI_CODEMODE_MAX_WORKERS: "4" }
+            : {}),
         // taste-skill inspect.mjs 的 CDP 兜底：找不到系统 Chrome 时指向 playwright chromium
         ...(() => {
             const chrome = process.env.CHROME_PATH !== undefined ? undefined : resolvePlaywrightChrome(agentDirPath);
