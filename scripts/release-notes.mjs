@@ -25,7 +25,7 @@ const DOWNLOAD_BASE = "https://github.com/nekomorph-woo/hapilon/releases/downloa
 const GROUPS = ["安全与信任", "模型与会话", "技能与工作流", "界面与显示", "稳定性与修复", "发版与维护"];
 const VALID_GROUPS = new Set([...GROUPS, "其他"]);
 const VERSION_RE = /^v?\d+\.\d+\.\d+$/;
-const HAIKU_TIMEOUT_MS = 180_000;
+const HAIKU_TIMEOUT_MS = 300_000;
 const BODY_SNIPPET_LIMIT = 300;
 
 function usageText() {
