@@ -48,6 +48,11 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 - 第 2 位（minor）：必须用户指定才能升级；模型可依已存量修改数量建议升级，但只有建议权，没有执行权。
 - 第 3 位（patch）：每发生一次 snap 技能提交自动 +1，随该提交一并写入 package.json；版本升级本身的提交不触发再计数。
 
+## 发版
+
+- 发版一律走 `./scripts/release.sh <patch|minor> "<一句话内容>"`（可 `--dry-run` 预演）：release notes 机械生成（提交全覆盖校验）→ 版本号升级 → 依赖精确锁定检查 → build + 全量测试门禁 → commit → 附注 tag → push → npm pack 打 tarball → 全新安装冒烟验证 → `gh release create` 附 tarball。禁止手搓发版（跳过 notes 生成、tarball、冒烟三道门）。
+- `scripts/` 其余脚本同样在岗：`release-notes.mjs`（notes 生成器，支持 `--self-test`）、`postinstall.js`（Windows 沙箱预检 + 主题补丁，tarball/全局安装也跑）、`ensure-pi-patch.mjs`（自补丁器）、`sandbox-verify.sh`、`setup-dev-alias.sh`。
+
 ## 目录要点
 
 - `src/extensions/hpl-*` — 内置扩展：hpl-system-prompt（系统提示全量组装，含提交纪律小节）、hpl-safety-gate、hpl-model-tiers、hpl-subagent-models（subagent 派发模型列表，Agent/TaskExecute 拦截改写）、hpl-orchestra（team/pane 编排）、hpl-herdr（herdr 内的 hapi 身份与状态上报）等。
