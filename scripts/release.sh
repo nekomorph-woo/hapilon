@@ -83,7 +83,6 @@ if [[ $DRY_RUN -eq 1 ]]; then
   echo "  [dry-run] gh release create ${TAG} /tmp/${TARBALL} --notes-file .hapilon/release/v${NEW_VERSION}.md"
   exit 0
 fi
-read -rp "继续? [y/N] " yn; [[ "$yn" == "y" ]] || exit 1
 
 # ── 0. 生成 release notes ────────────────────────────────────────
 # 发版现场生成，消灭「草稿生成后到打 tag 前」的新提交静默漏出 notes 的时间差
