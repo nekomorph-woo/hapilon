@@ -62,7 +62,7 @@ done < <(node -p "Object.entries(require($REPO_DIR_JSON + '/package.json').depen
 read_version() { node -p "require($REPO_DIR_JSON + '/package.json').version"; }
 OLD_VERSION="$(read_version)"
 if [[ "$NEW_VERSION" != "$OLD_VERSION" ]]; then
-  echo "✗ 指定版本 $NEW_VERSION ≠ package.json 当前版本 $OLD_VERSION（版本随 snap 提交自动迭代，发版只发当前版本）"; exit 1
+  echo "✗ 指定版本 $NEW_VERSION ≠ package.json 当前版本 ${OLD_VERSION}（版本随 snap 提交自动迭代，发版只发当前版本）"; exit 1
 fi
 TARBALL="hapilon-$NEW_VERSION.tgz"
 TAG="v$NEW_VERSION"
@@ -152,7 +152,7 @@ done
 BG_SPAWN=$(grep -oF 'shell: hapiShell(),' "$RUNTIME_BG" | wc -l | tr -d ' ')
 BG_EXEC=$(grep -oF 'pi.exec!(hapiShell(),' "$RUNTIME_BG" | wc -l | tr -d ' ')
 if [[ "$BG_SPAWN" != "1" || "$BG_EXEC" != "1" ]]; then
-  echo "✗ 后台任务 shell 补丁未落在已安装插件（spawn=$BG_SPAWN exec=$BG_EXEC）——Windows 上派发链会失效，不上 Release"
+  echo "✗ 后台任务 shell 补丁未落在已安装插件（spawn=$BG_SPAWN exec=${BG_EXEC}）——Windows 上派发链会失效，不上 Release"
   cleanup_smoke; exit 1
 fi
 cleanup_smoke
