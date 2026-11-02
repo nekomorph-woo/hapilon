@@ -29,15 +29,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-BUMP="${ARGS[0]:-}"
+TARGET_VERSION="${ARGS[0]:-}"
 SUMMARY="${ARGS[1]:-}"
 
 usage() {
   echo "用法: $0 [--dry-run] <版本号，如 0.21.1> \"<一句话内容>\"" >&2
   exit 1
 }
-[[ "$BUMP" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && -n "$SUMMARY" ]] || usage
-NEW_VERSION="$BUMP"
+[[ "$TARGET_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && -n "$SUMMARY" ]] || usage
+NEW_VERSION="$TARGET_VERSION"
 
 # ── 前置检查 ──────────────────────────────────────────────────────────
 if [[ -n "$(git status --porcelain)" ]]; then
@@ -73,15 +73,12 @@ run() {
   if [[ $DRY_RUN -eq 1 ]]; then echo "  [dry-run] $*"; else eval "$@"; fi
 }
 
-echo "hapilon 发版: ${OLD_VERSION} → ${NEW_VERSION} ($BUMP)"
+echo "hapilon 发版: ${NEW_VERSION}（用户指定）"
 echo "  tag: ${TAG}  tarball: ${TARBALL}  内容: ${SUMMARY}"
 if [[ $DRY_RUN -eq 1 ]]; then
   echo "  [dry-run] node scripts/release-notes.mjs \$(git describe --tags --abbrev=0) ${NEW_VERSION}"
-  echo "  [dry-run] npm version ${NEW_VERSION} --no-git-tag-version"
   echo "  [dry-run] npm run build && npm test（门禁）"
-  echo "  [dry-run] git add package.json package-lock.json dist/"
-  echo "  [dry-run] git commit -m 'chore(release): ${TAG}——${SUMMARY}'"
-  echo "  [dry-run] git tag -a ${TAG} && git push（HTTPS 失败回退 ${SSH_REMOTE}）"
+  echo "  [dry-run] git tag -a ${TAG} && git push origin ${TAG}"
   echo "  [dry-run] npm pack → /tmp/${TARBALL}"
   echo "  [dry-run] 全新安装冒烟验证（版本号 + 补丁钩子）"
   echo "  [dry-run] gh release create ${TAG} /tmp/${TARBALL} --notes-file .hapilon/release/v${NEW_VERSION}.md"
