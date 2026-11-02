@@ -46,11 +46,11 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 - 初始版本 0.1.0。
 - 第 1 位（major）：必须用户指定才能升级。
 - 第 2 位（minor）：必须用户指定才能升级；模型可依已存量修改数量建议升级，但只有建议权，没有执行权。
-- 第 3 位（patch）：每发生一次 snap 技能提交自动 +1，随该提交一并写入 package.json；版本升级本身的提交不触发再计数。
+- 第 3 位（patch）：每发生一次 snap 技能提交自动 +1，随该提交一并写入 package.json。未发版的中间号只存在于提交历史，不算跳号。
 
 ## 发版
 
-- 发版一律走 `./scripts/release.sh <patch|minor> "<一句话内容>"`（可 `--dry-run` 预演）：release notes 机械生成（提交全覆盖校验）→ 版本号升级 → 依赖精确锁定检查 → build + 全量测试门禁 → commit → 附注 tag → push → npm pack 打 tarball → 全新安装冒烟验证 → `gh release create` 附 tarball。禁止手搓发版（跳过 notes 生成、tarball、冒烟三道门）。
+- 发版仅在用户明确命令时执行：`./scripts/release.sh <版本号> "<一句话内容>"`（可 `--dry-run` 预演）。版本号由用户指定，须等于当前 package.json 版本（snap 已自动迭代）。前置：工作区干净且本地与远端同步——发版不产生 commit，tag 直接打在 HEAD。流程：release notes 机械生成（提交全覆盖校验）→ 依赖精确锁定检查 → build + 全量测试门禁 → 附注 tag → push → npm pack 打 tarball → 全新安装冒烟验证 → `gh release create` 附 tarball。禁止手搓发版（跳过 notes 生成、tarball、冒烟三道门）。
 - `scripts/` 其余脚本同样在岗：`release-notes.mjs`（notes 生成器，支持 `--self-test`）、`postinstall.js`（Windows 沙箱预检 + 主题补丁，tarball/全局安装也跑）、`ensure-pi-patch.mjs`（自补丁器）、`sandbox-verify.sh`、`setup-dev-alias.sh`。
 
 ## 目录要点

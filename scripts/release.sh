@@ -2,14 +2,15 @@
 # release.sh — 发版全流程（README「发版打包流程」）
 #
 # 用法：
-#   ./scripts/release.sh <patch|minor|major> "<一句话内容>"
-#   ./scripts/release.sh --dry-run patch "修复 xxx"   # 只打印将执行的命令
+#   ./scripts/release.sh <版本号> "<一句话内容>"
+#   ./scripts/release.sh --dry-run 0.21.1 "修复 xxx"   # 只打印将执行的命令
 #
-# 流程：生成 release notes（机械映射 + haiku 兑底）→ 版本号升级 → 依赖精确锁定检查 →
-#       build + 全量测试门禁 → commit → 附注 tag → push → npm pack →
+# 流程：生成 release notes（机械映射 + haiku 兑底）→ 依赖精确锁定检查 →
+#       build + 全量测试门禁 → 附注 tag → push → npm pack →
 #       全新安装冒烟验证（版本号 + 补丁钩子） → gh release create 附 tarball → 清理
 #
-# 前置：源码已全部合入当前分支且工作区干净；dist/ 与 src/ 一致（脚本会重新 build 保证）。
+# 版本号由用户指定，须等于当前 package.json 版本（snap 提交已自动迭代版本）。
+# 前置：工作区干净且本地与远端同步（发版不产生 commit，tag 直接打在 HEAD）。
 #       @earendil-works 系依赖必须精确锁版本（无 ^ ~）——范围依赖在全新安装时会漂移到
 #       未验证版本导致补丁锚点失配（v0.4.0 事故）。
 set -euo pipefail
@@ -32,14 +33,21 @@ BUMP="${ARGS[0]:-}"
 SUMMARY="${ARGS[1]:-}"
 
 usage() {
-  echo "用法: $0 [--dry-run] <patch|minor|major> \"<一句话内容>\"" >&2
+  echo "用法: $0 [--dry-run] <版本号，如 0.21.1> \"<一句话内容>\"" >&2
   exit 1
 }
-[[ "$BUMP" =~ ^(patch|minor|major)$ && -n "$SUMMARY" ]] || usage
+[[ "$BUMP" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && -n "$SUMMARY" ]] || usage
+NEW_VERSION="$BUMP"
 
 # ── 前置检查 ──────────────────────────────────────────────────────────
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "✗ 工作区不干净，先 commit/stash："; git status --short; exit 1
+fi
+
+# 本地与远端必须同步：发版不产生 commit，tag 直接打在 HEAD
+SYNC_COUNTS="$(git rev-list --left-right --count HEAD...@{u} 2>/dev/null)"
+if [[ "$SYNC_COUNTS" != "0	0" ]]; then
+  echo "✗ 本地与远端不同步（ahead/behind: ${SYNC_COUNTS//\t//}），先 push/pull"; exit 1
 fi
 
 # @earendil-works 依赖必须精确锁版本：范围依赖（^ ~）在用户全新安装时会被
@@ -53,13 +61,9 @@ done < <(node -p "Object.entries(require($REPO_DIR_JSON + '/package.json').depen
 
 read_version() { node -p "require($REPO_DIR_JSON + '/package.json').version"; }
 OLD_VERSION="$(read_version)"
-IFS='.' read -r MAJOR MINOR PATCH <<< "$OLD_VERSION"
-if [[ "$BUMP" == "minor" ]]; then
-  MINOR=$((MINOR + 1)); PATCH=0
-else
-  PATCH=$((PATCH + 1))
+if [[ "$NEW_VERSION" != "$OLD_VERSION" ]]; then
+  echo "✗ 指定版本 $NEW_VERSION ≠ package.json 当前版本 $OLD_VERSION（版本随 snap 提交自动迭代，发版只发当前版本）"; exit 1
 fi
-NEW_VERSION="$MAJOR.$MINOR.$PATCH"
 TARBALL="hapilon-$NEW_VERSION.tgz"
 TAG="v$NEW_VERSION"
 # HTTPS push 失败（LibreSSL/代理）时的回退通道
@@ -87,51 +91,36 @@ fi
 # ── 0. 生成 release notes ────────────────────────────────────────
 # 发版现场生成，消灭「草稿生成后到打 tag 前」的新提交静默漏出 notes 的时间差
 NOTES_FILE=".hapilon/release/v${NEW_VERSION}.md"
-echo "▶ 0/7 生成 release notes（机械映射 + haiku 兑底）"
+echo "▶ 0/5 生成 release notes（机械映射 + haiku 兑底）"
 PREV_TAG="$(git describe --tags --abbrev=0)" || { echo "✗ 找不到上一个 tag（首个发版请手工准备 notes）"; exit 1; }
 node scripts/release-notes.mjs "$PREV_TAG" "$NEW_VERSION"
 [[ -f "$NOTES_FILE" ]] || { echo "✗ notes 未生成: $NOTES_FILE"; exit 1; }
 
-# ── 1. 升版本号 ───────────────────────────────────────────────────────
-echo "▶ 1/7 升版本号"
-npm version "$NEW_VERSION" --no-git-tag-version > /dev/null
-
-# ── 2. build + 测试门禁 ───────────────────────────────────────────────
-echo "▶ 2/7 build + 全量测试（不绿即中止并回滚版本号）"
+# ── 1. build + 测试门禁 ───────────────────────────────────────────────
+echo "▶ 1/5 build + 全量测试"
 if ! npm run build > /dev/null 2>&1; then
-  echo "✗ build 失败"; npm version "$OLD_VERSION" --no-git-tag-version > /dev/null; exit 1
+  echo "✗ build 失败"; exit 1
 fi
 if ! npm test > /tmp/hapilon-release-test.log 2>&1; then
-  echo "✗ 测试不绿，详见 /tmp/hapilon-release-test.log"
-  npm version "$OLD_VERSION" --no-git-tag-version > /dev/null; exit 1
+  echo "✗ 测试不绿，详见 /tmp/hapilon-release-test.log"; exit 1
 fi
 echo "  测试全绿"
 
-# ── 3. 提交 ──────────────────────────────────────────────────────────
-echo "▶ 3/7 提交版本变更（含 dist）"
-git add package.json package-lock.json dist/
-git commit -m "chore(release): ${TAG}——$SUMMARY"
-
-# ── 4. tag + push（HTTPS 失败回退 ssh）────────────────────────────────
-echo "▶ 4/7 打附注 tag 并推送"
+# ── 2. tag + push（HTTPS 失败回退 ssh）────────────────────────────────
+echo "▶ 2/5 打附注 tag 并推送"
 git tag -a "$TAG" -m "$TAG
 $SUMMARY"
-BRANCH="$(git branch --show-current)"
 if ! git push origin "$TAG" 2>/dev/null; then
   echo "  HTTPS push 失败，改用 ssh 通道"
-  git push "$SSH_REMOTE" "$TAG" "$BRANCH"
-else
-  if ! git push origin "$BRANCH" 2>/dev/null; then
-    git push "$SSH_REMOTE" "$BRANCH"
-  fi
+  git push "$SSH_REMOTE" "$TAG"
 fi
 
-# ── 5. pack ──────────────────────────────────────────────────────────
-echo "▶ 5/7 npm pack"
+# ── 3. pack ──────────────────────────────────────────────────────────
+echo "▶ 3/5 npm pack"
 npm pack --pack-destination /tmp > /dev/null
 [[ -f "/tmp/$TARBALL" ]] || { echo "✗ tarball 未生成: /tmp/$TARBALL"; exit 1; }
 
-echo "▶ 6/7 全新安装冒烟验证"
+echo "▶ 4/5 全新安装冒烟验证"
 SMOKE_DIR="$(mktemp -d)"
 cleanup_smoke() { rm -rf "$SMOKE_DIR"; }
 if ! npm install --prefix "$SMOKE_DIR" --no-audit --no-fund "/tmp/$TARBALL" > /dev/null 2>&1; then
@@ -172,7 +161,7 @@ fi
 cleanup_smoke
 echo "  版本 $SMOKE_VERSION ✓ 补丁钩子 letters=3 open=1 shell=1+1 ✓"
 
-echo "▶ 7/7 建 Release 并附 tarball"
+echo "▶ 5/5 建 Release 并附 tarball"
 gh release create "$TAG" "/tmp/$TARBALL" --title "$TAG" --notes-file "$NOTES_FILE"
 
 rm "/tmp/$TARBALL"

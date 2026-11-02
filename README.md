@@ -122,11 +122,11 @@ bash 工具调用先过安全门（`hpl-safety-gate`）分类为 block / confirm
 
 ## 发版打包流程（开发机）
 
-一条命令，notes 在发版现场自动生成：
+一条命令，notes 在发版现场自动生成。版本号由用户指定且须等于当前 package.json 版本（snap 提交已自动迭代）；发版不产生 commit，tag 直接打在 HEAD：
 
 ```bash
-./scripts/release.sh <patch|minor|major> "<一句话内容>"
-./scripts/release.sh --dry-run patch "..."   # 只打印将执行的命令
+./scripts/release.sh 0.21.1 "修复 xxx"
+./scripts/release.sh --dry-run 0.21.1 "..."   # 只打印将执行的命令
 ```
 
 自动完成：**生成 release notes**（conventional type 机械映射到分块；无法映射的提交由 haiku 档模型决策分块并改写用户视角描述，产出到 `.hapilon/release/v<版本>.md`）→ 版本号升级 → 依赖精确锁定检查（`^`/`~` 范围直接拒绝）→ build + 全量测试门禁（不绿即中止回滚）→ commit（含 dist）→ 附注 tag → push（HTTPS 失败自动回退 ssh）→ `npm pack` → **全新安装冒烟验证**（隔离环境真装一遍：版本号 + 补丁钩子）→ `gh release create --notes-file` 附 tarball → 清理。
