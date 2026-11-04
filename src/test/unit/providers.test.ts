@@ -7,7 +7,6 @@ import {
   writeAuthFileNative,
   writeSkeletonFiles,
   readAuthFile,
-  mergeAuthEntries,
   ensureSettingsFile,
   ensureQuietStartup,
   maskKey,
@@ -444,41 +443,6 @@ describe("providers", () => {
         rmSync(dir, { recursive: true, force: true });
       }
     });
-  });
-});
-
-describe("mergeAuthEntries — 增量合并", () => {
-  it("🤖①: 已有 provider 条目在合并后原样保留", () => {
-    const existing = { deepseek: { type: "api_key", key: "sk-ds-old" } };
-    const merged = mergeAuthEntries(existing, { zai: "sk-zai-new" });
-    assert.deepEqual(merged, {
-      deepseek: { type: "api_key", key: "sk-ds-old" },
-      zai: { type: "api_key", key: "sk-zai-new" },
-    });
-  });
-
-  it("🤖②: 同一 provider 重复配置时新 key 覆盖旧 key", () => {
-    const existing = { deepseek: { type: "api_key", key: "sk-ds-old" } };
-    const merged = mergeAuthEntries(existing, { deepseek: "sk-ds-new" });
-    assert.deepEqual(merged, { deepseek: { type: "api_key", key: "sk-ds-new" } });
-  });
-
-  it("边界条件: OAuth 条目（type 非 api_key）不受本次输入影响", () => {
-    const existing = { xai: { type: "oauth", key: "token-xxx" } };
-    const merged = mergeAuthEntries(existing, { zai: "sk-zai" });
-    assert.equal(merged.xai.type, "oauth");
-    assert.equal(merged.xai.key, "token-xxx");
-  });
-
-  it("边界条件: 空输入时返回与已有配置相同的内容且不修改原对象", () => {
-    const existing: Record<string, { type: string; key: string }> = {
-      deepseek: { type: "api_key", key: "sk-ds" },
-    };
-    const snapshot = structuredClone(existing);
-    const merged = mergeAuthEntries(existing, {});
-    assert.deepEqual(merged, snapshot);
-    merged["zai"] = { type: "api_key", key: "x" };
-    assert.deepEqual(existing, snapshot); // 原对象不受返回值修改影响
   });
 });
 

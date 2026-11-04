@@ -39,27 +39,6 @@ export const GLOBAL_FLAGS: CommandOption[] = [
 
 export const COMMANDS: CommandDef[] = [
   {
-    name: "setup",
-    description: `初始化 ${cliIdentity.homeDisplay}/ 和 provider 认证`,
-    usage: `${cliIdentity.cliName} setup [--quick]`,
-    subcommands: [
-      {
-        name: "--quick",
-        description: "仅创建骨架目录，跳过交互式问答",
-      },
-    ],
-    handler: async (args) => {
-      const mod = await import("./setup.js");
-      const isQuick =
-        args.includes("--quick") || args.includes("-q");
-      if (isQuick) {
-        mod.setupQuick();
-      } else {
-        await mod.setupInteractive();
-      }
-    },
-  },
-  {
     name: "setup-herdr",
     description: "初始化 herdr-app 集成（start-agent 菜单 + 图标 + 启动 shim）",
     usage: `${cliIdentity.cliName} setup-herdr`,
@@ -79,34 +58,10 @@ export const COMMANDS: CommandDef[] = [
   },
   {
     name: "config",
-    description: "管理 hapilon 配置",
-    subcommands: [
-      {
-        name: "show",
-        description: "查看配置说明（默认模型由 Pi 原生 settings 管理）",
-      },
-      {
-        name: "provider",
-        description: "管理 provider API key",
-        subcommands: [
-          {
-            name: "list",
-            description: "列出已配置的 provider（key 脱敏显示）",
-          },
-          {
-            name: "add <id>",
-            description: "添加或更新 provider API key",
-          },
-          {
-            name: "remove <id>",
-            description: "删除 provider API key",
-          },
-        ],
-      },
-    ],
+    description: "查看配置说明（provider/model 由 Pi 原生管理）",
     handler: async (args) => {
       const { handleConfig } = await import("../config/handlers.js");
-      await handleConfig(args);
+      handleConfig(args);
     },
   },
   {

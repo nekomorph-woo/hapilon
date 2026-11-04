@@ -13,7 +13,6 @@ import { ensureExtensionConfigsEffect } from "../../extensions/ensure-configs.js
 import { removeSafetyExtensionsEffect } from "../../safety/safety-settings.js";
 import { bwrapInstalledEffect } from "../../safety/sandbox.js";
 import { addMcpServer, addMcpServerEffect, McpConfigError, loadMcpServersEffect } from "../../mcp/config-store.js";
-import { listModelsForProvider, listModelsForProviderEffect, PiListingError } from "../../providers/pi-listing.js";
 import { readProjectConfigEffect, writeProjectLocalConfigEffect } from "../../config/project-config.js";
 import { prepareStartupEffect, discoverHerdrPiExtension } from "../../cli/startup.js";
 import { collectUpwardEffect, discoverSkillPathsEffect, listFilesEffect, readHapilonMdEffect, readRulesEffect, } from "../../shared/files.js";
@@ -147,19 +146,6 @@ describe("Effect 核心 API", () => {
         assert.equal(exit._tag, "Failure");
         if (exit._tag === "Failure")
             assert.equal(exit.cause._tag, "Fail");
-    });
-    it("listModelsForProviderEffect 非法 HAPILON_HOME 走 Fail 通道", async () => {
-        process.env.HAPILON_HOME = "relative/path";
-        const exit = Effect.runSyncExit(listModelsForProviderEffect("openai"));
-        assert.equal(exit._tag, "Failure");
-        if (exit._tag === "Failure")
-            assert.equal(exit.cause._tag, "Fail");
-        await assert.rejects(listModelsForProvider("openai"), (err) => {
-            assert.ok(err instanceof PiListingError);
-            assert.match(err.message, /无法启动 pi:/);
-            return true;
-        });
-        process.env.HAPILON_HOME = tmpBase;
     });
     it("readProjectConfigEffect 完成三级合并，写入失败降级为 Success", () => {
         const project = join(tmpBase, "project");

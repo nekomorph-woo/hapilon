@@ -13,7 +13,6 @@ import { discoverExtensionsEffect, extensionNames } from "../extensions/loader.j
 import { ensureExtensionConfigsEffect } from "../extensions/ensure-configs.js";
 import { ensurePiPatch, warnIfPiPatchStale } from "../patch/ensure-pi-patch.js";
 import { resolveNpmExtensionPathsEffect, resolveNpmExtensionsBeforeHplEffect } from "../extensions/npm-extensions.js";
-import { deriveCliIdentity } from "./identity.js";
 import { rewriteTierModelArg, pickTierModel } from "./tier-model-arg.js";
 import { readResolvedTiersEffect } from "../extensions/hpl-model-tiers/resolved.js";
 export class StartupError extends Data.TaggedError("StartupError") {
@@ -52,10 +51,6 @@ export const prepareStartupEffect = (args) => Effect.gen(function* () {
     const noSafety = hasFlag(args, "--no-safety");
     const noEcon = hasFlag(args, "--no-econ");
     const piCli = yield* resolvePiCliEffect.pipe(Effect.mapError(toStartupError));
-    if (!existsSync(agentDirPath) && !isNonInteractive) {
-        const identity = deriveCliIdentity();
-        console.warn(`${identity.homeDisplay}/ not configured. Run \`${identity.cliName} setup\` to configure providers.`);
-    }
     yield* ensureQuietStartupEffect(agentDirPath).pipe(Effect.mapError(toStartupError));
     yield* migrateLegacyDefaultsEffect;
     const config = yield* readHapilonConfigEffect;

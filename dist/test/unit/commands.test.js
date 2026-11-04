@@ -13,21 +13,17 @@ describe("commands", () => {
         const unique = new Set(names);
         assert.strictEqual(unique.size, names.length, "命令 name 应唯一");
     });
-    it("setup/doctor/config/help 均已注册", () => {
+    it("doctor/config/help 均已注册，setup 已移除（provider 配置交给 pi 原生）", () => {
         const nameSet = new Set(COMMANDS.map((c) => c.name));
-        assert.ok(nameSet.has("setup"), "应包含 setup");
         assert.ok(nameSet.has("doctor"), "应包含 doctor");
         assert.ok(nameSet.has("config"), "应包含 config");
         assert.ok(nameSet.has("help"), "应包含 help");
+        assert.ok(!nameSet.has("setup"), "不应再包含 setup");
     });
-    it("config 有 show/provider 子命令且不再提供 hapilon default", () => {
+    it("config 无子命令（只剩一句指路说明），也不再提供 hapilon default", () => {
         const config = COMMANDS.find((c) => c.name === "config");
         assert.ok(config, "应存在 config 命令");
-        assert.ok(config.subcommands, "config 应有子命令");
-        const subNames = config.subcommands.map((s) => s.name);
-        assert.ok(subNames.includes("show"), "config 应有 show 子命令");
-        assert.ok(subNames.includes("provider"), "config 应有 provider 子命令");
-        assert.ok(!subNames.includes("default"), "config 不应再有 hapilon default 子命令");
+        assert.ok(!config.subcommands, "config 不应再有子命令");
     });
     it("子命令也有 description", () => {
         for (const cmd of COMMANDS) {
@@ -39,8 +35,8 @@ describe("commands", () => {
             }
         }
     });
-    it("路由由注册表驱动：setup/doctor/config/help 均有 handler", () => {
-        for (const name of ["setup", "doctor", "config", "help"]) {
+    it("路由由注册表驱动：doctor/config/help 均有 handler", () => {
+        for (const name of ["doctor", "config", "help"]) {
             const cmd = COMMANDS.find((c) => c.name === name);
             assert.ok(cmd, `应存在 ${name}`);
             assert.equal(typeof cmd.handler, "function", `${name} 应有 handler`);
