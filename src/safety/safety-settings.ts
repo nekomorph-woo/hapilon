@@ -40,13 +40,20 @@ function distDir(): string {
  */
 export function isSafetyExtensionPath(path: string): boolean {
   const normalized = path.replaceAll("\\", "/");
-  return SAFETY_EXTENSION_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+  return SAFETY_EXTENSION_SUFFIXES.some(
+    (suffix) => normalized.endsWith(suffix) || normalized.endsWith(suffix.replace(/\.js$/, ".ts")),
+  );
 }
 
 /** 当前构建中安全门扩展的绝对入口路径 */
 export function safetyExtensionPaths(): string[] {
   const base = join(distDir(), "..", "extensions");
-  return SAFETY_EXTENSION_SUFFIXES.map((suffix) => join(base, basename(dirname(suffix)), "index.js"));
+  return SAFETY_EXTENSION_SUFFIXES.map((suffix) => {
+    const js = join(base, basename(dirname(suffix)), "index.js");
+    // tsx 直跑 src 时无编译产物，回落 .ts 源；真实启动始终走 dist 的 .js
+    const ts = js.slice(0, -3) + ".ts";
+    return existsSync(js) ? js : existsSync(ts) ? ts : js;
+  });
 }
 
 /**
