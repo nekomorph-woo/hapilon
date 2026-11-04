@@ -1,63 +1,7 @@
-import { existsSync, readFileSync, writeFileSync, chmodSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { Data, Effect } from "effect";
 export class AuthWriteError extends Data.TaggedError("AuthWriteError") {
-}
-export const COMMON = [
-    { id: "deepseek", name: "DeepSeek" },
-    { id: "openai", name: "OpenAI" },
-    { id: "anthropic", name: "Anthropic" },
-    { id: "xai", name: "xAI" },
-    { id: "google", name: "Google Gemini" },
-    { id: "groq", name: "Groq" },
-    { id: "mistral", name: "Mistral" },
-    { id: "openrouter", name: "OpenRouter" },
-    { id: "zai", name: "ZAI (GLM)" },
-];
-export const ALL_PROVIDERS = [
-    ...COMMON,
-    { id: "ant-ling", name: "Ant Ling" },
-    { id: "azure-openai-responses", name: "Azure OpenAI" },
-    { id: "nvidia", name: "NVIDIA NIM" },
-    { id: "cerebras", name: "Cerebras" },
-    { id: "cloudflare-ai-gateway", name: "Cloudflare AI Gateway" },
-    { id: "cloudflare-workers-ai", name: "Cloudflare Workers AI" },
-    { id: "vercel-ai-gateway", name: "Vercel AI Gateway" },
-    { id: "zai-coding-cn", name: "ZAI Coding (China)" },
-    { id: "opencode", name: "OpenCode Zen" },
-    { id: "opencode-go", name: "OpenCode Go" },
-    { id: "huggingface", name: "Hugging Face" },
-    { id: "fireworks", name: "Fireworks" },
-    { id: "together", name: "Together AI" },
-    { id: "kimi-coding", name: "Kimi For Coding" },
-    { id: "minimax", name: "MiniMax" },
-    { id: "minimax-cn", name: "MiniMax (China)" },
-    { id: "xiaomi", name: "Xiaomi MiMo" },
-    { id: "xiaomi-token-plan-cn", name: "Xiaomi Token Plan (China)" },
-    { id: "xiaomi-token-plan-ams", name: "Xiaomi Token Plan (Amsterdam)" },
-    { id: "xiaomi-token-plan-sgp", name: "Xiaomi Token Plan (Singapore)" },
-];
-// ─── Config File Helpers ─────────────────────────────────────────────
-/** 以 Pi 原生格式（{type, key}）写入 auth.json */
-export const writeAuthFileNativeEffect = (agentDir, auth) => Effect.try({
-    try: () => {
-        const path = join(agentDir, "auth.json");
-        writeFileSync(path, JSON.stringify(auth, null, 2) + "\n", "utf8");
-        chmodSync(path, 0o600);
-    },
-    catch: (err) => new AuthWriteError({ message: err instanceof Error ? err.message : String(err) }),
-});
-export function writeAuthFileNative(agentDir, auth) {
-    const result = Effect.runSync(Effect.either(writeAuthFileNativeEffect(agentDir, auth)));
-    if (result._tag === "Left")
-        throw new Error(result.left.message);
-}
-/** settings.json 仅在不存在时写入空骨架，存在时不触碰 */
-export function ensureSettingsFile(agentDir) {
-    const path = join(agentDir, "settings.json");
-    if (!existsSync(path)) {
-        writeFileSync(path, "{}\n", "utf8");
-    }
 }
 /**
  * 在 Pi agent 目录写入/合并 quietStartup: true 设置。
@@ -136,71 +80,6 @@ export function semverGte(v1, v2) {
     }
     return true;
 }
-// ─── Skeleton Writer ─────────────────────────────────────────────────
-const MODELS_TEMPLATE = `{\n  "_guide": "Custom providers only. The 33 built-in providers (DeepSeek, OpenAI, Anthropic, etc.) are always available once auth is configured in auth.json. Add custom entries here only for self-hosted models (Ollama, vLLM, LM Studio) or proxy overrides. Docs: https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md",\n  "providers": {}\n}\n`;
-export const writeSkeletonFilesEffect = (agentDir) => Effect.gen(function* () {
-    const skeletons = {
-        "auth.json": "{}",
-        "settings.json": "{}",
-        "models.json": MODELS_TEMPLATE,
-    };
-    for (const [name, content] of Object.entries(skeletons)) {
-        const p = join(agentDir, name);
-        if (!existsSync(p)) {
-            yield* Effect.try({
-                try: () => writeFileSync(p, content + "\n", "utf8"),
-                catch: (err) => new AuthWriteError({ message: err instanceof Error ? err.message : String(err) }),
-            });
-            if (name === "auth.json") {
-                yield* Effect.try({
-                    try: () => chmodSync(p, 0o600),
-                    catch: (err) => new AuthWriteError({ message: err instanceof Error ? err.message : String(err) }),
-                });
-            }
-        }
-    }
-});
-export function writeSkeletonFiles(agentDir) {
-    const result = Effect.runSync(Effect.either(writeSkeletonFilesEffect(agentDir)));
-    if (result._tag === "Left")
-        throw new Error(result.left.message);
-}
-// ─── Auth File Reader ──────────────────────────────────────────────────
-/** 读取并解析 auth.json，不存在或损坏时返回 {} */
-export const readAuthFileEffect = (agentDir) => Effect.sync(() => {
-    const path = join(agentDir, "auth.json");
-    if (!existsSync(path))
-        return {};
-    try {
-        const parsed = JSON.parse(readFileSync(path, "utf8"));
-        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-            console.warn("Warning: auth.json 格式异常，将以空配置处理");
-            return {};
-        }
-        // Validate each entry has {type, key} shape
-        for (const [id, entry] of Object.entries(parsed)) {
-            if (typeof entry !== "object" ||
-                entry === null ||
-                typeof entry.type !== "string" ||
-                typeof entry.key !== "string") {
-                console.warn(`Warning: auth.json 条目 ${id} 格式不正确（需要 {type, key}），已跳过`);
-                delete parsed[id];
-            }
-        }
-        return parsed;
-    }
-    catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
-        console.warn(`Warning: auth.json 解析失败 (${detail})，将以空配置处理`);
-        return {};
-    }
-});
-export function readAuthFile(agentDir) {
-    const result = Effect.runSync(Effect.either(readAuthFileEffect(agentDir)));
-    if (result._tag === "Left")
-        throw new Error(result.left.message);
-    return result.right;
-}
 // ─── Key Masking ───────────────────────────────────────────────────────
 /** 脱敏显示 API key：sk-a1b2c3d4e5f6g7h8 → sk-a…g7h8 */
 export function maskKey(key) {
@@ -209,9 +88,4 @@ export function maskKey(key) {
     if (key.length <= 8)
         return key.slice(0, 2) + "…" + key.slice(-2);
     return key.slice(0, 4) + "…" + key.slice(-4);
-}
-// ─── Provider Lookup ───────────────────────────────────────────────────
-/** 在 ALL_PROVIDERS 中按 id 查找 */
-export function findProviderDef(id) {
-    return ALL_PROVIDERS.find((p) => p.id === id);
 }

@@ -9,7 +9,6 @@ import {
   hasFlag,
   stripHapilonFlags,
   takeTeamRoleFlags,
-  migrateLegacyDefaultsEffect,
 } from "../../config/config-io.js";
 import { Effect } from "effect";
 
@@ -45,27 +44,6 @@ describe("config-io", () => {
       assert.deepStrictEqual(config, {});
     });
 
-    it("正确解析 defaultProvider 和 defaultModel", () => {
-      writeFileSync(
-        join(tmpBase, "config.json"),
-        JSON.stringify({ defaultProvider: "deepseek", defaultModel: "deepseek-chat" }) + "\n",
-      );
-      const config = readHapilonConfig();
-      assert.deepStrictEqual(config, {
-        defaultProvider: "deepseek",
-        defaultModel: "deepseek-chat",
-      });
-    });
-
-    it("仅有 defaultProvider 时正确解析", () => {
-      writeFileSync(
-        join(tmpBase, "config.json"),
-        JSON.stringify({ defaultProvider: "openai" }) + "\n",
-      );
-      const config = readHapilonConfig();
-      assert.deepStrictEqual(config, { defaultProvider: "openai" });
-    });
-
     it("JSON 语法错误时返回 {} + 打印警告（含错误详情）", () => {
       writeFileSync(join(tmpBase, "config.json"), "not valid json\n");
 
@@ -84,28 +62,6 @@ describe("config-io", () => {
           warnings.join(" ").includes("Unexpected"),
           "警告应包含错误详情",
         );
-      } finally {
-        console.warn = originalWarn;
-      }
-    });
-
-    it("defaultProvider 不是字符串 → warn + 忽略", () => {
-      writeFileSync(
-        join(tmpBase, "config.json"),
-        JSON.stringify({ defaultProvider: 42, defaultModel: "valid" }) + "\n",
-      );
-
-      const warnings: string[] = [];
-      const originalWarn = console.warn;
-      console.warn = (...args: unknown[]) => {
-        warnings.push(args.map(String).join(" "));
-      };
-
-      try {
-        const config = readHapilonConfig();
-        assert.strictEqual(config.defaultProvider, undefined, "非字符串 defaultProvider 应被忽略");
-        assert.strictEqual(config.defaultModel, "valid", "合法 defaultModel 应保留");
-        assert.ok(warnings.length > 0, "应打印警告");
       } finally {
         console.warn = originalWarn;
       }
@@ -132,11 +88,10 @@ describe("config-io", () => {
     it("正确解析 safetyNoticeShown 为 true", () => {
       writeFileSync(
         join(tmpBase, "config.json"),
-        JSON.stringify({ safetyNoticeShown: true, defaultProvider: "test" }) + "\n",
+        JSON.stringify({ safetyNoticeShown: true }) + "\n",
       );
       const config = readHapilonConfig();
       assert.strictEqual(config.safetyNoticeShown, true);
-      assert.strictEqual(config.defaultProvider, "test", "其他字段不受影响");
     });
 
     it("safetyNoticeShown 不是布尔值 → warn + 忽略", () => {
@@ -193,28 +148,22 @@ describe("config-io", () => {
 
   describe("writeHapilonConfig()", () => {
     it("写入后可 read 回相同内容", () => {
-      writeHapilonConfig({
-        defaultProvider: "deepseek",
-        defaultModel: "deepseek-chat",
-      });
+      writeHapilonConfig({ safetyNoticeShown: true });
 
       const config = readHapilonConfig();
-      assert.deepStrictEqual(config, {
-        defaultProvider: "deepseek",
-        defaultModel: "deepseek-chat",
-      });
+      assert.deepStrictEqual(config, { safetyNoticeShown: true });
     });
 
     it("覆盖已有 config.json", () => {
-      writeHapilonConfig({ defaultProvider: "openai" });
-      writeHapilonConfig({ defaultProvider: "deepseek" });
+      writeHapilonConfig({ safetyNoticeShown: false });
+      writeHapilonConfig({ safetyNoticeShown: true });
 
       const config = readHapilonConfig();
-      assert.deepStrictEqual(config, { defaultProvider: "deepseek" });
+      assert.deepStrictEqual(config, { safetyNoticeShown: true });
     });
 
     it("写入后文件以换行符结尾", () => {
-      writeHapilonConfig({ defaultProvider: "test" });
+      writeHapilonConfig({ safetyNoticeShown: true });
 
       const content = readFileSync(join(tmpBase, "config.json"), "utf8");
       assert.ok(content.endsWith("\n"), "config.json 应以换行符结尾");
@@ -229,11 +178,10 @@ describe("config-io", () => {
     });
 
     it("写入 safetyNoticeShown 后可 read 回相同内容", () => {
-      writeHapilonConfig({ safetyNoticeShown: true, defaultProvider: "test" });
+      writeHapilonConfig({ safetyNoticeShown: true });
 
       const config = readHapilonConfig();
       assert.strictEqual(config.safetyNoticeShown, true);
-      assert.strictEqual(config.defaultProvider, "test", "其他字段不受影响");
     });
   });
 
@@ -291,50 +239,6 @@ describe("config-io", () => {
         stripHapilonFlags(["--no-safety-gate"]),
         ["--no-safety-gate"],
       );
-    });
-  });
-
-  describe("migrateLegacyDefaultsEffect()", () => {
-    it("迁移旧默认值、保留原生 settings 其他字段并清理旧 config 字段", () => {
-      writeFileSync(
-        join(tmpBase, "config.json"),
-        JSON.stringify({ defaultProvider: "deepseek", defaultModel: "deepseek-chat", safetyNoticeShown: true }) + "\n",
-      );
-      mkdirSync(join(tmpBase, "agent"), { recursive: true });
-      writeFileSync(join(tmpBase, "agent", "settings.json"), JSON.stringify({ theme: "dark" }) + "\n");
-
-      const migrated = Effect.runSync(migrateLegacyDefaultsEffect);
-
-      assert.equal(migrated, true);
-      assert.deepStrictEqual(JSON.parse(readFileSync(join(tmpBase, "agent", "settings.json"), "utf8")), {
-        theme: "dark",
-        defaultProvider: "deepseek",
-        defaultModel: "deepseek-chat",
-      });
-      assert.deepStrictEqual(JSON.parse(readFileSync(join(tmpBase, "config.json"), "utf8")), {
-        safetyNoticeShown: true,
-      });
-    });
-
-    it("不覆盖已有 Pi 原生默认值，迁移后再次执行幂等", () => {
-      writeFileSync(
-        join(tmpBase, "config.json"),
-        JSON.stringify({ defaultProvider: "legacy-provider", defaultModel: "legacy-model" }) + "\n",
-      );
-      mkdirSync(join(tmpBase, "agent"), { recursive: true });
-      writeFileSync(
-        join(tmpBase, "agent", "settings.json"),
-        JSON.stringify({ defaultProvider: "native-provider", defaultModel: "native-model", theme: "light" }) + "\n",
-      );
-
-      assert.equal(Effect.runSync(migrateLegacyDefaultsEffect), true);
-      assert.equal(Effect.runSync(migrateLegacyDefaultsEffect), false);
-      assert.deepStrictEqual(JSON.parse(readFileSync(join(tmpBase, "agent", "settings.json"), "utf8")), {
-        defaultProvider: "native-provider",
-        defaultModel: "native-model",
-        theme: "light",
-      });
-      assert.deepStrictEqual(JSON.parse(readFileSync(join(tmpBase, "config.json"), "utf8")), {});
     });
   });
 

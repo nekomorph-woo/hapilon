@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { Data, Effect } from "effect";
 import { getVersion } from "./help.js";
-import { hasFlag, migrateLegacyDefaultsEffect, readHapilonConfigEffect, writeHapilonConfigEffect, stripHapilonFlags, takeTeamRoleFlags } from "../config/config-io.js";
+import { hasFlag, readHapilonConfigEffect, writeHapilonConfigEffect, stripHapilonFlags, takeTeamRoleFlags } from "../config/config-io.js";
 import { hapilonHomeEffect } from "../config/hapilon-home.js";
 import { ensureQuietStartupEffect } from "../providers/providers.js";
 import { resolvePiCliEffect } from "../providers/pi-cli-path.js";
@@ -52,7 +52,6 @@ export const prepareStartupEffect = (args) => Effect.gen(function* () {
     const noEcon = hasFlag(args, "--no-econ");
     const piCli = yield* resolvePiCliEffect.pipe(Effect.mapError(toStartupError));
     yield* ensureQuietStartupEffect(agentDirPath).pipe(Effect.mapError(toStartupError));
-    yield* migrateLegacyDefaultsEffect;
     const config = yield* readHapilonConfigEffect;
     const { role: teamRole, promptFile: teamRolePromptFile, tasks: teamTasks, dangling, rest: withoutTeamFlags } = takeTeamRoleFlags(args);
     if (dangling) {

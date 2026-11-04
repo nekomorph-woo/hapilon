@@ -482,16 +482,65 @@ async function runTierOperations(ctx: ExtensionCommandContext, tiers: TierModels
   });
 }
 
+/** 读取 Pi 原生默认模型（agent/settings.json 的 defaultProvider/defaultModel）。 */
+function readDefaultModel(): { provider: string; id: string } | undefined {
+  const settings = readSettings(join(hapilonHome(), "agent", "settings.json"));
+  if (!settings) return undefined;
+  if (typeof settings.defaultProvider === "string" && typeof settings.defaultModel === "string" && settings.defaultProvider && settings.defaultModel) {
+    return { provider: settings.defaultProvider, id: settings.defaultModel };
+  }
+  return undefined;
+}
+
+/** 与旧 hapi config 的默认模型同一落点：写 Pi agent/settings.json。 */
+async function editDefaultModel(ctx: ExtensionCommandContext): Promise<void> {
+  const options = ctx.modelRegistry.getAvailable().map(modelOption);
+  if (options.length === 0) {
+    ctx.ui.notify("没有可用模型。", "warning");
+    return;
+  }
+  const selected = await ctx.ui.select("选择默认模型", [...options, "取消"]);
+  if (!selected || selected === "取消") return;
+
+  const separator = selected.indexOf("/");
+  const provider = selected.slice(0, separator);
+  const id = selected.slice(separator + 1);
+  const settingsPath = join(hapilonHome(), "agent", "settings.json");
+  const settings = readSettings(settingsPath);
+  if (!settings) {
+    ctx.ui.notify("settings.json 读取失败，未写入。", "error");
+    return;
+  }
+  settings.defaultProvider = provider;
+  settings.defaultModel = id;
+  try {
+    writeSettings(settingsPath, settings);
+  } catch (error) {
+    ctx.ui.notify(`写入 settings.json 失败：${error instanceof Error ? error.message : String(error)}`, "error");
+    return;
+  }
+  ctx.ui.notify(`已设置默认模型 ${selected}；请执行 /reload 生效。`, "info");
+}
+
 async function handleTiersCommand(ctx: ExtensionCommandContext): Promise<void> {
   const tiers = yieldTiers(ctx.cwd);
   await showTiersOverview(ctx, tiers);
   // 常驻菜单：改完一档回到根菜单可继续改其它档，esc/退出才离开
   await runMenuLoop(ctx, {
     title: "Tiers 编辑（选择档位进入操作）",
-    build: () => MODEL_TIERS.map((tier) => ({
-      label: `${TIER_DISPLAY[tier]}（${tiers[tier].length} 个模型）`,
-      run: () => runTierOperations(ctx, tiers, tier),
-    })),
+    build: () => {
+      const current = readDefaultModel();
+      const defaultLabel = current
+        ? `Default Model（当前 ${current.provider}/${current.id}）`
+        : "Default Model（未设置，兕底取 opus[0]）";
+      return [
+        ...MODEL_TIERS.map((tier) => ({
+          label: `${TIER_DISPLAY[tier]}（${tiers[tier].length} 个模型）`,
+          run: () => runTierOperations(ctx, tiers, tier),
+        })),
+        { label: defaultLabel, run: () => editDefaultModel(ctx) },
+      ];
+    },
   });
 }
 

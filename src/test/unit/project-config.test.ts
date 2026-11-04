@@ -43,37 +43,37 @@ describe("project-config", () => {
       // 写入用户级配置
       const userHome = join(tmpBase, "user-home");
       mkdirSync(userHome, { recursive: true });
-      writeFileSync(join(userHome, "config.json"), JSON.stringify({ defaultProvider: "deepseek" }));
+      writeFileSync(join(userHome, "config.json"), JSON.stringify({ safetyNoticeShown: true }));
 
       const proj = join(tmpBase, "noproj");
       const config = readProjectConfig(proj);
-      assert.strictEqual(config.defaultProvider, "deepseek");
+      assert.strictEqual(config.safetyNoticeShown, true);
     });
 
     it("项目 config.json 覆盖用户级同名配置", () => {
       const userHome = join(tmpBase, "user-home");
-      writeFileSync(join(userHome, "config.json"), JSON.stringify({ defaultProvider: "deepseek", defaultModel: "base" }));
+      writeFileSync(join(userHome, "config.json"), JSON.stringify({ safetyNoticeShown: true }));
 
       const proj = join(tmpBase, "proj1");
       const projHap = join(proj, ".hapilon");
       mkdirSync(projHap, { recursive: true });
-      writeFileSync(join(projHap, "config.json"), JSON.stringify({ defaultProvider: "openai" }));
+      writeFileSync(join(projHap, "config.json"), JSON.stringify({ safetyNoticeShown: false, allow: { bash: ["ls"] } }));
 
       const config = readProjectConfig(proj);
-      assert.strictEqual(config.defaultProvider, "openai", "项目级覆盖用户级");
-      assert.strictEqual(config.defaultModel, "base", "用户级未覆盖的保留");
+      assert.strictEqual(config.safetyNoticeShown, false, "项目级覆盖用户级");
+      assert.deepStrictEqual(config.allow, { bash: ["ls"] }, "项目级未覆盖用户级的保留");
     });
 
     it("config.local.json 覆盖 config.json", () => {
       const proj = join(tmpBase, "proj2");
       const projHap = join(proj, ".hapilon");
       mkdirSync(projHap, { recursive: true });
-      writeFileSync(join(projHap, "config.json"), JSON.stringify({ defaultProvider: "openai", defaultModel: "gpt4" }));
-      writeFileSync(join(projHap, "config.local.json"), JSON.stringify({ defaultModel: "local-model" }));
+      writeFileSync(join(projHap, "config.json"), JSON.stringify({ safetyNoticeShown: false, allow: { bash: ["ls"] } }));
+      writeFileSync(join(projHap, "config.local.json"), JSON.stringify({ allow: { bash: ["rm"] } }));
 
       const config = readProjectConfig(proj);
-      assert.strictEqual(config.defaultProvider, "openai", "config.json 的值保留");
-      assert.strictEqual(config.defaultModel, "local-model", "config.local.json 覆盖");
+      assert.strictEqual(config.safetyNoticeShown, false, "config.json 的值保留");
+      assert.deepStrictEqual(config.allow, { bash: ["rm"] }, "config.local.json 覆盖");
     });
 
     it("config.local.json 中的 allow 字段可读取", () => {
@@ -121,13 +121,13 @@ describe("project-config", () => {
       const projHap = join(proj, ".hapilon");
       mkdirSync(projHap, { recursive: true });
       // 手动写入含非 allow 字段的 local config
-      writeFileSync(join(projHap, "config.local.json"), JSON.stringify({ defaultModel: "local", allow: { write: [".env"] } }));
+      writeFileSync(join(projHap, "config.local.json"), JSON.stringify({ safetyNoticeShown: true, allow: { write: [".env"] } }));
 
       // 仅更新 allow
       writeProjectLocalConfig({ allow: { write: [".env", ".github"] } }, proj);
 
       const config = readProjectConfig(proj);
-      assert.strictEqual(config.defaultModel, "local", "非 allow 字段应保留");
+      assert.strictEqual(config.safetyNoticeShown, true, "非 allow 字段应保留");
       assert.deepStrictEqual(config.allow?.write, [".env", ".github"], "allow 字段被覆盖");
     });
   });

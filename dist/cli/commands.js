@@ -38,40 +38,6 @@ export const COMMANDS = [
         },
     },
     {
-        name: "config",
-        description: "查看配置说明（provider/model 由 Pi 原生管理）",
-        handler: async (args) => {
-            const { handleConfig } = await import("../config/handlers.js");
-            handleConfig(args);
-        },
-    },
-    {
-        name: "mcp",
-        description: "管理 MCP server 配置",
-        subcommands: [
-            {
-                name: "add <name> stdio -- <command> [args...] [--env K=V]...",
-                description: "添加本地子进程 MCP server",
-            },
-            {
-                name: "add <name> http <url> [--header \"K: V\"]...",
-                description: "添加远程 MCP server",
-            },
-            {
-                name: "list",
-                description: "列出已配置的 MCP server",
-            },
-            {
-                name: "remove <name> [-y]",
-                description: "删除 MCP server（-y 跳过确认）",
-            },
-        ],
-        handler: async (args) => {
-            const { handleMcp } = await import("../mcp/handlers.js");
-            await handleMcp(args.slice(1));
-        },
-    },
-    {
         name: "wait-pane",
         description: "等待某个 pane 收敛（团队模式派发的等待原语，供 orchestrator 后台调用）",
         usage: `${cliIdentity.cliName} wait-pane <pane-id> [--timeout <秒>]`,

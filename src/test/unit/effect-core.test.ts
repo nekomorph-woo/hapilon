@@ -10,13 +10,10 @@ import { readHapilonConfigEffect, writeHapilonConfigEffect } from "../../config/
 import { resolvePiCliEffect } from "../../providers/pi-cli-path.js";
 import {
   ensureQuietStartupEffect,
-  writeAuthFileNativeEffect,
-  writeSkeletonFilesEffect,
 } from "../../providers/providers.js";
 import { ensureExtensionConfigsEffect } from "../../extensions/ensure-configs.js";
 import { removeSafetyExtensionsEffect } from "../../safety/safety-settings.js";
 import { bwrapInstalledEffect } from "../../safety/sandbox.js";
-import { addMcpServer, addMcpServerEffect, McpConfigError, loadMcpServersEffect } from "../../mcp/config-store.js";
 import { readProjectConfigEffect, writeProjectLocalConfigEffect } from "../../config/project-config.js";
 import { prepareStartupEffect, discoverHerdrPiExtension } from "../../cli/startup.js";
 import {
@@ -116,11 +113,7 @@ describe("Effect 核心 API", () => {
   it("providers 的写入 Effects 失败走 AuthWriteError Fail 通道", () => {
     const blocked = join(tmpBase, "blocked-provider");
     writeFileSync(blocked, "file");
-    const effects = [
-      writeAuthFileNativeEffect(blocked, {}),
-      ensureQuietStartupEffect(blocked),
-      writeSkeletonFilesEffect(blocked),
-    ];
+    const effects = [ensureQuietStartupEffect(blocked)];
 
     for (const effect of effects) {
       const exit = Effect.runSyncExit(effect);
@@ -177,43 +170,17 @@ describe("Effect 核心 API", () => {
     );
   });
 
-  it("MCP 校验失败走 McpConfigError Fail 通道且同步包装保留实例类型", () => {
-    const def = { name: "bad/name", type: "stdio" } as { name: string; type: string } & Record<string, unknown>;
-    const exit = Effect.runSyncExit(addMcpServerEffect(tmpBase, def));
-    assert.equal(exit._tag, "Failure");
-    if (exit._tag === "Failure") assert.equal(exit.cause._tag, "Fail");
-    assert.equal(
-      Effect.runSync(
-        addMcpServerEffect(tmpBase, def).pipe(
-          Effect.catchTag("McpConfigError", () => Effect.succeed("caught")),
-        ),
-      ),
-      "caught",
-    );
-    assert.throws(() => addMcpServer(tmpBase, def), McpConfigError);
-  });
-
-  it("loadMcpServersEffect 损坏配置走 McpConfigError Fail 通道", () => {
-    const dir = join(tmpBase, "mcp-bad");
-    const path = join(dir, "mcp.json");
-    mkdirSync(dir);
-    writeFileSync(path, "bad json");
-    const exit = Effect.runSyncExit(loadMcpServersEffect(dir));
-    assert.equal(exit._tag, "Failure");
-    if (exit._tag === "Failure") assert.equal(exit.cause._tag, "Fail");
-  });
-
   it("readProjectConfigEffect 完成三级合并，写入失败降级为 Success", () => {
     const project = join(tmpBase, "project");
     const projectHapilon = join(project, ".hapilon");
     mkdirSync(projectHapilon, { recursive: true });
-    writeFileSync(join(tmpBase, "config.json"), JSON.stringify({ defaultProvider: "user", defaultModel: "base" }));
-    writeFileSync(join(projectHapilon, "config.json"), JSON.stringify({ defaultProvider: "shared" }));
-    writeFileSync(join(projectHapilon, "config.local.json"), JSON.stringify({ defaultModel: "local" }));
+    writeFileSync(join(tmpBase, "config.json"), JSON.stringify({ safetyNoticeShown: true }));
+    writeFileSync(join(projectHapilon, "config.json"), JSON.stringify({ safetyNoticeShown: false }));
+    writeFileSync(join(projectHapilon, "config.local.json"), JSON.stringify({ allow: { bash: ["ls"] } }));
     process.env.HAPILON_HOME = tmpBase;
     assert.deepEqual(Effect.runSync(readProjectConfigEffect(project)), {
-      defaultProvider: "shared",
-      defaultModel: "local",
+      safetyNoticeShown: false,
+      allow: { bash: ["ls"] },
     });
 
     const warnings: string[] = [];
@@ -222,7 +189,7 @@ describe("Effect 核心 API", () => {
     try {
       const blocked = join(tmpBase, "project-file");
       writeFileSync(blocked, "file");
-      const exit = Effect.runSyncExit(writeProjectLocalConfigEffect({ defaultModel: "ignored" }, blocked));
+      const exit = Effect.runSyncExit(writeProjectLocalConfigEffect({ safetyNoticeShown: true }, blocked));
       assert.equal(exit._tag, "Success");
       assert.ok(warnings.some((warning) => warning.includes("写入项目级配置失败:")));
     } finally {
@@ -263,10 +230,6 @@ describe("Effect 核心 API", () => {
   });
 
   it("prepareStartupEffect 组装完整 PiLaunchPlan", async () => {
-    writeFileSync(
-      join(tmpBase, "config.json"),
-      JSON.stringify({ defaultProvider: "startup-provider", defaultModel: "startup-model" }),
-    );
     const plan = await Effect.runPromise(prepareStartupEffect(["--print", "--no-safety", "--sandbox"]));
     assert.ok(existsSync(plan.piCli));
     assert.equal(plan.isNonInteractive, true);
@@ -281,11 +244,7 @@ describe("Effect 核心 API", () => {
     assert.equal(plan.piEnv.PONYTAIL_HIDE_STATUS, "1");
 
     const nativeSettings = JSON.parse(readFileSync(join(tmpBase, "agent", "settings.json"), "utf8"));
-    assert.equal(nativeSettings.defaultProvider, "startup-provider");
-    assert.equal(nativeSettings.defaultModel, "startup-model");
-    const hapilonConfig = JSON.parse(readFileSync(join(tmpBase, "config.json"), "utf8"));
-    assert.equal(hapilonConfig.defaultProvider, undefined);
-    assert.equal(hapilonConfig.defaultModel, undefined);
+    assert.equal(nativeSettings.quietStartup, true);
   });
 
   it("prepareStartupEffect：角色 pane 的任务列表落成 PI_TASKS，owner 与非 role 不注入", async () => {

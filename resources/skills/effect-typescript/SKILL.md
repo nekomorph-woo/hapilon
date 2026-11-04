@@ -17,7 +17,7 @@ description: Effect TypeScript 写法指南（typed errors、services、layers�
 
 ## 3. 薄同步包装
 
-遗留同步签名保留为 `Effect.runSync(Effect.either(...))` 的薄包装并检查 `_tag`。仅在遗留 API 强制时把类型化失败翻译成普通 `Error`；调用方用 `instanceof` 的地方保留领域实例。见 [`src/config/hapilon-home.ts`](../../../src/config/hapilon-home.ts) 的 `hapilonHome` 与 [`src/mcp/config-store.ts`](../../../src/mcp/config-store.ts)。
+遗留同步签名保留为 `Effect.runSync(Effect.either(...))` 的薄包装并检查 `_tag`。仅在遗留 API 强制时把类型化失败翻译成普通 `Error`；调用方用 `instanceof` 的地方保留领域实例。见 [`src/config/hapilon-home.ts`](../../../src/config/hapilon-home.ts) 的 `hapilonHome` 与 [`src/config/project-config.ts`](../../../src/config/project-config.ts)。
 
 ## 4. 组合
 

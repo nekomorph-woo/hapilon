@@ -36,6 +36,7 @@ hapilon 用 `HAPILON.md` 承载项目约定，分两层注入模型上下文：
 ## 模型档位与派发
 
 - **档位选模**：CLI 与配置里用 `tier:<档位>[<序号>]` 指代模型（如 `tier:haiku`、`tier:sonnet[2]`）。档位定义在全局 `~/.hapilon/model-tiers.json`，项目可用 `.hapilon/model-tiers.json` 按档覆盖。序号越界自动绕回，整档为空则启动失败。
+- **默认模型**：TUI 内 `/tiers` 的 Default Model 项选择，写入 Pi 原生 `agent/settings.json` 的 `defaultProvider/defaultModel`；未设置时兕底取 opus[0]。
 - **Agent 派发列表**：子代理不点名模型时，按 `~/.hapilon/subagent-models.json` 的顺序取第一个可用项（图像类 `subagent_type=vision` 走 `vision-models.json`）。项目层的 `.hapilon/` 同名文件整体替换全局。列表项带 provider 配额感知：某 provider 已用 ≥90% 时自动顺延下一候选，全部紧张则回落父会话模型。
 - **额度可见**：状态栏实时显示各 provider 的窗口用量与重置倒计时（如 `18%/5h~2h 76%/mo~9d`），烧到阈值前先看见。
 
@@ -162,14 +163,11 @@ gh release create v<X.Y.Z> /tmp/hapilon-<版本>.tgz --notes-file .hapilon/relea
 | 命令 | 用途 |
 |---|---|
 | `hapilon` / `hapi` | 进入 TUI（同文件双入口） |
-| `hapilon setup` | 交互式初始化配置 |
 | `hapilon doctor` | 环境体检 |
 | `hapilon --version` / `-v` | 查看 hapilon 版本 |
 | `hapi -p "…" --model tier:<档位>[<序号>]` | 一次性调用按档位选模型（如 `tier:haiku`）；发版脚本用它调 haiku 档 |
-| `hapilon mcp add <name> stdio -- <command> [args...]` | 添加本地子进程 MCP server（`--env K=V` 传环境变量；写 `~/.hapilon/agent/mcp.json`） |
-| `hapilon mcp add <name> http <url>` | 添加远程 MCP server（`--header "K: V"` 传请求头） |
-| `hapilon mcp list` / `remove <name>` | 列出 / 移除 MCP server |
-| `hapilon config show` | 查看配置 |
+
+MCP server 直接编辑 `~/.hapilon/agent/mcp.json` 或在 TUI 内用 `/mcp` 管理。
 
 TUI 内常用 slash command：`/econ`（bash 输出压缩开关）、`/acp`（上下文面板）、`/settings`(主题等)、`/mcp`（MCP server 管理）、`/ponytail lite|full|ultra|off`（极简编码强度）。
 
@@ -195,7 +193,7 @@ npm run test:integration # 只跑集成测试
 npm install --legacy-peer-deps && npm run build   # 换机器克隆后先构建
 ./scripts/setup-dev-alias.sh   # 写入别名（幂等，重复执行只更新）
 source ~/.zshrc                # 或重开终端
-devhapi setup && devhapi doctor
+devhapi doctor
 ```
 
 可选参数：`--alias <名>`、`--home <数据目录>`、`--rc <文件>`、`--remove` 移除。
