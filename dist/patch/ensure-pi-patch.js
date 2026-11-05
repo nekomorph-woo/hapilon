@@ -50,9 +50,11 @@ const HAPI_SUBAGENT_MODELS_MARKER = "__hplSubagentModelsPick";
 const HAPI_STATUS_STACK_MARKER = "hapiStatusStack";
 /** Bundle chunk directory; the host file is located by signature, not its hash name. */
 const PI_BUNDLE_CHUNKS = "dist/bundle/chunks";
+/** SelectList 选中项描述两行展开的 marker */
+const HAPI_DESC_WRAP_MARKER = "hapiDescWrap";
 /**
  * 全部改动均为字符串级替换，逐条 anchors 与实际 pi dist 产物 byte-for-byte 校验过
- * （pi-tui editor.js 2 条 + bundle chunk 4 条 + background-tasks.ts 5 条
+ * （pi-tui editor.js 2 条 + select-list.js 2 条 + bundle chunk 4 条 + background-tasks.ts 5 条
  * + pi-subagents host.js/settings.js 2 条 + interactive-mode.js 1 条
  * + slash-commands.js 1 条）。
  */
@@ -250,6 +252,47 @@ export const PATCH_RULES = [
         replace: "/*hapilon:状态行追加不覆盖(hapiStatusStack)*/",
         occurrences: 1,
         marker: HAPI_STATUS_STACK_MARKER,
+    },
+    // ── slash 补全描述只展示单行（pi-tui SelectList.renderItem 把描述压平后按
+    //    剩余宽度截断），长描述看不全。选中项的描述改为独占下方最多 2 行（全宽
+    //    换行），非选中项维持原样不占行。
+    {
+        package: PI_TUI_PACKAGE,
+        file: "dist/components/select-list.js",
+        find: "            lines.push(this.renderItem(item, isSelected, width, descriptionSingleLine, primaryColumnWidth));",
+        replace: "            // hapilon: hapiDescWrap — renderItem 可能返回多行（选中项描述展开）\n"
+            + '            const hapiRendered = this.renderItem(item, isSelected, width, descriptionSingleLine, primaryColumnWidth);\n'
+            + "            lines.push(...(Array.isArray(hapiRendered) ? hapiRendered : [hapiRendered]));",
+        occurrences: 1,
+        marker: HAPI_DESC_WRAP_MARKER,
+    },
+    {
+        package: PI_TUI_PACKAGE,
+        file: "dist/components/select-list.js",
+        find: "        if (descriptionSingleLine && width > 40) {\n            const effectivePrimaryColumnWidth",
+        replace: "        // hapilon: hapiDescWrap — 选中项描述独占下方最多 2 行，非选中项保持单行\n"
+            + "        if (isSelected && descriptionSingleLine && width > 40) {\n"
+            + "            const hapiHeaderWidth = Math.max(10, width - prefixWidth - 2);\n"
+            + "            const hapiHeader = this.theme.selectedText(`${prefix}${this.truncatePrimary(item, isSelected, hapiHeaderWidth, hapiHeaderWidth)}`);\n"
+            + "            const hapiMax = Math.max(10, width - 4);\n"
+            + "            const hapiLines = [];\n"
+            + '            let hapiCur = "";\n'
+            + "            for (const ch of descriptionSingleLine) {\n"
+            + '                if (visibleWidth(hapiCur + ch) > hapiMax) {\n'
+            + "                    hapiLines.push(hapiCur);\n"
+            + "                    hapiCur = ch;\n"
+            + "                }\n"
+            + "                else\n"
+            + "                    hapiCur += ch;\n"
+            + "            }\n"
+            + "            if (hapiCur)\n"
+            + "                hapiLines.push(hapiCur);\n"
+            + '            return [hapiHeader, ...hapiLines.slice(0, 2).map((l) => this.theme.description("    " + truncateToWidth(l, hapiMax, "")))];\n'
+            + "        }\n"
+            + "        if (descriptionSingleLine && width > 40) {\n"
+            + "            const effectivePrimaryColumnWidth",
+        occurrences: 1,
+        marker: HAPI_DESC_WRAP_MARKER,
     },
 ];
 /**
