@@ -19,6 +19,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { argumentCompletions } from "../../shared/argument-completion.js";
+import { CalibratePane } from "./calibrate-pane.js";
 import { agentDir, hapilonHome } from "../../config/hapilon-home.js";
 import { classifyCommand, classifyWithLabel, hasShellInjection } from "./classifier.js";
 import { checkSandboxWrite, type SandboxTarget } from "./sandbox-allow.js";
@@ -40,6 +41,7 @@ import {
   buildCalibrationSet,
   quotaStopReason,
   readTuneState,
+  type TuneReport,
 } from "./tune.js";
 import { readQuotaSnapshots } from "../hpl-quota-usage/cache.js";
 import { addTrust, isCommandTrusted, initProjectTrust } from "../../config/trust-store.js";
@@ -238,10 +240,10 @@ export default function (pi: ExtensionAPI) {
 
   const GATE_AUTO_MODE_USAGE = "用法：/gate-auto-mode [on|off]（不带参数查看状态）";
 
-  pi.registerCommand("gate-tune", {
+  pi.registerCommand("calibrate-gate", {
     description:
-      "安全门判定 prompt 自动调参（校准集=历史+人工判例+红队；反思重写→重评→保留最优）。"
-      + "用法：/gate-tune [--resume] [--restart] [--rounds N]；配额 HOT 自动存档暂停",
+      "安全门判官 prompt 自动调参（校准集=历史+人工判例+红队；反思重写→重评→保留最优）。"
+      + "用法：/calibrate-gate [--resume] [--restart] [--rounds N]；配额 HOT 自动存档暂停；运行期间阻塞操作",
     getArgumentCompletions: (query) =>
       argumentCompletions(
         [
@@ -258,7 +260,7 @@ export default function (pi: ExtensionAPI) {
       const maxRounds = roundsMatch ? Math.min(Number.parseInt(roundsMatch[1]!, 10), 6) : 3;
       const prior = readTuneState(ctx.cwd);
       if (prior && !resume && !restart) {
-        ctx.ui.notify?.("已有调参存档：用 /gate-tune --resume 继续，或 --restart 从头开始。", "warning");
+        ctx.ui.notify?.("已有调参存档：用 /calibrate-gate --resume 继续，或 --restart 从头开始。", "warning");
         return;
       }
       const cases = buildCalibrationSet(ctx.cwd);
@@ -266,35 +268,60 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify?.(`校准集不足（${cases.length} 条）——先正常使用积累历史再调参。`, "warning");
         return;
       }
-      ctx.ui.notify?.(`调参开始：校准集 ${cases.length} 条（历史/人工判例/红队），最多 ${maxRounds} 轮反思；每轮前查配额。`, "info");
       if (gateAutoConfig === undefined) gateAutoConfig = readGateAutoConfig();
       const autoCfg = gateAutoConfig;
-      const report = await runTune(
-        { available: ctx.modelRegistry.getAvailable(), complete: (m, r, o) => ctx.modelRegistry.complete(m as never, r, o) },
-        {
-          cwd: ctx.cwd,
-          modelSpec: autoCfg.model,
-          reflectionModelSpec: "tier:sonnet",
-          timeoutMs: autoCfg.timeoutMs,
-          maxRounds,
-          targetPassRate: 0.95,
-          quotaCheck: () => quotaStopReason(readQuotaSnapshots()),
-        },
-      );
-      const lines = [
+
+      const formatReport = (report: TuneReport): string[] => [
         `基线：pass ${(report.baseline.passRate * 100).toFixed(0)}% / catch ${(report.baseline.catchRate * 100).toFixed(0)}% / danger ${report.baseline.dangerCount}`,
         ...report.rounds.map((r) => `第${r.round}轮：pass ${(r.metrics.passRate * 100).toFixed(0)}% / catch ${(r.metrics.catchRate * 100).toFixed(0)}% / danger ${r.metrics.dangerCount}${r.kept ? " ✓保留" : " 未达优"}`),
         `终态：pass ${(report.final.passRate * 100).toFixed(0)}% / catch ${(report.final.catchRate * 100).toFixed(0)}% / danger ${report.final.dangerCount}`,
         report.wroteOverride ? "✓ 已写入 gate-judge-prompt.md（判定层即时生效）" : "未写入覆盖（未超基线或红队未全拦）",
+        ...(report.stoppedByQuota ? [`⏸ 配额暂停（${report.stoppedByQuota.windows.join("、")}）——已存档，重置后 /calibrate-gate --resume 续跑`] : []),
+        ...(report.final.failures.length > 0 && report.final.failures.length <= 8
+          ? ["剩余错例：", ...report.final.failures.map((f) => `  [${f.label}→${f.got}] ${f.command.slice(0, 70)}`)]
+          : []),
       ];
-      if (report.stoppedByQuota) {
-        lines.push(`⏸ 配额暂停（${report.stoppedByQuota.windows.join("、")}）——已存档，重置后 /gate-tune --resume 续跑`);
+
+      const runTuneWithProgress = (onProgress?: (line: string) => void) =>
+        runTune(
+          { available: ctx.modelRegistry.getAvailable(), complete: (m, r, o) => ctx.modelRegistry.complete(m as never, r, o) },
+          {
+            cwd: ctx.cwd,
+            modelSpec: autoCfg.model,
+            reflectionModelSpec: "tier:sonnet",
+            timeoutMs: autoCfg.timeoutMs,
+            maxRounds,
+            targetPassRate: 0.95,
+            quotaCheck: () => quotaStopReason(readQuotaSnapshots()),
+            onProgress,
+          },
+        );
+
+      // TUI：阻塞面板包住全程（跑完前吞掉所有按键，不可操作）
+      if (ctx.mode === "tui" && typeof ctx.ui.custom === "function") {
+        let pane: CalibratePane | undefined;
+        const tuning = runTuneWithProgress((line) => pane?.update(line))
+          .then((report) => {
+            pane?.finish(formatReport(report));
+            return report;
+          });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await ctx.ui.custom(
+          (tui: any, theme: any, kb: unknown, done: (result?: unknown) => void) => {
+            pane = new CalibratePane(tui, theme, kb, done, "Calibrate Gate");
+            return pane;
+          },
+          { overlay: true, overlayOptions: { anchor: "center", width: "70%", maxHeight: "85%" } },
+        );
+        const report = await tuning;
+        ctx.ui.notify?.(formatReport(report).join("\n"), "info");
+        return;
       }
-      if (report.final.failures.length > 0 && report.final.failures.length <= 8) {
-        lines.push("剩余错例：");
-        for (const f of report.final.failures) lines.push(`  [${f.label}→${f.got}] ${f.command.slice(0, 70)}`);
-      }
-      ctx.ui.notify?.(lines.join("\n"), "info");
+
+      // 非 TUI：维持原 notify 流程
+      ctx.ui.notify?.(`调参开始：校准集 ${cases.length} 条（历史/人工判例/红队），最多 ${maxRounds} 轮反思；每轮前查配额。`, "info");
+      const report = await runTuneWithProgress();
+      ctx.ui.notify?.(formatReport(report).join("\n"), "info");
     },
   });
 
