@@ -492,7 +492,8 @@ export const judgeCommand = <T extends JudgeModelShape>(
       }, {
         signal,
         reasoning: "low",
-        maxTokens: 500,
+        // 推理模型思考 token 计入预算：500 会被 reasoning 吃光致正文为空（glm-4.7 实例），1500 留出判定 JSON 空间
+        maxTokens: 1500,
       }),
       catch: (error) => new GateAutoApiError({
         message: error instanceof Error ? error.message : String(error),
