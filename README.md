@@ -37,6 +37,7 @@ hapilon 用 `HAPILON.md` 承载项目约定，分两层注入模型上下文：
 
 - **档位选模**：CLI 与配置里用 `tier:<档位>[<序号>]` 指代模型（如 `tier:haiku`、`tier:sonnet[2]`）。档位定义在全局 `~/.hapilon/model-tiers.json`，项目可用 `.hapilon/model-tiers.json` 按档覆盖。序号越界自动绕回，整档为空则启动失败。
 - **默认模型**：TUI 内 `/tiers` 的 Default Model 项选择，写入 Pi 原生 `agent/settings.json` 的 `defaultProvider/defaultModel`；未设置时兕底取 opus[0]。
+- **找回会话**：TUI 内 `/find-session <一句话描述>` 打开悬浮面板，本地关键词粗滤 + haiku 档排序摘要，回车热切换到选中会话（当前会话留在磁盘，可再切回）；对话里也可直接让模型用 `session_list` / `session_grep` / `session_resume` 工具找。
 - **Agent 派发列表**：子代理不点名模型时，按 `~/.hapilon/subagent-models.json` 的顺序取第一个可用项（图像类 `subagent_type=vision` 走 `vision-models.json`）。项目层的 `.hapilon/` 同名文件整体替换全局。列表项带 provider 配额感知：某 provider 已用 ≥90% 时自动顺延下一候选，全部紧张则回落父会话模型。
 - **额度可见**：状态栏实时显示各 provider 的窗口用量与重置倒计时（如 `18%/5h~2h 76%/mo~9d`），烧到阈值前先看见。
 

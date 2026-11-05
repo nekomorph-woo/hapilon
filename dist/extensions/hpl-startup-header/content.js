@@ -401,6 +401,7 @@ const EXT_CARDS = {
     "hpl-editor-slash": ["⠅", "trigger slash command completion mid text"],
     "hpl-effect-policy": ["⠮", "inject effect typescript coding policy per project"],
     "hpl-exit": ["⠫", "exit command with confirmation"],
+    "hpl-find-session": ["⠨", "search past sessions in natural language and resume"],
     "hpl-footer": ["⠢", "render footer with quota and context usage"],
     "hpl-herdr": ["⠷", "report pane status to herdr orchestrator"],
     "hpl-metrics": ["⠔", "track skill and command usage statistics"],
