@@ -6,7 +6,7 @@
  */
 
 export interface QuotaWindowSnapshot {
-  /** 窗口标签：5h / mo / wk（footer 显示 "18%/5h"） */
+  /** 窗口标签：按时长推导（5h / 7d / mo / wk，footer 显示 "18%/5h"） */
   window: string;
   /** 已用百分比（API 原义） */
   percent: number;

@@ -37,9 +37,18 @@ function windowFields(label: string, window: Record<string, unknown> | undefined
   const rows: QuotaField[] = [
     used === undefined ? unknownField(`${label}已使用`) : field(`${label}已使用`, `${String(used)}%`),
     reset === undefined ? unknownField(`${label}重置时间`) : field(`${label}重置时间`, formatResetTime(reset)),
-    duration === undefined ? unknownField(`${label}窗口`) : field(`${label}窗口`, formatDuration(duration)),
+    duration === undefined ? unknownField(`${label}时长`) : field(`${label}时长`, formatDuration(duration)),
   ];
   return rows;
+}
+
+/** 窗口时长秒 → 紧凑标签（604800→"7d"、18000→"5h"）；未知时长返回 undefined */
+function windowTag(seconds: unknown): string | undefined {
+  const n = typeof seconds === "string" ? Number(seconds) : seconds;
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return undefined;
+  if (n % 86400 === 0) return `${n / 86400}d`;
+  if (n % 3600 === 0) return `${n / 3600}h`;
+  return `${Math.round(n / 60)}m`;
 }
 
 function formatResetTime(value: unknown): string {
@@ -64,9 +73,10 @@ export function parseQuotaLines(payload: unknown): QuotaField[] {
   const rateLimit = asRecord(root?.rate_limit) ?? asRecord(root?.rateLimit);
   const credits = asRecord(root?.credits);
   const fields: QuotaField[] = [
+    // 窗口时长随套餐变化（Plus/Pro 5h+每周，prolite 仅 7 天），标签不写死时长
     field("订阅计划", firstValue(root, ["plan_type", "planType", "plan"])),
-    ...windowFields("5 小时窗口", asRecord(rateLimit?.primary_window) ?? asRecord(rateLimit?.primaryWindow)),
-    ...windowFields("每周窗口", asRecord(rateLimit?.secondary_window) ?? asRecord(rateLimit?.secondaryWindow)),
+    ...windowFields("主窗口", asRecord(rateLimit?.primary_window) ?? asRecord(rateLimit?.primaryWindow)),
+    ...windowFields("次窗口", asRecord(rateLimit?.secondary_window) ?? asRecord(rateLimit?.secondaryWindow)),
     field("额度余额", firstValue(credits, ["balance", "remaining", "credits"])),
     field("无限额度", firstValue(credits, ["unlimited"])),
   ];
@@ -92,9 +102,10 @@ export function parseSnapshot(payload: unknown, now: number): QuotaSnapshot {
     ["5h", asRecord(rateLimit?.primary_window) ?? asRecord(rateLimit?.primaryWindow)],
     ["wk", asRecord(rateLimit?.secondary_window) ?? asRecord(rateLimit?.secondaryWindow)],
   ];
-  for (const [tag, window] of specs) {
+  for (const [fallback, window] of specs) {
     const percent = firstValue(window, ["used_percent", "usedPercent", "usage_percent"]);
     if (typeof percent !== "number") continue;
+    const tag = windowTag(firstValue(window, ["limit_window_seconds", "limitWindowSeconds", "window_seconds"])) ?? fallback;
     const resetAtRaw = firstValue(window, ["reset_at", "resetAt"]);
     const resetAt = typeof resetAtRaw === "number" && resetAtRaw > 1e12 ? resetAtRaw : typeof resetAtRaw === "number" ? resetAtRaw * 1000 : undefined;
     windows.push({ window: tag, percent, resetAt });

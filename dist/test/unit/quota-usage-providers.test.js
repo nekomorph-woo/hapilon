@@ -94,16 +94,17 @@ describe("hpl-quota-usage provider 解析", () => {
         });
         const text = values(rows);
         assert.match(text, /订阅计划: pro/);
-        assert.match(text, /5 小时窗口已使用: 12%/);
-        assert.match(text, /每周窗口已使用: 4%/);
-        assert.match(text, /每周窗口窗口: 7 天/);
-        assert.match(text, /每周窗口重置时间: \d{4}-\d{2}-\d{2}/);
+        assert.match(text, /主窗口已使用: 12%/);
+        assert.match(text, /主窗口时长: 3 小时/);
+        assert.match(text, /次窗口已使用: 4%/);
+        assert.match(text, /次窗口时长: 7 天/);
+        assert.match(text, /次窗口重置时间: \d{4}-\d{2}-\d{2}/);
         assert.match(text, /额度余额: 7\.50/);
         assert.match(text, /无限额度: false/);
     });
     it("Codex 私有响应缺字段时不抛异常", () => {
         const rows = parseCodexQuota({ plan_type: "pro", rate_limit: {}, credits: {} });
-        assert.ok(rows.some((row) => row.label === "5 小时窗口已使用" && row.value === "unknown"));
+        assert.ok(rows.some((row) => row.label === "主窗口已使用" && row.value === "unknown"));
         assert.ok(rows.some((row) => row.label === "额度余额" && row.value === "unknown"));
     });
     it("xAI billing 样例解析周用量、周期、产品和预付余额", () => {

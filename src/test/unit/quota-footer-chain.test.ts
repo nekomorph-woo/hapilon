@@ -59,7 +59,7 @@ describe("quota 链路：snapshot → cache → footer", () => {
     assert.equal(snapshotHot(loaded), false);
   });
 
-  it("codex snapshot 映射 5h/wk 双窗口，reset_at 秒转毫秒", () => {
+  it("codex snapshot 按窗口时长推标签（5h+7d），reset_at 秒转毫秒", () => {
     const now = Date.now();
     const snapshot = parseCodexSnapshot({
       plan_type: "plus",
@@ -68,10 +68,10 @@ describe("quota 链路：snapshot → cache → footer", () => {
         secondary_window: { used_percent: 5, limit_window_seconds: 604800, reset_at: Math.floor(now / 1000) + 6 * 86400 },
       },
     }, now);
-    assert.deepEqual(snapshot.windows.map((w) => w.window), ["5h", "wk"]);
+    assert.deepEqual(snapshot.windows.map((w) => w.window), ["5h", "7d"]);
     assert.ok(snapshot.windows[0]!.resetAt! > now, "reset_at 已转毫秒");
     const segment = buildQuotaSegment(snapshot.windows, snapshot.balanceCny, now);
-    assert.match(segment, /^2%\/5h~4[45]m 5%\/wk~[56]d$/);
+    assert.match(segment, /^2%\/5h~4[45]m 5%\/7d~[56]d$/);
   });
 
   it("deepseek snapshot 走余额模板，footer 显示 ¥", () => {
