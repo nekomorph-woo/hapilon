@@ -129,10 +129,6 @@ Desktop.ini
 !.hapilon/subagents.json
 !.hapilon/agents/
 
-# Polaris 正式 Case 随代码保存，工作记录与证据仍留本地
-!.hapilon/polaris/
-.hapilon/polaris/*
-
 # --- Claude ---
 .claude/settings.json
 .claude/settings.local.json
