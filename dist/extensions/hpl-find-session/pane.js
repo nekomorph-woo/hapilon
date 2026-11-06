@@ -66,17 +66,16 @@ export class FindSessionPane extends FloatingPane {
         }
         this.title = `Find Session — ${this.entries.length} 个候选（${this.query}）`;
         this.lines = [];
-        // 每条候选占 2-3 行：标题行（时间/路径/名称）+ 80 字总结按宽度折行，免去滚动展开
+        // 每条候选占 2-3 行：首行 开始→结束 时间，次行总结折行（最多 2 行）
         const summaryWidth = Math.max(30, this.innerW - 4);
         this.entries.forEach((item, index) => {
             const selected = index === this.sel;
-            const time = item.entry.modified.slice(0, 16).replace("T", " ");
-            const cwd = item.entry.cwd.replace(/^\/Users\/[^/]+/, "~");
-            const name = item.entry.name || item.entry.firstUser.slice(0, 24) || "(未命名)";
+            const start = item.entry.created.slice(0, 16).replace("T", " ") || "?";
+            const end = item.entry.modified.slice(11, 16);
             const head = selected ? th.fg("accent", "▸ ") : "  ";
             if (selected)
                 this.lines.push("");
-            this.lines.push(`${head}${time} ${this.truncate(cwd, 28)} ${this.truncate(name, 24)}`);
+            this.lines.push(`${head}${start} → ${end}`);
             for (const line of wrapPlain(item.summary, summaryWidth).slice(0, 2)) {
                 this.lines.push(th.fg(selected ? "accent" : "muted", `  ${line}`));
             }
