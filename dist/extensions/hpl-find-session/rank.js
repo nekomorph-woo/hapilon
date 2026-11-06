@@ -84,16 +84,18 @@ export async function rankEntries(query, candidates, deps) {
     catch {
         modelOrder = [];
     }
-    const byIndex = new Map(modelOrder.map((r) => [r.index, r.summary]));
     const ranked = [];
     for (const item of modelOrder) {
         const entry = candidates[item.index];
         if (entry)
             ranked.push({ entry, summary: item.summary });
     }
+    // 模型已选出相关候选：只展示选中的（每行都是针对查询的总结）；
+    // 降级时才全量展示，首句兜底。
+    if (ranked.length > 0)
+        return { ranked, degraded: choice.degraded, modelLabel };
     for (let index = 0; index < candidates.length; index++) {
-        if (!byIndex.has(index))
-            ranked.push({ entry: candidates[index], summary: fallbackSummary(candidates[index]) });
+        ranked.push({ entry: candidates[index], summary: fallbackSummary(candidates[index]) });
     }
-    return { ranked, degraded: modelOrder.length === 0 || choice.degraded, modelLabel };
+    return { ranked, degraded: true, modelLabel };
 }
