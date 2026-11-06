@@ -13,8 +13,18 @@ import { hapilonHome } from "../../config/hapilon-home.js";
 import { readResolvedTiersEffect } from "../hpl-model-tiers/resolved.js";
 import type { RecapModelShape } from "../hpl-recap/model.js";
 import { selectRecapModel } from "../hpl-recap/model.js";
-import { grepSessions, prefilter, scanSessions, type SessionExcerpt } from "./index-core.js";
+import { grepSessions, listSessionFiles, prefilter, scanSessions, type SessionExcerpt } from "./index-core.js";
 import { rankEntries, type ModelDeps, type RankedEntry } from "./rank.js";
+import {
+  acquireLeader,
+  loadIndex,
+  mergeIntoIndex,
+  pendingForIndex,
+  releaseLeader,
+  runIndexerPass,
+  summarizeEntries,
+} from "./indexer.js";
+import { parseSessionFile } from "./index-core.js";
 import { FindSessionPane } from "./pane.js";
 
 const PREFILTER_TOP = 20;
@@ -44,13 +54,36 @@ function buildModelDeps(ctx: ExtensionContext): ModelDeps {
   };
 }
 
-/** 搜索管线：扫描 → 粗滤 → 模型排序。 */
+/** 搜索管线：摘要索引匹配 → 未索引的现场补建 → 模型排序（查询条件化总结）。 */
 async function searchSessions(query: string, deps: ModelDeps): Promise<{
   ranked: RankedEntry[];
   degraded: boolean;
   modelLabel: string;
 }> {
-  const all = await scanSessions(sessionsRoot());
+  const root = sessionsRoot();
+  const now = Date.now();
+  const files = listSessionFiles(root);
+  const fileMtimes = new Map(files.map((f) => [f.path, f.mtimeMs]));
+  const index = loadIndex(root);
+
+  // 未索引的安静会话：现场批量补一轮（最近 20 个，一次调用），查询即触发增量
+  const missing = pendingForIndex(files, index, now).slice(0, 20);
+  if (missing.length > 0) {
+    const parsed = (await Promise.all(missing.map((f) => parseSessionFile(f.path, f.sizeBytes)))).filter(
+      (e): e is SessionExcerpt => e !== null,
+    );
+    const { records } = await summarizeEntries(parsed, deps);
+    if (records.size > 0) mergeIntoIndex(root, records, fileMtimes);
+    for (const [path, record] of records) index.set(path, record);
+  }
+
+  // 候选 = 索引记录；排除仍在写入的会话（mtime 未安静）和已删除文件
+  const quiet = new Set(pendingForIndexQuietPaths(files, now));
+  const all = [...index.values()]
+    .filter((r) => fileMtimes.has(r.excerpt.path) && quiet.has(r.excerpt.path))
+    .map((r) => r.excerpt)
+    .sort((a, b) => b.modified.localeCompare(a.modified));
+
   const keywordHit = prefilter(all, query);
   // 关键词全空手时退回全量（交给模型判断），否则只送命中集
   const candidates = (keywordHit.length > 0 ? keywordHit : all).slice(0, PREFILTER_TOP);
@@ -58,6 +91,13 @@ async function searchSessions(query: string, deps: ModelDeps): Promise<{
     return { ranked: [], degraded: false, modelLabel: "" };
   }
   return rankEntries(query, candidates, deps);
+}
+
+function pendingForIndexQuietPaths(
+  files: Array<{ path: string; mtimeMs: number }>,
+  now: number,
+): string[] {
+  return files.filter((f) => now - f.mtimeMs >= 10 * 60 * 1000).map((f) => f.path);
 }
 
 function shortPath(path: string): string {
@@ -73,6 +113,42 @@ function entryLine(entry: SessionExcerpt): string {
 }
 
 export default function hplFindSession(pi: ExtensionAPI): void {
+  // ── 后台摘要索引器：单实例领导者，空闲时增量补建 ──────────────────
+  let indexerTimer: ReturnType<typeof setInterval> | undefined;
+  let indexerFailedOnce = false;
+
+  pi.on("session_start", (_event, ctx) => {
+    if (indexerTimer) return;
+    const runPass = async () => {
+      const root = sessionsRoot();
+      if (!acquireLeader(root, Date.now())) return;
+      try {
+        const added = await runIndexerPass(root, listSessionFiles(root), buildModelDeps(ctx));
+        indexerFailedOnce = false;
+        if (added > 0) ctx.ui.notify(`会话索引：新增 ${added} 条摘要`, "info");
+      } catch (error) {
+        // 非关键后台任务：只警告一次，避免持续故障每 5 分钟叨扰
+        if (!indexerFailedOnce) {
+          indexerFailedOnce = true;
+          ctx.ui.notify(`会话索引失败：${error instanceof Error ? error.message : String(error)}`, "warning");
+        }
+      } finally {
+        releaseLeader(root);
+      }
+    };
+    const initial = setTimeout(() => void runPass(), 2 * 60_000);
+    initial.unref?.();
+    indexerTimer = setInterval(() => void runPass(), 5 * 60_000);
+    indexerTimer.unref?.();
+  });
+
+  pi.on("session_shutdown", () => {
+    if (indexerTimer) {
+      clearInterval(indexerTimer);
+      indexerTimer = undefined;
+    }
+  });
+
   // ── /find-session 命令 ─────────────────────────────────────────────
   pi.registerCommand("find-session", {
     description: "Search past sessions in natural language and resume one (floating pane)",
