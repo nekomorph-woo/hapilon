@@ -8,17 +8,22 @@ import { hapilonHome } from "../config/hapilon-home.js";
 export class HerdrSetupError extends Data.TaggedError("HerdrSetupError") {
 }
 // ─── 内置资产 ─────────────────────────────────────────────────────────
-// 双子图标：大圆右上咬一口，小点嵌在缺口里（对比盲文/小屋方案后定稿）
+// 三球图标：白月球右上被琥珀太阳咬、左下被蓝地球（青绿大陆斑）咬；颜色内置（tint:false）。
+// 地球挖口缝 1.5 是极限档 16px 可辨的上限——太阳同宽的 2.2 会把月牙挤到看不见
 const GEMINI_ICON_SVG = '<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>hapilon</title>' +
-    '<defs><mask id="bite"><rect width="24" height="24" fill="#fff"/><circle cx="17.5" cy="6.5" r="4.6" fill="#000"/></mask></defs>' +
-    '<circle cx="10.5" cy="13.5" r="7.2" mask="url(#bite)"/>' +
-    '<circle cx="17.5" cy="6.5" r="2.4"/>' +
+    '<defs><mask id="bite"><rect width="24" height="24" fill="#fff"/><circle cx="17.5" cy="6.5" r="4.6" fill="#000"/><circle cx="5.9" cy="18.1" r="6.1" fill="#000"/></mask>' +
+    '<clipPath id="globe"><circle cx="5.9" cy="18.1" r="4.6"/></clipPath></defs>' +
+    '<circle cx="10.5" cy="13.5" r="7.2" fill="#ffffff" mask="url(#bite)"/>' +
+    '<circle cx="17.5" cy="6.5" r="2.4" fill="#FFB020"/>' +
+    '<g clip-path="url(#globe)"><circle cx="5.9" cy="18.1" r="4.6" fill="#4DA3FF"/>' +
+    '<ellipse cx="4.8" cy="16.8" rx="2" ry="1.2" fill="#2DD4BF" transform="rotate(-24 4.8 16.8)"/>' +
+    '<ellipse cx="7.5" cy="19.5" rx="1.49" ry="0.95" fill="#2DD4BF" transform="rotate(28 7.5 19.5)"/></g>' +
     '</svg>\n';
 const PROGRAM_ENTRY = {
     name: "Hapilon",
     icon: "", // setup 时按内容 hash 填
     run: ["hapilon"],
-    tint: true,
+    tint: false, // 图标自带颜色
     tile: "#1c1d21",
     color: "#ffffff",
 };
