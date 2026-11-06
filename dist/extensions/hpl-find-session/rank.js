@@ -4,8 +4,10 @@
 import { selectRecapModel } from "../hpl-recap/model.js";
 const RANK_SYSTEM_PROMPT = [
     "你是会话检索助手。给你用户的一句话描述和一批历史会话候选（含首末用户消息）。",
-    "任务：挑出与描述相关的会话，按相关度降序，每个给一行不超过 40 字的中文摘要（概括这个会话在做什么）。",
-    '只返回严格 JSON 数组，不要任何其它文字：[{"i":<候选编号>,"s":"<一行摘要>"}]，最多 10 项，i 必须来自候选编号。',
+    "任务：挑出与描述相关的会话，按相关度降序，每个给一段不超过 80 字的中文总结。",
+    "总结必须针对用户的描述回答：这个会话里做了什么、得到了什么结论或结果、能帮用户解决描述中的问题到什么程度。",
+    "不要泛泛概括会话主题，要让用户读完就能判断这是不是要找的那个会话。",
+    '只返回严格 JSON 数组，不要任何其它文字：[{"i":<候选编号>,"s":"<不超过80字总结>"}]，最多 10 项，i 必须来自候选编号。',
     "没有相关会话时返回 []。",
 ].join("\n");
 function candidateLine(index, entry) {
@@ -50,7 +52,7 @@ export function parseRankedJson(text) {
             continue;
         if (typeof item.s !== "string" || !item.s.trim())
             continue;
-        out.push({ index: item.i, summary: item.s.trim().slice(0, 60) });
+        out.push({ index: item.i, summary: item.s.trim().slice(0, 100) });
     }
     return out;
 }

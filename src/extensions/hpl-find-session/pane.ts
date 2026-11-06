@@ -91,6 +91,14 @@ export class FindSessionPane extends FloatingPane {
       const head = selected ? th.fg("accent", "▸ ") : "  ";
       return `${head}${time} ${this.truncate(cwd, 28)} ${this.truncate(name, 24)} · ${this.truncate(item.summary, 34)}`;
     });
+    // 选中项的完整总结：针对用户查询归纳，帮助判断是否为目标会话
+    const current = this.entries[this.sel];
+    if (current) {
+      this.lines.push("", th.fg("accent", `▸ ${current.entry.name || "(未命名)"} — 这个会话对你的问题：`));
+      for (const line of wrapPlain(current.summary, Math.max(20, this.innerW - 4)).slice(0, 3)) {
+        this.lines.push(th.fg("muted", `  ${line}`));
+      }
+    }
     this.lines.push("", th.fg("muted", "↑/k ↓/j 选择 · 回车切换到该会话 · e 重新输入 · esc 退出"));
     if (this.statusLine) this.lines.push(th.fg("warning", this.statusLine));
     this.footer = "";
@@ -157,4 +165,24 @@ export class FindSessionPane extends FloatingPane {
     }
     return true;
   }
+}
+
+/** 按显示宽度换行纯文本（CJK 双宽），最多行数由调用方裁剪。 */
+function wrapPlain(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let cur = "";
+  let w = 0;
+  for (const ch of text) {
+    const cw = ch.charCodeAt(0) > 0xff ? 2 : 1;
+    if (w + cw > width) {
+      lines.push(cur);
+      cur = ch;
+      w = cw;
+    } else {
+      cur += ch;
+      w += cw;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
 }
