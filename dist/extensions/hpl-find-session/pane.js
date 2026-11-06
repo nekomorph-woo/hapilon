@@ -65,22 +65,22 @@ export class FindSessionPane extends FloatingPane {
             return;
         }
         this.title = `Find Session — ${this.entries.length} 个候选（${this.query}）`;
-        this.lines = this.entries.map((item, index) => {
+        this.lines = [];
+        // 每条候选占 2-3 行：标题行（时间/路径/名称）+ 80 字总结按宽度折行，免去滚动展开
+        const summaryWidth = Math.max(30, this.innerW - 4);
+        this.entries.forEach((item, index) => {
             const selected = index === this.sel;
             const time = item.entry.modified.slice(0, 16).replace("T", " ");
             const cwd = item.entry.cwd.replace(/^\/Users\/[^/]+/, "~");
             const name = item.entry.name || item.entry.firstUser.slice(0, 24) || "(未命名)";
             const head = selected ? th.fg("accent", "▸ ") : "  ";
-            return `${head}${time} ${this.truncate(cwd, 28)} ${this.truncate(name, 24)} · ${this.truncate(item.summary, 34)}`;
-        });
-        // 选中项的完整总结：针对用户查询归纳，帮助判断是否为目标会话
-        const current = this.entries[this.sel];
-        if (current) {
-            this.lines.push("", th.fg("accent", `▸ ${current.entry.name || "(未命名)"} — 这个会话对你的问题：`));
-            for (const line of wrapPlain(current.summary, Math.max(20, this.innerW - 4)).slice(0, 3)) {
-                this.lines.push(th.fg("muted", `  ${line}`));
+            if (selected)
+                this.lines.push("");
+            this.lines.push(`${head}${time} ${this.truncate(cwd, 28)} ${this.truncate(name, 24)}`);
+            for (const line of wrapPlain(item.summary, summaryWidth).slice(0, 2)) {
+                this.lines.push(th.fg(selected ? "accent" : "muted", `  ${line}`));
             }
-        }
+        });
         this.lines.push("", th.fg("muted", "↑/k ↓/j 选择 · 回车切换到该会话 · e 重新输入 · esc 退出"));
         if (this.statusLine)
             this.lines.push(th.fg("warning", this.statusLine));
