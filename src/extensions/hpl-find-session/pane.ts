@@ -111,6 +111,13 @@ export class FindSessionPane extends FloatingPane {
         this.rerender();
         return true;
       }
+      // 粘贴：终端保证以括号粘贴序列整段到达；换行压成空格，控制字符剔除
+      if (data.includes("\x1b[200~")) {
+        const pasted = data.replace(/^\x1b\[200~/, "").replace(/\x1b\[201~$/, "");
+        this.query += pasted.replace(/[\r\n]+/g, " ").replace(/[\x00-\x1f]/g, "");
+        this.rerender();
+        return true;
+      }
       // 可打印 ASCII 与常见中文（多字节整段到达）
       const printable = /^[\x20-\x7e\u00a0-\uffff]+$/.test(data) && !/[\x00-\x1f]/.test(data);
       if (printable) {
