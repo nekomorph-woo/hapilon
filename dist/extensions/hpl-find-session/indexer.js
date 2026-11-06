@@ -1,26 +1,24 @@
 /**
- * indexer.ts — 会话摘要索引：后台预建（查询快路径的数据源）
+ * indexer.ts — 会话摘要索引：后台预建（查询快路径的数据源）。
  *
- * 单写者：锁文件（独占创建 + 心跳内容为时间戳）决定哪个 hapi 实例干活，
- * 崩溃后心跳过期自动被其他实例接管。写入：整份 JSON 写临时文件后原子改名。
- * 防抖：会话文件 mtime 安静 10 分钟才算结束，才值得花一次模型调用。
+ * 单写者：锁由调用方（indexer-lifecycle.ts）在 pass 最外层持有，本模块不管锁；
+ * 查询侧只读缓存并发布补建请求，只有锁持有者写 index.json（整份读改 + 原子改名）。摘要来自 digest.ts 的完整分段总结，
+ * 缓存版本 v2；旧 v1 缓存（首末消息 80 字摘要）直接作废重建。
+ * 防抖：文件 mtime 安静 10 分钟才自动建索引；建索引前后 stat 一致才记当前 mtime。
  */
-import { closeSync, existsSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { selectRecapModel } from "../hpl-recap/model.js";
-import { parseRankedJson } from "./rank.js";
+import { Effect } from "effect";
+import { selectRecapModel, recapModelLabel } from "../hpl-recap/model.js";
 import { parseSessionFile } from "./index-core.js";
+import { buildSessionDigest, DigestFileError } from "./digest.js";
+import { appendCompletionEvent, consumeRebuildRequests, nextEventId, requestRebuild, } from "./coordination.js";
 const QUIET_MS = 10 * 60 * 1000;
-const BATCH_SIZE = 20;
-const LOCK_STALE_MS = 10 * 60 * 1000;
-const INDEX_VERSION = 1;
+export const INDEX_VERSION = 2;
 export function indexPath(sessionsRoot) {
     return join(sessionsRoot, "index.json");
 }
-function lockPath(sessionsRoot) {
-    return join(sessionsRoot, "indexer.lock");
-}
-/** 读索引；缺文件或损坏都返回空表（查询侧降级重扫，不抛错）。 */
+/** 读索引；缺文件、损坏或旧版本（v1）都返回空表——旧缓存整体重建。 */
 export function loadIndex(sessionsRoot) {
     const out = new Map();
     const file = indexPath(sessionsRoot);
@@ -28,7 +26,9 @@ export function loadIndex(sessionsRoot) {
         return out;
     try {
         const parsed = JSON.parse(readFileSync(file, "utf8"));
-        if (parsed?.version === INDEX_VERSION && parsed.records && typeof parsed.records === "object") {
+        if (parsed?.version !== INDEX_VERSION)
+            return out;
+        if (parsed.records && typeof parsed.records === "object") {
             for (const [path, record] of Object.entries(parsed.records)) {
                 if (record && record.excerpt && typeof record.summary === "string")
                     out.set(path, record);
@@ -50,130 +50,104 @@ export function writeIndexAtomic(sessionsRoot, records) {
 /**
  * 从「当前文件清单 + 已有索引」挑出需要建索引的文件：
  * 已安静 QUIET_MS 且（无缓存或 mtime 变过），按最近优先。
+ * extraPaths（查询侧补建请求）不受安静门限制，但仍要 stat 稳定才入账。
  */
-export function pendingForIndex(files, index, now) {
-    return files
-        .filter((f) => {
-        if (now - f.mtimeMs < QUIET_MS)
-            return false;
-        const cached = index.get(f.path);
-        return !cached || cached.mtimeMs !== f.mtimeMs;
-    })
-        .sort((a, b) => b.mtimeMs - a.mtimeMs);
-}
-const INDEX_SUMMARY_PROMPT = [
-    "你是会话归档助手。给你一批历史会话（含首末用户消息、时间、目录）。",
-    "任务：为每个会话写一段不超过 80 字的中文总结，概括这个会话做了什么、得出了什么结论或交付了什么。",
-    "总结要能让读者日后凭一句话描述认出这个会话；写实质内容，不写「用户讨论了一些问题」这类空话。",
-    '只返回严格 JSON 数组，不要任何其它文字：[{"i":<编号>,"s":"<不超过80字总结>"}]，每个编号一项，不得省略。',
-].join("\n");
-function responseTextOf(response) {
-    if (response && typeof response === "object") {
-        const content = response.content;
-        if (typeof content === "string")
-            return content;
-        if (Array.isArray(content)) {
-            return content
-                .map((b) => (typeof b === "object" && b !== null ? String(b.text ?? "") : ""))
-                .join("");
-        }
-    }
-    return "";
-}
-/** 批量给会话建通用总结；单批失败只跳过该批，不写垃圾数据。 */
-export async function summarizeEntries(excerpts, deps) {
+export function pendingForIndex(files, index, now, extraPaths = []) {
+    const byPath = new Map(files.map((f) => [f.path, f]));
     const out = new Map();
-    const skipped = [];
-    if (excerpts.length === 0)
-        return { records: out, skipped };
-    const choice = selectRecapModel(deps.available, deps.currentModel, deps.resolvedTiers);
-    if (!choice.model)
-        return { records: out, skipped: excerpts.map((e) => e.path) };
-    const model = choice.model;
-    for (let start = 0; start < excerpts.length; start += BATCH_SIZE) {
-        const batch = excerpts.slice(start, start + BATCH_SIZE);
-        const lines = batch.map((e, i) => {
-            const cwd = e.cwd.replace(/^\/Users\/[^/]+/, "~");
-            return `[${i}] ${e.modified.slice(0, 16)} ${cwd} 「${e.name || "(未命名)"}」 消息${e.messageCount}条 首:${e.firstUser.slice(0, 120)} 末:${e.lastUser.slice(0, 120)}`;
-        });
-        let items = [];
-        try {
-            const response = await deps.complete(model, [{ role: "user", content: `会话列表：\n${lines.join("\n")}` }], INDEX_SUMMARY_PROMPT);
-            items = parseRankedJson(responseTextOf(response));
-        }
-        catch {
-            items = [];
-        }
-        if (items.length === 0) {
-            skipped.push(...batch.map((e) => e.path));
+    for (const f of files) {
+        if (now - f.mtimeMs < QUIET_MS)
             continue;
-        }
-        for (const item of items) {
-            const entry = batch[item.index];
-            if (!entry)
-                continue;
-            out.set(entry.path, { excerpt: entry, mtimeMs: 0, summary: item.summary });
-        }
+        const cached = index.get(f.path);
+        if (!cached || cached.mtimeMs !== f.mtimeMs)
+            out.set(f.path, f);
     }
-    return { records: out, skipped };
+    for (const p of extraPaths) {
+        const f = byPath.get(p);
+        if (!f)
+            continue;
+        const cached = index.get(f.path);
+        if (!cached || cached.mtimeMs !== f.mtimeMs)
+            out.set(f.path, f);
+    }
+    return [...out.values()].sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
-/** 抢领导者锁：独占创建成功即当选；已存在则看心跳时间戳是否过期。 */
-export function acquireLeader(sessionsRoot, now) {
-    const lock = lockPath(sessionsRoot);
-    if (existsSync(lock)) {
-        let stale = false;
-        try {
-            const heartbeat = Number(readFileSync(lock, "utf8").trim());
-            stale = !Number.isFinite(heartbeat) || now - heartbeat > LOCK_STALE_MS;
-        }
-        catch {
-            stale = true;
-        }
-        if (!stale)
-            return false;
-        unlinkSync(lock);
-    }
-    try {
-        const fd = openSync(lock, "wx");
-        closeSync(fd);
-        writeFileSync(lock, String(now));
-        return true;
-    }
-    catch {
-        return false;
-    }
-}
-export function releaseLeader(sessionsRoot) {
-    try {
-        unlinkSync(lockPath(sessionsRoot));
-    }
-    catch {
-        // 已不存在即已释放
-    }
-}
-/** 补充 mtime 并合并进索引（写前重读，减小与后台索引器的整文件覆盖竞态）。 */
-export function mergeIntoIndex(sessionsRoot, fresh, fileMtimes) {
+/** 单写者合并：只应由锁持有者调用；写前重读防覆盖他人记录。 */
+export function mergeIntoIndex(sessionsRoot, fresh) {
     if (fresh.size === 0)
         return;
     const index = loadIndex(sessionsRoot);
-    for (const [path, record] of fresh) {
-        record.mtimeMs = fileMtimes.get(path) ?? record.mtimeMs;
+    for (const [path, record] of fresh)
         index.set(path, record);
-    }
     writeIndexAtomic(sessionsRoot, index);
 }
-/**
- * 跑一轮索引：挑安静且过期的文件 → 解析 + 批量总结 → 合并原子写回。
- * 返回本轮新建条数与剩余待索引数（跳过的仍算待索引，下轮重试）。
- */
-export async function runIndexerPass(sessionsRoot, files, deps) {
-    const now = Date.now();
-    const pending = pendingForIndex(files, loadIndex(sessionsRoot), now);
-    if (pending.length === 0)
-        return { added: 0, remaining: 0 };
-    const parsed = (await Promise.all(pending.map((f) => parseSessionFile(f.path, f.sizeBytes)))).filter((e) => e !== null);
-    const { records } = await summarizeEntries(parsed, deps);
-    const mtimes = new Map(files.map((f) => [f.path, f.mtimeMs]));
-    mergeIntoIndex(sessionsRoot, records, mtimes);
-    return { added: records.size, remaining: pending.length - records.size };
-}
+/** 一轮索引的 Effect：选模型 → 逐文件 digest → 合并写回 → 追加完成事件。锁由调用方持有。 */
+export const runIndexerPass = (sessionsRoot, files, deps, now, signal) => Effect.gen(function* () {
+    const requested = consumeRebuildRequests(sessionsRoot);
+    const index = loadIndex(sessionsRoot);
+    const pending = pendingForIndex(files, index, now, requested);
+    const choice = selectRecapModel(deps.available, deps.currentModel, deps.resolvedTiers);
+    const stats = {
+        id: nextEventId(),
+        ts: now,
+        scanned: pending.length,
+        added: 0,
+        updated: 0,
+        failed: 0,
+        remaining: 0,
+        indexedTotal: 0,
+        totalFiles: files.length,
+        modelLabel: choice.model ? recapModelLabel(choice.model) : "",
+        tierDegraded: choice.model !== undefined && choice.degraded,
+        noModel: !choice.model,
+    };
+    if (!choice.model || pending.length === 0) {
+        stats.remaining = Math.max(0, pending.length);
+        stats.indexedTotal = index.size;
+        appendCompletionEvent(sessionsRoot, stats);
+        return stats;
+    }
+    const model = choice.model;
+    let firstError;
+    for (const file of pending) {
+        if (signal?.aborted)
+            break;
+        const hadCached = index.has(file.path);
+        const excerpt = yield* Effect.tryPromise({
+            try: () => parseSessionFile(file.path, file.sizeBytes),
+            catch: (cause) => new DigestFileError({ path: file.path, stage: "read", cause: String(cause) }),
+        });
+        if (!excerpt) {
+            stats.failed++;
+            firstError ??= new DigestFileError({ path: file.path, stage: "read", cause: "会话文件解析失败" });
+            continue;
+        }
+        const outcome = yield* buildSessionDigest(file.path, file.sizeBytes, sessionsRoot, deps, model, signal).pipe(
+        // 单文件失败计入 failed 继续下一文件；真实原因留给 failureCause
+        Effect.catchAll((error) => {
+            stats.failed++;
+            firstError ??= error;
+            return Effect.succeed(null);
+        }));
+        if (outcome === null)
+            continue;
+        // 摘要期间文件稳定（digest 内部已校验），记当前 mtime
+        const record = { excerpt, mtimeMs: file.mtimeMs, summary: outcome.summary };
+        index.set(file.path, record);
+        mergeIntoIndex(sessionsRoot, new Map([[file.path, record]]));
+        if (hadCached)
+            stats.updated++;
+        else
+            stats.added++;
+    }
+    if (firstError) {
+        stats.failureCause = `${firstError._tag}: ${"cause" in firstError ? String(firstError.cause) : ""}`;
+    }
+    const fresh = loadIndex(sessionsRoot);
+    stats.indexedTotal = fresh.size;
+    const stillStale = pendingForIndex(files, fresh, Date.now(), requested).length;
+    stats.remaining = signal?.aborted ? stillStale + (pending.length - stats.added - stats.updated - stats.failed) : stillStale;
+    appendCompletionEvent(sessionsRoot, stats);
+    return stats;
+});
+export { requestRebuild };

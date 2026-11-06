@@ -1,8 +1,15 @@
 /**
  * pane.ts — /find-session 悬浮面板：输入 → 搜索 → 候选列表选择
+ *
+ * 列表态每条候选固定 4 行（时间行 + 2 行摘要 + 1 行空隔），选中项加竖线与
+ * selectedBg 底色；查询固定在标题行、状态与快捷键各占面板内固定一行，
+ * 总 render 行数受 index.ts overlay maxHeight 80% 约束，因此列表态在本类
+ * 内 override render（不动共享 FloatingPane）。
  */
-import { matchesKey } from "@earendil-works/pi-tui";
+import { matchesKey, visibleWidth, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { FloatingPane } from "../../shared/floating-pane/index.js";
+/** 每条候选占的行数：1 时间 + 2 摘要 + 1 空隔，固定不变（时间行截断不折行） */
+const ITEM_LINES = 4;
 export class FindSessionPane extends FloatingPane {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     tuiInst;
@@ -14,7 +21,7 @@ export class FindSessionPane extends FloatingPane {
     statusLine = "";
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(tui, theme, kb, done, hooks, initialQuery = "") {
-        super(tui, theme, kb, done, { title: "Find Session", lines: [] });
+        super(tui, theme, kb, done, { title: "找回会话", lines: [] });
         this.tuiInst = tui;
         this.hooks = hooks;
         if (initialQuery) {
@@ -35,7 +42,7 @@ export class FindSessionPane extends FloatingPane {
         this.rebuild();
         this.hooks.onSearch(query, this);
     }
-    /** 搜索管线回调：写入结果并切到列表态。 */
+    /** 搜索结果回调：写入结果并切到列表态。 */
     setResults(entries, status) {
         this.entries = entries.slice(0, 15);
         this.sel = 0;
@@ -43,19 +50,23 @@ export class FindSessionPane extends FloatingPane {
         this.statusLine = status;
         this.rerender();
     }
-    truncate(text, width) {
-        return text.length > width ? `${text.slice(0, Math.max(0, width - 1))}…` : text;
+    /** 搜索过程进度状态行（仅 searching 态刷新文案，不动列表排版）。 */
+    setStatus(status) {
+        if (this.mode !== "searching")
+            return;
+        this.statusLine = status;
+        this.rerender();
     }
     rebuild() {
         const th = this.theme;
         if (this.mode === "searching") {
-            this.title = `Find Session — 搜索中：${this.query}`;
-            this.lines = [th.fg("muted", "正在扫描会话并排序……")];
+            this.title = `找回会话 — 搜索中：${this.query}`;
+            this.lines = [th.fg("muted", this.statusLine || "正在扫描会话并排序……")];
             this.footer = "esc 退出";
             return;
         }
         if (this.mode === "input") {
-            this.title = "Find Session — 用一句话描述要找的会话";
+            this.title = "找回会话 — 用一句话描述要找的会话";
             this.lines = [
                 `${th.fg("accent", "›")} ${this.query}▏`,
                 th.fg("muted", "回车搜索 · esc 退出"),
@@ -64,26 +75,104 @@ export class FindSessionPane extends FloatingPane {
             this.footer = "";
             return;
         }
-        this.title = `Find Session — ${this.entries.length} 个候选（${this.query}）`;
+        // 列表态：查询固定在标题行；状态与快捷键由 render 画在面板底部固定行
+        this.title = `找回会话 — ${this.query}`;
         this.lines = [];
-        // 每条候选占 2-3 行：首行 开始→结束 时间，次行总结折行（最多 2 行）
-        const summaryWidth = Math.max(30, this.innerW - 4);
+        const textW = Math.max(8, this.innerW - 3); // 2 前导 + textW ≤ bodyW(innerW-1)，避免 render 二次截断
+        const compact = this.innerW < 48;
         this.entries.forEach((item, index) => {
             const selected = index === this.sel;
-            const start = item.entry.created.slice(0, 16).replace("T", " ") || "?";
-            const end = item.entry.modified.slice(11, 16);
-            const head = selected ? th.fg("accent", "▸ ") : "  ";
-            if (selected)
-                this.lines.push("");
-            this.lines.push(`${head}${start} → ${end}`);
-            for (const line of wrapPlain(item.summary, summaryWidth).slice(0, 2)) {
-                this.lines.push(th.fg(selected ? "accent" : "muted", `  ${line}`));
+            const time = truncateIfOver(formatTimes(item.entry, compact), Math.max(8, this.innerW - 2));
+            const timeLine = `${selected ? th.fg("accent", "▌") : " "} ${th.fg(selected ? "accent" : "muted", time)}`;
+            // 摘要完整保留，按显示宽度折行；真实溢出时末行以 … 省略
+            const wrapped = wrapTextWithAnsi(item.summary, textW);
+            const omitted = wrapped.length > 2;
+            const shown = wrapped.slice(0, 2);
+            if (omitted) {
+                // 先预留省略号宽度再截断，避免末行恰好占满时只丢字不出省略号
+                const last = shown[1];
+                shown[1] = (visibleWidth(last) > textW - 1
+                    ? truncateToWidth(last, textW - 1, "", true)
+                    : last) + "…";
             }
+            while (shown.length < 2)
+                shown.push("");
+            this.lines.push(timeLine);
+            for (const line of shown) {
+                this.lines.push(selected
+                    ? this.selectedLine(`  ${line}`)
+                    : `  ${th.fg("text", line)}`);
+            }
+            this.lines.push(""); // 固定空隔，条目间距稳定
         });
-        this.lines.push("", th.fg("muted", "↑/k ↓/j 选择 · 回车切换到该会话 · e 重新输入 · esc 退出"));
-        if (this.statusLine)
-            this.lines.push(th.fg("warning", this.statusLine));
         this.footer = "";
+    }
+    /** 选中行：正文补齐到面板可用宽度后整体套低对比底色 */
+    selectedLine(body) {
+        const pad = Math.max(0, this.innerW - 1 - visibleWidth(body));
+        return this.theme.bg("selectedBg", body + " ".repeat(pad));
+    }
+    statusRow(narrow) {
+        const pos = `${this.sel + 1}/${this.entries.length}`;
+        if (!this.statusLine)
+            return pos;
+        return narrow ? `${pos} ${this.statusLine}` : `${pos} · ${this.statusLine}`;
+    }
+    static keysRow(narrow) {
+        // 窄列去分隔空格，保证 esc 等基本动作在极窄宽度仍完整可见
+        return narrow ? "↑↓·回车·e·esc" : "↑↓ 选择 · 回车切换 · e 重输 · esc 退出";
+    }
+    /**
+     * 列表态自绘：总行数 ≤ floor(rows*0.8)（index.ts overlay maxHeight），
+     * 高度随 render 更新，选中项整条保持在可见窗口内；其余模式走基类。
+     */
+    render(width) {
+        if (this.mode !== "list")
+            return super.render(width);
+        const th = this.theme;
+        this.innerW = Math.max(1, Math.floor(width) - 2);
+        const rows = this.tuiInst?.terminal?.rows ?? 40;
+        // 以当前宽度重排条目；行内已保证不超宽，逐行截断兜底（不折行，保 ITEM_LINES）
+        this.rebuild();
+        const bodyW = Math.max(1, this.innerW - 1);
+        const lines = this.lines.map((line) => visibleWidth(line) <= bodyW ? line : truncateToWidth(line, bodyW, "…", true));
+        // chrome = 上下边框 + 状态行 + 快捷键行；预算不足时先砍固定行，正文至少 1 行
+        const budget = Math.max(2, Math.floor(rows * 80 / 100));
+        const chrome = 4;
+        const degraded = budget < chrome + 1;
+        const visibleRows = Math.max(1, degraded ? budget - 2 : budget - chrome);
+        // 选中项（固定 ITEM_LINES 行）整条保持在可见窗口内
+        const start = this.sel * ITEM_LINES;
+        const bottom = start + ITEM_LINES - 1;
+        if (this.scrollOffset > start)
+            this.scrollOffset = start;
+        if (bottom - this.scrollOffset >= visibleRows)
+            this.scrollOffset = bottom - visibleRows + 1;
+        this.scrollOffset = Math.max(0, Math.min(this.scrollOffset, Math.max(0, lines.length - visibleRows)));
+        const visible = lines.slice(this.scrollOffset, this.scrollOffset + visibleRows);
+        while (visible.length < visibleRows)
+            visible.push("");
+        const result = [];
+        const titleStr = truncateToWidth(` ${this.title} `, this.innerW, "", true);
+        const titleW = visibleWidth(titleStr);
+        result.push(th.fg("border", "╭") + th.fg("accent", titleStr) +
+            th.fg("border", "─".repeat(Math.max(0, this.innerW - titleW)) + "╮"));
+        for (const line of visible) {
+            const trimmed = truncateToWidth(line, this.innerW, "…", true);
+            const padLen = this.innerW - visibleWidth(trimmed);
+            result.push(th.fg("border", "│") + trimmed + " ".repeat(Math.max(0, padLen)) + th.fg("border", "│"));
+        }
+        // 面板内固定状态行/快捷键行，在闭合底边框之前
+        if (!degraded) {
+            const narrow = this.innerW < 40;
+            for (const row of [this.statusRow(narrow), FindSessionPane.keysRow(narrow)]) {
+                const trimmed = truncateToWidth(th.fg("muted", `  ${row}`), this.innerW, "…", true);
+                const padLen = this.innerW - visibleWidth(trimmed);
+                result.push(th.fg("border", "│") + trimmed + " ".repeat(Math.max(0, padLen)) + th.fg("border", "│"));
+            }
+        }
+        result.push(th.fg("border", "╰" + "─".repeat(this.innerW) + "╯"));
+        return result;
     }
     handleInput(data) {
         if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
@@ -148,24 +237,17 @@ export class FindSessionPane extends FloatingPane {
         return true;
     }
 }
-/** 按显示宽度换行纯文本（CJK 双宽），最多行数由调用方裁剪。 */
-function wrapPlain(text, width) {
-    const lines = [];
-    let cur = "";
-    let w = 0;
-    for (const ch of text) {
-        const cw = ch.charCodeAt(0) > 0xff ? 2 : 1;
-        if (w + cw > width) {
-            lines.push(cur);
-            cur = ch;
-            w = cw;
-        }
-        else {
-            cur += ch;
-            w += cw;
-        }
-    }
-    if (cur)
-        lines.push(cur);
-    return lines;
+/** 只在真实超宽时截断（truncateToWidth 对短字符串会补空格到目标宽度，直接用会把时间行撑到溢出） */
+function truncateIfOver(text, maxWidth) {
+    return visibleWidth(text) > maxWidth ? truncateToWidth(text, maxWidth, "…", true) : text;
+}
+/** 创建/最后活动时间，带显式标签；两者跨年都带年份避免歧义，
+ * 同年只显 MM-DD HH:mm。compact 用短标签适配窄列。
+ */
+function formatTimes(entry, compact) {
+    const sameYear = entry.created.slice(0, 4) === entry.modified.slice(0, 4);
+    const fmt = (iso) => iso.slice(sameYear ? 5 : 0, 16).replace("T", " ") || "?";
+    const createdLabel = "创建 ";
+    const modLabel = compact ? "活动 " : "最后活动 ";
+    return `${createdLabel}${fmt(entry.created)} · ${modLabel}${fmt(entry.modified)}`;
 }

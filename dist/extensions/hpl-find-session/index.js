@@ -1,25 +1,36 @@
 /**
  * hpl-find-session — 自然语言找回历史会话
  *
- *   /find-session [描述] — 悬浮面板：输入描述 → 关键词粗滤 → haiku 档排序摘要 → 选择 → 热切换
+ *   /find-session [描述] — 悬浮面板：本地中文匹配缓存摘要 → 模型相关性选择 → 证据回读 → 热切换
  *   session_list / session_grep / session_resume 工具 — 让模型在对话里直接找会话
+ *
+ * 查询只读缓存并发布补建请求；只有 leader（owner 身份锁）在后台写索引。
+ * 完成事件持久化到共享事件流，各实例轮询去重后经 notify() 通知，不重播启动前历史。
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import { hapilonHome } from "../../config/hapilon-home.js";
 import { readResolvedTiersEffect } from "../hpl-model-tiers/resolved.js";
-import { grepSessions, listSessionFiles, prefilter, scanSessions } from "./index-core.js";
-import { rankEntries } from "./rank.js";
-import { acquireLeader, loadIndex, mergeIntoIndex, pendingForIndex, releaseLeader, runIndexerPass, summarizeEntries, } from "./indexer.js";
-import { parseSessionFile } from "./index-core.js";
+import { grepSessions, prefilter, scanSessions, listSessionFiles } from "./index-core.js";
+import { runIndexerPass } from "./indexer.js";
+import { readCompletionEventsSince } from "./coordination.js";
+import { createLifecycle } from "./indexer-lifecycle.js";
+import { sqliteCoordinationPort } from "./index-lock.js";
+import { searchIndexedSessions } from "./query.js";
 import { FindSessionPane } from "./pane.js";
 import { notify } from "../notify.js";
-const PREFILTER_TOP = 20;
+class EventPollError extends Data.TaggedError("EventPollError") {
+}
+const OWNER_ID = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const INITIAL_DELAY_MS = 2 * 60_000;
+const PASS_INTERVAL_MS = 5 * 60_000;
+const EVENT_POLL_MS = 30_000;
+const RELEASE_TIMEOUT_MS = 30_000;
 function sessionsRoot() {
     return join(hapilonHome(), "agent", "sessions");
 }
-/** 从 ctx 组装 rankEntries 需要的模型依赖（haiku 档优先）。 */
+/** 从 ctx 组装模型依赖（haiku 档优先）。 */
 function buildModelDeps(ctx) {
     const available = ctx.modelRegistry.getAvailable();
     const resolvedTiers = Effect.runSync(Effect.either(readResolvedTiersEffect));
@@ -39,39 +50,32 @@ function buildModelDeps(ctx) {
         }, { signal }),
     };
 }
-/** 搜索管线：摘要索引匹配 → 未索引的现场补建 → 模型排序（查询条件化总结）。 */
-async function searchSessions(query, deps) {
-    const root = sessionsRoot();
-    const now = Date.now();
-    const files = listSessionFiles(root);
-    const fileMtimes = new Map(files.map((f) => [f.path, f.mtimeMs]));
-    const index = loadIndex(root);
-    // 未索引的安静会话：现场批量补一轮（最近 20 个，一次调用），查询即触发增量
-    const missing = pendingForIndex(files, index, now).slice(0, 20);
-    if (missing.length > 0) {
-        const parsed = (await Promise.all(missing.map((f) => parseSessionFile(f.path, f.sizeBytes)))).filter((e) => e !== null);
-        const { records } = await summarizeEntries(parsed, deps);
-        if (records.size > 0)
-            mergeIntoIndex(root, records, fileMtimes);
-        for (const [path, record] of records)
-            index.set(path, record);
+function describeStatus(status) {
+    if (status.error)
+        return `搜索失败：${status.error}`;
+    const parts = [status.coverage];
+    if (status.expanded) {
+        parts.push(status.expandedPartial
+            ? "已扩大到全部摘要检索（部分批次失败，可能遗漏）"
+            : "本地无命中，已扩大到全部已索引摘要检索");
     }
-    // 候选 = 索引记录；排除仍在写入的会话（mtime 未安静）和已删除文件
-    const quiet = new Set(pendingForIndexQuietPaths(files, now));
-    const all = [...index.values()]
-        .filter((r) => fileMtimes.has(r.excerpt.path) && quiet.has(r.excerpt.path))
-        .map((r) => r.excerpt)
-        .sort((a, b) => b.modified.localeCompare(a.modified));
-    const keywordHit = prefilter(all, query);
-    // 关键词全空手时退回全量（交给模型判断），否则只送命中集
-    const candidates = (keywordHit.length > 0 ? keywordHit : all).slice(0, PREFILTER_TOP);
-    if (candidates.length === 0) {
-        return { ranked: [], degraded: false, modelLabel: "" };
-    }
-    return rankEntries(query, candidates, deps);
-}
-function pendingForIndexQuietPaths(files, now) {
-    return files.filter((f) => now - f.mtimeMs >= 10 * 60 * 1000).map((f) => f.path);
+    if (status.degraded)
+        parts.push(`档位回退（${status.modelLabel}）`);
+    else if (status.modelLabel)
+        parts.push(`排序模型：${status.modelLabel}`);
+    if (status.noMatch)
+        parts.push("没有找到匹配的会话，换个说法试试");
+    if (status.timeOrder)
+        parts.push(status.timeOrder === "latest" ? "按最新→最旧时间排序展示" : "按最早→最新时间排序展示");
+    if (status.runningUndetermined)
+        parts.push("会话是否正在运行无归档证据，无法判断");
+    if (status.displayTruncated > 0)
+        parts.push(`仅展示证据化前 ${5} 条候选，${status.displayTruncated} 条未展示`);
+    if (status.evidenceToolTruncated > 0)
+        parts.push(`证据含 ${status.evidenceToolTruncated} 条被截断的工具结果，非完整`);
+    if (status.evidenceMissing > 0)
+        parts.push(`${status.evidenceMissing} 条摘要无行号引用，证据按关键词定位`);
+    return parts.join(" · ");
 }
 function shortPath(path) {
     const marker = "sessions/";
@@ -83,48 +87,127 @@ function entryLine(entry) {
     const title = entry.name || entry.firstUser.slice(0, 40) || "(未命名)";
     return `${entry.modified.slice(0, 16).replace("T", " ")} ${cwd} 「${title}」 消息${entry.messageCount}条 ${shortPath(entry.path)}`;
 }
+/** 测试接线用：最近一次扩展实例创建的 lifecycle（生产代码不读） */
+export const __lifecyclesForTest = [];
 export default function hplFindSession(pi) {
-    // ── 后台摘要索引器：单实例领导者，空闲时增量补建 ──────────────────
-    let indexerTimer;
-    let indexerFailedOnce = false;
-    pi.on("session_start", (_event, ctx) => {
-        if (indexerTimer)
-            return;
-        const runPass = async () => {
-            const root = sessionsRoot();
-            if (!acquireLeader(root, Date.now()))
+    // ── 后台摘要索引器：owner 锁单写者 + 各实例事件轮询 ────────────────
+    let passTimer;
+    let initialTimer;
+    let eventTimer;
+    let eventBaselineTs = 0;
+    const seenEventIds = new Set();
+    let currentCtx;
+    const lifecycle = createLifecycle({
+        port: sqliteCoordinationPort,
+        root: sessionsRoot(),
+        owner: OWNER_ID,
+        now: Date.now,
+        notify,
+        requestTimeoutMs: RELEASE_TIMEOUT_MS,
+        runPass: (signal) => Effect.gen(function* () {
+            const ctx = currentCtx;
+            if (!ctx)
                 return;
-            try {
-                const files = listSessionFiles(root);
-                const { added, remaining } = await runIndexerPass(root, files, buildModelDeps(ctx));
-                indexerFailedOnce = false;
-                // 本轮有产出且待索引已清空：向当前会话报完成与统计（notify 统一出口，落状态行）
-                if (added > 0 && remaining === 0) {
-                    const indexed = loadIndex(root).size;
-                    notify(`后台会话索引完成：本次新增 ${added} 条，累计 ${indexed}/${files.length} 个会话已建摘要`, "info");
-                }
-            }
-            catch (error) {
-                // 非关键后台任务：只警告一次，避免持续故障每 5 分钟叨扰
-                if (!indexerFailedOnce) {
-                    indexerFailedOnce = true;
-                    ctx.ui.notify(`会话索引失败：${error instanceof Error ? error.message : String(error)}`, "warning");
-                }
-            }
-            finally {
-                releaseLeader(root);
-            }
-        };
-        const initial = setTimeout(() => void runPass(), 2 * 60_000);
-        initial.unref?.();
-        indexerTimer = setInterval(() => void runPass(), 5 * 60_000);
-        indexerTimer.unref?.();
+            const root = sessionsRoot();
+            const files = listSessionFiles(root);
+            // 真实状态（含无模型/单文件失败原因）都由完成事件统一播报，这里不直报
+            yield* runIndexerPass(root, files, buildModelDeps(ctx), Date.now(), signal);
+        }).pipe(Effect.catchAll((error) => Effect.sync(() => {
+            const reason = `${error._tag}: ${String(error.cause)}`;
+            notify(`会话索引失败：${reason}`, "warning");
+        }))),
     });
+    __lifecyclesForTest.push(lifecycle);
+    const pollEvents = () => {
+        // 事件读取走 typed error 通道：损坏的 latest-event / 权限问题可见，绝不让 setInterval 回调 throw 崩进程
+        void Effect.runPromise(Effect.gen(function* () {
+            const events = yield* Effect.try({
+                try: () => readCompletionEventsSince(sessionsRoot(), eventBaselineTs),
+                catch: (cause) => new EventPollError({ cause: cause instanceof Error ? cause.message : String(cause) }),
+            });
+            for (const event of events) {
+                if (seenEventIds.has(event.id))
+                    continue;
+                seenEventIds.add(event.id);
+                const parts = [`后台会话索引：新增 ${event.added}、更新 ${event.updated}、失败 ${event.failed}，剩余 ${event.remaining}，覆盖 ${event.indexedTotal}/${event.totalFiles}`];
+                if (event.noModel)
+                    parts.push("（无可用模型，本轮未建摘要）");
+                if (event.failureCause)
+                    parts.push(`原因：${event.failureCause}`);
+                notify(parts.join("；"), event.failed > 0 || event.failureCause ? "warning" : "info");
+            }
+        }).pipe(Effect.catchAll((error) => Effect.sync(() => notify(`读取会话索引事件失败：${error.cause}`, "warning")))));
+    };
+    // tryRunPass 是 never-fail Effect，无拒绝路径，无需 catch 兜底
+    const runPass = () => {
+        void Effect.runPromise(lifecycle.tryRunPass);
+    };
+    pi.on("session_start", (_event, ctx) => {
+        currentCtx = ctx;
+        // 初次启动只从此刻起读新事件，不重播历史完成事件
+        eventBaselineTs = Date.now();
+        if (passTimer)
+            return;
+        initialTimer = setTimeout(() => void runPass(), INITIAL_DELAY_MS);
+        initialTimer.unref?.();
+        passTimer = setInterval(() => void runPass(), PASS_INTERVAL_MS);
+        passTimer.unref?.();
+        eventTimer = setInterval(() => {
+            pollEvents();
+            void Effect.runPromise(lifecycle.pollHandoff);
+        }, EVENT_POLL_MS);
+        eventTimer.unref?.();
+    });
+    null;
     pi.on("session_shutdown", () => {
-        if (indexerTimer) {
-            clearInterval(indexerTimer);
-            indexerTimer = undefined;
+        for (const timer of [initialTimer, passTimer, eventTimer]) {
+            if (timer)
+                clearInterval(timer);
         }
+        initialTimer = passTimer = eventTimer = undefined;
+        // 返回 Promise 让 pi await（extensions runner 逐个 await handler）：
+        // 取消在途 pass，等它 settle（含最后一次写盘）并释放锁后才放行退出
+        return Effect.runPromise(lifecycle.shutdown).catch((error) => {
+            notify(`退出收尾失败：${error instanceof Error ? error.message : String(error)}`, "warning");
+        });
+    });
+    const STATE_LABELS = {
+        idle: "空闲",
+        indexing: "索引中（本实例持有锁）",
+        paused: "本实例暂停",
+        releaseRequested: "已请求（等待 owner 响应）",
+        released: "已释放",
+        unresponded: "未响应",
+        error: "错误",
+    };
+    const statusText = () => {
+        const state = lifecycle.state();
+        const lines = [`状态：${STATE_LABELS[state.kind]}${state.kind === "error" ? `（${state.message}）` : ""}`];
+        if (lifecycle.paused())
+            lines.push("本实例已暂停竞争，/session-index resume 可恢复。");
+        return lines.join("\n");
+    };
+    const handleSessionIndexAction = (action, ctx) => {
+        if (action === "status") {
+            const ownerInfo = Effect.runSync(Effect.either(sqliteCoordinationPort.readOwnerInfo(sessionsRoot())));
+            const owner = ownerInfo._tag === "Right" ? ownerInfo.right : null;
+            const ownerLine = owner
+                ? `owner（仅展示，不作互斥依据）：${owner.owner === OWNER_ID ? owner.owner + "（本实例）" : owner.owner}`
+                : "owner：无";
+            ctx.ui.notify(`${statusText()}\n${ownerLine}`, "info");
+            return;
+        }
+        // release/resume fork 运行，不阻塞 TUI；结果经 notify 播报
+        Effect.runFork(action === "release" ? lifecycle.release : lifecycle.resume);
+    };
+    // ── /session-index 命令：状态、暂停并交还锁、恢复索引 ─────────────
+    pi.registerCommand("session-index", {
+        description: "Session index control: status, release the lock (pause this instance), resume",
+        handler: async (args, ctx) => {
+            const first = ((args ?? "").trim().split(/\s+/))[0] ?? "";
+            const action = first === "release" || first === "resume" || first === "status" ? first : "status";
+            handleSessionIndexAction(action, ctx);
+        },
     });
     // ── /find-session 命令 ─────────────────────────────────────────────
     pi.registerCommand("find-session", {
@@ -135,22 +218,39 @@ export default function hplFindSession(pi) {
                 return;
             }
             const initialQuery = (args ?? "").trim();
+            let currentSearch;
             ctx.ui.custom(
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (tui, theme, kb, done) => new FindSessionPane(tui, theme, kb, done, {
                 onSearch: (query, pane) => {
                     void (async () => {
-                        const result = await searchSessions(query, buildModelDeps(ctx));
-                        const status = result.degraded && result.modelLabel
-                            ? `排序降级（${result.modelLabel}）：按关键词序展示`
-                            : result.modelLabel ? `排序模型：${result.modelLabel}` : "";
-                        pane.setResults(result.ranked, result.ranked.length === 0 ? "没有找到匹配的会话，换个说法试试" : status);
+                        const controller = new AbortController();
+                        currentSearch = controller;
+                        try {
+                            const result = await Effect.runPromise(searchIndexedSessions(query, buildModelDeps(ctx), sessionsRoot(), controller.signal, (phase) => pane.setStatus(phase)));
+                            pane.setResults(result.ranked, describeStatus(result.status));
+                        }
+                        finally {
+                            if (currentSearch === controller)
+                                currentSearch = undefined;
+                        }
                     })().catch((error) => {
-                        pane.setResults([], `搜索失败：${error instanceof Error ? error.message : String(error)}`);
+                        // typed 查询失败原样透出真实原因，不冒充「无匹配」
+                        const tag = error?._tag ?? "";
+                        const cause = String(error?.cause ?? "");
+                        const reason = error instanceof Error ? error.message : String(error);
+                        pane.setResults([], /QueryModelError|SessionReadError/.test(tag) && cause
+                            ? `搜索失败：${cause}`
+                            : `搜索失败：${reason}`);
                     });
                 },
                 onPick: (picked) => {
                     void (async () => {
+                        // 搜索已取消/中止后不再切会话
+                        if (currentSearch?.signal.aborted) {
+                            ctx.ui.notify("搜索已取消，未切换会话。", "warning");
+                            return;
+                        }
                         await ctx.waitForIdle();
                         const result = await ctx.switchSession(picked.entry.path, {
                             withSession: async (next) => {
@@ -246,6 +346,31 @@ export default function hplFindSession(pi) {
                 content: [{ type: "text", text: result.cancelled ? "切换被取消。" : `已切换到 ${shortPath(path)}` }],
                 details: {},
             };
+        },
+    });
+    // ── session_index 工具：显式动作参数，绝不在检索时自动释放锁 ────────
+    pi.registerTool({
+        name: "session_index",
+        label: "Session index control",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        parameters: {
+            type: "object",
+            properties: {
+                action: { type: "string", enum: ["status", "release", "resume"], description: "明确动作：status=查看状态；release=交还锁并暂停本实例索引；resume=恢复索引竞争" },
+            },
+            required: ["action"],
+        },
+        description: "Control the background session indexer lock of THIS instance. Only call with action=release " +
+            "or resume when the user explicitly asks to pause/resume session indexing; never call release " +
+            "as a side effect of searching. status reports current lifecycle state and lock owner (display only).",
+        execute: async (_id, params, ctx) => {
+            const action = String(params.action ?? "status");
+            if (action !== "status" && action !== "release" && action !== "resume") {
+                return { content: [{ type: "text", text: `未知动作：${action}，可用 status/release/resume。` }], details: {} };
+            }
+            handleSessionIndexAction(action, ctx);
+            const label = action === "status" ? lifecycle.state().kind : action;
+            return { content: [{ type: "text", text: `session_index ${label}：已执行。` }], details: {} };
         },
     });
 }
