@@ -198,21 +198,21 @@ export function mergeIntoIndex(
 
 /**
  * 跑一轮索引：挑安静且过期的文件 → 解析 + 批量总结 → 合并原子写回。
- * 返回本轮新建的记录数。
+ * 返回本轮新建条数与剩余待索引数（跳过的仍算待索引，下轮重试）。
  */
 export async function runIndexerPass(
   sessionsRoot: string,
   files: Array<{ path: string; mtimeMs: number; sizeBytes: number }>,
   deps: ModelDeps,
-): Promise<number> {
+): Promise<{ added: number; remaining: number }> {
   const now = Date.now();
   const pending = pendingForIndex(files, loadIndex(sessionsRoot), now);
-  if (pending.length === 0) return 0;
+  if (pending.length === 0) return { added: 0, remaining: 0 };
   const parsed = (await Promise.all(pending.map((f) => parseSessionFile(f.path, f.sizeBytes)))).filter(
     (e): e is SessionExcerpt => e !== null,
   );
   const { records } = await summarizeEntries(parsed, deps);
   const mtimes = new Map(files.map((f) => [f.path, f.mtimeMs]));
   mergeIntoIndex(sessionsRoot, records, mtimes);
-  return records.size;
+  return { added: records.size, remaining: pending.length - records.size };
 }

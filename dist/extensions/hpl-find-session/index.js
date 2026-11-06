@@ -14,6 +14,7 @@ import { rankEntries } from "./rank.js";
 import { acquireLeader, loadIndex, mergeIntoIndex, pendingForIndex, releaseLeader, runIndexerPass, summarizeEntries, } from "./indexer.js";
 import { parseSessionFile } from "./index-core.js";
 import { FindSessionPane } from "./pane.js";
+import { notify } from "../notify.js";
 const PREFILTER_TOP = 20;
 function sessionsRoot() {
     return join(hapilonHome(), "agent", "sessions");
@@ -94,10 +95,14 @@ export default function hplFindSession(pi) {
             if (!acquireLeader(root, Date.now()))
                 return;
             try {
-                const added = await runIndexerPass(root, listSessionFiles(root), buildModelDeps(ctx));
+                const files = listSessionFiles(root);
+                const { added, remaining } = await runIndexerPass(root, files, buildModelDeps(ctx));
                 indexerFailedOnce = false;
-                if (added > 0)
-                    ctx.ui.notify(`会话索引：新增 ${added} 条摘要`, "info");
+                // 本轮有产出且待索引已清空：向当前会话报完成与统计（notify 统一出口，落状态行）
+                if (added > 0 && remaining === 0) {
+                    const indexed = loadIndex(root).size;
+                    notify(`后台会话索引完成：本次新增 ${added} 条，累计 ${indexed}/${files.length} 个会话已建摘要`, "info");
+                }
             }
             catch (error) {
                 // 非关键后台任务：只警告一次，避免持续故障每 5 分钟叨扰
