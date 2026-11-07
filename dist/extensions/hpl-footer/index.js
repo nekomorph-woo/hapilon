@@ -18,8 +18,13 @@ export default function hplFooter(pi) {
             return;
         ctx.ui.setFooter((tui, theme, footerData) => {
             const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
+            // 呼吸拍：ding ≥80% 时背景 3s 一拍起伏，靠定时重绘推进
+            const breath = setInterval(() => tui.requestRender(), 3000);
             return {
-                dispose: unsubscribe,
+                dispose: () => {
+                    unsubscribe();
+                    clearInterval(breath);
+                },
                 invalidate() { },
                 render(width) {
                     const home = process.env.HOME || process.env.USERPROFILE;

@@ -68,10 +68,22 @@ export function dingColor(percent: number | null): { bg: RGB | null; fg: RGB | n
   return { bg, fg };
 }
 
-/** 组合文案与颜色，输出真彩 ANSI 包裹的最终字符串；无背景时输出纯文案 */
-export function renderDing(percent: number | null): string {
+/** 组合文案与颜色，输出真彩 ANSI 包裹的最终字符串；无背景时输出纯文案。
+ *
+ * ≥80% 背景亮度按 3s 一拍呼吸（基准→提亮→基准→压暗）；
+ * 字色仍按未调制基色算：80–90 段的 RED 提亮会跨亮度阈值，字色随拍翻转是闪烁事故。
+ */
+export function renderDing(percent: number | null, nowMs: number = Date.now()): string {
   const label = dingLabel(percent);
   const { bg, fg } = dingColor(percent);
   if (!bg || !fg) return label;
-  return `\x1b[48;2;${bg[0]};${bg[1]};${bg[2]}m\x1b[38;2;${fg[0]};${fg[1]};${fg[2]}m${label}\x1b[0m`;
+  const gain = percent !== null && percent >= 80
+    ? [1, 1.25, 1, 0.82][Math.floor(nowMs / 3000) % 4]
+    : 1;
+  const bgNow: RGB = gain === 1 ? bg : [
+    Math.min(255, Math.round(bg[0] * gain)),
+    Math.min(255, Math.round(bg[1] * gain)),
+    Math.min(255, Math.round(bg[2] * gain)),
+  ];
+  return `\x1b[48;2;${bgNow[0]};${bgNow[1]};${bgNow[2]}m\x1b[38;2;${fg[0]};${fg[1]};${fg[2]}m${label}\x1b[0m`;
 }

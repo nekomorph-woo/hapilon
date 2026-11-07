@@ -75,3 +75,25 @@ describe("renderDing — ANSI 真彩包裹", () => {
         assert.equal(renderDing(null), "[HOT]");
     });
 });
+describe("renderDing — 呼吸（≥80% 背景 3s 一拍）", () => {
+    it("正常路径: 四拍背景色依次为基准/提亮/基准/压暗", () => {
+        const beat = (ms) => renderDing(85, ms);
+        const base = beat(0);
+        assert.equal(beat(3000) !== base, true);
+        assert.equal(beat(6000), base); // 第 3 拍回到基准
+        assert.equal(beat(9000) !== base, true);
+        assert.equal(beat(12000), base); // 第 5 拍 = 新周期首拍
+    });
+    it("边界条件: 79.9% 不呼吸，80% 开始呼吸", () => {
+        assert.equal(renderDing(79.9, 3000), renderDing(79.9, 0));
+        assert.equal(renderDing(80, 3000) !== renderDing(80, 0), true);
+    });
+    it("边界条件: 字色不随拍变（fg 按未调制基色算）", () => {
+        const fg = (ms) => renderDing(85, ms).match(/\x1b\[38;2;[^m]+m/)[0];
+        assert.equal(fg(3000), fg(0));
+        assert.equal(fg(9000), fg(0));
+    });
+    it("异常路径: null 占用与呼吸无关", () => {
+        assert.equal(renderDing(null, 3000), renderDing(null, 9000));
+    });
+});
