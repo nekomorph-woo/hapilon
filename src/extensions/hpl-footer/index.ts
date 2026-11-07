@@ -83,9 +83,7 @@ export default function hplFooter(pi: ExtensionAPI): void {
           const stats = aggregateUsage(ctx.sessionManager.getEntries());
           const usage = ctx.getContextUsage();
           // 内置语义对齐：无 usage → 0%；usage.percent 为 null（压缩后未知）→ "?"
-          // shortcut: 演示呼吸用——占用 +80 偏移（≥5% 即呼吸、10% 呈 90% 档），看够效果后删除偏移还原
-          const percent: number | null = usage === undefined ? 0
-            : usage.percent === null ? null : Math.min(100, usage.percent + 80);
+          const percent: number | null = usage === undefined ? 0 : usage.percent;
           const ctxWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
           // [HOT] 先以纯文本入布局，布局后再单独换成真彩码——同第 1 行，避免 ANSI 被截断；
           // 占位与渲染用同一 now，保证呼吸拍一致（盲文字符与替换段宽度同为 1 列）
