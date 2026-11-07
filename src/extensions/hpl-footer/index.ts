@@ -79,7 +79,7 @@ export default function hplFooter(pi: ExtensionAPI): void {
               + theme.fg(quotaHot ? "warning" : "dim", quotaSegment)
               + (quotaTail ? theme.fg("dim", quotaTail) : "");
 
-          // ── 第 2 行：统计 + [HOT]（左） · 模型名 • 档位（右）──────
+          // ── 第 2 行：统计 + 占用徽章（左） · 模型名 • 档位（右）──────
           const stats = aggregateUsage(ctx.sessionManager.getEntries());
           const usage = ctx.getContextUsage();
           // 内置语义对齐：无 usage → 0%；usage.percent 为 null（压缩后未知）→ "?"
