@@ -9,7 +9,7 @@ import { dingColor, dingGlyph, renderDing } from "../../extensions/hpl-footer/di
 
 describe("dingGlyph — 盲文水位与呼吸", () => {
   it("正常路径: 水位点阵 8 档对应 0-100%，从底部逐层点亮", () => {
-    assert.equal(dingGlyph(0), "<⠀>");
+    assert.equal(dingGlyph(0), "<⡀>");
     assert.equal(dingGlyph(12), "<⡀>");
     assert.equal(dingGlyph(25), "<⣀>");
     assert.equal(dingGlyph(50), "<⣤>");
@@ -75,7 +75,7 @@ describe("renderDing — ANSI 真彩包裹", () => {
   });
 
   it("边界条件: 0% 空点阵无背景", () => {
-    assert.equal(renderDing(0), "<⠀>");
+    assert.equal(renderDing(0), "<⡀>");
   });
 
   it("异常路径: null 占用输出 <?>", () => {

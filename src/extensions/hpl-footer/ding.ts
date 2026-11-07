@@ -15,8 +15,8 @@ const GLYPH_STEP_MS = 1500;
 const BG_STEP_MS = 3000;
 /** 盲文点阵四态：全亮起，右上逐拍熄灭再复位（烧开冒泡感） */
 const BREATH_GLYPHS = ["⣿", "⣾", "⣽", "⣼"] as const;
-/** 盲文水位点阵：8 点对应 0-100%（每 12.5% 一档），从底部逐层点亮 */
-const LEVEL_GLYPHS = ["⠀", "⡀", "⣀", "⣄", "⣤", "⣦", "⣶", "⣷", "⣿"] as const;
+/** 盲文水位点阵：8 点对应 0-100%（每 12.5% 一档），从底部逐层点亮；0 档留 1 点作心跳标记，避免看起来像空白坏了 */
+const LEVEL_GLYPHS = ["⡀", "⡀", "⣀", "⣄", "⣤", "⣦", "⣶", "⣷", "⣿"] as const;
 
 function breathing(percent: number | null): boolean {
   return percent !== null && percent >= BREATH_START;
