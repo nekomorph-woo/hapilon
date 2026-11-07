@@ -119,7 +119,7 @@ export function aggregateUsage(entries) {
 // ─── 第 2 行左侧 ────────────────────────────────────────────────────
 /**
  * 拼装第 2 行左侧统计（符号流布局）：
- * `↑ N ↓ N hit N% ctx N%/W [HOT]`
+ * `↑ N ↓ N hit N% ctx N%/W <⣶>`
  * 0 值项跳过；占用未知（null）时百分比显示 `?`
  */
 export function buildStatsLeft(stats, ctxPercent, ctxWindow, ding) {

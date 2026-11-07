@@ -3,10 +3,10 @@
  *
  * 通过 ctx.ui.setFooter() 全量接管 footer 渲染（右侧优先：空间不足先截左段）：
  *   第1行  工作目录 | 分支                              限额段
- *   第2行  ↑ N ↓ N hit N% ctx N%/W [HOT]                模型名 • 档位
+ *   第2行  ↑ N ↓ N hit N% ctx N%/W <⣶>                模型名 • 档位
  *   第3行  扩展状态（存在时）
  *
- * [HOT] 为上下文占用指示灯：背景色随占用率渐变 + 感叹号分级（见 ding.ts）。
+ * <⣶> 为上下文占用徽章：盲文水位点阵（8 档），≥80% 呼吸档烧开轮换 + 背景呼吸（见 ding.ts）。
  */
 import { dingGlyph, renderDing } from "./ding.js";
 import { aggregateUsage, buildLine1, buildModelRight, buildQuotaSegment, buildStatsLeft, buildStatusLine, layoutLineRight, shortenHome, truncatePlain, } from "./format.js";
@@ -60,8 +60,8 @@ export default function hplFooter(pi) {
                     // 内置语义对齐：无 usage → 0%；usage.percent 为 null（压缩后未知）→ "?"
                     const percent = usage === undefined ? 0 : usage.percent;
                     const ctxWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
-                    // [HOT] 先以纯文本入布局，布局后再单独换成真彩码——同第 1 行，避免 ANSI 被截断；
-                    // 占位与渲染用同一 now，保证呼吸拍一致（盲文字符与替换段宽度同为 1 列）
+                    // 徽章先以纯文本入布局，布局后再单独换成真彩码——同第 1 行，避免 ANSI 被截断；
+                    // 占位与渲染用同一 now，保证呼吸拍一致（占位与替换段同宽）
                     const dingText = dingGlyph(percent, now);
                     const leftPlain = buildStatsLeft(stats, percent, ctxWindow, dingText);
                     // 模型支持思考时展示档位（与内置 footer 判断一致）；只留 level，去掉 "thinking " 前缀

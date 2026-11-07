@@ -1,30 +1,22 @@
 /**
- * ding.ts — [HOT] 上下文占用指示灯（纯函数）
+ * ding.ts — footer 上下文占用徽章（纯函数）
  *
- * 文案分级 + 四段渐变背景色 + 亮度自适应字色。
+ * 盲文点阵水位条：8 点对应 0-100%，从底部逐层点亮；
+ * 未知占用显示 `<?>`；≥80% 进入呼吸档：满格烧开轮换 + 背景呼吸。
  */
 
 export type RGB = readonly [number, number, number];
 
-/** 按占用率返回 [HOT] 文案（含感叹号分级） */
-export function dingLabel(percent: number | null): string {
-  if (percent === null) return "[HOT]";
-  if (percent >= 95) return "[HOT!!!!!]";
-  if (percent >= 90) return "[HOT!!!!]";
-  if (percent >= 85) return "[HOT!!!]";
-  if (percent >= 80) return "[HOT!!]";
-  if (percent >= 70) return "[HOT!]";
-  return "[HOT]";
-}
-
-/** 呼吸档阈值：≥80% 徽章换盲文点阵轮换 + 背景起伏 */
+/** 呼吸档阈值：≥80% 换烧开轮换 + 背景起伏；低于此值为静态水位点阵 */
 const BREATH_START = 80;
 /** 字符轮换拍周期 ms */
 const GLYPH_STEP_MS = 1500;
 /** 背景亮度呼吸拍周期 ms：与字符拍错开（1.5s vs 3s），两个节奏各自可辨 */
 const BG_STEP_MS = 3000;
-/** 盲文点阵四态：全亮起，右下两点逐拍熄灭再复位 */
+/** 盲文点阵四态：全亮起，右上逐拍熄灭再复位（烧开冒泡感） */
 const BREATH_GLYPHS = ["⣿", "⣾", "⣽", "⣼"] as const;
+/** 盲文水位点阵：8 点对应 0-100%（每 12.5% 一档），从底部逐层点亮 */
+const LEVEL_GLYPHS = ["⠀", "⡀", "⣀", "⣄", "⣤", "⣦", "⣶", "⣷", "⣿"] as const;
 
 function breathing(percent: number | null): boolean {
   return percent !== null && percent >= BREATH_START;
@@ -34,10 +26,13 @@ function breathBeat(nowMs: number, stepMs: number): number {
   return Math.floor(nowMs / stepMs) % 4;
 }
 
-/** 呼吸档输出轮换中的盲文字符（尖括号包裹，3 列），非呼吸档维持 [HOT] 文案；
- * index.ts 拿它做占位文本，宽度与 renderDing 输出一致，同一 nowMs 保证同拍。 */
+/** 徽章字符：未知 `<?>`；低于呼吸档为静态水位点阵；呼吸档为烧开轮换。 */
 export function dingGlyph(percent: number | null, nowMs: number = Date.now()): string {
-  if (!breathing(percent)) return dingLabel(percent);
+  if (percent === null) return "<?>";
+  if (percent < BREATH_START) {
+    const n = Math.min(8, Math.max(0, Math.round((percent / 100) * 8)));
+    return `<${LEVEL_GLYPHS[n]}>`;
+  }
   return `<${BREATH_GLYPHS[breathBeat(nowMs, GLYPH_STEP_MS)]}>`;
 }
 
@@ -101,6 +96,7 @@ export function dingColor(percent: number | null): { bg: RGB | null; fg: RGB | n
  */
 export function renderDing(percent: number | null, nowMs: number = Date.now()): string {
   const label = dingGlyph(percent, nowMs);
+  if (!label) return "";
   const { bg, fg } = dingColor(percent);
   if (!bg || !fg) return label;
   const gain = breathing(percent)

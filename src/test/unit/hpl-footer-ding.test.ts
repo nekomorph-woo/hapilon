@@ -1,40 +1,31 @@
 /**
- * hpl-footer ding.ts 单元测试 — [HOT] 指示灯文案分级与渐变色
+ * hpl-footer ding.ts 单元测试 — 占用徽章：<?> 未知、盲文点阵呼吸、无徽章段
  */
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { dingLabel, dingColor, dingGlyph, renderDing } from "../../extensions/hpl-footer/ding.js";
+import { dingColor, dingGlyph, renderDing } from "../../extensions/hpl-footer/ding.js";
 
-describe("dingLabel — 感叹号分级", () => {
-  it("正常路径: 低占用无感叹号", () => {
-    assert.equal(dingLabel(0), "[HOT]");
-    assert.equal(dingLabel(35), "[HOT]");
+describe("dingGlyph — 盲文水位与呼吸", () => {
+  it("正常路径: 水位点阵 8 档对应 0-100%，从底部逐层点亮", () => {
+    assert.equal(dingGlyph(0), "<⠀>");
+    assert.equal(dingGlyph(12), "<⡀>");
+    assert.equal(dingGlyph(25), "<⣀>");
+    assert.equal(dingGlyph(50), "<⣤>");
+    assert.equal(dingGlyph(79.9), "<⣶>");
   });
 
-  it("边界条件: 69.9% 仍无感叹号，70% 出现 1 个", () => {
-    assert.equal(dingLabel(69.9), "[HOT]");
-    assert.equal(dingLabel(70), "[HOT!]");
+  it("正常路径: 呼吸档烧开轮换，四拍 1.5s 循环复位", () => {
+    assert.equal(dingGlyph(85, 0), "<⣿>");
+    assert.equal(dingGlyph(85, 1500), "<⣾>");
+    assert.equal(dingGlyph(85, 3000), "<⣽>");
+    assert.equal(dingGlyph(85, 4500), "<⣼>");
+    assert.equal(dingGlyph(85, 6000), "<⣿>");
   });
 
-  it("边界条件: 各阈值感叹号数量 80→2 / 85→3 / 90→4 / 95→5", () => {
-    assert.equal(dingLabel(80), "[HOT!!]");
-    assert.equal(dingLabel(85), "[HOT!!!]");
-    assert.equal(dingLabel(90), "[HOT!!!!]");
-    assert.equal(dingLabel(95), "[HOT!!!!!]");
-  });
-
-  it("边界条件: 阈值之间取低档，超 95% 封顶 5 个", () => {
-    assert.equal(dingLabel(79.9), "[HOT!]");
-    assert.equal(dingLabel(84.9), "[HOT!!]");
-    assert.equal(dingLabel(89.9), "[HOT!!!]");
-    assert.equal(dingLabel(94.9), "[HOT!!!!]");
-    assert.equal(dingLabel(100), "[HOT!!!!!]");
-  });
-
-  it("异常路径: 占用未知（null）时退回无感叹号", () => {
-    assert.equal(dingLabel(null), "[HOT]");
+  it("异常路径: 占用未知显示 <?>", () => {
+    assert.equal(dingGlyph(null, 1500), "<?>");
   });
 });
 
@@ -78,17 +69,17 @@ describe("dingColor — 渐变背景与自适应字色", () => {
 });
 
 describe("renderDing — ANSI 真彩包裹", () => {
-  it("正常路径: 输出含背景码、前景码、文案、复位码", () => {
+  it("正常路径: 水位档带渐变色块（70% 黄底黑字 ⣶）", () => {
     const out = renderDing(70);
-    assert.equal(out, "\x1b[48;2;255;200;0m\x1b[38;2;30;30;30m[HOT!]\x1b[0m");
+    assert.equal(out, "\x1b[48;2;255;200;0m\x1b[38;2;30;30;30m<⣶>\x1b[0m");
   });
 
-  it("边界条件: 0% 无背景时输出纯文案（无 ANSI 码）", () => {
-    assert.equal(renderDing(0), "[HOT]");
+  it("边界条件: 0% 空点阵无背景", () => {
+    assert.equal(renderDing(0), "<⠀>");
   });
 
-  it("异常路径: null 占用输出纯文案", () => {
-    assert.equal(renderDing(null), "[HOT]");
+  it("异常路径: null 占用输出 <?>", () => {
+    assert.equal(renderDing(null), "<?>");
   });
 });
 
@@ -119,28 +110,15 @@ describe("renderDing — 呼吸（字符 1.5s 轮换、背景 3s 呼吸）", () 
   });
 });
 
-describe("dingGlyph — 呼吸档盲文字符轮换", () => {
-  it("正常路径: 字符四拍 1.5s 一拍 ⣿⣾⣽⣼，循环复位，尖括号包裹", () => {
-    assert.equal(dingGlyph(85, 0), "<⣿>");
-    assert.equal(dingGlyph(85, 1500), "<⣾>");
-    assert.equal(dingGlyph(85, 3000), "<⣽>");
-    assert.equal(dingGlyph(85, 4500), "<⣼>");
-    assert.equal(dingGlyph(85, 6000), "<⣿>");
-  });
-
-  it("边界条件: 非呼吸档与 null 保持文案分级", () => {
-    assert.equal(dingGlyph(79.9, 1500), "[HOT!]");
-    assert.equal(dingGlyph(null, 1500), "[HOT]");
-  });
-
-  it("正常路径: renderDing 输出尖括号 + 字符/背景拍独立（1500ms：⣾ + 未调制背景）", () => {
-    // 1500ms：字符拍 1 → ⣾（U+28FE）；背景拍 0 → gain 1 → 90% 基色 RED
+describe("renderDing — 字符/背景拍独立", () => {
+  it("正常路径: 1500ms：水位档外字符拍 1 → ⣾、背景拍 0 → 未调制基色", () => {
+    // 90%：字符走呼吸 ⣾（U+28FE）；背景 3s 拍 0 → gain 1 → RED 基色
     const out = renderDing(90, 1500);
-    assert.equal(out, "\x1b[48;2;220;40;30m\x1b[38;2;245;245;245m<\u28fe>\x1b[0m");
+    assert.equal(out, "\x1b[48;2;220;40;30m\x1b[38;2;245;245;245m<⣾>\x1b[0m");
   });
 
-  it("正常路径: 3000ms 时字符拍 2 → ⣽、背景拍 1 → 提亮，两拍脱钩", () => {
+  it("正常路径: 3000ms：字符拍 2 → ⣽、背景拍 1 → 提亮，两拍脱钩", () => {
     const out = renderDing(90, 3000);
-    assert.equal(out, "\x1b[48;2;255;50;38m\x1b[38;2;245;245;245m<\u28fd>\x1b[0m");
+    assert.equal(out, "\x1b[48;2;255;50;38m\x1b[38;2;245;245;245m<⣽>\x1b[0m");
   });
 });
