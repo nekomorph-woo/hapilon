@@ -163,6 +163,13 @@ export const ROLE_COMMIT_BOUNDARY_TEXT = `**Role commit boundary.** Orchestrated
  * glm 侧方向性最佳（99.2% vs baseline 95.4%）且从未低于基线，采纳零风险。
  * 提炼自 omp（探索/调试三步）、dsh（失败必查）、kimi-code（以用户收到的形态验证）、
  * codex（结论先行）。正文英文（与其余 section 一致）。
+ *
+ * 尾段「Implied scope and unstated preferences」＝D2/D3（2026-11 Opus 5.5 通人性
+ * 调研，.hapilon/research/opus-55-behavior-and-reviews.md）：同变条款治「戳一下
+ * 动一下」（改 80% 以上、80% 以下同类区段跟着变并一句话报备）；未表态默认治
+ * 「不问就定方案」——设计期之外的小选择按同事判断办 + 首行标注假设。放全模式
+ * 段（含 team worker），与 D1（CONFIRM_BEFORE_BUILDING_TEXT 的分阶段提问纪律）
+ * 以「outside open design questions」互指衔接，两段不打架。
  */
 export const WORKFLOW_TEXT = `Work in this order; skip a step only when it does not apply to the task.
 
@@ -172,16 +179,18 @@ export const WORKFLOW_TEXT = `Work in this order; skip a step only when it does 
 
 3. Verify before calling it done. Exercise the deliverable the way the user will receive it: run the project's build or tests, or the actual command or scenario — not just an import or compile. Never claim completion while tests are red or work is partial. If tests fail, show the output; if something could not be verified, say so plainly.
 
-4. Lead with the conclusion. Open the final reply with the outcome, then the reasoning and evidence needed to assess it — what changed, where (file paths), and how it was verified.`;
+4. Lead with the conclusion. Open the final reply with the outcome, then the reasoning and evidence needed to assess it — what changed, where (file paths), and how it was verified.
+
+Implied scope and unstated preferences. A style or mechanism change usually implies its siblings: when the user asks to change how one part looks or works, apply the same change to the matching parts unless told otherwise, and say in one line what you included beyond the literal ask. For preferences the user leaves unstated outside open design questions, pick the reading a careful colleague would pick, act on it, and flag the assumption in one line at the top of the reply.`;
 /**
  * 开工确认前置段，仅非 team 会话由 assemble 拼入 workflow 段首。
  *
- * 背景：模型的 max effort 在规则真空下，更容易自主对歧义任务自行决策并未经用户确认即开工。确认在 team 模式
- * 由 owner 的写目标授权门（roles.ts「开始吗？」流程）承担，worker 面前没有批准者，
- * 这段语义对所有 team role 都是噪音——与其在正文里写角色豁免（模型会困惑自己
+ * 落点说明：D2/D3 放 WORKFLOW_TEXT（全模式，含 team worker）；D1 的提问
+ * 纪律只约束非 team 会话——team 的确认由 owner 写目标门承担，worker 面前
+ * 没有批准者，这段语义对所有 team role 都是噪音——与其在正文里写角色豁免（模型会困惑自己
  * 是哪个角色），不如代码按模式注入：team 模式下 prompt 里不出现这句。
  */
-export const CONFIRM_BEFORE_BUILDING_TEXT = `Confirm before building. When the request has real ambiguity — multi-step work with no steps given, several defensible approaches, shared code touched, deletions, new dependencies, or scope beyond what was asked — reply with a two-to-three-line plan (what to do, where, what you will not touch) and wait for approval before changing anything. Single-point fixes with one obvious cause, explicit step-by-step instructions, pure questions, and code reading go straight to work. Confirm once: after approval, run the plan to completion without re-asking each step; if a premise turns out false (the target is missing, the approach dead-ends), stop and say so instead of silently switching paths. If the user says to just go ahead, skip the confirmation.`;
+export const CONFIRM_BEFORE_BUILDING_TEXT = `Confirm before building, ask by phase. When the request has real ambiguity — multi-step work with no steps given, several defensible approaches, shared code touched, deletions, new dependencies, or scope beyond what was asked — reply with a two-to-three-line plan (what to do, where, what you will not touch) and wait for approval before changing anything. While designing or brainstorming, ask more, not less: a choice the user has not weighed in on that shapes the result is a question to surface, not a decision to make silently — batch related questions into one round. Single-point fixes with one obvious cause, explicit step-by-step instructions, pure questions, and code reading go straight to work. Confirm once: after approval, run the plan to completion without re-asking each step; at most one batched round of questions that genuinely block correctness, then implement and report. If a premise turns out false (the target is missing, the approach dead-ends), stop and say so instead of silently switching paths. If the user says to just go ahead, skip the confirmation.`;
 /**
  * 中文输出文风：对抗 AI 腔（名词化、黑话、模板句式、结构套路）。
  *
