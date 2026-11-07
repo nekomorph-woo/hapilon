@@ -42,6 +42,12 @@ const HAPI_BG_RUNNING_GLYPH_MARKER = "hapiBgRunningGlyph";
 const HAPI_PONYTAIL_GLYPH_MARKER = "hapiPonytailGlyph";
 /** ponytail 包名（hapilon 自身的依赖） */
 const PONYTAIL_PACKAGE = "@dietrichgebert/ponytail";
+/** 压缩内核包名（hapilon 自身的依赖） */
+const BILLION_CONTEXT_PACKAGE = "billion-context-pi";
+/** billion-context 提醒措辞温和化的 marker */
+const HAPI_NUDGE_WORDING_MARKER = "hapiNudgeWording";
+/** billion-context 提醒冷却戳判断前清零的 marker */
+const HAPI_NUDGE_COOLDOWN_RESET_MARKER = "hapiNudgeCooldownReset";
 /** /compact 条目移除后数组空洞的源头过滤（补全项不含 undefined）的 marker */
 const HAPI_COMPACT_FILTER_MARKER = "hapiCompactFilter";
 /** SubagentWorkflow 派发模型列表钩子的 marker */
@@ -53,10 +59,10 @@ const PI_BUNDLE_CHUNKS = "dist/bundle/chunks";
 /** SelectList 选中项描述两行展开的 marker */
 const HAPI_DESC_WRAP_MARKER = "hapiDescWrap";
 /**
- * 全部改动均为字符串级替换，逐条 anchors 与实际 pi dist 产物 byte-for-byte 校验过
- * （pi-tui editor.js 2 条 + select-list.js 2 条 + bundle chunk 4 条 + background-tasks.ts 5 条
- * + pi-subagents host.js/settings.js 2 条 + interactive-mode.js 1 条
- * + slash-commands.js 1 条）。
+ * 全部改动均为字符串级替换，逐条 anchors 与实际安装产物 byte-for-byte 校验过
+ * （pi-tui editor.js 2 条 + select-list.js 2 条 + pi bundle chunk 5 条 + pi 主包 2 条
+ * + background-tasks.ts 6 条 + pi-subagents host.js/settings.js 2 条 + ponytail 1 条
+ * + billion-context-pi dist/index.js 2 条，共 22 条）。
  */
 /** 补丁规则表(导出仅供测试构造 fixture;运行时只读) */
 export const PATCH_RULES = [
@@ -293,6 +299,37 @@ export const PATCH_RULES = [
             + "            const effectivePrimaryColumnWidth",
         occurrences: 1,
         marker: HAPI_DESC_WRAP_MARKER,
+    },
+    // ── billion-context 提醒（0.1.83）两处：① 压缩提醒缺「先压缩已耗尽区间、保持
+    //    活跃工作集」的前置建议，措辞从单次调用参数直接开头——温和化改写，原句后半
+    //    参数说明原样保留。② 上游提醒展示即写冷却戳（lastNudgeShownTokens /
+    //    lastShownByTier），被忽略也长期拦住后续提醒——decideNudge 判断前构造无展
+    //    示戳的局部 state 传入（billion-context 所有 node 都以返回新 state 的不可变
+    //    风格工作，不直接改 io.state），同一 turn 仍由 runtime turnKey 去重，跨新
+    //    user turn 符合条件会再提醒；nudgeNode 随后照常 stamp 新戳并随返回值落
+    //    state。上游若按成功结果计冷却，删掉这两条。
+    {
+        base: "hapilon",
+        package: BILLION_CONTEXT_PACKAGE,
+        file: "dist/index.js",
+        find: '      "",\n      `\\u{1F4A1} If you compress, fold the ranges you keep in ONE call \\u2014 pass multiple content entries',
+        replace: '      "",\n'
+            + "      // hapilon: hapiNudgeWording — 先建议压缩已耗尽区间，保持活跃工作集不动，再接原句的单次调用参数说明\n"
+            + '      `\\u{1F4A1} If some listed ranges are fully consumed, consider compressing those ranges before continuing. Leave the active working set untouched. If you compress, fold all chosen ranges in ONE call \\u2014 pass multiple content entries',
+        occurrences: 1,
+        marker: HAPI_NUDGE_WORDING_MARKER,
+    },
+    {
+        base: "hapilon",
+        package: BILLION_CONTEXT_PACKAGE,
+        file: "dist/index.js",
+        find: 'var nudgeNode = {\n  name: "nudge-inject",\n  run(io, ctx) {\n    const nudge = decideNudge({\n      tokenCount: ctx.tokenCount,\n      config: ctx.config,\n      state: io.state,',
+        replace: 'var nudgeNode = {\n  name: "nudge-inject",\n  run(io, ctx) {\n'
+            + "    // hapilon: hapiNudgeCooldownReset — 提醒展示即写冷却戳，被忽略也拦住后续提醒；判断使用无展示戳的局部 state（不可变风格，不改 io.state）\n"
+            + "    const hapiNudgeState = { ...io.state, nudge: { ...io.state.nudge, lastNudgeShownTokens: 0, lastShownByTier: {} } };\n"
+            + '    const nudge = decideNudge({\n      tokenCount: ctx.tokenCount,\n      config: ctx.config,\n      state: hapiNudgeState,',
+        occurrences: 1,
+        marker: HAPI_NUDGE_COOLDOWN_RESET_MARKER,
     },
 ];
 /**
