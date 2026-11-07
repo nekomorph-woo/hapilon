@@ -99,24 +99,24 @@ describe("renderDing — 呼吸（字符 1.5s 轮换、背景 3s 呼吸）", () 
     });
 });
 describe("dingGlyph — 呼吸档盲文字符轮换", () => {
-    it("正常路径: 字符四拍 1.5s 一拍 ⣿⣾⣽⣼，循环复位，括号圆角", () => {
-        assert.equal(dingGlyph(85, 0), "(⣿)");
-        assert.equal(dingGlyph(85, 1500), "(⣾)");
-        assert.equal(dingGlyph(85, 3000), "(⣽)");
-        assert.equal(dingGlyph(85, 4500), "(⣼)");
-        assert.equal(dingGlyph(85, 6000), "(⣿)");
+    it("正常路径: 字符四拍 1.5s 一拍 ⣿⣾⣽⣼，循环复位，尖括号包裹", () => {
+        assert.equal(dingGlyph(85, 0), "<⣿>");
+        assert.equal(dingGlyph(85, 1500), "<⣾>");
+        assert.equal(dingGlyph(85, 3000), "<⣽>");
+        assert.equal(dingGlyph(85, 4500), "<⣼>");
+        assert.equal(dingGlyph(85, 6000), "<⣿>");
     });
     it("边界条件: 非呼吸档与 null 保持文案分级", () => {
         assert.equal(dingGlyph(79.9, 1500), "[HOT!]");
         assert.equal(dingGlyph(null, 1500), "[HOT]");
     });
-    it("正常路径: renderDing 输出括号 + 字符/背景拍独立（1500ms：⣾ + 未调制背景）", () => {
+    it("正常路径: renderDing 输出尖括号 + 字符/背景拍独立（1500ms：⣾ + 未调制背景）", () => {
         // 1500ms：字符拍 1 → ⣾（U+28FE）；背景拍 0 → gain 1 → 90% 基色 RED
         const out = renderDing(90, 1500);
-        assert.equal(out, "\x1b[48;2;220;40;30m\x1b[38;2;245;245;245m(\u28fe)\x1b[0m");
+        assert.equal(out, "\x1b[48;2;220;40;30m\x1b[38;2;245;245;245m<\u28fe>\x1b[0m");
     });
     it("正常路径: 3000ms 时字符拍 2 → ⣽、背景拍 1 → 提亮，两拍脱钩", () => {
         const out = renderDing(90, 3000);
-        assert.equal(out, "\x1b[48;2;255;50;38m\x1b[38;2;245;245;245m(\u28fd)\x1b[0m");
+        assert.equal(out, "\x1b[48;2;255;50;38m\x1b[38;2;245;245;245m<\u28fd>\x1b[0m");
     });
 });

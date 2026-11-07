@@ -33,12 +33,12 @@ function breathing(percent) {
 function breathBeat(nowMs, stepMs) {
     return Math.floor(nowMs / stepMs) % 4;
 }
-/** 呼吸档输出轮换中的盲文字符（括号圆角近似，3 列），非呼吸档维持 [HOT] 文案；
+/** 呼吸档输出轮换中的盲文字符（尖括号包裹，3 列），非呼吸档维持 [HOT] 文案；
  * index.ts 拿它做占位文本，宽度与 renderDing 输出一致，同一 nowMs 保证同拍。 */
 export function dingGlyph(percent, nowMs = Date.now()) {
     if (!breathing(percent))
         return dingLabel(percent);
-    return `(${BREATH_GLYPHS[breathBeat(nowMs, GLYPH_STEP_MS)]})`;
+    return `<${BREATH_GLYPHS[breathBeat(nowMs, GLYPH_STEP_MS)]}>`;
 }
 // ─── 渐变色 ─────────────────────────────────────────────────────────
 const DARK_YELLOW = [64, 52, 0];
@@ -91,7 +91,7 @@ export function dingColor(percent) {
  *
  * ≥80% 进入呼吸档：徽章文字换盲文字符四态轮换（⣿⣾⣽⣼，1.5s 一拍，只动右下两点，烧开冒泡感），
  * 背景亮度独立按 3s 拍起伏——快拍动字、慢拍动色，两个节奏视觉上可区分；
- * 两端半角括号做圆角近似（终端背景色块无真圆角）；
+ * 两端半角尖括号包裹徽章；
  * 字色仍按未调制基色算：80–90 段的 RED 提亮会跨亮度阈值，字色随拍翻转是闪烁事故。
  */
 export function renderDing(percent, nowMs = Date.now()) {
