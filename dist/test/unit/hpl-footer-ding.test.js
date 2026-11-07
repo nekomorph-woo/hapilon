@@ -3,7 +3,7 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { dingLabel, dingColor, renderDing } from "../../extensions/hpl-footer/ding.js";
+import { dingLabel, dingColor, dingGlyph, renderDing } from "../../extensions/hpl-footer/ding.js";
 describe("dingLabel — 感叹号分级", () => {
     it("正常路径: 低占用无感叹号", () => {
         assert.equal(dingLabel(0), "[HOT]");
@@ -75,25 +75,48 @@ describe("renderDing — ANSI 真彩包裹", () => {
         assert.equal(renderDing(null), "[HOT]");
     });
 });
-describe("renderDing — 呼吸（≥80% 背景 3s 一拍）", () => {
-    it("正常路径: 四拍背景色依次为基准/提亮/基准/压暗", () => {
-        const beat = (ms) => renderDing(85, ms);
-        const base = beat(0);
-        assert.equal(beat(3000) !== base, true);
-        assert.equal(beat(6000), base); // 第 3 拍回到基准
-        assert.equal(beat(9000) !== base, true);
-        assert.equal(beat(12000), base); // 第 5 拍 = 新周期首拍
+describe("renderDing — 呼吸（字符 1.5s 轮换、背景 3s 呼吸）", () => {
+    it("正常路径: 背景四拍起伏（3s 拍）——基准/提亮/基准/压暗（R 通道）", () => {
+        const rOf = (ms) => renderDing(85, ms).match(/\x1b\[48;2;(\d+);/)[1];
+        const base = rOf(0);
+        assert.equal(rOf(3000) !== base, true); // 提亮
+        assert.equal(rOf(6000), base); // 第 3 拍回基准
+        assert.equal(rOf(9000) !== base, true); // 压暗
+        assert.equal(rOf(12000), base); // 第 5 拍 = 新周期首拍
     });
-    it("边界条件: 79.9% 不呼吸，80% 开始呼吸", () => {
-        assert.equal(renderDing(79.9, 3000), renderDing(79.9, 0));
-        assert.equal(renderDing(80, 3000) !== renderDing(80, 0), true);
+    it("边界条件: 79.9% 不呼吸，80% 开始呼吸（字符与背景双验证）", () => {
+        assert.equal(renderDing(79.9, 1500), renderDing(79.9, 0));
+        assert.equal(renderDing(80, 1500) !== renderDing(80, 0), true); // 字符拍变
+        assert.equal(renderDing(80, 3000) !== renderDing(80, 1500), true); // 背景拍也变
     });
     it("边界条件: 字色不随拍变（fg 按未调制基色算）", () => {
         const fg = (ms) => renderDing(85, ms).match(/\x1b\[38;2;[^m]+m/)[0];
-        assert.equal(fg(3000), fg(0));
+        assert.equal(fg(1500), fg(0));
         assert.equal(fg(9000), fg(0));
     });
     it("异常路径: null 占用与呼吸无关", () => {
-        assert.equal(renderDing(null, 3000), renderDing(null, 9000));
+        assert.equal(renderDing(null, 1500), renderDing(null, 9000));
+    });
+});
+describe("dingGlyph — 呼吸档盲文字符轮换", () => {
+    it("正常路径: 字符四拍 1.5s 一拍 ⣿⣾⣽⣼，循环复位，括号圆角", () => {
+        assert.equal(dingGlyph(85, 0), "(⣿)");
+        assert.equal(dingGlyph(85, 1500), "(⣾)");
+        assert.equal(dingGlyph(85, 3000), "(⣽)");
+        assert.equal(dingGlyph(85, 4500), "(⣼)");
+        assert.equal(dingGlyph(85, 6000), "(⣿)");
+    });
+    it("边界条件: 非呼吸档与 null 保持文案分级", () => {
+        assert.equal(dingGlyph(79.9, 1500), "[HOT!]");
+        assert.equal(dingGlyph(null, 1500), "[HOT]");
+    });
+    it("正常路径: renderDing 输出括号 + 字符/背景拍独立（1500ms：⣾ + 未调制背景）", () => {
+        // 1500ms：字符拍 1 → ⣾（U+28FE）；背景拍 0 → gain 1 → 90% 基色 RED
+        const out = renderDing(90, 1500);
+        assert.equal(out, "\x1b[48;2;220;40;30m\x1b[38;2;245;245;245m(\u28fe)\x1b[0m");
+    });
+    it("正常路径: 3000ms 时字符拍 2 → ⣽、背景拍 1 → 提亮，两拍脱钩", () => {
+        const out = renderDing(90, 3000);
+        assert.equal(out, "\x1b[48;2;255;50;38m\x1b[38;2;245;245;245m(\u28fd)\x1b[0m");
     });
 });

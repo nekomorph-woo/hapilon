@@ -19,6 +19,27 @@ export function dingLabel(percent) {
         return "[HOT!]";
     return "[HOT]";
 }
+/** 呼吸档阈值：≥80% 徽章换盲文点阵轮换 + 背景起伏 */
+const BREATH_START = 80;
+/** 字符轮换拍周期 ms */
+const GLYPH_STEP_MS = 1500;
+/** 背景亮度呼吸拍周期 ms：与字符拍错开（1.5s vs 3s），两个节奏各自可辨 */
+const BG_STEP_MS = 3000;
+/** 盲文点阵四态：全亮起，右下两点逐拍熄灭再复位 */
+const BREATH_GLYPHS = ["⣿", "⣾", "⣽", "⣼"];
+function breathing(percent) {
+    return percent !== null && percent >= BREATH_START;
+}
+function breathBeat(nowMs, stepMs) {
+    return Math.floor(nowMs / stepMs) % 4;
+}
+/** 呼吸档输出轮换中的盲文字符（括号圆角近似，3 列），非呼吸档维持 [HOT] 文案；
+ * index.ts 拿它做占位文本，宽度与 renderDing 输出一致，同一 nowMs 保证同拍。 */
+export function dingGlyph(percent, nowMs = Date.now()) {
+    if (!breathing(percent))
+        return dingLabel(percent);
+    return `(${BREATH_GLYPHS[breathBeat(nowMs, GLYPH_STEP_MS)]})`;
+}
 // ─── 渐变色 ─────────────────────────────────────────────────────────
 const DARK_YELLOW = [64, 52, 0];
 const YELLOW = [255, 200, 0];
@@ -68,16 +89,18 @@ export function dingColor(percent) {
 }
 /** 组合文案与颜色，输出真彩 ANSI 包裹的最终字符串；无背景时输出纯文案。
  *
- * ≥80% 背景亮度按 3s 一拍呼吸（基准→提亮→基准→压暗）；
+ * ≥80% 进入呼吸档：徽章文字换盲文字符四态轮换（⣿⣾⣽⣼，1.5s 一拍，只动右下两点，烧开冒泡感），
+ * 背景亮度独立按 3s 拍起伏——快拍动字、慢拍动色，两个节奏视觉上可区分；
+ * 两端半角括号做圆角近似（终端背景色块无真圆角）；
  * 字色仍按未调制基色算：80–90 段的 RED 提亮会跨亮度阈值，字色随拍翻转是闪烁事故。
  */
 export function renderDing(percent, nowMs = Date.now()) {
-    const label = dingLabel(percent);
+    const label = dingGlyph(percent, nowMs);
     const { bg, fg } = dingColor(percent);
     if (!bg || !fg)
         return label;
-    const gain = percent !== null && percent >= 80
-        ? [1, 1.25, 1, 0.82][Math.floor(nowMs / 3000) % 4]
+    const gain = breathing(percent)
+        ? [1, 1.25, 1, 0.82][breathBeat(nowMs, BG_STEP_MS)]
         : 1;
     const bgNow = gain === 1 ? bg : [
         Math.min(255, Math.round(bg[0] * gain)),

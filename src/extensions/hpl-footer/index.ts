@@ -10,7 +10,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { dingLabel, renderDing } from "./ding.js";
+import { dingGlyph, renderDing } from "./ding.js";
 import {
   aggregateUsage,
   buildLine1,
@@ -32,8 +32,8 @@ export default function hplFooter(pi: ExtensionAPI): void {
 
     ctx.ui.setFooter((tui, theme, footerData) => {
       const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
-      // 呼吸拍：ding ≥80% 时背景 3s 一拍起伏，靠定时重绘推进
-      const breath = setInterval(() => tui.requestRender(), 3000);
+      // 呼吸拍：ding ≥80% 时字符轮换 + 背景 1.5s 一拍起伏，靠定时重绘推进
+      const breath = setInterval(() => tui.requestRender(), 1500);
 
       return {
         dispose: () => {
@@ -87,8 +87,9 @@ export default function hplFooter(pi: ExtensionAPI): void {
           const percent: number | null = usage === undefined ? 0
             : usage.percent === null ? null : Math.min(100, usage.percent + 80);
           const ctxWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
-          // [HOT] 先以纯文本入布局，布局后再单独换成真彩码——同第 1 行，避免 ANSI 被截断
-          const dingText = dingLabel(percent);
+          // [HOT] 先以纯文本入布局，布局后再单独换成真彩码——同第 1 行，避免 ANSI 被截断；
+          // 占位与渲染用同一 now，保证呼吸拍一致（盲文字符与替换段宽度同为 1 列）
+          const dingText = dingGlyph(percent, now);
           const leftPlain = buildStatsLeft(stats, percent, ctxWindow, dingText);
           // 模型支持思考时展示档位（与内置 footer 判断一致）；只留 level，去掉 "thinking " 前缀
           const rightPlain = buildModelRight(ctx.model, pi.getThinkingLevel());
@@ -98,7 +99,7 @@ export default function hplFooter(pi: ExtensionAPI): void {
           const line2 = dingIdx < 0
             ? theme.fg("dim", line2Plain)
             : theme.fg("dim", line2Plain.slice(0, dingIdx))
-              + renderDing(percent)
+              + renderDing(percent, now)
               + (dingTail ? theme.fg("dim", dingTail) : "");
 
           // 终极兜底：布局按可见宽度控制，ANSI 只由这里按段包裹，
