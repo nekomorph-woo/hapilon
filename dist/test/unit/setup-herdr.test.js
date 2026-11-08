@@ -7,6 +7,12 @@ describe("setup-herdr 纯函数", () => {
         assert.match(s, /^#!\/bin\/sh\n/);
         assert.match(s, /HAPILON_HOME="\/home\/u\/\.hapilon-dev" exec node "\/opt\/hapilon\/dist\/cli\.js" "\$@"\n$/);
     });
+    it("Windows shim 产 .cmd 形态，参数透传 %*", () => {
+        const s = shimScript("C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\hapilon\\dist\\cli.js", "C:\\Users\\u\\.hapilon", true);
+        assert.match(s, /^@echo off\n/);
+        assert.match(s, /set "HAPILON_HOME=C:\\Users\\u\\.hapilon"\n/);
+        assert.match(s, /node "C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\hapilon\\dist\\cli\.js" %\*\n$/);
+    });
     it("icon 文件名由内容 hash 决定，同内容稳定、异内容换名", () => {
         const a = iconFileName("<svg>a</svg>");
         assert.match(a, /^hapilon-[0-9a-f]{8}\.svg$/);

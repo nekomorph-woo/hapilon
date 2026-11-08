@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { argv } from "node:process";
+import { argv, platform } from "node:process";
 import { Data, Effect } from "effect";
 import { hapilonHome } from "../config/hapilon-home.js";
 
@@ -46,7 +46,11 @@ const PROGRAM_ENTRY = {
 
 // ─── 纯函数（单测覆盖） ────────────────────────────────────────────────
 
-export function shimScript(cliPath: string, home: string): string {
+/** shim 双形态：POSIX 走 sh，Windows 产 .cmd（herdr 拿 sh 脚本在 Windows 无法执行） */
+export function shimScript(cliPath: string, home: string, windows = false): string {
+  if (windows) {
+    return `@echo off\nrem herdr-app start-agent 检测用的可执行入口（setup-herdr 生成）\nset "HAPILON_HOME=${home}"\nnode "${cliPath}" %*\n`;
+  }
   return `#!/bin/sh\n# herdr-app start-agent 检测用的可执行入口（setup-herdr 生成）\nHAPILON_HOME="${home}" exec node "${cliPath}" "$@"\n`;
 }
 
@@ -110,8 +114,12 @@ export function setupHerdr(): Promise<void> {
     }
 
     const { cliPath, home } = deriveShimInputs();
+    const isWin = platform === "win32";
+    const localBin = join(homedir(), ".local", "bin");
+    mkdirSync(localBin, { recursive: true });
     const icon = iconFileName(GEMINI_ICON_SVG);
-    const entry = { ...PROGRAM_ENTRY, icon: `my-icons/${icon}` };
+    // Windows 上 run 写 shim 完整路径：herdr 不经 shell spawn，裸命令名解析不到 .cmd
+    const entry = { ...PROGRAM_ENTRY, icon: `my-icons/${icon}`, ...(isWin ? { run: [join(localBin, "hapilon.cmd")] } : {}) };
 
     // 图标：按内容 hash 命名——herdr 按 icon 路径缓存 SVG 内容，同路径覆盖写不刷新，
     // 内容变化时换新文件名；旧 hapilon-*.svg 清掉防堆积
@@ -122,12 +130,15 @@ export function setupHerdr(): Promise<void> {
       if (f.startsWith("hapilon-") && f !== icon) unlinkSync(join(myIcons, f));
     }
 
-    // shim：~/.local/bin/hapilon + hapi 链接（start-agent 菜单按「本机是否装了命令」过滤）
-    const localBin = join(homedir(), ".local", "bin");
-    mkdirSync(localBin, { recursive: true });
-    const shimPath = join(localBin, "hapilon");
-    yield* writeTextEffect(shimPath, shimScript(cliPath, home), 0o755);
-    yield* forceSymlinkEffect("hapilon", join(localBin, "hapi"));
+    // shim：~/.local/bin/hapilon(+cmd) + hapi 链接（start-agent 菜单按「本机是否装了命令」过滤）
+    // Windows 无符号链接特权要求，两个 .cmd 都直写
+    const shimPath = join(localBin, isWin ? "hapilon.cmd" : "hapilon");
+    yield* writeTextEffect(shimPath, shimScript(cliPath, home, isWin), isWin ? undefined : 0o755);
+    if (isWin) {
+      yield* writeTextEffect(join(localBin, "hapi.cmd"), shimScript(cliPath, home, isWin));
+    } else {
+      yield* forceSymlinkEffect("hapilon", join(localBin, "hapi"));
+    }
 
     // programs.json：合并写，保留用户其他条目
     const programsPath = join(herdrDir, "programs.json");
