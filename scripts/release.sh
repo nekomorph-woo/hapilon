@@ -114,13 +114,14 @@ fi
 
 # ── 3. pack ──────────────────────────────────────────────────────────
 echo "▶ 3/5 npm pack"
-npm pack --pack-destination /tmp > /dev/null
+# npm 11.8.0 在 stdin EOF（后台/CI）时随机挂死（npm/cli#8346），显式喂 /dev/null；冒烟 install 同理
+npm pack --pack-destination /tmp > /dev/null </dev/null
 [[ -f "/tmp/$TARBALL" ]] || { echo "✗ tarball 未生成: /tmp/$TARBALL"; exit 1; }
 
 echo "▶ 4/5 全新安装冒烟验证"
 SMOKE_DIR="$(mktemp -d)"
 cleanup_smoke() { rm -rf "$SMOKE_DIR"; }
-if ! npm install --prefix "$SMOKE_DIR" --no-audit --no-fund "/tmp/$TARBALL" > /dev/null 2>&1; then
+if ! npm install --prefix "$SMOKE_DIR" --no-audit --no-fund "/tmp/$TARBALL" > /dev/null 2>&1 </dev/null; then
   echo "✗ 全新安装失败（tarball 不可安装，不上 Release）"; cleanup_smoke; exit 1
 fi
 SMOKE_BIN="$SMOKE_DIR/node_modules/.bin/hapilon"
