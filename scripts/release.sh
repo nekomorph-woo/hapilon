@@ -128,16 +128,20 @@ SMOKE_BIN="$SMOKE_DIR/node_modules/.bin/hapilon"
 [[ -x "$SMOKE_BIN" ]] || { echo "✗ 安装后无 hapilon 可执行"; cleanup_smoke; exit 1; }
 SMOKE_VERSION="$("$SMOKE_BIN" --version 2>/dev/null | tail -1)"
 [[ "$SMOKE_VERSION" == "$NEW_VERSION" ]] || { echo "✗ 版本不符: $SMOKE_VERSION ≠ $NEW_VERSION"; cleanup_smoke; exit 1; }
-# 运行时 pi-tui = pi-coding-agent 的嵌套副本（npm 解析优先），其次才是提升层
+# 运行时 pi-tui = pi 包的嵌套副本（node 解析优先），其次才是提升层。
+# 现行 npm 布局：pi-coding-agent 提升到顶层，pi-tui 嵌在它下面；
+# 顶层 pi-tui 是另一份未补丁副本，只在无嵌套时晇底（那时补丁器打的也是它）
 RUNTIME_TUI=""
 for candidate in \
-  "$SMOKE_DIR/node_modules/hapilon/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui" \
+  "$SMOKE_DIR/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui" \
   "$SMOKE_DIR/node_modules/@earendil-works/pi-tui"; do
   [[ -f "$candidate/dist/components/editor.js" ]] && RUNTIME_TUI="$candidate/dist/components/editor.js" && break
 done
 [[ -n "$RUNTIME_TUI" ]] || { echo "✗ 未找到运行时 pi-tui"; cleanup_smoke; exit 1; }
-LETTERS=$(grep -oF '__hapiMidTextSlash?.' "$RUNTIME_TUI" | wc -l | tr -d ' ')
-OPEN=$(grep -oF '__hapiMidTextSlashOpen?.' "$RUNTIME_TUI" | wc -l | tr -d ' ')
+# grep 零匹配（锚点漂移）时用 || true 保住退出码，让计数落 0 走下方 ✗ 报错，
+# 而不是被 pipefail 无声杀掉脚本（曾致冒烟失败无任何输出）
+LETTERS=$({ grep -oF '__hapiMidTextSlash?.' "$RUNTIME_TUI" || true; } | wc -l | tr -d ' ')
+OPEN=$({ grep -oF '__hapiMidTextSlashOpen?.' "$RUNTIME_TUI" || true; } | wc -l | tr -d ' ')
 if [[ "$LETTERS" != "3" || "$OPEN" != "1" ]]; then
   echo "✗ 补丁钩子未落在运行时副本（letters=$LETTERS open=${OPEN}）——中段补全会失效，不上 Release"
   cleanup_smoke; exit 1
@@ -150,8 +154,8 @@ for candidate in \
   [[ -f "$candidate" ]] && RUNTIME_BG="$candidate" && break
 done
 [[ -n "$RUNTIME_BG" ]] || { echo "✗ 未找到后台任务插件（background/monitor 不可用）"; cleanup_smoke; exit 1; }
-BG_SPAWN=$(grep -oF 'shell: hapiShell(),' "$RUNTIME_BG" | wc -l | tr -d ' ')
-BG_EXEC=$(grep -oF 'pi.exec!(hapiShell(),' "$RUNTIME_BG" | wc -l | tr -d ' ')
+BG_SPAWN=$({ grep -oF 'shell: hapiShell(),' "$RUNTIME_BG" || true; } | wc -l | tr -d ' ')
+BG_EXEC=$({ grep -oF 'pi.exec!(hapiShell(),' "$RUNTIME_BG" || true; } | wc -l | tr -d ' ')
 if [[ "$BG_SPAWN" != "1" || "$BG_EXEC" != "1" ]]; then
   echo "✗ 后台任务 shell 补丁未落在已安装插件（spawn=$BG_SPAWN exec=${BG_EXEC}）——Windows 上派发链会失效，不上 Release"
   cleanup_smoke; exit 1
