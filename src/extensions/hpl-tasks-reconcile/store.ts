@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { sessionTaskFile } from "@tintinweb/pi-tasks/dist/task-paths.js";
-import type { TaskStoreData } from "@tintinweb/pi-tasks/dist/types.js";
+import type { Task, TaskStoreData } from "@tintinweb/pi-tasks/dist/types.js";
 
 export interface TaskLocationInput {
   cwd: string;
@@ -30,21 +30,61 @@ export function resolveTaskFilePath(input: TaskLocationInput): string | undefine
   return join(input.cwd, ".pi", "tasks", "tasks.json");
 }
 
-/** run 结束仍存在的未收尾任务数（pending/in_progress）；全 completed 或空列表返回 0。
+export interface UnfinishedTask {
+  id: string;
+  subject: string;
+  status: "pending" | "in_progress";
+}
+
+/** run 结束仍存在的未收尾任务（pending/in_progress）。
  *  文件存在但结构损坏时抛错，由 pi 的 handler 错误通道浮出。 */
-export function countUnfinishedTasks(path: string): number {
+export function readUnfinishedTasks(path: string): UnfinishedTask[] {
   const data = JSON.parse(readFileSync(path, "utf-8")) as TaskStoreData;
   if (!Array.isArray(data.tasks)) {
     throw new Error(`任务存储缺 tasks 数组: ${path}`);
   }
-  return data.tasks.filter((t) => t.status !== "completed").length;
+  return data.tasks
+    .filter((t): t is Task & { status: "pending" | "in_progress" } => t.status !== "completed")
+    .map((t) => ({ id: t.id, subject: t.subject, status: t.status }));
 }
 
-/** 续跑提醒：与 pi-tasks 的 stale 提醒同风格，明确「收尾或清理，勿开新工」。 */
-export function buildReminderText(unfinished: number): string {
+/** run 结束仍存在的未收尾任务数；全 completed 或空列表返回 0。 */
+export function countUnfinishedTasks(path: string): number {
+  return readUnfinishedTasks(path).length;
+}
+
+function statusCounts(tasks: UnfinishedTask[]): string {
+  const by = { in_progress: 0, pending: 0 };
+  for (const t of tasks) by[t.status]++;
+  return `${tasks.length} unfinished (${by.in_progress} in_progress, ${by.pending} pending)`;
+}
+
+function taskLines(tasks: UnfinishedTask[]): string {
+  return tasks.map((t) => `- #${t.id} [${t.status}] ${t.subject}`).join("\n");
+}
+
+/** 本请求要注入的清单文本（追加为不持久化的 user message）。
+ *  空清单不注入；刚压缩后给完整清单（抗失忆硬保障，不押注摘要质量），常态只给一行计数维持存在感。 */
+export function pickContextInjection(tasks: UnfinishedTask[], compacted: boolean): string | undefined {
+  if (tasks.length === 0) return undefined;
+  if (compacted) {
+    return [
+      "<system-reminder>",
+      "Context was just compacted; the task list below is the authoritative remaining work:",
+      taskLines(tasks),
+      "</system-reminder>",
+    ].join("\n");
+  }
+  return `<system-reminder>Task list: ${statusCounts(tasks)}.</system-reminder>`;
+}
+
+/** 续跑提醒：与 pi-tasks 的 stale 提醒同风格，附上清单全文（续跑轮不必再 TaskList），
+ *  明确「收尾或清理，勿开新工」。 */
+export function buildReminderText(tasks: UnfinishedTask[]): string {
   return [
     "<system-reminder>",
-    `This run is about to settle, but the task list still has ${unfinished} unfinished task(s) (pending/in_progress).`,
+    `This run is about to settle, but the task list still has ${statusCounts(tasks)}:`,
+    taskLines(tasks),
     "If the work for them is done, mark them completed via TaskUpdate; if they are stale or superseded, delete them.",
     "Do not start new substantive work.",
     "</system-reminder>",

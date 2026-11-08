@@ -4,7 +4,14 @@ import { describe, it, after } from "node:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildReminderText, countUnfinishedTasks, resolveTaskFilePath } from "../../extensions/hpl-tasks-reconcile/store.js";
+import {
+  buildReminderText,
+  countUnfinishedTasks,
+  pickContextInjection,
+  readUnfinishedTasks,
+  resolveTaskFilePath,
+  type UnfinishedTask,
+} from "../../extensions/hpl-tasks-reconcile/store.js";
 
 describe("resolveTaskFilePath", () => {
   const cwd = "/tmp/work";
@@ -74,11 +81,63 @@ describe("countUnfinishedTasks", () => {
   });
 });
 
+describe("readUnfinishedTasks", () => {
+  const dir = mkdtempSync(join(tmpdir(), "hapi-tasks-reconcile-"));
+  after(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("过滤 completed，仅保留 id/subject/status", () => {
+    const path = join(dir, "tasks-list.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        nextId: 3,
+        tasks: [
+          { id: "1", subject: "Fix auth", status: "in_progress" },
+          { id: "2", subject: "Update docs", status: "pending" },
+          { id: "3", subject: "Done thing", status: "completed" },
+        ],
+      }),
+    );
+    assert.deepEqual(readUnfinishedTasks(path), [
+      { id: "1", subject: "Fix auth", status: "in_progress" },
+      { id: "2", subject: "Update docs", status: "pending" },
+    ]);
+  });
+});
+
+describe("pickContextInjection", () => {
+  const tasks: UnfinishedTask[] = [
+    { id: "1", subject: "Fix auth", status: "in_progress" },
+    { id: "2", subject: "Update docs", status: "pending" },
+  ];
+
+  it("空清单不注入", () => {
+    assert.equal(pickContextInjection([], false), undefined);
+    assert.equal(pickContextInjection([], true), undefined);
+  });
+
+  it("常态注入一行计数，含 unfinished 数与分状态计数", () => {
+    const text = pickContextInjection(tasks, false);
+    assert.match(text!, /^<system-reminder>Task list: 2 unfinished \(1 in_progress, 1 pending\)\.<\/system-reminder>$/);
+  });
+
+  it("压缩后注入完整清单，含每条 id/status/subject 与权威声明", () => {
+    const text = pickContextInjection(tasks, true);
+    assert.match(text!, /Context was just compacted/);
+    assert.match(text!, /- #1 \[in_progress\] Fix auth/);
+    assert.match(text!, /- #2 \[pending\] Update docs/);
+  });
+});
+
 describe("buildReminderText", () => {
-  it("含残留数、TaskUpdate 指引与 system-reminder 包裹，且不开新工", () => {
-    const text = buildReminderText(3);
+  it("含残留计数、清单全文、TaskUpdate 指引与 system-reminder 包裹，且不开新工", () => {
+    const text = buildReminderText([
+      { id: "3", subject: "Fix auth", status: "in_progress" },
+      { id: "5", subject: "Update docs", status: "pending" },
+    ]);
     assert.match(text, /<system-reminder>/);
-    assert.match(text, /\b3 unfinished task/);
+    assert.match(text, /2 unfinished \(1 in_progress, 1 pending\)/);
+    assert.match(text, /- #3 \[in_progress\] Fix auth/);
     assert.match(text, /TaskUpdate/);
     assert.match(text, /Do not start new substantive work/);
   });
