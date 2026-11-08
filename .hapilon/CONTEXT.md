@@ -21,3 +21,6 @@
 | 叫法 | 项目里对某样东西的统一称呼，词汇表一行一条 | 2026-11-08 |
 | devhapi | 开发版别名，数据目录隔离在 `~/.hapilon-dev` | 2026-11-08 |
 | dist 入库 | 构建产物随源码提交，tarball 安装路径依赖它同步 | 2026-11-08 |
+| herdr-core | herdr 的守护进程层，pane 真正宿主；区别于未运行的 TUI 版 herdr | 2026-11-08 |
+| hc | herdr-core 自带 CLI（run/read/send/wait/get/kill），agent 化验证的自动化通道 | 2026-11-08 |
+| 验证终端 | verify-hapilon 经 hc run 开的 verify- 前缀 devhapi 终端，验收跑真实环境 | 2026-11-08 |
