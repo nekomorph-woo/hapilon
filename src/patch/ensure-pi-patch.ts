@@ -42,6 +42,10 @@ const HAPI_BG_DONE_MARKER = "hapiBgDone";
 const HAPI_BG_RUNNING_GLYPH_MARKER = "hapiBgRunningGlyph";
 /** ponytail 图标去 emoji（🌿⚡🔥🐴 → 盲文点阵）的 marker */
 const HAPI_PONYTAIL_GLYPH_MARKER = "hapiPonytailGlyph";
+/** ponytail 模糊请求改按 workflow 确认制（出 plan 等批准，不自行选最小版）的 marker */
+const HAPI_PONYTAIL_WORKFLOW_MARKER = "hapiPonytailWorkflow";
+/** ponytail 注释规则向项目 code style 让位（项目规则优先）的 marker */
+const HAPI_PONYTAIL_COMMENTS_MARKER = "hapiPonytailComments";
 /** ponytail 包名（hapilon 自身的依赖） */
 const PONYTAIL_PACKAGE = "@dietrichgebert/ponytail";
 /** 压缩内核包名（hapilon 自身的依赖） */
@@ -85,8 +89,8 @@ interface PatchRule {
 /**
  * 全部改动均为字符串级替换，逐条 anchors 与实际安装产物 byte-for-byte 校验过
  * （pi-tui editor.js 2 条 + select-list.js 2 条 + pi bundle chunk 5 条 + pi 主包 2 条
- * + background-tasks.ts 6 条 + pi-subagents host.js/settings.js 2 条 + ponytail 1 条
- * + billion-context-pi dist/index.js 2 条，共 22 条）。
+ * + background-tasks.ts 6 条 + pi-subagents host.js/settings.js 2 条 + ponytail 3 条
+ * + billion-context-pi dist/index.js 2 条，共 24 条）。
  */
 /** 补丁规则表(导出仅供测试构造 fixture;运行时只读) */
 export const PATCH_RULES: readonly PatchRule[] = [
@@ -268,6 +272,28 @@ export const PATCH_RULES: readonly PatchRule[] = [
     replace: '    const levelIcons = { lite: "⠿", full: "⣿", ultra: "⡷" };\n    const icon = levelIcons[currentMode] || "";\n    const label = currentMode.toUpperCase();\n    const indicator = isActive ? theme.fg("accent", "●") : theme.fg("dim", "○");\n    // hapilon: hapiPonytailGlyph — 图标去 emoji（补丁表），⠓ 与 startup 猫头同源\n    c.ui.setStatus("ponytail", indicator + " ⠓ " + theme.fg("muted", "ponytail: ") + theme.fg("text", icon + " " + label));',
     occurrences: 1,
     marker: HAPI_PONYTAIL_GLYPH_MARKER,
+  },
+  // ── ponytail 模糊请求裁决：上游「vague request → 自选最小版」与 hapilon workflow
+  //    确认制冲突（同一场景两套指令）。改按 workflow 说法：出 plan 等批准。
+  {
+    base: "hapilon",
+    package: PONYTAIL_PACKAGE,
+    file: "skills/ponytail/SKILL.md",
+    find: 'A vague request ("build me X") gets the smallest version that does the core job.',
+    replace: 'A vague request ("build me X") is real ambiguity: reply with a two-to-three-line plan (what to do, where, what you will not touch) and wait for approval before changing anything. <!-- hapilon: hapiPonytailWorkflow -->',
+    occurrences: 1,
+    marker: HAPI_PONYTAIL_WORKFLOW_MARKER,
+  },
+  // ── ponytail 注释规则收敛：与 hapilon code_style 重复定义（改一处忘一处会漂移），
+  //    改为项目规则优先的让位声明，code_style 保持单一来源。
+  {
+    base: "hapilon",
+    package: PONYTAIL_PACKAGE,
+    file: "skills/ponytail/SKILL.md",
+    find: "- Comment only the why the code cannot show, in one line.",
+    replace: "- Comment only the why the code cannot show, in one line — where the project's comment rules say more, they win. <!-- hapilon: hapiPonytailComments -->",
+    occurrences: 1,
+    marker: HAPI_PONYTAIL_COMMENTS_MARKER,
   },
   // ── 状态行追加不覆盖：pi 的 showStatus 对连续状态就地替换（防刷屏），扩展经
   //    ctx.ui.notify 发的多条提示会互相顶掉。去掉替换分支后每条通知各占一行；
