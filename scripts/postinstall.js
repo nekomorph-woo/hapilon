@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * postinstall — Windows 沙箱轻量预检 + pi 主题补丁
+ * postinstall — Windows 沙箱轻量预检 + pi / 三方包补丁
  *
  * 沙箱部分：只检测、不安装、零 UAC，失败静默退出——绝不让 npm install 报错。
- * 主题部分：交给 scripts/ensure-pi-patch.mjs 自补丁器（pi 的 dist 有代码块底色
- * 才有 mdCodeBlockBg，见 src/patch/ensure-pi-patch.ts）。它自带“升级就只警告”的
- * 韧性，因此不需要 patch-package，也不需要 devDeps——tarball/全局安装同样跑得通。
+ * 补丁部分：交给 scripts/ensure-pi-patch.mjs 自补丁器（见 src/patch/ensure-pi-patch.ts）。
+ * 它自带“升级就只警告”的韧性，因此不需要 patch-package，也不需要 devDeps——
+ * tarball/全局安装同样跑得通。
  */
 
 import { existsSync } from "node:fs";
@@ -40,7 +40,7 @@ function main() {
   }
 }
 
-// 主题自补丁：内部永不抛错（锚点失配只警告），import 即执行
+// pi / 三方包补丁：内部永不抛错（锚点失配只警告），import 即执行
 await import("./ensure-pi-patch.mjs");
 
 main();

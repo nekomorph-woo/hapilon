@@ -52,7 +52,7 @@ hapilon 用 `HAPILON.md` 承载项目约定，分两层注入模型上下文：
 | 上下文管理 | 自动折叠旧内容，`/acp` 看面板与水位，`/acp-export` 导出 |
 | 团队编排 | 多 pane / 多角色派发与收敛（`wait-pane` 为后台等待原语） |
 | 领域技能 | `snap`（提交快照）、`research`（调研沉淀）、`simplify`（事后清理）等，随版本分发 |
-| 主题 | 内置 `hapilon-dark` / `hapilon-light`，跟随终端明暗自动切换，`/settings` 可换 |
+| 主题 | 回落 pi 内置主题，`/settings` 可换 |
 
 ## Windows Terminal 换行键
 
@@ -82,13 +82,11 @@ npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v<新�
 
 覆盖安装即可，`~/.hapilon/` 配置原样保留。版本号见 `package.json` 的 `version` 字段，Release 页面列表见 GitHub Releases。
 
-## 主题与 pi 补丁
+## pi 补丁
 
-内置 `hapilon-dark` / `hapilon-light` 两套主题（绿系 accent，与 artifact 交付物的设计宪法同族）。没选过主题时，默认种子为 `hapilon-light/hapilon-dark` 配对语法——跟随终端明暗自动切换；`/settings` 里可随时换。
+hapilon 在安装时（postinstall）与每次启动时对 pi 包与三方扩展做**幂等字符串补丁**（`src/patch/ensure-pi-patch.ts`），改动均为上游没有扩展点的行为，如编辑器中段 slash 触发门、后台任务插件的 Windows shell、subagent 配置目录迁移等。补丁可重复执行，已打过即只读判标记。
 
-代码块底色来自 `mdCodeBlockBg` 颜色 token，而上游 pi-tui 的 markdown 渲染没有代码块背景通道（颜色 token 只有前景）。hapilon 因此在安装时（postinstall）与每次启动时对 pi 包做**幂等字符串补丁**（`src/patch/ensure-pi-patch.ts`）：新增 `mdCodeBlockBg` 背景通道，并隐藏代码块围栏。补丁可重复执行，已打过即只读判标记。
-
-补丁锚点按 `pi-coding-agent` 1.5 的代码字符串写死。pi 大版本重构后锚点会失配——此时 hapilon 启动会打印 `⚠ pi 或插件已变更，hapilon 补丁（…）未应用` 警告并**优雅降级**：主题仍然生效，围栏与底色同色故视觉隐形，只是失去背景色块，其余功能完全不受影响。修复方式是对照新版 pi 源码更新 `src/patch/ensure-pi-patch.ts` 的锚点表，重新发版。
+补丁锚点按 `pi-coding-agent` 1.5 的代码字符串写死。pi 大版本重构后锚点会失配——此时 hapilon 启动会打印 `⚠ pi 或插件已变更，hapilon 补丁（…）未应用` 警告并**优雅降级**：其余功能完全不受影响。修复方式是对照新版 pi 源码更新 `src/patch/ensure-pi-patch.ts` 的锚点表，重新发版。
 
 同一张表也补第三方扩展：后台任务插件（`@nklisch/pi-background-tasks`）把 shell 写死成 `/bin/sh`，而 Windows 上没有这个路径，`background`/`monitor` 直接 spawn 失败（team 模式的派发链就跑在 `background` 里）。补丁让 Windows 改走 pi 的 `getShellConfig()`（优先 Git Bash，尊重 settings 里的 `shellPath`），POSIX 仍用 `/bin/sh`。上游自行修复后可删掉这条规则。
 

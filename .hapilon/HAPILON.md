@@ -52,7 +52,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 ## 发版
 
 - 发版仅在用户明确命令时执行，走 hapilon-release 技能（时序：issue 评论 → push main → release.sh；版本号须等于 package.json 当前版本，snap 已自动迭代）。禁止手搓发版——跳过 notes 生成、tarball 冒烟、全新安装任一道门就是手搓。
-- `scripts/` 在岗清单：`release.sh`（发版全流程编排）、`issue-comments.mjs`（发版前 issue 评论检测）、`release-notes.mjs`（notes 生成器，支持 `--self-test`）、`postinstall.js`（Windows 沙箱预检 + 主题补丁，tarball/全局安装也跑）、`ensure-pi-patch.mjs`（自补丁器）、`sandbox-verify.sh`、`setup-dev-alias.sh`。
+- `scripts/` 在岗清单：`release.sh`（发版全流程编排）、`issue-comments.mjs`（发版前 issue 评论检测）、`release-notes.mjs`（notes 生成器，支持 `--self-test`）、`postinstall.js`（Windows 沙箱预检，tarball/全局安装也跑）、`ensure-pi-patch.mjs`（自补丁器）、`sandbox-verify.sh`、`setup-dev-alias.sh`。
 
 ## 目录要点
 
