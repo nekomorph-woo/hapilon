@@ -26,7 +26,9 @@ const MID_TEXT_SLASH_OPEN_MARKER = "__hapiMidTextSlashOpen";
 const HAPI_SHELL_MARKER = "hapiShell";
 /** 后台任务状态行耗时展示的 marker */
 const HAPI_BG_ELAPSED_MARKER = "hapiBgElapsed";
-/** 后台任务插件包名（hapilon 自身的依赖，不在 pi 包树里） */
+/** 后台任务插件包名（hapilon 自身的依赖，不在 pi 包树里）。
+ *  版本锁定 0.1.8 不升级（package.json 精确钉版）：面板与行为补丁锚定其源码，
+ *  只有破坏性极强（安全洞、与 pi 新版不兼容）才考虑升级。 */
 const BACKGROUND_TASKS_PACKAGE = "@nklisch/pi-background-tasks";
 /** subagent 扩展包名（hapilon 自身的依赖，不在 pi 包树里） */
 const SUBAGENTS_PACKAGE = "@tintinweb/pi-subagents";
@@ -37,6 +39,8 @@ const HAPI_COMPACT_HIDE_MARKER = "hapiCompactHide";
 /** bg-task 完成通知从聊天区永久行改为 footer 短暂展示的 marker */
 const HAPI_BG_DONE_MARKER = "hapiBgDone";
 const HAPI_BG_RUNNING_GLYPH_MARKER = "hapiBgRunningGlyph";
+/** bg-task 面板圆角盒改版（列表/翻页换 FloatingPane 观感 + 翻页滚动）的 marker */
+const HAPI_JOB_PANEL_BOX_MARKER = "hapiJobPanelBox";
 /** ponytail 图标去 emoji（🌿⚡🔥🐴 → 盲文点阵）的 marker */
 const HAPI_PONYTAIL_GLYPH_MARKER = "hapiPonytailGlyph";
 /** ponytail 模糊请求改按 workflow 确认制（出 plan 等批准，不自行选最小版）的 marker */
@@ -235,6 +239,57 @@ export const PATCH_RULES = [
         replace: '    // hapilon: hapiBgRunningGlyph — ⏳ 换盲文 ⠧（emoji 去 emoji 约定，补丁表）\n    ui.setStatus(STATUS_KEY, `⠧ ${active.length} job${active.length === 1 ? "" : "s"}: ${labels}${more}`);',
         occurrences: 1,
         marker: HAPI_BG_RUNNING_GLYPH_MARKER,
+    },
+    // ── bg-task 面板圆角盒改版（hapiJobPanelBox，5 条一组）：JobPanel 原为平线横幅
+    //    （上下横线、无侧边框、快捷键提示挤标题行），且翻页模式不能滚动。整组把
+    //    列表/翻页换成圆角闭合盒（╭─╮│╰╯，标题嵌上边框、提示入盒内 footer 行，
+    //    对齐 hpl-panel-viewer 的 FloatingPane 观感），翻页加 ↑↓ 滚动窗口（5000 行
+    //    上限、按 jobId+bufferLen 缓存保持尾随）。同 marker 文件级判定、首跑全打。
+    //    上游若自行改版，删掉整组并重核锚点。
+    {
+        base: "hapilon",
+        package: BACKGROUND_TASKS_PACKAGE,
+        file: "extensions/background-tasks.ts",
+        find: '  return out.replace(/\\x1b\\[[0-9;]*$/, "");\n}',
+        replace: '  return out.replace(/\\x1b\\[[0-9;]*$/, "");\n}\n\n// hapilon: hapiJobPanelBox — 盒渲染用的 ANSI 感知宽度/补齐（与 clipToWidth 同一\n// UTF-16 近似，宽字形最多溢出一列，沿用上游注释的取舍）\nfunction hapiVisibleWidth(text: string): number {\n  return text.replace(/\\x1b\\[[0-9;]*m/g, "").length;\n}\nfunction hapiPadTo(text: string, width: number): string {\n  const clipped = clipToWidth(text, width);\n  return clipped + " ".repeat(Math.max(0, width - hapiVisibleWidth(clipped)));\n}\nconst HAPI_PAGING_MAX_LINES = 5000;',
+        occurrences: 1,
+        marker: HAPI_JOB_PANEL_BOX_MARKER,
+    },
+    {
+        base: "hapilon",
+        package: BACKGROUND_TASKS_PACKAGE,
+        file: "extensions/background-tasks.ts",
+        find: '  private paging: { jobId: number } | null = null;\n  private getJobs: () => Job[];',
+        replace: '  private paging: { jobId: number } | null = null;\n  // hapilon: hapiJobPanelBox — 翻页滚动偏移（从尾部上移的行数）与按 jobId+bufferLen\n  // 失效的行缓存（输出增长即重切，尾随保持实时）\n  private pagingScroll = 0;\n  private pagingCache: { jobId: number; bufferLen: number; lines: string[] } | null = null;\n  private getJobs: () => Job[];',
+        occurrences: 1,
+        marker: HAPI_JOB_PANEL_BOX_MARKER,
+    },
+    {
+        base: "hapilon",
+        package: BACKGROUND_TASKS_PACKAGE,
+        file: "extensions/background-tasks.ts",
+        find: '    if (this.paging) {\n      // In paging mode: left/Esc/enter/"q"/back-to-list all return to the list.\n      if (this.is(data, "cancel") || this.is(data, "confirm") || this.is(data, "left") || data === "q") this.paging = null;\n      return;\n    }',
+        replace: '    if (this.paging) {\n      // hapilon: hapiJobPanelBox — 翻页窗口可滚动：↑ 向历史方向移窗，↓ 回到尾部；\n      // 越界钳制在渲染端做（end = max(visible, len - offset)）。\n      if (this.is(data, "up")) { this.pagingScroll++; return; }\n      if (this.is(data, "down") && this.pagingScroll > 0) { this.pagingScroll--; return; }\n      // In paging mode: left/Esc/enter/"q"/back-to-list all return to the list.\n      if (this.is(data, "cancel") || this.is(data, "confirm") || this.is(data, "left") || data === "q") { this.paging = null; this.pagingScroll = 0; }\n      return;\n    }',
+        occurrences: 1,
+        marker: HAPI_JOB_PANEL_BOX_MARKER,
+    },
+    {
+        base: "hapilon",
+        package: BACKGROUND_TASKS_PACKAGE,
+        file: "extensions/background-tasks.ts",
+        find: '  render(width: number): string[] {\n    if (this.paging) return this.renderPaging(width);\n    const jobs = this.getJobs();\n    const lines: string[] = [];\n    const w = Math.max(1, width);\n    // Clamp selection if the list shrank (jobs pruned/added between renders).\n    const sel = jobs.length === 0 ? 0 : Math.min(this.selected, jobs.length - 1);\n    this.selected = sel;\n    const rule = "─".repeat(w);\n    lines.push(clipToWidth(this.fg("borderMuted", rule), w));\n    const header = this.fg("accent", ` Background jobs (${jobs.length}) `) + this.fg("dim", "  — ↑/↓ move · enter page output · q/Esc close");\n    lines.push(clipToWidth(header, w));\n    lines.push(clipToWidth(this.fg("borderMuted", rule), w));\n    if (jobs.length === 0) {\n      lines.push("");\n      lines.push(clipToWidth(this.fg("dim", "  No background jobs or monitors."), w));\n    }\n    jobs.forEach((job, i) => {\n      const marker = i === sel ? this.fg("accent", "▸ ") : "  ";\n      lines.push(clipToWidth(`${marker}${formatJobLine(job)}`, w));\n    });\n    lines.push("");\n    lines.push(clipToWidth(this.fg("borderMuted", rule), w));\n    return lines;\n  }',
+        replace: '  render(width: number): string[] {\n    if (this.paging) return this.renderPaging(width);\n    const jobs = this.getJobs();\n    // hapilon: hapiJobPanelBox — 平线横幅换圆角闭合盒：左右 │ 边框、标题嵌上边框、\n    // 提示移入盒内 footer 行（对齐 hpl-panel-viewer 的 FloatingPane 观感）。\n    const inner = Math.max(1, Math.max(1, width) - 2);\n    const box = (s: string) => this.fg("border", "│") + s + this.fg("border", "│");\n    // Clamp selection if the list shrank (jobs pruned/added between renders).\n    const sel = jobs.length === 0 ? 0 : Math.min(this.selected, jobs.length - 1);\n    this.selected = sel;\n    const title = this.fg("accent", ` Background jobs (${jobs.length}) `);\n    const out: string[] = [];\n    out.push(this.fg("border", "╭") + title + this.fg("border", "─".repeat(Math.max(0, inner - hapiVisibleWidth(title))) + "╮"));\n    if (jobs.length === 0) {\n      out.push(box(hapiPadTo(this.fg("dim", " No background jobs or monitors."), inner)));\n    }\n    jobs.forEach((job, i) => {\n      const marker = i === sel ? this.fg("accent", "▸ ") : "  ";\n      out.push(box(hapiPadTo(`${marker}${formatJobLine(job)}`, inner)));\n    });\n    out.push(box(hapiPadTo(this.fg("dim", " ↑/↓ move · enter page output · q/Esc close"), inner)));\n    out.push(this.fg("border", "╰" + "─".repeat(inner) + "╯"));\n    return out;\n  }',
+        occurrences: 1,
+        marker: HAPI_JOB_PANEL_BOX_MARKER,
+    },
+    {
+        base: "hapilon",
+        package: BACKGROUND_TASKS_PACKAGE,
+        file: "extensions/background-tasks.ts",
+        find: '  private renderPaging(width: number): string[] {\n    const job = this.paging ? this.getJobs().find((j) => j.id === this.paging!.jobId) : undefined;\n    const lines: string[] = [];\n    const w = Math.max(1, width);\n    const rule = "─".repeat(w);\n    lines.push(clipToWidth(this.fg("borderMuted", rule), w));\n    if (!job) {\n      lines.push(clipToWidth(this.fg("warning", "  Job no longer in the registry."), w));\n    } else {\n      lines.push(clipToWidth(this.fg("accent", ` Job #${job.id} "${job.label}" — output `), w));\n      lines.push(clipToWidth(this.fg("dim", ` ${formatJobLine(job)}`), w));\n      lines.push(clipToWidth(this.fg("borderMuted", rule), w));\n      // Bound the paged output to a sane number of lines (the buffer is already\n      // size-capped; tailLines never gets a 0 argument which would return it all).\n      const body = tailLines(job.buffer, PAGING_TAIL_LINES) || "(no output captured)";\n      for (const ln of body.split("\\n")) lines.push(clipToWidth(ln, w));\n    }\n    lines.push(clipToWidth(this.fg("borderMuted", rule), w));\n    lines.push(clipToWidth(this.fg("dim", " ←/q/Esc/enter — back to list"), w));\n    return lines;\n  }',
+        replace: '  private pagingLines(job: Job): string[] {\n    if (!this.pagingCache || this.pagingCache.jobId !== job.id || this.pagingCache.bufferLen !== job.buffer.length) {\n      // hapilon: hapiJobPanelBox — 窗口上限放宽到 5000 行（缓冲本身 200K 字符封顶），\n      // 滚动才能离开尾部；按 jobId+bufferLen 缓存，输出增长时重切保持尾随。\n      const body = tailLines(job.buffer, HAPI_PAGING_MAX_LINES) || "(no output captured)";\n      this.pagingCache = { jobId: job.id, bufferLen: job.buffer.length, lines: body.split("\\n") };\n    }\n    return this.pagingCache.lines;\n  }\n\n  private renderPaging(width: number): string[] {\n    const inner = Math.max(1, Math.max(1, width) - 2);\n    const box = (s: string) => this.fg("border", "│") + s + this.fg("border", "│");\n    const job = this.paging ? this.getJobs().find((j) => j.id === this.paging!.jobId) : undefined;\n    const out: string[] = [];\n    if (!job) {\n      out.push(this.fg("border", "╭" + "─".repeat(inner) + "╮"));\n      out.push(box(hapiPadTo(this.fg("warning", "  Job no longer in the registry."), inner)));\n      out.push(this.fg("border", "╰" + "─".repeat(inner) + "╯"));\n      return out;\n    }\n    const all = this.pagingLines(job);\n    const len = all.length;\n    const visible = Math.min(PAGING_TAIL_LINES, len);\n    const end = Math.max(visible, len - this.pagingScroll);\n    const start = end - visible;\n    const head = this.fg("accent", ` Job #${job.id} "${job.label}" `) + this.fg("dim", `output ${start + 1}-${end}/${len}`);\n    out.push(this.fg("border", "╭") + head + this.fg("border", "─".repeat(Math.max(0, inner - hapiVisibleWidth(head))) + "╮"));\n    out.push(box(hapiPadTo(this.fg("dim", ` ${formatJobLine(job)}`), inner)));\n    for (let i = start; i < end; i++) out.push(box(hapiPadTo(all[i] ?? "", inner)));\n    out.push(box(hapiPadTo(this.fg("dim", " ↑/↓ scroll · q/Esc back to list"), inner)));\n    out.push(this.fg("border", "╰" + "─".repeat(inner) + "╯"));\n    return out;\n  }',
+        occurrences: 1,
+        marker: HAPI_JOB_PANEL_BOX_MARKER,
     },
     // ── ponytail 图标去 emoji：档位图标与状态栏的马（🌿⚡🔥🐴）换成盲文点阵——
     //    档位密度递进 ⠿/⣿/⡷，马换 ⠓（盲文 h，与 startup 猫头同源）。纯视觉，行为不变。

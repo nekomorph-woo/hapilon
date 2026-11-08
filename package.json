@@ -1,6 +1,6 @@
 {
   "name": "hapilon",
-  "version": "0.21.42",
+  "version": "0.21.43",
   "description": "HAPi",
   "private": true,
   "type": "module",
@@ -36,7 +36,7 @@
     "@earendil-works/pi-tui": "1.4.0",
     "@ff-labs/pi-fff": "^0.11.0",
     "@narumitw/pi-btw": "^0.62.0",
-    "@nklisch/pi-background-tasks": "^0.1.8",
+    "@nklisch/pi-background-tasks": "0.1.8",
     "@tintinweb/pi-subagents": "^0.22.0",
     "@tintinweb/pi-tasks": "^0.9.1",
     "@zhushanwen/pi-ask-user": "^7.4.1",
