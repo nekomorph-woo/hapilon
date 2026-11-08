@@ -104,7 +104,7 @@ export const prepareStartupEffect = (args) => Effect.gen(function* () {
         yield* ensureSafetyExtensionsEffect(agentDirPath).pipe(Effect.mapError(toStartupError));
     }
     yield* ensureExtensionConfigsEffect(agentDirPath).pipe(Effect.mapError(toStartupError));
-    // pi 单独升级时 postinstall 不会重跑，主题补丁靠这里补上（约 3ms，已补丁即只读判标记）
+    // pi 单独升级时 postinstall 不会重跑，补丁靠这里兜底（约 3ms，已补丁即只读判标记）
     yield* Effect.sync(() => warnIfPiPatchStale(ensurePiPatch()));
     const allExtensions = (yield* discoverExtensionsEffect()).filter((extension) => !isSafetyExtensionPath(extension));
     const npmExtensions = yield* resolveNpmExtensionPathsEffect.pipe(Effect.mapError(toStartupError));

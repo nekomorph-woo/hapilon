@@ -4,12 +4,11 @@ import { fileURLToPath } from "node:url";
 /**
  * pi / 第三方扩展补丁（自补丁器，替代 patch-package）。
  *
- * 背景：代码块底色靠 pi 的 `mdCodeBlockBg` token 实现，而该 token 只存在于
- * hapilon 的补丁里；后台任务插件把 shell 写成 `/bin/sh`，Windows 上直接 spawn
- * 失败。两处都是我们没有扩展点可用的地方。patch-package 在非 dev 安装（全局
- * tarball）下没有 devDeps 可依赖，所以改成这份零依赖、幂等的字符串级补丁表；
- * postinstall 与 hapilon 启动链都调用它（pi 单独升级时 postinstall 不会跑，
- * 靠启动链补上）。
+ * 背景：编辑器触发门、后台任务插件的 Windows shell、subagent 配置目录
+ * 等上游没有扩展点的行为改动，都靠这张表补；patch-package 在非 dev 安装
+ * （全局 tarball）下没有 devDeps 可依赖，所以改成这份零依赖、幂等的字符串
+ * 级补丁表；postinstall 与 hapilon 启动链都调用它（pi 单独升级时 postinstall
+ * 不会跑，靠启动链补上）。
  *
  * 韧性优先于完整性：升级导致锚点失配时**只警告不阻断**。
 
@@ -590,11 +589,11 @@ export function ensurePiPatch(options = {}) {
 }
 /**
  * 仅在有问题时打警告（成功静默）——启动链与 postinstall 共用。
- * 警告不改退出码：主题 JSON 的多余 token 只是不生效，代码块退化为无底色。
+ * 警告不改退出码：锚点失配只跳过该条规则，其余补丁与应用不受影响。
  */
 export function warnIfPiPatchStale(result) {
     if (result.kind === "stale") {
-        console.warn("⚠ pi 或插件已变更，hapilon 补丁（代码块背景/中段 slash/后台任务 shell）未应用"
+        console.warn("⚠ pi 或插件已变更，hapilon 补丁（中段 slash/状态行追加/后台任务 shell 等）未应用"
             + "；请更新 src/patch/ensure-pi-patch.ts 的锚点");
         for (const problem of result.problems.slice(0, 3))
             console.warn(`   · ${problem}`);
