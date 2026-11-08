@@ -38,6 +38,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 ## 提交纪律
 
 - 一切修改提交必须走 snap 技能；Conventional commits：type/scope 英文，描述与正文简体中文（snap 语言判定的第一优先级：项目明确要求）；业务高度（用户视角，一行一个想法，禁止罗列文件/版本号）；正文 ≤3 行只讲 why——即 snap skill 的标准。修复坑的提交另需在正文末加 `Pit:` trailer（格式见「坑的记录与确认」）。
+- 关联 issue 的提交在正文带 `#N` 引用；确认随发版关闭的写 `fixes #N`（GitHub 只认英文关键词，push 到 main 才 auto-close）。发版前的 issue 评论通道靠它检测。
 - 仓库常有并行会话写入：commit 前 `git status` 逐条过目，显式路径 staging，禁 `git add -A`。
 - 不主动 push；用户明确要求才 push / 走 PR。
 
@@ -50,7 +51,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 
 ## 发版
 
-- 发版仅在用户明确命令时执行：`./scripts/release.sh <版本号> "<一句话内容>"`（可 `--dry-run` 预演）。版本号由用户指定，须等于当前 package.json 版本（snap 已自动迭代）。前置：工作区干净且本地与远端同步——发版不产生 commit，tag 直接打在 HEAD。流程：release notes 机械生成（提交全覆盖校验）→ 依赖精确锁定检查 → build + 全量测试门禁 → 附注 tag → push → npm pack 打 tarball → 全新安装冒烟验证 → `gh release create` 附 tarball。禁止手搓发版（跳过 notes 生成、tarball、冒烟三道门）。
+- 发版仅在用户明确命令时执行：`./scripts/release.sh <版本号> "<一句话内容>"`（可 `--dry-run` 预演）。版本号由用户指定，须等于当前 package.json 版本（snap 已自动迭代）。前置：工作区干净且本地与远端同步——发版不产生 commit，tag 直接打在 HEAD。流程：release notes 机械生成（提交全覆盖校验）→ 依赖精确锁定检查 → build + 全量测试门禁 → issue 评论（push 前跑 `scripts/issue-comments.mjs` 检测待发提交的关联 issue，agent 按脚本头部起草模式读实现写评论并直接 `gh issue comment`，不设确认）→ 附注 tag → push → npm pack 打 tarball → 全新安装冒烟验证 → `gh release create` 附 tarball。禁止手搓发版（跳过 notes 生成、tarball、冒烟三道门）。
 - `scripts/` 其余脚本同样在岗：`release-notes.mjs`（notes 生成器，支持 `--self-test`）、`postinstall.js`（Windows 沙箱预检 + 主题补丁，tarball/全局安装也跑）、`ensure-pi-patch.mjs`（自补丁器）、`sandbox-verify.sh`、`setup-dev-alias.sh`。
 
 ## 目录要点
