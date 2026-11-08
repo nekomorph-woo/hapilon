@@ -103,7 +103,18 @@ export function setupHerdr() {
                 unlinkSync(join(myIcons, f));
         }
         // shim：~/.local/bin/hapilon(+cmd) + hapi 链接（start-agent 菜单按「本机是否装了命令」过滤）
-        // Windows 无符号链接特权要求，两个 .cmd 都直写
+        // Windows 无符号链接特权要求，两个 .cmd 都直写；旧版落下的无扩展名 POSIX shim
+        // 会让 PowerShell 命中后弹「如何打开这个文件」，升级时必须清掉
+        if (isWin) {
+            for (const stale of ["hapilon", "hapi"]) {
+                try {
+                    unlinkSync(join(localBin, stale));
+                }
+                catch {
+                    // 不存在即目标状态
+                }
+            }
+        }
         const shimPath = join(localBin, isWin ? "hapilon.cmd" : "hapilon");
         yield* writeTextEffect(shimPath, shimScript(cliPath, home, isWin), isWin ? undefined : 0o755);
         if (isWin) {
