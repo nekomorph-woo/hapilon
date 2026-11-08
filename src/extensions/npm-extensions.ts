@@ -65,6 +65,11 @@ const NPM_EXTENSIONS: readonly [pkg: string, entry: string][] = [
  */
 export const NPM_EXTENSIONS_BEFORE_HPL: readonly [pkg: string, entry: string][] = [
   ["@dietrichgebert/ponytail", "pi-extension/index.js"],
+  // pstack 与 ponytail 同机制：before_agent_start 写 systemPromptOptions.sections，
+  // 必须先于 hpl-system-prompt 加载才能被内联（角色表/poteto 模式注入都走这里）。
+  // 包内 agents（poteto-agent 等）不经此通道：pi-subagents 只认 pi 配置的包与
+  // agent 目录，不扫 node_modules，需要时另行接线。
+  ["@zenspc/pi-pstack", "extensions/pstack/index.ts"],
 ];
 
 /**

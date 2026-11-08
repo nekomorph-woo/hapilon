@@ -37,10 +37,11 @@ describe("resolveNpmExtensionPaths()", () => {
         const paths = resolveNpmExtensionPaths();
         assert.ok(!paths.some((p) => p.includes("ponytail")), `主体组不应再含 ponytail: ${paths.filter((p) => p.includes("ponytail"))}`);
     });
-    it("ponytail 入口在 BEFORE_HPL 先行组（sections 贡献需先于 hpl-system-prompt 落地）", () => {
+    it("先行组 ponytail + pstack（sections 贡献需先于 hpl-system-prompt 落地）", () => {
         const paths = Effect.runSync(resolveNpmExtensionsBeforeHplEffect);
-        assert.equal(paths.length, 1, `先行组应只有 ponytail: ${paths}`);
-        assert.ok(paths[0].endsWith("ponytail/pi-extension/index.js"), `入口与包内 pi.extensions 声明一致: ${paths[0]}`);
+        assert.equal(paths.length, 2, `先行组应 ponytail、pstack 两项: ${paths}`);
+        assert.ok(paths[0].endsWith("ponytail/pi-extension/index.js"), `ponytail 入口在前: ${paths[0]}`);
+        assert.ok(paths[1].endsWith("@zenspc/pi-pstack/extensions/pstack/index.ts"), `pstack 入口与包内 pi.extensions 声明一致: ${paths[1]}`);
     });
     it("hapilon package.json 未设 piConfig（adapter getAgentDir 依赖此前提）", () => {
         // pi-mcp-adapter 的 agent-dir.ts：若 PI_PACKAGE_DIR manifest 设了 piConfig.name，
