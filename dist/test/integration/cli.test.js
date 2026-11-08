@@ -90,7 +90,8 @@ describe("cli integration", () => {
             const result = spawnSync(process.execPath, [CLI_PATH], {
                 env: { ...process.env, HAPILON_HOME: freshBase },
                 encoding: "utf8",
-                timeout: 3000,
+                // 启动全链路实测约 5.7s（扩展发现 + 补丁检查 + 配置播种），预算留给它，不测性能
+                timeout: 15000,
             });
             try {
                 rmSync(freshBase, { recursive: true, force: true });
