@@ -17,7 +17,7 @@
  *   4. 收尾给关键提交与代码路径；评论区已有同主题评论则跳过。
  *
  * 用法：
- *   node scripts/issue-comments.mjs [range]          # 默认 origin/main..HEAD
+ *   node scripts/issue-comments.mjs [range]          # 默认最新 v* tag..HEAD（无 tag 回退 origin/main..HEAD）
  *   node scripts/issue-comments.mjs --json [range]
  *   node scripts/issue-comments.mjs --self-test
  */
@@ -29,9 +29,17 @@ import { fileURLToPath } from "node:url";
 
 const REPO_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+// 待发范围的本义是「最新 tag 之后的提交」：用 origin/main..HEAD 时，若 main 先于发版被推
+// （并行会话/重试场景）基线为空，issue 引用直接漏检（#70 实际发生过）。tag 基线与 push 时序无关。
+function defaultRange() {
+  const latest = execFileSync("git", ["tag", "-l", "v*", "--sort=-v:refname"], { cwd: REPO_DIR, encoding: "utf8" })
+    .split("\n")[0];
+  return latest ? `${latest}..HEAD` : "origin/main..HEAD";
+}
+
 function usageText() {
   return [
-    "用法: node scripts/issue-comments.mjs [range]          # 默认 origin/main..HEAD",
+    "用法: node scripts/issue-comments.mjs [range]          # 默认最新 v* tag..HEAD",
     "      node scripts/issue-comments.mjs --json [range]",
     "      node scripts/issue-comments.mjs --self-test",
     "",
@@ -186,7 +194,7 @@ if (argv[0] === "--help" || argv[0] === "-h") {
   selfTest();
 } else {
   try {
-    main(range ?? "origin/main..HEAD", asJson);
+    main(range ?? defaultRange(), asJson);
   } catch (error) {
     console.error(`✗ ${error.message}`);
     process.exit(1);
