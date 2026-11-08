@@ -21,7 +21,7 @@ import { CalibratePane } from "./calibrate-pane.js";
 import { agentDir, hapilonHome } from "../../config/hapilon-home.js";
 import { classifyWithLabel } from "./classifier.js";
 import { checkSandboxWrite } from "./sandbox-allow.js";
-import { describeScenario, judgeCommand, recentAllows, readGateAutoConfig, setGateAutoEnabled, } from "./auto-judge.js";
+import { describeScenario, judgeCommand, judgePromptSource, recentAllows, readGateAutoConfig, setGateAutoEnabled, } from "./auto-judge.js";
 import { deriveAllowPattern } from "./derive-allow.js";
 import { hasSensitiveReadArg, sensitiveReadLabels, splitCommandSegments } from "./sensitive-args.js";
 import { requestConfirm } from "../hpl-protected-paths/confirm.js";
@@ -323,19 +323,20 @@ export default function (pi) {
         // 2. 沙箱规则先行：破坏性命令词 + 全部写目标在沙箱集 → 免模型直接放行
         const sandbox = checkSandboxWrite(command, { cwd: ctx.cwd, home: safeHapilonHome(), projectRoots: projectSandboxRoots(ctx.cwd) });
         if (sandbox.allowed) {
-            audit({ layer: "sandbox", verdict: "allow", reason: sandboxSummary(sandbox.targets), model: "sandbox", outcome: "auto-allow" });
+            audit({ layer: "sandbox", verdict: "allow", reason: sandboxSummary(sandbox.targets), model: "sandbox", outcome: "auto-allow", sandboxSummary: sandboxSummary(sandbox.targets) });
             return true;
         }
         // 3. 行为观察员场景描述 + git 事实 + 先例检索（辅助信息；失败不阻塞判定）
         const startedAt = Date.now();
         const gitStatus = gitTrackedSummary(sandbox.targets, ctx.cwd);
+        const summary = sandboxSummary(sandbox.targets);
         const scenarioResult = await Effect.runPromise(Effect.either(describeScenario({
             modelSpec: gateAutoConfig.model,
             timeoutMs: gateAutoConfig.timeoutMs,
             command,
             cwd: ctx.cwd,
             ruleLabel,
-            sandboxSummary: sandboxSummary(sandbox.targets),
+            sandboxSummary: summary,
             gitStatus,
             activityWindow: activityWindow,
             available: ctx.modelRegistry.getAvailable(),
@@ -343,6 +344,14 @@ export default function (pi) {
         })));
         scenario = scenarioResult._tag === "Right" ? scenarioResult.right : undefined;
         const precedents = recentAllows(ruleLabel);
+        // 判官输入快照：审计与判定必须看到同一份现场（还原现场用，不含 cache/sandbox 层）
+        const judgeInputs = {
+            activityWindow: [...activityWindow],
+            sandboxSummary: summary,
+            gitStatus,
+            precedents,
+            promptSource: judgePromptSource(),
+        };
         // 4. 档位模型判定；超时/错误/不合法 → 按 unsure 回落现状
         const result = await Effect.runPromise(Effect.either(judgeCommand({
             modelSpec: gateAutoConfig.model,
@@ -350,7 +359,7 @@ export default function (pi) {
             command,
             cwd: ctx.cwd,
             ruleLabel,
-            sandboxSummary: sandboxSummary(sandbox.targets),
+            sandboxSummary: summary,
             gitStatus,
             scenario,
             precedents,
@@ -362,7 +371,7 @@ export default function (pi) {
             const judgement = result.right;
             verdictCache.set(normalized, { verdict: judgement.verdict, reason: judgement.reason });
             if (judgement.verdict === "allow") {
-                audit({ layer: "model", verdict: "allow", reason: judgement.reason, model: judgement.model ?? gateAutoConfig.model, latencyMs, outcome: "auto-allow" });
+                audit({ layer: "model", verdict: "allow", reason: judgement.reason, model: judgement.model ?? gateAutoConfig.model, latencyMs, outcome: "auto-allow", ...judgeInputs });
                 return true;
             }
             audit({
@@ -372,6 +381,7 @@ export default function (pi) {
                 model: judgement.model ?? gateAutoConfig.model,
                 latencyMs,
                 outcome: ctx.hasUI ? "fallback-confirm" : "fallback-block",
+                ...judgeInputs,
             });
             return false;
         }
@@ -382,6 +392,7 @@ export default function (pi) {
             model: gateAutoConfig.model,
             latencyMs,
             outcome: ctx.hasUI ? "fallback-confirm" : "fallback-block",
+            ...judgeInputs,
         });
         return false;
     };

@@ -240,6 +240,10 @@ export const JUDGE_SYSTEM_PROMPT_V2 = `你是 hapilon 终端 coding agent 的安
 export function judgePromptOverridePath() {
     return join(agentDir(), "gate-judge-prompt.md");
 }
+/** 审计用：当时生效的判定 prompt 来源（覆盖文件在场即 override，内容以文件当时状态为准） */
+export function judgePromptSource() {
+    return existsSync(judgePromptOverridePath()) ? "override" : "default-v2";
+}
 /** 读判定 prompt：覆盖文件存在用覆盖（整文件即 system prompt），否则 V2 默认 */
 export function loadJudgeSystemPrompt() {
     try {

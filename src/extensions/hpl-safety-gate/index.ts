@@ -26,6 +26,7 @@ import { checkSandboxWrite, type SandboxTarget } from "./sandbox-allow.js";
 import {
   describeScenario,
   judgeCommand,
+  judgePromptSource,
   recentAllows,
   readGateAutoConfig,
   setGateAutoEnabled,
@@ -172,6 +173,17 @@ export interface GateAutoAuditEntry {
   /** 行为观察员的场景描述（agent 在做什么、命令的角色）——审计案卷用 */
   scenario?: string;
   outcome: "auto-allow" | "fallback-confirm" | "fallback-block";
+  // ── 还原现场存档（判定层输入，model 层记录；可选字段，旧行不受影响）──
+  /** 观察员的原始行为窗口（scenario 是它的有损摘要，原始窗口才是现场） */
+  activityWindow?: string[];
+  /** 写目标解析（硬事实，判官输入） */
+  sandboxSummary?: string;
+  /** 写目标 git 状态（硬事实，判官输入） */
+  gitStatus?: string;
+  /** 判官看到的近期放行先例 */
+  precedents?: string[];
+  /** 判定 system prompt 来源（覆盖文件可被 /calibrate-gate 改写，审计需分辫当时用的哪份） */
+  promptSource?: "default-v2" | "override";
 }
 
 /** 审计 append-only；写失败只 warn 不阻塞主流程 */
@@ -401,20 +413,21 @@ export default function (pi: ExtensionAPI) {
     // 2. 沙箱规则先行：破坏性命令词 + 全部写目标在沙箱集 → 免模型直接放行
     const sandbox = checkSandboxWrite(command, { cwd: ctx.cwd, home: safeHapilonHome(), projectRoots: projectSandboxRoots(ctx.cwd) });
     if (sandbox.allowed) {
-      audit({ layer: "sandbox", verdict: "allow", reason: sandboxSummary(sandbox.targets), model: "sandbox", outcome: "auto-allow" });
+      audit({ layer: "sandbox", verdict: "allow", reason: sandboxSummary(sandbox.targets), model: "sandbox", outcome: "auto-allow", sandboxSummary: sandboxSummary(sandbox.targets) });
       return true;
     }
 
     // 3. 行为观察员场景描述 + git 事实 + 先例检索（辅助信息；失败不阻塞判定）
     const startedAt = Date.now();
     const gitStatus = gitTrackedSummary(sandbox.targets, ctx.cwd);
+    const summary = sandboxSummary(sandbox.targets);
     const scenarioResult = await Effect.runPromise(Effect.either(describeScenario({
       modelSpec: gateAutoConfig.model,
       timeoutMs: gateAutoConfig.timeoutMs,
       command,
       cwd: ctx.cwd,
       ruleLabel,
-      sandboxSummary: sandboxSummary(sandbox.targets),
+      sandboxSummary: summary,
       gitStatus,
       activityWindow: activityWindow,
       available: ctx.modelRegistry.getAvailable(),
@@ -422,6 +435,14 @@ export default function (pi: ExtensionAPI) {
     })));
     scenario = scenarioResult._tag === "Right" ? scenarioResult.right : undefined;
     const precedents = recentAllows(ruleLabel);
+    // 判官输入快照：审计与判定必须看到同一份现场（还原现场用，不含 cache/sandbox 层）
+    const judgeInputs = {
+      activityWindow: [...activityWindow],
+      sandboxSummary: summary,
+      gitStatus,
+      precedents,
+      promptSource: judgePromptSource(),
+    };
 
     // 4. 档位模型判定；超时/错误/不合法 → 按 unsure 回落现状
     const result = await Effect.runPromise(Effect.either(judgeCommand({
@@ -430,7 +451,7 @@ export default function (pi: ExtensionAPI) {
       command,
       cwd: ctx.cwd,
       ruleLabel,
-      sandboxSummary: sandboxSummary(sandbox.targets),
+      sandboxSummary: summary,
       gitStatus,
       scenario,
       precedents,
@@ -443,7 +464,7 @@ export default function (pi: ExtensionAPI) {
       const judgement = result.right;
       verdictCache.set(normalized, { verdict: judgement.verdict, reason: judgement.reason });
       if (judgement.verdict === "allow") {
-        audit({ layer: "model", verdict: "allow", reason: judgement.reason, model: judgement.model ?? gateAutoConfig.model, latencyMs, outcome: "auto-allow" });
+        audit({ layer: "model", verdict: "allow", reason: judgement.reason, model: judgement.model ?? gateAutoConfig.model, latencyMs, outcome: "auto-allow", ...judgeInputs });
         return true;
       }
       audit({
@@ -453,6 +474,7 @@ export default function (pi: ExtensionAPI) {
         model: judgement.model ?? gateAutoConfig.model,
         latencyMs,
         outcome: ctx.hasUI ? "fallback-confirm" : "fallback-block",
+        ...judgeInputs,
       });
       return false;
     }
@@ -463,6 +485,7 @@ export default function (pi: ExtensionAPI) {
       model: gateAutoConfig.model,
       latencyMs,
       outcome: ctx.hasUI ? "fallback-confirm" : "fallback-block",
+      ...judgeInputs,
     });
     return false;
   };

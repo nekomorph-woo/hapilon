@@ -447,6 +447,16 @@ describe("hpl-safety-gate auto", () => {
             const modelEntries = audited.filter((e) => e.layer === "model");
             assert.equal(modelEntries.length, 3);
             assert.ok(modelEntries.every((e) => typeof e.latencyMs === "number" && e.model === "zai/glm-4.7"));
+            // ④ 还原现场字段：model 层带全套判官输入；sandbox 层至少带写目标解析
+            for (const e of modelEntries) {
+                assert.ok(Array.isArray(e.activityWindow), "审计缺 activityWindow");
+                assert.ok(typeof e.sandboxSummary === "string" && e.sandboxSummary.length > 0, "审计缺 sandboxSummary");
+                assert.ok(typeof e.gitStatus === "string" && e.gitStatus.length > 0, "审计缺 gitStatus");
+                assert.ok(Array.isArray(e.precedents), "审计缺 precedents");
+                assert.ok(e.promptSource === "default-v2" || e.promptSource === "override", "审计缺 promptSource");
+            }
+            const sandboxEntries = audited.filter((e) => e.layer === "sandbox");
+            assert.ok(sandboxEntries.every((e) => typeof e.sandboxSummary === "string" && e.sandboxSummary.length > 0), "沙箱审计缺 sandboxSummary");
         });
     });
     describe("handler 级兜底与缓存（无 UI 上下文）", () => {
