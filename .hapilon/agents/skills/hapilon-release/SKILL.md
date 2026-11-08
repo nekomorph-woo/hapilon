@@ -37,6 +37,8 @@ main 的 push 仅发生在发版流程内（提交纪律禁止主动 push，用�
 | agent | issue 评论（检测脚本 + 起草 + gh issue comment）、push main、失败归因 |
 | release.sh 自跑 | notes 生成（机械映射 + haiku 兜底）→ build + 全量测试 → 附注 tag + push tag → npm pack → 全新安装冒烟 → gh release create 附 tarball |
 
+notes 文件落在 `.hapilon/release/v<版本号>.md`（gitignored 临时文件）：发布前可读它核对 notes 质量；发布成功脚本顺手删除，失败时保留供归因，重跑会重新生成。
+
 ## 护栏
 
 - 禁止手搓发版：绕过 release.sh 直接 tag / pack / gh release 就是手搓；notes 生成、tarball 冒烟、全新安装三道门不可跳。

@@ -161,5 +161,6 @@ echo "  版本 $SMOKE_VERSION ✓ 补丁钩子 letters=3 open=1 shell=1+1 ✓"
 echo "▶ 5/5 建 Release 并附 tarball"
 gh release create "$TAG" "/tmp/$TARBALL" --title "$TAG" --notes-file "$NOTES_FILE"
 
-rm "/tmp/$TARBALL"
+# notes 已随 Release 上传，本地副本是临时产物，发布成功即清
+rm "/tmp/$TARBALL" "$NOTES_FILE"
 echo "✓ 发版完成: ${TAG}（Release 页面已附 ${TARBALL}）"
