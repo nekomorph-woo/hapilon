@@ -119,6 +119,9 @@ describe("sections", () => {
         assert.ok(SKILL_ROUTING_TEXT.includes("its flow owns execution"));
         assert.ok(SKILL_ROUTING_TEXT.includes("answer-me-with-html"));
         assert.ok(SKILL_ROUTING_TEXT.includes("domain-modeling"));
+        // 技能编写：skill-craft 管设计，authoring-a-skill playbook 管校验
+        assert.ok(SKILL_ROUTING_TEXT.includes("skill-craft"));
+        assert.ok(SKILL_ROUTING_TEXT.includes("authoring-a-skill"));
     });
 });
 // ── assemble.ts: individual builders ──────────────────────────────────
