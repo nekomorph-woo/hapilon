@@ -13,7 +13,10 @@ export default function tasksReconcile(pi) {
         piTasks: process.env.PI_TASKS,
         taskScope: loadTasksConfig(ctx.cwd).taskScope,
     });
-    pi.on("agent_start", () => {
+    // 续跑（before_settle 返回 continue）本身会触发新的 agent_start：守卫若在
+    // agent_start 重置，请求续跑恰恰解掉限制自己的闸，形成自激提醒风暴；只在真实
+    // 用户输入处重置，「每次用户输入最多提醒一次」才成立。
+    pi.on("input", () => {
         nudgedThisRun = false;
     });
     pi.on("session_start", () => {

@@ -6,7 +6,7 @@
 // - context 钩子（每个 LLM 请求）：常态注入一行计数维持存在感；messages 变短即刚发生
 //   压缩，改注入完整清单——摘要可能丢任务细节，清单是唯一可靠的真相源。
 // - agent_before_settle（最终可行动边界）：有残留就 append 提醒（附清单全文，续跑轮
-//   不必再 TaskList）并请求续跑；单 run 最多续跑一次，续跑后仍残留则通知用户。
+//   不必再 TaskList）并请求续跑；每次用户输入最多提醒并续跑一次，续跑后仍残留则通知用户。
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
 import { loadTasksConfig } from "@tintinweb/pi-tasks/dist/tasks-config.js";
@@ -32,7 +32,10 @@ export default function tasksReconcile(pi: ExtensionAPI) {
       taskScope: loadTasksConfig(ctx.cwd).taskScope,
     });
 
-  pi.on("agent_start", () => {
+  // 续跑（before_settle 返回 continue）本身会触发新的 agent_start：守卫若在
+  // agent_start 重置，请求续跑恰恰解掉限制自己的闸，形成自激提醒风暴；只在真实
+  // 用户输入处重置，「每次用户输入最多提醒一次」才成立。
+  pi.on("input", () => {
     nudgedThisRun = false;
   });
 

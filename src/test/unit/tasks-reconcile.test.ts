@@ -1,9 +1,13 @@
 // tasks-reconcile 纯函数单测：pi-tasks 存储路径分支、残留计数、提醒文案。
+// 生命周期守卫用假 pi.on 挂 handler 手动触发（同 recap-lifecycle 模式）。
 import assert from "node:assert/strict";
-import { describe, it, after } from "node:test";
+import { describe, it, after, before } from "node:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import tasksReconcile from "../../extensions/hpl-tasks-reconcile/index.js";
+import { setNotifySink } from "../../extensions/notify.js";
 import {
   buildReminderText,
   countUnfinishedTasks,
@@ -140,5 +144,86 @@ describe("buildReminderText", () => {
     assert.match(text, /- #3 \[in_progress\] Fix auth/);
     assert.match(text, /TaskUpdate/);
     assert.match(text, /Do not start new substantive work/);
+  });
+});
+
+describe("生命周期守卫（settle 提醒自激循环回归）", () => {
+  type Handler = (event: any, ctx: any) => unknown;
+  const dir = mkdtempSync(join(tmpdir(), "hapi-tasks-reconcile-lc-"));
+  const taskFile = join(dir, "tasks.json");
+  const prevPiTasks = process.env.PI_TASKS;
+  const notifications: string[] = [];
+  const handlers = new Map<string, Handler>();
+  const ctx = {
+    cwd: dir,
+    sessionManager: { getSessionId: () => "s1" },
+  };
+
+  before(() => {
+    writeFileSync(
+      taskFile,
+      JSON.stringify({
+        nextId: 2,
+        tasks: [{ id: "1", subject: "Wait for benchmark", status: "in_progress" }],
+      }),
+    );
+    process.env.PI_TASKS = taskFile;
+    setNotifySink({ notify: (message: string) => notifications.push(message) });
+    tasksReconcile({
+      on: ((event: string, handler: Handler) => {
+        handlers.set(event, handler);
+        return () => handlers.delete(event);
+      }) as unknown as ExtensionAPI["on"],
+    } as unknown as ExtensionAPI);
+  });
+
+  after(() => {
+    rmSync(dir, { recursive: true, force: true });
+    if (prevPiTasks === undefined) delete process.env.PI_TASKS;
+    else process.env.PI_TASKS = prevPiTasks;
+  });
+
+  const fire = (event: string, payload: unknown = {}): Promise<unknown> =>
+    Promise.resolve(handlers.get(event)?.(payload, ctx));
+
+  it("首次 settle 注入提醒并请求续跑；续跑轮的 agent_start 不重置守卫，风暴止于一次", async () => {
+    await fire("input");
+    const first = (await fire("agent_before_settle", { entries: [] })) as {
+      continue?: boolean;
+      entries: Array<Record<string, unknown>>;
+    };
+    assert.equal(first?.continue, true);
+    const reminder = first.entries.at(-1)!;
+    assert.equal(reminder.type, "custom_message");
+    assert.equal(reminder.customType, "hapi-tasks-reconcile");
+    assert.match(String(reminder.content), /1 unfinished/);
+
+    // 续跑本身就是一次新的低层 run：这里曾把守卫清回 false，形成每分钟数十条的提醒风暴
+    await fire("agent_start");
+    const second = await fire("agent_before_settle", { entries: [] });
+    assert.equal(second, undefined);
+
+    await fire("agent_settled");
+    assert.equal(notifications.length, 1);
+    assert.match(notifications[0]!, /仍有 1 项未收尾/);
+  });
+
+  it("真实用户输入重新武装：每次输入最多再提醒一次", async () => {
+    await fire("input");
+    const again = (await fire("agent_before_settle", { entries: [] })) as { continue?: boolean };
+    assert.equal(again?.continue, true);
+    await fire("agent_start");
+    const suppressed = await fire("agent_before_settle", { entries: [] });
+    assert.equal(suppressed, undefined);
+  });
+
+  it("无残留时不注入不续跑，settled 也不通知", async () => {
+    writeFileSync(taskFile, JSON.stringify({ nextId: 2, tasks: [{ id: "1", subject: "Done", status: "completed" }] }));
+    await fire("input");
+    const result = await fire("agent_before_settle", { entries: [] });
+    assert.equal(result, undefined);
+    const before = notifications.length;
+    await fire("agent_settled");
+    assert.equal(notifications.length, before);
   });
 });
