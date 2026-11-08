@@ -83,15 +83,31 @@ export function buildRoleSection(): string {
   return `<role>\n${ROLE_TEXT}\n</role>`;
 }
 
+/** browser_* 工具描述共享的用法前缀；逐条重复 15 次，剥成组级一条（措辞变了则原样保留，fail-open）。 */
+const BROWSER_PAGES_HINT = "Use browser_list_pages first, then pass its numeric pageId.";
+
 export function buildToolsSection(
   toolSnippets: Record<string, string>,
   selectedTools: string[],
 ): string {
   const visible = selectedTools.filter((name) => !!toolSnippets[name]);
-  const list =
-    visible.length > 0
-      ? visible.map((name) => `- ${name}: ${toolSnippets[name]}`).join("\n")
-      : "(none)";
+  if (visible.length === 0) {
+    return "<available_tools>\n(none)\n</available_tools>";
+  }
+  let browserHintPlaced = false;
+  const list = visible
+    .map((name) => {
+      let desc = toolSnippets[name];
+      if (desc.startsWith(BROWSER_PAGES_HINT)) {
+        desc = desc.slice(BROWSER_PAGES_HINT.length).trimStart();
+        if (!browserHintPlaced) {
+          browserHintPlaced = true;
+          desc = `${BROWSER_PAGES_HINT} ${desc}`;
+        }
+      }
+      return `- ${name}: ${desc}`;
+    })
+    .join("\n");
   return `<available_tools>\n${list}\n</available_tools>`;
 }
 

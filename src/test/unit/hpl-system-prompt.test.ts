@@ -315,6 +315,30 @@ describe("buildToolsSection", () => {
     assert.ok(result.includes("read"));
     assert.ok(!result.includes("bash"), "bash 不在 selectedTools 中，应被过滤");
   });
+
+  it("browser_* 描述去重: 共享前缀只保留在首个条目", () => {
+    const hint = "Use browser_list_pages first, then pass its numeric pageId.";
+    const browserSnippets = {
+      browser_click: `${hint} Clicks on the provided element`,
+      browser_fill: `${hint} Fills standard HTML form fields`,
+      read: "Read file contents",
+    };
+    const result = buildToolsSection(browserSnippets, [
+      "browser_click",
+      "browser_fill",
+      "read",
+    ]);
+    const matches = result.split(hint).length - 1;
+    assert.strictEqual(matches, 1, "共享前缀应只出现一次（挂在首个 browser_* 条目）");
+    assert.ok(
+      result.includes(`- browser_click: ${hint} Clicks`),
+      "首个 browser_* 条目保留组级 hint",
+    );
+    assert.ok(
+      result.includes("- browser_fill: Fills standard HTML form fields"),
+      "后续 browser_* 条目只留核心描述",
+    );
+  });
 });
 
 describe("buildCustomToolsNote", () => {
