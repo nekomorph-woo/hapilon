@@ -41,6 +41,8 @@ const HAPI_BG_DONE_MARKER = "hapiBgDone";
 const HAPI_BG_RUNNING_GLYPH_MARKER = "hapiBgRunningGlyph";
 /** bg-task 面板圆角盒改版（列表/翻页换 FloatingPane 观感 + 翻页滚动）的 marker */
 const HAPI_JOB_PANEL_BOX_MARKER = "hapiJobPanelBox";
+/** bg-task 任务起止事件（bg-jobs:started/ended，hpl-herdr 等据此撑 working）的 marker */
+const HAPI_BG_JOB_EVENTS_MARKER = "hapiBgJobEvents";
 /** ponytail 图标去 emoji（🌿⚡🔥🐴 → 盲文点阵）的 marker */
 const HAPI_PONYTAIL_GLYPH_MARKER = "hapiPonytailGlyph";
 /** ponytail 模糊请求改按 workflow 确认制（出 plan 等批准，不自行选最小版）的 marker */
@@ -239,6 +241,30 @@ export const PATCH_RULES = [
         replace: '    // hapilon: hapiBgRunningGlyph — ⏳ 换随机盲文，每次状态刷新在 10 帧里抽一帧（emoji 去 emoji 约定，补丁表）\n    ui.setStatus(STATUS_KEY, `${["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"][Math.floor(Math.random() * 10)]} ${active.length} job${active.length === 1 ? "" : "s"}: ${labels}${more}`);',
         occurrences: 1,
         marker: HAPI_BG_RUNNING_GLYPH_MARKER,
+    },
+    // ── bg-task 任务起止事件（hapiBgJobEvents，2 条一组）：插件原无任何事件出口，
+    //    主循环 settle 后后台任务还在跑时，herdr 这类状态消费者无从得知（误报 idle）。
+    //    两个任务创建点（background/monitor 文本相同，occurrences:2 一条覆盖）发
+    //    bg-jobs:started，finalize（注释自证全部终态路径的唯一汇合点）发
+    //    bg-jobs:ended，hpl-herdr 订阅后作为第三路事实源撑住 working。
+    //    同 marker 文件级判定、首跑全打。
+    {
+        base: "hapilon",
+        package: BACKGROUND_TASKS_PACKAGE,
+        file: "extensions/background-tasks.ts",
+        find: "    jobs.set(job.id, job);\n    snapshot(job);\n    refreshVisuals(job);",
+        replace: "    jobs.set(job.id, job);\n    snapshot(job);\n    refreshVisuals(job);\n    // hapilon: hapiBgJobEvents — 任务创建即广播，状态消费者据此撑住 working\n    pi.events.emit(\"bg-jobs:started\", { id: job.id });",
+        occurrences: 2,
+        marker: HAPI_BG_JOB_EVENTS_MARKER,
+    },
+    {
+        base: "hapilon",
+        package: BACKGROUND_TASKS_PACKAGE,
+        file: "extensions/background-tasks.ts",
+        find: "    if (!shuttingDown) snapshot(job);\n    pruneTerminal();\n    if (!shuttingDown) refreshVisuals(job);\n  }",
+        replace: "    if (!shuttingDown) snapshot(job);\n    pruneTerminal();\n    if (!shuttingDown) refreshVisuals(job);\n    pi.events.emit(\"bg-jobs:ended\", { id: job.id });\n  }",
+        occurrences: 1,
+        marker: HAPI_BG_JOB_EVENTS_MARKER,
     },
     // ── bg-task 面板圆角盒改版（hapiJobPanelBox，5 条一组）：JobPanel 原为平线横幅
     //    （上下横线、无侧边框、快捷键提示挤标题行），且翻页模式不能滚动。整组把

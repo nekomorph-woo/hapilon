@@ -5,8 +5,10 @@
  * 屏幕抓取、服务器重启时按 `pi --resume` 恢复（hapilon 的壳全丢）。本扩展按
  * herdr 官方自定义集成协议，用 pi 的生命周期事件从进程内部上报语义状态。
  *
- * 状态来自两路事实的合成（state.ts）：主循环起跑/沉淀，加上后台 subagent 的
- * 生命周期——否则主循环 settle、subagent 还在跑时会误报 idle。
+ * 状态来自三路事实的合成（state.ts）：主循环起跑/沉淀、后台 subagent 的
+ * 生命周期、以及后台 shell 任务（background-tasks 插件经补丁发
+ * bg-jobs:started/ended 事件，marker hapiBgJobEvents）——否则主循环 settle、
+ * 后台还有活在跑时会误报 idle。
  *
  * 双通道：herdr-tui 走官方 CLI 集成（HERDR_ENV=1 且 HERDR_BIN_PATH/HERDR_PANE_ID
  * 齐全时激活）；herdr-app 无这些环境变量，改走 OSC 7501 直接写 pty（osc.ts）。
@@ -27,6 +29,10 @@ function sessionPathOf(ctx: ExtensionContext): string | undefined {
 }
 
 interface SubagentLifecycleEvent {
+	id?: unknown;
+}
+
+interface BgJobLifecycleEvent {
 	id?: unknown;
 }
 
@@ -78,6 +84,21 @@ export function registerHerdrReporting(
 	pi.events.on("subagents:failed", (event) => {
 		const id = subagentId(event);
 		if (id) report(state.subagentEnded(id));
+	});
+
+	// 后台 shell 任务（background-tasks 插件）在跑同样撑住 working：任务 id 是
+	// 数字，与 subagent 的字符串 id 分开收
+	const jobId = (event: unknown): number | undefined => {
+		const id = (event as BgJobLifecycleEvent | undefined)?.id;
+		return typeof id === "number" ? id : undefined;
+	};
+	pi.events.on("bg-jobs:started", (event) => {
+		const id = jobId(event);
+		if (id !== undefined) report(state.bgStarted(id));
+	});
+	pi.events.on("bg-jobs:ended", (event) => {
+		const id = jobId(event);
+		if (id !== undefined) report(state.bgEnded(id));
 	});
 
 	// 阻塞：ask_user / 权限确认等阻塞式 UI prompt，标题优先当说明

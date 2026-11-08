@@ -1,6 +1,7 @@
 /**
- * herdr 状态合成：主循环（agent_start/turn_start → agent_settled）与后台
- * subagent（subagents:started → completed/failed）两路事实合成一个语义状态，
+ * herdr 状态合成：主循环（agent_start/turn_start → agent_settled）、后台
+ * subagent（subagents:started → completed/failed）与后台 shell 任务
+ * （bg-jobs:started → ended）三路事实合成一个语义状态，
  * 阻塞式 UI prompt 的 blocked 优先。状态不变时不产出，调用方跳过上报——
  * 修复「主循环已 settle、subagent 还在跑时误报 idle」。
  */
@@ -16,12 +17,13 @@ export function createHerdrState() {
 	let promptOpen = false;
 	let promptMessage: string | undefined;
 	const inflight = new Set<string>();
+	const bgJobs = new Set<number>();
 	let last: DerivedReport | undefined;
 
 	const derive = (): DerivedReport | undefined => {
 		const report: DerivedReport = promptOpen
 			? { state: "blocked", message: promptMessage }
-			: { state: mainWorking || inflight.size > 0 ? "working" : "idle" };
+			: { state: mainWorking || inflight.size > 0 || bgJobs.size > 0 ? "working" : "idle" };
 		if (last && last.state === report.state && last.message === report.message) return undefined;
 		last = report;
 		return report;
@@ -58,12 +60,21 @@ export function createHerdrState() {
 			inflight.delete(id);
 			return derive();
 		},
+		bgStarted: (id: number): DerivedReport | undefined => {
+			bgJobs.add(id);
+			return derive();
+		},
+		bgEnded: (id: number): DerivedReport | undefined => {
+			bgJobs.delete(id);
+			return derive();
+		},
 		/** 新会话：全量重置；session_start 的 idle + sessionPath 由调用方显式上报 */
 		reset: (): void => {
 			mainWorking = false;
 			promptOpen = false;
 			promptMessage = undefined;
 			inflight.clear();
+			bgJobs.clear();
 			last = undefined;
 		},
 	};

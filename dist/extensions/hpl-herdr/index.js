@@ -58,6 +58,22 @@ export function registerHerdrReporting(pi, deps) {
         if (id)
             report(state.subagentEnded(id));
     });
+    // 后台 shell 任务（background-tasks 插件）在跑同样撑住 working：任务 id 是
+    // 数字，与 subagent 的字符串 id 分开收
+    const jobId = (event) => {
+        const id = event?.id;
+        return typeof id === "number" ? id : undefined;
+    };
+    pi.events.on("bg-jobs:started", (event) => {
+        const id = jobId(event);
+        if (id !== undefined)
+            report(state.bgStarted(id));
+    });
+    pi.events.on("bg-jobs:ended", (event) => {
+        const id = jobId(event);
+        if (id !== undefined)
+            report(state.bgEnded(id));
+    });
     // 阻塞：ask_user / 权限确认等阻塞式 UI prompt，标题优先当说明
     pi.on("ui_prompt_start", (event) => report(state.promptStart(blockMessage(event))));
     pi.on("ui_prompt_end", () => report(state.promptEnd()));

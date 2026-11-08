@@ -177,6 +177,22 @@ describe("createHerdrState() 状态合成", () => {
         assert.equal(s.agentSettled(), undefined);
         assert.equal(s.subagentEnded("a2")?.state, "idle");
     });
+    it("回归：主循环 settle 后 bg-task 在跑保持 working，任务结束才 idle", () => {
+        const s = createHerdrState();
+        assert.equal(s.turnStart()?.state, "working");
+        s.bgStarted(1);
+        // 旧代码此处直接报 idle——后台 shell 任务也在跑，必须保持 working
+        assert.equal(s.agentSettled(), undefined);
+        assert.equal(s.bgEnded(1)?.state, "idle");
+    });
+    it("bg-task 与 subagent 并发：两者都结束才 idle", () => {
+        const s = createHerdrState();
+        s.bgStarted(1);
+        s.subagentStarted("a1");
+        s.agentSettled();
+        assert.equal(s.subagentEnded("a1"), undefined);
+        assert.equal(s.bgEnded(1)?.state, "idle");
+    });
 });
 describe("registerHerdrReporting() 接线", () => {
     function fakePi() {
@@ -214,6 +230,17 @@ describe("registerHerdrReporting() 接线", () => {
         (events.get("subagents:started"))({ id: "a1" });
         (events.get("subagents:failed"))({ id: "a1", status: "stopped" });
         assert.deepEqual(states(calls), ["working", "idle"]);
+    });
+    it("回归：bg-task 起止事件在主循环 settle 后撑住 working", () => {
+        const { spawn, calls } = makeSpawn();
+        const { pi, handlers, events } = fakePi();
+        registerHerdrReporting(pi, { spawn, env: ENV });
+        handlers.get("turn_start")();
+        handlers.get("agent_settled")(); // 无后台任务：沉淀即 idle
+        (events.get("bg-jobs:started"))({ id: 1 });
+        handlers.get("agent_settled")(); // 后台任务在跑：不再报 idle
+        (events.get("bg-jobs:ended"))({ id: 1 });
+        assert.deepEqual(states(calls), ["working", "idle", "working", "idle"]);
     });
     it("session_start 重置状态机并带 session 路径", () => {
         const { spawn, calls } = makeSpawn();

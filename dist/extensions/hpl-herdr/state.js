@@ -3,11 +3,12 @@ export function createHerdrState() {
     let promptOpen = false;
     let promptMessage;
     const inflight = new Set();
+    const bgJobs = new Set();
     let last;
     const derive = () => {
         const report = promptOpen
             ? { state: "blocked", message: promptMessage }
-            : { state: mainWorking || inflight.size > 0 ? "working" : "idle" };
+            : { state: mainWorking || inflight.size > 0 || bgJobs.size > 0 ? "working" : "idle" };
         if (last && last.state === report.state && last.message === report.message)
             return undefined;
         last = report;
@@ -44,12 +45,21 @@ export function createHerdrState() {
             inflight.delete(id);
             return derive();
         },
+        bgStarted: (id) => {
+            bgJobs.add(id);
+            return derive();
+        },
+        bgEnded: (id) => {
+            bgJobs.delete(id);
+            return derive();
+        },
         /** 新会话：全量重置；session_start 的 idle + sessionPath 由调用方显式上报 */
         reset: () => {
             mainWorking = false;
             promptOpen = false;
             promptMessage = undefined;
             inflight.clear();
+            bgJobs.clear();
             last = undefined;
         },
     };
