@@ -36,7 +36,7 @@ import("@tintinweb/pi-subagents/dist/child-context.js")
     subagentProbe = mod.inChildSessionContext;
   })
   .catch(() => {
-    notify("[hpl-protected-paths] subagent 探针不可得，子会话敏感读取将走 confirm 流程");
+    notify("[hpl-protected-paths] subagent 探针不可得，子会话敏感读取将走 confirm 流程", "warning");
   });
 
 function inSubagentSession(): boolean {
@@ -66,7 +66,7 @@ export default function (pi: ExtensionAPI) {
     if (isToolCallEventType("write", event) || isToolCallEventType("edit", event)) {
       const rawPath: string = event.input.path ?? "";
       if (!rawPath) {
-        notify("write/edit 工具调用缺少 path 参数，安全扩展无法生效");
+        notify("write/edit 工具调用缺少 path 参数，安全扩展无法生效", "warning");
         return;
       }
 
@@ -84,7 +84,7 @@ export default function (pi: ExtensionAPI) {
         // block 路径 → 仅 session trust
         if (!isSessionTrusted(toolName, filePath)) {
           // 拦截必须留痕（Make It Observable）
-          notify(`[hpl-protected-paths] 受保护的文件路径，不允许写入: ${filePath}`);
+          notify(`[hpl-protected-paths] 受保护的文件路径，不允许写入: ${filePath}`, "warning");
           return { block: true, reason: `🛡️ 受保护的文件路径，不允许写入：${filePath}` };
         }
         return;
@@ -106,7 +106,7 @@ export default function (pi: ExtensionAPI) {
             ? `🛡️ 确认对话框异常，已阻止：${filePath}`
             : `用户拒绝了写入：${filePath}`;
           // 拦截必须留痕（Make It Observable）
-          notify(`[hpl-protected-paths] ${reason}`);
+          notify(`[hpl-protected-paths] ${reason}`, "warning");
           return { block: true, reason };
         }
         // 用户批准 → 按 scope 添加信任
@@ -115,7 +115,7 @@ export default function (pi: ExtensionAPI) {
             addTrust(toolName, filePath, result.scope, ctx.cwd);
           }
         } catch (err) {
-          notify(`添加信任失败（不影响本次操作）: ${err instanceof Error ? err.message : String(err)}`);
+          notify(`添加信任失败（不影响本次操作）: ${err instanceof Error ? err.message : String(err)}`, "warning");
         }
       }
       return;
@@ -124,7 +124,7 @@ export default function (pi: ExtensionAPI) {
     if (isToolCallEventType("read", event)) {
       const rawPath: string = event.input.path ?? "";
       if (!rawPath) {
-        notify("read 工具调用缺少 path 参数，安全扩展无法生效");
+        notify("read 工具调用缺少 path 参数，安全扩展无法生效", "warning");
         return;
       }
 
@@ -141,7 +141,7 @@ export default function (pi: ExtensionAPI) {
       // 直接拦截，不走 confirm 流程。
       if (inSubagentSession()) {
         const reason = `🛡️ subagent 会话禁止读取敏感文件：${filePath}（如需读取请在主会话操作）`;
-        notify(`[hpl-protected-paths] ${reason}`);
+        notify(`[hpl-protected-paths] ${reason}`, "warning");
         return { block: true, reason };
       }
 
@@ -157,7 +157,7 @@ export default function (pi: ExtensionAPI) {
           ? `🛡️ 确认对话框异常，已阻止读取：${filePath}`
           : `用户拒绝了读取敏感文件：${filePath}`;
         // 拦截必须留痕（Make It Observable）
-        notify(`[hpl-protected-paths] ${reason}`);
+        notify(`[hpl-protected-paths] ${reason}`, "warning");
         return { block: true, reason };
       }
       try {
@@ -165,7 +165,7 @@ export default function (pi: ExtensionAPI) {
           addTrust("read", filePath, result.scope, ctx.cwd);
         }
       } catch (err) {
-        notify(`添加信任失败（不影响本次操作）: ${err instanceof Error ? err.message : String(err)}`);
+        notify(`添加信任失败（不影响本次操作）: ${err instanceof Error ? err.message : String(err)}`, "warning");
       }
     }
   });
@@ -219,7 +219,7 @@ export default function (pi: ExtensionAPI) {
                 if (!prompted) return;
                 const resolved = resolveTarget(prompted.trim(), ctx.cwd);
                 addTrust("bash", resolved, "session", ctx.cwd);
-                notify(`已加入 session 白名单：${resolved}`);
+                notify(`已加入 session 白名单：${resolved}`, "warning");
               },
             },
             {
@@ -230,7 +230,7 @@ export default function (pi: ExtensionAPI) {
                 const lines: string[] = [];
                 if (session.length > 0) for (const g of session) lines.push(`session ${g.toolName}: ${g.targets.join(", ")}`);
                 if (project.length > 0) for (const g of project) lines.push(`project ${g.toolName}: ${g.targets.join(", ")}`);
-                notify(lines.length > 0 ? lines.join("\n") : "白名单为空");
+                notify(lines.length > 0 ? lines.join("\n") : "白名单为空", "info");
               },
             },
             {
@@ -238,7 +238,7 @@ export default function (pi: ExtensionAPI) {
               run: () => {
                 const count = listSessionTrust().reduce((n, g) => n + g.targets.length, 0);
                 clearSessionTrust();
-                notify(`已清空 ${count} 条 session 白名单`);
+                notify(`已清空 ${count} 条 session 白名单`, "warning");
               },
             },
           ],

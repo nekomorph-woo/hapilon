@@ -71,7 +71,7 @@ function resolveAvailable(tiers: TierModels, available: AvailableModel[]): Recor
       const { thinking } = splitThinkingSuffix(entry);
       const matches = available.filter((model) => matchesModelPattern(entry, model));
       if (matches.length === 0 && !warned.has(entry)) {
-        notify(`[hpl-model-tiers] ${tier} pattern 无可用模型匹配，暂保留：${entry}`);
+        notify(`[hpl-model-tiers] ${tier} pattern 无可用模型匹配，暂保留：${entry}`, "warning");
         warned.add(entry);
       }
       for (const model of matches) {
@@ -106,11 +106,11 @@ function readSettings(path: string): SettingsObject | undefined {
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
-    notify(`[hpl-model-tiers] 无法读取 settings.json，跳过写入：${error instanceof Error ? error.message : String(error)}`);
+    notify(`[hpl-model-tiers] 无法读取 settings.json，跳过写入：${error instanceof Error ? error.message : String(error)}`, "warning");
     return undefined;
   }
   if (!isObject(parsed)) {
-    notify("[hpl-model-tiers] settings.json 不是对象，跳过写入。");
+    notify("[hpl-model-tiers] settings.json 不是对象，跳过写入。", "warning");
     return undefined;
   }
   return parsed;
@@ -138,7 +138,7 @@ const writeResolvedTiersEffect = (
   catch: (error) => error,
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-model-tiers] resolved tiers 写入失败，继续启动：${String(error)}`);
+    notify(`[hpl-model-tiers] resolved tiers 写入失败，继续启动：${String(error)}`, "warning");
   })),
 );
 
@@ -202,7 +202,7 @@ export const applyModelTiersEffect = (
   return { ...baseResult, settingsChanged };
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-model-tiers] 加载失败，按空档位继续：${String(error)}`);
+    notify(`[hpl-model-tiers] 加载失败，按空档位继续：${String(error)}`, "warning");
     return emptyResult();
   })),
 );
@@ -231,14 +231,15 @@ export default function hplModelTiers(pi: ExtensionAPI): void {
     }).pipe(
       Effect.flatMap((available) => applyModelTiersEffect(ctx.cwd, available)),
       Effect.catchAll((error) => Effect.sync(() => {
-        notify(`[hpl-model-tiers] 读取可用模型失败，按空档位继续：${String(error)}`);
+        notify(`[hpl-model-tiers] 读取可用模型失败，按空档位继续：${String(error)}`, "warning");
         return emptyResult();
       })),
     ));
-    // 汇总行只在进程启动打一次；/new、resume、fork、reload 时档位静默装配——team mode 下 /new 频繁，重打纯噪音
+    // 汇总行只在进程启动打一次；/new、resume、fork、reload 时档位静默装配——team mode 下 /new 频繁，重打纯噪音。
+    // 走 notify：TUI 就绪显示状态行，未就绪（print 模式）丢弃——裸 stdout 会打在输入框上（用户实测）
     if (event.reason !== "startup") return;
     const reloadHint = result.settingsChanged ? "，已写入 Pi settings；请执行 /reload" : "";
-    console.log(
+    notify(
       `[hpl-model-tiers] opus=${result.tiers.opus.length} sonnet=${result.tiers.sonnet.length} haiku=${result.tiers.haiku.length}${reloadHint}`,
     );
   });

@@ -47,7 +47,7 @@ export async function requestConfirm(ctx, title, msg, opts = {}) {
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        notify(`安全确认对话框异常: ${message}`);
+        notify(`安全确认对话框异常: ${message}`, "warning");
         return { status: "error", message };
     }
 }
@@ -67,7 +67,7 @@ export async function requestHighRiskConfirm(ctx, title, msg) {
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        notify(`高危路径确认对话框异常: ${message}`);
+        notify(`高危路径确认对话框异常: ${message}`, "warning");
         return false; // 对话框异常 → 拒绝
     }
 }

@@ -157,7 +157,7 @@ export const readTeamStateEffect = (path, defs = getAllRoleDefs()) => Effect.try
         message: error instanceof Error ? error.message : String(error),
     }),
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-orchestra] 状态文件读取失败，按未启用处理：${error.message}`);
+    notify(`[hpl-orchestra] 状态文件读取失败，按未启用处理：${error.message}`, "warning");
     return disabledState();
 })));
 export function readTeamState(path, defs) {
@@ -208,7 +208,7 @@ export const findTeamStateEntryForPaneEffect = (paneId, defs = getAllRoleDefs())
         message: error instanceof Error ? error.message : String(error),
     }),
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-orchestra] 按 pane 查找状态失败：${error.message}`);
+    notify(`[hpl-orchestra] 按 pane 查找状态失败：${error.message}`, "warning");
     return undefined;
 })));
 /** Role panes have their own Pi session id; locate their owner's state by pane id. */
@@ -267,7 +267,7 @@ export const writeTeamStateEffect = (state, path) => Effect.try({
         message: error instanceof Error ? error.message : String(error),
     }),
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-orchestra] 状态文件写入失败：${error.message}`);
+    notify(`[hpl-orchestra] 状态文件写入失败：${error.message}`, "warning");
     return false;
 })));
 export const deleteTeamStateEffect = (path) => Effect.try({
@@ -282,7 +282,7 @@ export const deleteTeamStateEffect = (path) => Effect.try({
         message: error instanceof Error ? error.message : String(error),
     }),
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-orchestra] 状态文件删除失败：${error.message}`);
+    notify(`[hpl-orchestra] 状态文件删除失败：${error.message}`, "warning");
     return false;
 })));
 export function isTeamOwner(state, defs) {
@@ -339,7 +339,7 @@ export const buildTeamSectionsEffect = () => Effect.try({
             state.roles = state.roles.filter((entry) => entry.instances.length > 0 || isTeamRole(entry.key, defs));
             Effect.runSync(writeTeamStateEffect(state));
             // 剪枝已持久化，下一轮不再看到该实例 → 本通知天然只发一次
-            notify(`[hpl-orchestra] ${pruned.map(({ key, paneId }) => `${key} 的成员 pane ${paneId} 已关闭，自动移出 team`).join("；")}`);
+            notify(`[hpl-orchestra] ${pruned.map(({ key, paneId }) => `${key} 的成员 pane ${paneId} 已关闭，自动移出 team`).join("；")}`, "warning");
         }
         const crew = keys.flatMap((key) => {
             const instances = stateRoles.get(key)?.instances ?? [];
@@ -365,7 +365,7 @@ export const buildTeamSectionsEffect = () => Effect.try({
         message: error instanceof Error ? error.message : String(error),
     }),
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-orchestra] team section 读取失败，跳过注入：${error instanceof Error ? error.message : String(error)}`);
+    notify(`[hpl-orchestra] team section 读取失败，跳过注入：${error instanceof Error ? error.message : String(error)}`, "warning");
     return {};
 })));
 export function buildTeamSections() {

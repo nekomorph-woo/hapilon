@@ -31,7 +31,7 @@ const resolveTargetSync = (targetPath: string, cwd: string): string => {
   } catch (err: unknown) {
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code === "ENOENT") return absPath;
-    notify(`路径解析异常 (realpath): ${code ?? String(err)} → 回退到未解析路径`);
+    notify(`路径解析异常 (realpath): ${code ?? String(err)} → 回退到未解析路径`, "warning");
     return absPath;
   }
 }

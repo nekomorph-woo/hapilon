@@ -46,10 +46,10 @@ function parseEvents(raw) {
             if (isEvent(parsed))
                 events.push(parsed);
             else
-                notify("[hpl-model-tiers] tier-adaptive 事件缺 kind/ts，已跳过");
+                notify("[hpl-model-tiers] tier-adaptive 事件缺 kind/ts，已跳过", "warning");
         }
         catch {
-            notify("[hpl-model-tiers] tier-adaptive 事件行不是合法 JSON，已跳过");
+            notify("[hpl-model-tiers] tier-adaptive 事件行不是合法 JSON，已跳过", "warning");
         }
     }
     return events;
@@ -61,7 +61,7 @@ export const readAdaptiveEventsEffect = Effect.try({
     },
     catch: (error) => error,
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-model-tiers] tier-adaptive 事件日志读取失败，按空日志继续：${String(error)}`);
+    notify(`[hpl-model-tiers] tier-adaptive 事件日志读取失败，按空日志继续：${String(error)}`, "warning");
     return [];
 })));
 export function readAdaptiveEvents() {
@@ -193,7 +193,7 @@ export const rebuildAdaptiveProfileEffect = (now = new Date().toISOString()) => 
         writeProfileSnapshot(profile);
     }
     catch (error) {
-        notify(`[hpl-model-tiers] 画像快照写入失败（不影响路由）：${String(error)}`);
+        notify(`[hpl-model-tiers] 画像快照写入失败（不影响路由）：${String(error)}`, "warning");
     }
 })));
 export function rebuildAdaptiveProfile(now) {
@@ -217,7 +217,7 @@ export const readAdaptiveProfileEffect = (now = new Date().toISOString()) => Eff
         },
         catch: (error) => error,
     }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-        notify(`[hpl-model-tiers] 画像快照读取失败，按空画像继续：${String(error)}`);
+        notify(`[hpl-model-tiers] 画像快照读取失败，按空画像继续：${String(error)}`, "warning");
         return EMPTY_PROFILE(now);
     })));
 });
@@ -242,7 +242,7 @@ export const appendAdaptiveEventEffect = (event, key) => Effect.try({
     },
     catch: (error) => error,
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-model-tiers] tier-adaptive 事件写入失败（不影响选模）：${String(error)}`);
+    notify(`[hpl-model-tiers] tier-adaptive 事件写入失败（不影响选模）：${String(error)}`, "warning");
     return false;
 })));
 export function appendAdaptiveEvent(event, key) {

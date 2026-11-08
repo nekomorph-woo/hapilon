@@ -31,7 +31,7 @@ export const readRecapConfigEffect: Effect.Effect<RecapConfig, never> = Effect.t
 
     const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      notify(`[hpl-recap] ${path} 顶层必须是对象，使用默认配置。`);
+      notify(`[hpl-recap] ${path} 顶层必须是对象，使用默认配置。`, "warning");
       return { ...RECAP_DEFAULTS };
     }
 
@@ -40,23 +40,23 @@ export const readRecapConfigEffect: Effect.Effect<RecapConfig, never> = Effect.t
       ? RECAP_DEFAULTS.enabled
       : typeof raw.enabled === "boolean"
         ? raw.enabled
-        : (notify("[hpl-recap] enabled 非布尔值，使用默认值。"), RECAP_DEFAULTS.enabled);
+        : (notify("[hpl-recap] enabled 非布尔值，使用默认值。", "warning"), RECAP_DEFAULTS.enabled);
     const idleMinutes = raw.idleMinutes === undefined
       ? RECAP_DEFAULTS.idleMinutes
       : validPositiveNumber(raw.idleMinutes)
         ? raw.idleMinutes
-        : (notify("[hpl-recap] idleMinutes 非正有限数，使用默认值。"), RECAP_DEFAULTS.idleMinutes);
+        : (notify("[hpl-recap] idleMinutes 非正有限数，使用默认值。", "warning"), RECAP_DEFAULTS.idleMinutes);
     const maxContextChars = raw.maxContextChars === undefined
       ? RECAP_DEFAULTS.maxContextChars
       : Number.isInteger(raw.maxContextChars) && validPositiveNumber(raw.maxContextChars)
         ? raw.maxContextChars
-        : (notify("[hpl-recap] maxContextChars 非正整数，使用默认值。"), RECAP_DEFAULTS.maxContextChars);
+        : (notify("[hpl-recap] maxContextChars 非正整数，使用默认值。", "warning"), RECAP_DEFAULTS.maxContextChars);
     return { enabled, idleMinutes, maxContextChars };
   },
   catch: (error) => error,
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-recap] 配置读取失败，使用默认配置：${String(error)}`);
+    notify(`[hpl-recap] 配置读取失败，使用默认配置：${String(error)}`, "warning");
     return { ...RECAP_DEFAULTS };
   })),
 );

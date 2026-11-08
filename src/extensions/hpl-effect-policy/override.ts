@@ -21,7 +21,7 @@ const readOverrideFileEffect = (filePath: string): Effect.Effect<EffectMode | un
     } catch (err) {
       // 不存在是正常态；其余读取/JSON 错误需要让用户知道，但不阻断裁决链。
       if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return undefined;
-      notify(`Warning: 无法读取 Effect policy override（${filePath}）：${err instanceof Error ? err.message : String(err)}`);
+      notify(`Warning: 无法读取 Effect policy override（${filePath}）：${err instanceof Error ? err.message : String(err)}`, "warning");
       return undefined;
     }
 
@@ -30,7 +30,7 @@ const readOverrideFileEffect = (filePath: string): Effect.Effect<EffectMode | un
       : undefined;
     if (isEffectMode(value)) return value;
 
-    notify(`Warning: Effect policy override 无效（${filePath}）：mode=${JSON.stringify(value)}，跳过该级`);
+    notify(`Warning: Effect policy override 无效（${filePath}）：mode=${JSON.stringify(value)}，跳过该级`, "warning");
     return undefined;
   });
 
@@ -47,7 +47,7 @@ export const readPolicyOverrideEffect = (
     const globalPath = join(hapilonHome(), "effect-policy.json");
     return Effect.runSync(readOverrideFileEffect(globalPath));
   } catch (err) {
-    notify(`Warning: 无法读取 Effect policy override：${err instanceof Error ? err.message : String(err)}`);
+    notify(`Warning: 无法读取 Effect policy override：${err instanceof Error ? err.message : String(err)}`, "warning");
     return undefined;
   }
 });

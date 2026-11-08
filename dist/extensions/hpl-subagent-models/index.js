@@ -65,7 +65,7 @@ export default function (pi) {
         return entry;
     };
     // 通知出口注册：首条 prompt 前拿到 UI 就把 runtime 提示切到 TUI 状态行；
-    // 更早的通知（启动期配置告警）留在 notify.ts 的 console.warn 回落。
+    // 更早的通知按 notify.ts 分流回落：warning/error 留 console.warn，info 丢弃
     pi.on("before_agent_start", async (_event, ctx) => {
         if (ctx.hasUI)
             setNotifySink(ctx.ui);

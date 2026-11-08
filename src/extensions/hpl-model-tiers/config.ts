@@ -12,7 +12,7 @@ const hasOwn = (value: Record<string, unknown>, key: string): boolean =>
 
 function warnInvalid(path: string, tier: string, value: unknown): void {
   notify(
-    `[hpl-model-tiers] ${path} 中 ${tier} 无效（需要 string[]，收到 ${JSON.stringify(value)}），该档按空处理。`,
+    `[hpl-model-tiers] ${path} 中 ${tier} 无效（需要 string[]，收到 ${JSON.stringify(value)}），该档按空处理。`, "warning",
   );
 }
 
@@ -28,13 +28,13 @@ export const readTierConfigFileEffect = (
     parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
     notify(
-      `[hpl-model-tiers] 无法读取 ${path}，该级忽略：${error instanceof Error ? error.message : String(error)}`,
+      `[hpl-model-tiers] 无法读取 ${path}，该级忽略：${error instanceof Error ? error.message : String(error)}`, "warning",
     );
     return {};
   }
 
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    notify(`[hpl-model-tiers] ${path} 顶层必须是对象，该级忽略。`);
+    notify(`[hpl-model-tiers] ${path} 顶层必须是对象，该级忽略。`, "warning");
     return {};
   }
 
@@ -56,7 +56,7 @@ export const readTierConfigFileEffect = (
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
     notify(
-      `[hpl-model-tiers] 读取 ${path} 失败，该级忽略：${String(error)}`,
+      `[hpl-model-tiers] 读取 ${path} 失败，该级忽略：${String(error)}`, "warning",
     );
     return {};
   })),
@@ -83,7 +83,7 @@ export const readModelTiersEffect = (cwd: string): Effect.Effect<TierModels, nev
       }).pipe(Effect.map(({ global, project }) => mergeTierConfigs(global, project))),
     ),
     Effect.catchAll((error) => Effect.sync(() => {
-      notify(`[hpl-model-tiers] 配置加载失败，按空档位继续：${String(error)}`);
+      notify(`[hpl-model-tiers] 配置加载失败，按空档位继续：${String(error)}`, "warning");
       return { opus: [], sonnet: [], haiku: [] } as TierModels;
     })),
   );
@@ -105,7 +105,7 @@ export const saveModelTiersEffect = (
   catch: (error) => error,
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-model-tiers] 保存 model-tiers.json 失败：${String(error)}`);
+    notify(`[hpl-model-tiers] 保存 model-tiers.json 失败：${String(error)}`, "warning");
     return false;
   })),
 );

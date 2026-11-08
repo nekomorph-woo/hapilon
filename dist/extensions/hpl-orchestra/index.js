@@ -139,7 +139,7 @@ export default function hplOrchestra(pi) {
             return;
         const model = ctx.modelRegistry.find(saved.provider, saved.id);
         if (!model) {
-            notify(`[hpl-orchestra] 恢复用户切模失败：${saved.provider}/${saved.id} 不在模型注册表`);
+            notify(`[hpl-orchestra] 恢复用户切模失败：${saved.provider}/${saved.id} 不在模型注册表`, "warning");
             return;
         }
         suppressingRestore = true;

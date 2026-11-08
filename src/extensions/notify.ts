@@ -1,9 +1,9 @@
 /**
  * 扩展运行时提示的统一出口。
  *
- * 为什么不经 console.warn：pi 会把 ctx.ui.notify 渲染成 TUI 状态行（打补丁后追加不覆盖），
- * 而裸 console.warn 只是 stderr 兜底。UI 未就绪（启动早期、print 模式）时 notify 无处落，
- * 此时回落 console.warn，与历史行为一致、不丢消息。
+ * pi 把 ctx.ui.notify 渲染成 TUI 状态行（打补丁后追加不覆盖）；UI 未就绪（启动早期、print 模式）
+ * 时无 sink，回落按严重度分流：warning/error 走 console.warn 留痕，info 直接丢弃——
+ * 信息性汇总打进终端会污染输入框（用户实测 herdr-app pty 场景），丢弃无损。
  */
 export type NotifyType = "info" | "warning" | "error";
 
@@ -16,10 +16,16 @@ export function setNotifySink(ui: { notify: (message: string, type?: NotifyType)
   sink = (message, type) => ui.notify(message, type);
 }
 
+/** 测试与进程收尾用；清空后 notify 回到「未注册」分流态 */
+export function resetNotifySink(): void {
+  sink = undefined;
+}
+
 export function notify(message: string, type: NotifyType = "info"): void {
   if (sink) {
     sink(message, type);
     return;
   }
+  if (type === "info") return;
   console.warn(message);
 }

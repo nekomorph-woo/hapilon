@@ -29,7 +29,7 @@ const resolveTargetSync = (targetPath, cwd) => {
         const code = err?.code;
         if (code === "ENOENT")
             return absPath;
-        notify(`路径解析异常 (realpath): ${code ?? String(err)} → 回退到未解析路径`);
+        notify(`路径解析异常 (realpath): ${code ?? String(err)} → 回退到未解析路径`, "warning");
         return absPath;
     }
 };

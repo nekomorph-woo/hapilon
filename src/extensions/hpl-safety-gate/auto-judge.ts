@@ -43,21 +43,21 @@ export function gateAutoSettingsPath(): string {
 function boolOr(raw: unknown, fallback: boolean, warn: string): boolean {
   if (raw === undefined) return fallback;
   if (typeof raw === "boolean") return raw;
-  notify(`[hpl-safety-gate] ${warn}，使用默认值。`);
+  notify(`[hpl-safety-gate] ${warn}，使用默认值。`, "warning");
   return fallback;
 }
 
 function positiveIntOr(raw: unknown, fallback: number, warn: string): number {
   if (raw === undefined) return fallback;
   if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) return raw;
-  notify(`[hpl-safety-gate] ${warn}，使用默认值。`);
+  notify(`[hpl-safety-gate] ${warn}，使用默认值。`, "warning");
   return fallback;
 }
 
 function stringOr(raw: unknown, fallback: string, warn: string): string {
   if (raw === undefined) return fallback;
   if (typeof raw === "string" && raw.trim() !== "") return raw.trim();
-  notify(`[hpl-safety-gate] ${warn}，使用默认值。`);
+  notify(`[hpl-safety-gate] ${warn}，使用默认值。`, "warning");
   return fallback;
 }
 
@@ -67,7 +67,7 @@ export const readGateAutoConfigEffect: Effect.Effect<GateAutoConfig, never> = Ef
     if (!existsSync(path)) return { ...GATE_AUTO_DEFAULTS };
     const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      notify(`[hpl-safety-gate] ${path} 顶层必须是对象，gateAuto 使用默认配置。`);
+      notify(`[hpl-safety-gate] ${path} 顶层必须是对象，gateAuto 使用默认配置。`, "warning");
       return { ...GATE_AUTO_DEFAULTS };
     }
     const raw = (parsed as Record<string, unknown>).gateAuto;
@@ -86,7 +86,7 @@ export const readGateAutoConfigEffect: Effect.Effect<GateAutoConfig, never> = Ef
   catch: (error) => error,
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-safety-gate] gateAuto 配置读取失败，使用默认配置：${String(error)}`);
+    notify(`[hpl-safety-gate] gateAuto 配置读取失败，使用默认配置：${String(error)}`, "warning");
     return { ...GATE_AUTO_DEFAULTS };
   })),
 );
@@ -109,7 +109,7 @@ function readSettings(path: string): SettingsObject | undefined {
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
-    notify(`[hpl-safety-gate] 无法读取 settings.json，跳过写入：${error instanceof Error ? error.message : String(error)}`);
+    notify(`[hpl-safety-gate] 无法读取 settings.json，跳过写入：${error instanceof Error ? error.message : String(error)}`, "warning");
     return undefined;
   }
   if (!isSettingsObject(parsed)) {
@@ -143,7 +143,7 @@ export const setGateAutoEnabledEffect = (enabled: boolean): Effect.Effect<boolea
   catch: (error) => error,
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-safety-gate] gateAuto 设置写入失败：${String(error)}`);
+    notify(`[hpl-safety-gate] gateAuto 设置写入失败：${String(error)}`, "warning");
     return false;
   })),
 );

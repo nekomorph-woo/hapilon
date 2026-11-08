@@ -24,26 +24,26 @@ const readLayerEffect = (path, prefix) => Effect.try({
             parsed = JSON.parse(readFileSync(path, "utf-8"));
         }
         catch (error) {
-            notify(`${prefix} ${path} 不是合法 JSON，该级忽略：${error instanceof Error ? error.message : String(error)}`);
+            notify(`${prefix} ${path} 不是合法 JSON，该级忽略：${error instanceof Error ? error.message : String(error)}`, "warning");
             return undefined;
         }
         if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-            notify(`${prefix} ${path} 顶层必须是对象，该级忽略。`);
+            notify(`${prefix} ${path} 顶层必须是对象，该级忽略。`, "warning");
             return undefined;
         }
         const raw = parsed;
         const enabled = raw["enabled"] === undefined ? true : raw["enabled"] === true;
         if (raw["enabled"] !== undefined && typeof raw["enabled"] !== "boolean") {
-            notify(`${prefix} ${path} 的 enabled 非布尔值，按 true 处理。`);
+            notify(`${prefix} ${path} 的 enabled 非布尔值，按 true 处理。`, "warning");
         }
         const models = Array.isArray(raw["models"]) && raw["models"].every((m) => typeof m === "string")
             ? raw["models"]
-            : (notify(`${prefix} ${path} 的 models 非法（需要 string[]），按空列表处理。`), []);
+            : (notify(`${prefix} ${path} 的 models 非法（需要 string[]），按空列表处理。`, "warning"), []);
         return { enabled, models };
     },
     catch: (error) => error,
 }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-    notify(`${prefix} 读取 ${path} 失败，该级忽略：${String(error)}`);
+    notify(`${prefix} 读取 ${path} 失败，该级忽略：${String(error)}`, "warning");
     return undefined;
 })));
 /** 条目解析：非法条目告警后跳过，不让一个坏条目拖垮整张列表。 */
@@ -54,7 +54,7 @@ function parseModelEntryFor(raw, path, prefix) {
     const { pattern, thinking } = splitThinkingSuffix(raw.trim());
     const slash = pattern.indexOf("/");
     if (slash <= 0 || slash === pattern.length - 1) {
-        notify(`${prefix} ${path} 条目 "${raw}" 非法（应为 provider/id[:thinking]），跳过。`);
+        notify(`${prefix} ${path} 条目 "${raw}" 非法（应为 provider/id[:thinking]），跳过。`, "warning");
         return undefined;
     }
     return {
@@ -93,7 +93,7 @@ function makeModelListIo(listName, prefix) {
         },
         catch: (error) => error,
     }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-        notify(`${prefix} 保存 ${path} 失败：${String(error)}`);
+        notify(`${prefix} 保存 ${path} 失败：${String(error)}`, "warning");
         return false;
     })));
     return { globalPath, projectPath, readModelsEffect, readLayersEffect, saveLayerEffect };

@@ -150,7 +150,7 @@ function validRoleKey(value) {
     return typeof value === "string" && ROLE_KEY_PATTERN.test(value);
 }
 function warning(path, reason) {
-    notify(`[hpl-orchestra] 自定义角色 ${path} 已跳过：${reason}`);
+    notify(`[hpl-orchestra] 自定义角色 ${path} 已跳过：${reason}`, "warning");
 }
 function parseRoleDef(path, value) {
     if (!isObject(value)) {
@@ -250,7 +250,7 @@ export function saveCustomRoleDef(role) {
         return true;
     }
     catch (error) {
-        notify(`[hpl-orchestra] 自定义角色保存失败：${error instanceof Error ? error.message : String(error)}`);
+        notify(`[hpl-orchestra] 自定义角色保存失败：${error instanceof Error ? error.message : String(error)}`, "warning");
         return false;
     }
 }
@@ -266,7 +266,7 @@ export function deleteCustomRoleDef(key) {
         return true;
     }
     catch (error) {
-        notify(`[hpl-orchestra] 自定义角色删除失败：${error instanceof Error ? error.message : String(error)}`);
+        notify(`[hpl-orchestra] 自定义角色删除失败：${error instanceof Error ? error.message : String(error)}`, "warning");
         return false;
     }
 }

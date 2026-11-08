@@ -91,7 +91,7 @@ export const readResolvedTiersEffect: Effect.Effect<ResolvedTierModels, never> =
   catch: (error) => error,
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-recap] resolved tiers 读取失败，按空档降级：${String(error)}`);
+    notify(`[hpl-recap] resolved tiers 读取失败，按空档降级：${String(error)}`, "warning");
     return { ...EMPTY_RESOLVED };
   })),
 );

@@ -173,7 +173,7 @@ function validRoleKey(value: unknown): value is string {
 }
 
 function warning(path: string, reason: string): void {
-  notify(`[hpl-orchestra] 自定义角色 ${path} 已跳过：${reason}`);
+  notify(`[hpl-orchestra] 自定义角色 ${path} 已跳过：${reason}`, "warning");
 }
 
 function parseRoleDef(path: string, value: unknown): TeamRoleDef | undefined {
@@ -273,7 +273,7 @@ export function saveCustomRoleDef(role: Omit<TeamRoleDef, "builtin"> | TeamRoleD
     writeFileSync(join(directory, `${parsed.key}.json`), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
     return true;
   } catch (error) {
-    notify(`[hpl-orchestra] 自定义角色保存失败：${error instanceof Error ? error.message : String(error)}`);
+    notify(`[hpl-orchestra] 自定义角色保存失败：${error instanceof Error ? error.message : String(error)}`, "warning");
     return false;
   }
 }
@@ -287,7 +287,7 @@ export function deleteCustomRoleDef(key: string): boolean {
     unlinkSync(path);
     return true;
   } catch (error) {
-    notify(`[hpl-orchestra] 自定义角色删除失败：${error instanceof Error ? error.message : String(error)}`);
+    notify(`[hpl-orchestra] 自定义角色删除失败：${error instanceof Error ? error.message : String(error)}`, "warning");
     return false;
   }
 }

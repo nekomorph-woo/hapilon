@@ -172,7 +172,7 @@ function isFullscreenMode() {
         return JSON.parse(readFileSync(path, "utf8")).tuiMode === "fullscreen";
     }
     catch (error) {
-        notify(`[hpl-recap] settings.json 读取失败，recap 按 regular 全量渲染：${String(error)}`);
+        notify(`[hpl-recap] settings.json 读取失败，recap 按 regular 全量渲染：${String(error)}`, "warning");
         return false;
     }
 }
@@ -231,7 +231,7 @@ function runRecapEffect(ctx, config, controller) {
         }
         if (!parts) {
             if (!lastText) {
-                notify(`[hpl-recap] 空正文 ×${RECAP_TOKEN_BUDGETS.length}（预算 ${RECAP_TOKEN_BUDGETS.join("/")}）`);
+                notify(`[hpl-recap] 空正文 ×${RECAP_TOKEN_BUDGETS.length}（预算 ${RECAP_TOKEN_BUDGETS.join("/")}）`, "warning");
                 ctx.ui.setWidget(WIDGET_KEY, failureLines(ctx, "模型未返回有效内容"));
                 return;
             }
@@ -248,7 +248,7 @@ function runRecapEffect(ctx, config, controller) {
         if (controller.signal.aborted)
             return;
         const reason = errorText(cause);
-        notify(`[hpl-recap] recap 调用失败：${reason}`);
+        notify(`[hpl-recap] recap 调用失败：${reason}`, "warning");
         ctx.ui.setWidget(WIDGET_KEY, failureLines(ctx, reason));
     })));
 }

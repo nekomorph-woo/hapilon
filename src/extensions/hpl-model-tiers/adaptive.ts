@@ -57,19 +57,19 @@ export const readTierAdaptiveConfigEffect: Effect.Effect<TierAdaptiveConfig, nev
     if (!existsSync(path)) return { ...TIER_ADAPTIVE_DEFAULTS };
     const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (!isSettingsObject(parsed)) {
-      notify("[hpl-model-tiers] settings.json 顶层必须是对象，tierAdaptive 用默认值。");
+      notify("[hpl-model-tiers] settings.json 顶层必须是对象，tierAdaptive 用默认值。", "warning");
       return { ...TIER_ADAPTIVE_DEFAULTS };
     }
     const raw = parsed["tierAdaptive"];
     if (raw === undefined) return { ...TIER_ADAPTIVE_DEFAULTS };
     if (!isSettingsObject(raw)) {
-      notify("[hpl-model-tiers] settings.json tierAdaptive 必须是对象，用默认值。");
+      notify("[hpl-model-tiers] settings.json tierAdaptive 必须是对象，用默认值。", "warning");
       return { ...TIER_ADAPTIVE_DEFAULTS };
     }
     const enabled = raw["enabled"];
     if (enabled === undefined) return { ...TIER_ADAPTIVE_DEFAULTS };
     if (typeof enabled !== "boolean") {
-      notify("[hpl-model-tiers] tierAdaptive.enabled 非布尔值，用默认值。");
+      notify("[hpl-model-tiers] tierAdaptive.enabled 非布尔值，用默认值。", "warning");
       return { ...TIER_ADAPTIVE_DEFAULTS };
     }
     return { enabled };
@@ -77,7 +77,7 @@ export const readTierAdaptiveConfigEffect: Effect.Effect<TierAdaptiveConfig, nev
   catch: (error) => error,
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-model-tiers] tierAdaptive 配置读取失败，用默认值：${String(error)}`);
+    notify(`[hpl-model-tiers] tierAdaptive 配置读取失败，用默认值：${String(error)}`, "warning");
     return { ...TIER_ADAPTIVE_DEFAULTS };
   })),
 );
@@ -105,11 +105,11 @@ function readSettings(path: string): SettingsObject | undefined {
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
-    notify(`[hpl-model-tiers] 无法读取 settings.json，跳过写入：${error instanceof Error ? error.message : String(error)}`);
+    notify(`[hpl-model-tiers] 无法读取 settings.json，跳过写入：${error instanceof Error ? error.message : String(error)}`, "warning");
     return undefined;
   }
   if (!isSettingsObject(parsed)) {
-    notify("[hpl-model-tiers] settings.json 不是对象，跳过写入。");
+    notify("[hpl-model-tiers] settings.json 不是对象，跳过写入。", "warning");
     return undefined;
   }
   return parsed;
@@ -132,7 +132,7 @@ export const setTierAdaptiveEnabledEffect = (enabled: boolean): Effect.Effect<bo
   catch: (error) => error,
 }).pipe(
   Effect.catchAll((error) => Effect.sync(() => {
-    notify(`[hpl-model-tiers] tierAdaptive 设置写入失败：${String(error)}`);
+    notify(`[hpl-model-tiers] tierAdaptive 设置写入失败：${String(error)}`, "warning");
     return false;
   })),
 );
