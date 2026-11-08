@@ -72,6 +72,8 @@ export interface ReporterDeps {
 	env: HerdrEnv;
 	/** 上报失败时通知一次（默认经 notify.ts 出口）；herdr 不在时永不触发 */
 	onError?: (message: string) => void;
+	/** herdr 拒绝 pane_not_found（pane 注册表不认注入的 id）时回调一次；调用方用它把 OSC 通道顶上来 */
+	onPaneNotFound?: () => void;
 	/** 时钟（毫秒），注入以便单测 */
 	now?: () => number;
 }
@@ -85,6 +87,32 @@ const REPORT_TIMEOUT_MS = 3000;
 export function createHerdrReporter(deps: ReporterDeps): HerdrReporter {
 	const enabled = reporterEnabled(deps.env);
 	const onError = deps.onError ?? ((message: string) => notify(message));
+	const onPaneNotFound = deps.onPaneNotFound ?? (() => {});
+	// herdr-app（GUI/hc core）注入 HERDR_* 却不认这个 pane id（herdr-app#358）：
+	// 首次 pane_not_found 后本通道整体让位给 OSC 7501，不再空转报错
+	let escalated = false;
+	const call = (args: string[]): void => {
+		if (escalated) return;
+		try {
+			const result = deps.spawn(deps.env.binPath!, args, { encoding: "utf8", timeout: REPORT_TIMEOUT_MS });
+			if (result.error) {
+				onError(`[hpl-herdr] 状态上报失败：${result.error.message}`);
+				return;
+			}
+			// herdr 拒绝（exit 1 + stderr JSON）以前被完全吞掉，这里至少留一条线索
+			if (result.status !== 0) {
+				const detail = (result.stderr?.toString() ?? "").trim().slice(0, 200);
+				if (detail.includes("pane_not_found")) {
+					escalated = true;
+					onPaneNotFound();
+					return;
+				}
+				onError(`[hpl-herdr] herdr 拒绝上报（exit ${result.status}）：${detail}`);
+			}
+		} catch (error) {
+			onError(`[hpl-herdr] 状态上报失败：${error instanceof Error ? error.message : String(error)}`);
+		}
+	};
 
 	// herdr 对每个 (pane, source) 记住已接受的最大 seq，凡 seq <= 它的上报一律「接受但丢弃」
 	// （退出码 0、无错误输出），而本扩展每次 /new 或进程重启都会重建、计数从 0 重来，
@@ -95,23 +123,6 @@ export function createHerdrReporter(deps: ReporterDeps): HerdrReporter {
 	const nextSeq = (): number => {
 		seq = Math.max(seq + 1, now());
 		return seq;
-	};
-
-	const call = (args: string[]): void => {
-		try {
-			const result = deps.spawn(deps.env.binPath!, args, { encoding: "utf8", timeout: REPORT_TIMEOUT_MS });
-			if (result.error) {
-				onError(`[hpl-herdr] 状态上报失败：${result.error.message}`);
-				return;
-			}
-			// herdr 拒绝（exit 1 + stderr JSON）以前被完全吞掉，这里至少留一条线索
-			if (result.status !== 0) {
-				const detail = (result.stderr?.toString() ?? "").trim().slice(0, 200);
-				onError(`[hpl-herdr] herdr 拒绝上报（exit ${result.status}）：${detail}`);
-			}
-		} catch (error) {
-			onError(`[hpl-herdr] 状态上报失败：${error instanceof Error ? error.message : String(error)}`);
-		}
 	};
 
 	return {

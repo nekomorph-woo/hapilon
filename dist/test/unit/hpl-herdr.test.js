@@ -127,13 +127,34 @@ describe("createHerdrReporter()", () => {
         assert.equal(errors.length, 1);
         assert.ok(errors[0].includes("herdr 不在 PATH"));
     });
-    it("herdr 以非 0 退出拒绝上报时要告警（含 stderr 摘要）", () => {
-        const { spawn } = makeSpawn({ status: 1, stderr: '{"error":{"code":"pane_not_found"}}\n' });
+    it("herdr 以非 0 拒绝且非 pane_not_found 时要告警（含 stderr 摘要）", () => {
+        const { spawn } = makeSpawn({ status: 1, stderr: '{"error":{"code":"invalid_argument"}}\n' });
         const errors = [];
         const reporter = createHerdrReporter({ spawn, env: ENV, onError: (m) => errors.push(m) });
         reporter.report("working");
         assert.equal(errors.length, 1);
-        assert.ok(errors[0].includes("pane_not_found"));
+        assert.ok(errors[0].includes("invalid_argument"));
+    });
+    // 回归：herdr-app（GUI/hc core）注入 HERDR_* 但 pane 注册表不认这个 id（herdr-app#358），
+    // CLI 通道每次上报都报 pane_not_found——首次拒绝后闭嘴并回调升级，让 OSC 通道顶上
+    it("pane_not_found 拒绝时回调升级一次，后续不再 spawn", () => {
+        const { spawn, calls } = makeSpawn({ status: 1, stderr: '{"error":{"code":"pane_not_found"}}\n' });
+        const errors = [];
+        let rejected = 0;
+        const reporter = createHerdrReporter({
+            spawn,
+            env: ENV,
+            onError: (m) => errors.push(m),
+            onPaneNotFound: () => {
+                rejected += 1;
+            },
+        });
+        reporter.report("working");
+        reporter.report("idle");
+        reporter.release();
+        assert.equal(rejected, 1);
+        assert.equal(errors.length, 0);
+        assert.equal(calls.length, 1);
     });
 });
 describe("createHerdrState() 状态合成", () => {
@@ -297,6 +318,24 @@ describe("createOscReporter()", () => {
             "\x1b]7501;state=clear\x1b\\",
         ]);
     });
+    // 回归：herdr-app GUI 注入 HERDR_*（静态不激活）但 CLI 被 pane_not_found 拒，
+    // escalate 翻转后 OSC 顶上；非 TTY 时即使 escalate 也不写（盲写会污染管道输出）
+    it("escalate 翻转后激活；无 TTY 时 escalate 也不激活", () => {
+        const writes = [];
+        const escalate = { value: false };
+        const reporter = createOscReporter({ env: ENV, isTTY: true, write: (s) => writes.push(s), escalate });
+        assert.equal(reporter.enabled, false);
+        reporter.report("working");
+        assert.deepEqual(writes, [], "静态未激活且未升级时不写");
+        escalate.value = true;
+        reporter.report("working");
+        reporter.release();
+        assert.deepEqual(writes, ["\x1b]7501;state=working:app=hapilon\x1b\\", "\x1b]7501;state=clear\x1b\\"]);
+        const piped = [];
+        const noTty = createOscReporter({ env: ENV, isTTY: false, write: (s) => piped.push(s), escalate });
+        noTty.report("idle");
+        assert.deepEqual(piped, []);
+    });
 });
 describe("registerHerdrReporting() OSC 通道接线", () => {
     function fakePi() {
@@ -334,6 +373,26 @@ describe("registerHerdrReporting() OSC 通道接线", () => {
         handlers.get("turn_start")();
         assert.deepEqual(writes, []);
         assert.equal(calls.length, 1);
+    });
+    // 回归（用户报障场景）：herdr-app GUI 注入 HERDR_*，CLI 每次 pane_not_found，
+    // agents 列表永不出现 hapi。首次拒绝后 escalate：CLI 停 spawn，OSC 接管上报
+    it("herdr-app GUI 场景：CLI 被 pane_not_found 拒后 OSC 接管", () => {
+        const writes = [];
+        const { spawn, calls } = makeSpawn({ status: 1, stderr: '{"error":{"code":"pane_not_found"}}\n' });
+        const { pi, handlers } = fakePi();
+        registerHerdrReporting(pi, { spawn, env: ENV, osc: { isTTY: true, write: (s) => writes.push(s) } });
+        handlers.get("turn_start")();
+        assert.equal(calls.length, 1);
+        // cli.report 同步被拒、escalate 翻转，同一 report 轮内轮到 osc 时已激活——首次状态就落到 OSC
+        assert.deepEqual(writes, ["\x1b]7501;state=working:app=hapilon\x1b\\"]);
+        handlers.get("agent_settled")();
+        handlers.get("turn_start")();
+        assert.equal(calls.length, 1, "升级后 CLI 不再 spawn");
+        assert.deepEqual(writes, [
+            "\x1b]7501;state=working:app=hapilon\x1b\\",
+            "\x1b]7501;state=idle:app=hapilon\x1b\\",
+            "\x1b]7501;state=working:app=hapilon\x1b\\",
+        ]);
     });
     it("session_shutdown 走 OSC 时写 state=clear", () => {
         const writes = [];

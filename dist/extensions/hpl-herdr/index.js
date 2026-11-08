@@ -1,4 +1,5 @@
 import { defaultSpawn } from "../hpl-orchestra/herdr.js";
+import { notify } from "../notify.js";
 import { blockMessage, createHerdrReporter } from "./report.js";
 import { createOscReporter } from "./osc.js";
 import { createHerdrState } from "./state.js";
@@ -11,11 +12,24 @@ function sessionPathOf(ctx) {
     }
 }
 export function registerHerdrReporting(pi, deps) {
-    // 两条出口同接口，激活哪条走哪条；sessionPath 这类 CLI 专有参数由各出口自行忽略
-    const sinks = [
-        createHerdrReporter({ spawn: deps.spawn, env: deps.env }),
-        createOscReporter({ env: deps.env, ...deps.osc }),
-    ].filter((sink) => sink.enabled);
+    // 两条出口同接口；herdr-app GUI 注入 HERDR_* 却不认这个 pane id（herdr-app#358），
+    // CLI 首次 pane_not_found 后 escalate 翻转：CLI 通道闭嘴、OSC 顶上——同一 pane 仍只有一条活通道
+    const escalate = { value: false };
+    const cli = createHerdrReporter({
+        spawn: deps.spawn,
+        env: deps.env,
+        onPaneNotFound: () => {
+            escalate.value = true;
+            notify("[hpl-herdr] herdr 不认这个 pane（pane_not_found），改走 OSC 7501 通道上报");
+        },
+    });
+    const osc = createOscReporter({ env: deps.env, ...deps.osc, escalate });
+    // CLI 专有参数 sessionPath 由各出口自行忽略；OSC 静态未激活时也要留在 sinks 里等 escalate
+    const sinks = [];
+    if (cli.enabled)
+        sinks.push(cli);
+    if (deps.osc?.isTTY)
+        sinks.push(osc);
     if (sinks.length === 0)
         return;
     const state = createHerdrState();

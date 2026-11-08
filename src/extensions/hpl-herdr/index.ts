@@ -11,11 +11,13 @@
  * 后台还有活在跑时会误报 idle。
  *
  * 双通道：herdr-tui 走官方 CLI 集成（HERDR_ENV=1 且 HERDR_BIN_PATH/HERDR_PANE_ID
- * 齐全时激活）；herdr-app 无这些环境变量，改走 OSC 7501 直接写 pty（osc.ts）。
- * 两路互斥，同一 pane 只有一条通道；都不满足时严格 no-op。
+ * 齐全时激活）；herdr-app 同样注入这些变量但 pane 注册表不认（herdr-app#358），
+ * CLI 被拒后自动切 OSC 7501 直接写 pty（osc.ts）。两路互斥，同一 pane 只有一条
+ * 活通道；都不满足时严格 no-op。
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { defaultSpawn, type SpawnFn } from "../hpl-orchestra/herdr.js";
+import { notify } from "../notify.js";
 import { blockMessage, createHerdrReporter, type HerdrEnv, type HerdrReporter } from "./report.js";
 import { createOscReporter } from "./osc.js";
 import { createHerdrState, type DerivedReport } from "./state.js";
@@ -40,11 +42,22 @@ export function registerHerdrReporting(
 	pi: ExtensionAPI,
 	deps: { spawn: SpawnFn; env: HerdrEnv; osc?: { isTTY?: boolean | undefined; write?: (sequence: string) => void } },
 ): void {
-	// 两条出口同接口，激活哪条走哪条；sessionPath 这类 CLI 专有参数由各出口自行忽略
-	const sinks: HerdrReporter[] = [
-		createHerdrReporter({ spawn: deps.spawn, env: deps.env }),
-		createOscReporter({ env: deps.env, ...deps.osc }),
-	].filter((sink) => sink.enabled);
+	// 两条出口同接口；herdr-app GUI 注入 HERDR_* 却不认这个 pane id（herdr-app#358），
+	// CLI 首次 pane_not_found 后 escalate 翻转：CLI 通道闭嘴、OSC 顶上——同一 pane 仍只有一条活通道
+	const escalate = { value: false };
+	const cli = createHerdrReporter({
+		spawn: deps.spawn,
+		env: deps.env,
+		onPaneNotFound: () => {
+			escalate.value = true;
+			notify("[hpl-herdr] herdr 不认这个 pane（pane_not_found），改走 OSC 7501 通道上报");
+		},
+	});
+	const osc = createOscReporter({ env: deps.env, ...deps.osc, escalate });
+	// CLI 专有参数 sessionPath 由各出口自行忽略；OSC 静态未激活时也要留在 sinks 里等 escalate
+	const sinks: HerdrReporter[] = [];
+	if (cli.enabled) sinks.push(cli);
+	if (deps.osc?.isTTY) sinks.push(osc);
 	if (sinks.length === 0) return;
 
 	const state = createHerdrState();

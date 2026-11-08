@@ -17,7 +17,7 @@ import {
 /** herdr-app 界面显示的程序名（OSC 7501 app 键，[A-Za-z0-9_.+-]{1,32}） */
 export const OSC_APP = "hapilon";
 
-/** CLI 通道激活时（herdr-tui 官方集成）让路，避免同一 pane 双通道 */
+/** CLI 通道静态激活时（herdr-tui 官方集成）让路；被 pane_not_found 拒后由 escalate 顶上 */
 export function oscEnabled(env: HerdrEnv, isTTY: boolean | undefined): boolean {
 	return Boolean(isTTY) && !reporterEnabled(env);
 }
@@ -35,17 +35,22 @@ export function createOscReporter(deps: {
 	env: HerdrEnv;
 	isTTY?: boolean | undefined;
 	write?: (sequence: string) => void;
+	/** CLI 通道被 pane_not_found 拒后置 true；enabled 仍为静态值，激活态运行时判定 */
+	escalate?: { value: boolean };
 }): HerdrReporter {
-	const enabled = oscEnabled(deps.env, deps.isTTY);
+	const base = oscEnabled(deps.env, deps.isTTY);
 	const write = deps.write ?? ((sequence: string) => writeSync(1, sequence));
+	// 非 TTY 盲写会污染管道输出，isTTY 始终是硬条件
+	const active = (): boolean =>
+		Boolean(deps.isTTY) && (base || deps.escalate?.value === true);
 	return {
-		enabled,
+		enabled: base,
 		report(state, options) {
-			if (!enabled) return;
+			if (!active()) return;
 			write(programStatusSequence(state, options?.message));
 		},
 		release() {
-			if (!enabled) return;
+			if (!active()) return;
 			write(formatProgramStatus({ state: "clear" }));
 		},
 	};

@@ -46,17 +46,13 @@ const REPORT_TIMEOUT_MS = 3000;
 export function createHerdrReporter(deps) {
     const enabled = reporterEnabled(deps.env);
     const onError = deps.onError ?? ((message) => notify(message));
-    // herdr 对每个 (pane, source) 记住已接受的最大 seq，凡 seq <= 它的上报一律「接受但丢弃」
-    // （退出码 0、无错误输出），而本扩展每次 /new 或进程重启都会重建、计数从 0 重来，
-    // 于是收编/换会话后整个 pane 的上报会静默失效到计数追平旧值为止。
-    // 故用墙钟毫秒做 seq（跨实例、跨进程单调），同毫秒内再 +1 保证严格递增。
-    let seq = 0;
-    const now = deps.now ?? Date.now;
-    const nextSeq = () => {
-        seq = Math.max(seq + 1, now());
-        return seq;
-    };
+    const onPaneNotFound = deps.onPaneNotFound ?? (() => { });
+    // herdr-app（GUI/hc core）注入 HERDR_* 却不认这个 pane id（herdr-app#358）：
+    // 首次 pane_not_found 后本通道整体让位给 OSC 7501，不再空转报错
+    let escalated = false;
     const call = (args) => {
+        if (escalated)
+            return;
         try {
             const result = deps.spawn(deps.env.binPath, args, { encoding: "utf8", timeout: REPORT_TIMEOUT_MS });
             if (result.error) {
@@ -66,12 +62,27 @@ export function createHerdrReporter(deps) {
             // herdr 拒绝（exit 1 + stderr JSON）以前被完全吞掉，这里至少留一条线索
             if (result.status !== 0) {
                 const detail = (result.stderr?.toString() ?? "").trim().slice(0, 200);
+                if (detail.includes("pane_not_found")) {
+                    escalated = true;
+                    onPaneNotFound();
+                    return;
+                }
                 onError(`[hpl-herdr] herdr 拒绝上报（exit ${result.status}）：${detail}`);
             }
         }
         catch (error) {
             onError(`[hpl-herdr] 状态上报失败：${error instanceof Error ? error.message : String(error)}`);
         }
+    };
+    // herdr 对每个 (pane, source) 记住已接受的最大 seq，凡 seq <= 它的上报一律「接受但丢弃」
+    // （退出码 0、无错误输出），而本扩展每次 /new 或进程重启都会重建、计数从 0 重来，
+    // 于是收编/换会话后整个 pane 的上报会静默失效到计数追平旧值为止。
+    // 故用墙钟毫秒做 seq（跨实例、跨进程单调），同毫秒内再 +1 保证严格递增。
+    let seq = 0;
+    const now = deps.now ?? Date.now;
+    const nextSeq = () => {
+        seq = Math.max(seq + 1, now());
+        return seq;
     };
     return {
         enabled,
