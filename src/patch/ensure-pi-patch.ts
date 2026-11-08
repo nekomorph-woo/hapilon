@@ -257,14 +257,14 @@ export const PATCH_RULES: readonly PatchRule[] = [
     occurrences: 1,
     marker: HAPI_BG_DONE_MARKER,
   },
-  // ── 后台任务运行中状态行的 ⏳ 换 ⠧：与 ponytail 图标同一「emoji → 盲文」约定
-  //    （emoji 宽度表现形曾致状态行超宽崩溃）。纯视觉，行为不变。
+  // ── 后台任务运行中状态行的 ⏳ 换随机盲文：与 ponytail 图标同一「emoji → 盲文」约定
+  //    （emoji 宽度表现形曾致状态行超宽崩溃），并在 10 帧里随机抽一帧，每次状态刷新重抽。纯视觉，行为不变。
   {
     base: "hapilon",
     package: BACKGROUND_TASKS_PACKAGE,
     file: "extensions/background-tasks.ts",
     find: '    ui.setStatus(STATUS_KEY, `⏳ ${active.length} job${active.length === 1 ? "" : "s"}: ${labels}${more}`);',
-    replace: '    // hapilon: hapiBgRunningGlyph — ⏳ 换盲文 ⠧（emoji 去 emoji 约定，补丁表）\n    ui.setStatus(STATUS_KEY, `⠧ ${active.length} job${active.length === 1 ? "" : "s"}: ${labels}${more}`);',
+    replace: '    // hapilon: hapiBgRunningGlyph — ⏳ 换随机盲文，每次状态刷新在 10 帧里抽一帧（emoji 去 emoji 约定，补丁表）\n    ui.setStatus(STATUS_KEY, `${["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"][Math.floor(Math.random() * 10)]} ${active.length} job${active.length === 1 ? "" : "s"}: ${labels}${more}`);',
     occurrences: 1,
     marker: HAPI_BG_RUNNING_GLYPH_MARKER,
   },
