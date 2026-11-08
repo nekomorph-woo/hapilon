@@ -61,9 +61,9 @@ description: 对陌生或半熟的代码建立够用的最小心智模型——�
 
 不自动滑进穷尽式实现细节。
 
-## 术语
+## 叫法
 
-解释用项目既定领域术语（`.hapilon/CONTEXT.md`），说团队的语言。过程中拍板或澄清的新领域词，当场直接追加一行进 `.hapilon/CONTEXT.md`（格式照表内既有行）；批量提炼与整理才走 domain-modeling。
+解释用项目既定叫法（`.hapilon/CONTEXT.md`），说团队的语言。过程中拍板或澄清的新叫法，当场直接追加一行进 `.hapilon/CONTEXT.md`（格式照表内既有行）；批量提炼与整理才走 domain-modeling。
 
 ## 与邻居的分工
 

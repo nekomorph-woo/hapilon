@@ -146,9 +146,9 @@ export function buildHapilonRules(rules) {
  */
 export function buildDomainGlossarySection(glossary) {
     if (glossary === null || glossary === undefined || glossary === "") {
-        return `<domain_glossary>\n领域词汇表未建。术语被拍板/澄清时，按 domain-modeling 技能在 .hapilon/CONTEXT.md 建表。\n</domain_glossary>`;
+        return `<domain_glossary>\n领域词汇表未建。叫法被拍板/澄清时，按 domain-modeling 技能在 .hapilon/CONTEXT.md 建表。\n</domain_glossary>`;
     }
-    return `<domain_glossary>\n领域词汇表在 .hapilon/CONTEXT.md（人与 AI 共同维护）。涉及领域命名/用词的任务开工前先 read 该文件，遵循既定术语。新术语拍板即追加一行（domain-modeling 技能）。\n</domain_glossary>`;
+    return `<domain_glossary>\n领域词汇表在 .hapilon/CONTEXT.md（人与 AI 共同维护）。涉及领域命名/用词的任务开工前先 read 该文件，沿用既定叫法。新叫法拍板即追加一行（domain-modeling 技能）。\n</domain_glossary>`;
 }
 export function buildContextSection(contextFiles) {
     if (!contextFiles || contextFiles.length === 0) {
