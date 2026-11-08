@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, unlinkSync, writeFileSync, } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { argv, platform } from "node:process";
+import { argv, execPath, platform } from "node:process";
 import { Data, Effect } from "effect";
 import { hapilonHome } from "../config/hapilon-home.js";
 export class HerdrSetupError extends Data.TaggedError("HerdrSetupError") {
@@ -28,12 +28,13 @@ const PROGRAM_ENTRY = {
     color: "#ffffff",
 };
 // ─── 纯函数（单测覆盖） ────────────────────────────────────────────────
-/** shim 双形态：POSIX 走 sh，Windows 产 .cmd（herdr 拿 sh 脚本在 Windows 无法执行） */
-export function shimScript(cliPath, home, windows = false) {
+/** shim 双形态：POSIX 走 sh，Windows 产 .cmd（herdr 拿 sh 脚本在 Windows 无法执行）。
+ * nodePath 写死绝对路径：hc run / GUI 派生的终端不加载 shell 配置，PATH 里可能没有 nvm 的 node */
+export function shimScript(cliPath, home, windows = false, nodePath = execPath) {
     if (windows) {
-        return `@echo off\nrem herdr-app start-agent 检测用的可执行入口（setup-herdr 生成）\nset "HAPILON_HOME=${home}"\nnode "${cliPath}" %*\n`;
+        return `@echo off\nrem herdr-app start-agent 检测用的可执行入口（setup-herdr 生成）\nset "HAPILON_HOME=${home}"\n"${nodePath}" "${cliPath}" %*\n`;
     }
-    return `#!/bin/sh\n# herdr-app start-agent 检测用的可执行入口（setup-herdr 生成）\nHAPILON_HOME="${home}" exec node "${cliPath}" "$@"\n`;
+    return `#!/bin/sh\n# herdr-app start-agent 检测用的可执行入口（setup-herdr 生成）\nHAPILON_HOME="${home}" exec "${nodePath}" "${cliPath}" "$@"\n`;
 }
 export function iconFileName(svg) {
     const hash = createHash("sha256").update(svg).digest("hex").slice(0, 8);

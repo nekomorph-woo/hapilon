@@ -2,16 +2,16 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { iconFileName, mergePrograms, shimScript } from "../../cli/setup-herdr.js";
 describe("setup-herdr 纯函数", () => {
-    it("shim 写死 cliPath 与 HAPILON_HOME", () => {
-        const s = shimScript("/opt/hapilon/dist/cli.js", "/home/u/.hapilon-dev");
+    it("shim 写死 cliPath、nodePath 与 HAPILON_HOME", () => {
+        const s = shimScript("/opt/hapilon/dist/cli.js", "/home/u/.hapilon-dev", false, "/usr/local/bin/node");
         assert.match(s, /^#!\/bin\/sh\n/);
-        assert.match(s, /HAPILON_HOME="\/home\/u\/\.hapilon-dev" exec node "\/opt\/hapilon\/dist\/cli\.js" "\$@"\n$/);
+        assert.match(s, /HAPILON_HOME="\/home\/u\/\.hapilon-dev" exec "\/usr\/local\/bin\/node" "\/opt\/hapilon\/dist\/cli\.js" "\$@"\n$/);
     });
     it("Windows shim 产 .cmd 形态，参数透传 %*", () => {
-        const s = shimScript("C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\hapilon\\dist\\cli.js", "C:\\Users\\u\\.hapilon", true);
+        const s = shimScript("C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\hapilon\\dist\\cli.js", "C:\\Users\\u\\.hapilon", true, "C:\\Program Files\\nodejs\\node.exe");
         assert.match(s, /^@echo off\n/);
         assert.match(s, /set "HAPILON_HOME=C:\\Users\\u\\.hapilon"\n/);
-        assert.match(s, /node "C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\hapilon\\dist\\cli\.js" %\*\n$/);
+        assert.match(s, /"C:\\Program Files\\nodejs\\node\.exe" "C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\hapilon\\dist\\cli\.js" %\*\n$/);
     });
     it("icon 文件名由内容 hash 决定，同内容稳定、异内容换名", () => {
         const a = iconFileName("<svg>a</svg>");
