@@ -48,19 +48,23 @@ function gh(args) {
   return execFileSync("gh", args, { cwd: REPO_DIR, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
-// GitHub 认的关闭关键词：须直接跟 #N（可逗号/and 连成列表）；「Fix: #1」带冒号
-// 与中文关键词（「关闭 #1」）都不触发 auto-close，只算普通引用，与 GitHub 行为一致
-const CLOSE_KEYWORD_RE = /\b(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?)\s+(#\d+(?:[,\s]+(?:and\s+)?#\d+)*)/gi;
+// GitHub 关闭关键词全量 9 种：close/closes/closed、fix/fixes/fixed、resolve/resolves/resolved，
+// 大小写不敏感。关键词与 #N 须同行，跨行不触发（保守口径：徽标宁可标「需人工关闭」，
+// 误标「将自动关闭」会让 issue 悬着没人管）；「Fix: #1」带冒号、中文「关闭 #1」同样只算
+// 普通引用；跨仓引用 owner/repo#N 不指本地 issue，先剥离再解析
+const CLOSE_KEYWORD_RE = /\b(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?)[ \t]+(#\d+(?:[, \t]+(?:and[ \t]+)?#\d+)*)/gi;
+const CROSS_REPO_REF_RE = /\b[\w.-]+\/[\w.-]+#\d+/g;
 const ISSUE_REF_RE = /#(\d+)/g;
 
 // 纯函数：单条提交消息 → 关闭引用与全部引用（去重）
 function parseIssueRefs(message) {
+  const text = message.replace(CROSS_REPO_REF_RE, "");
   const closing = new Set();
-  for (const m of message.matchAll(CLOSE_KEYWORD_RE)) {
+  for (const m of text.matchAll(CLOSE_KEYWORD_RE)) {
     for (const n of m[1].matchAll(ISSUE_REF_RE)) closing.add(Number(n[1]));
   }
   const referenced = new Set();
-  for (const m of message.matchAll(ISSUE_REF_RE)) referenced.add(Number(m[1]));
+  for (const m of text.matchAll(ISSUE_REF_RE)) referenced.add(Number(m[1]));
   return { closing, referenced };
 }
 
@@ -132,9 +136,20 @@ function selfTest() {
   assert.deepEqual(parseIssueRefs("Close #1, #2 and #3"), { closing: new Set([1, 2, 3]), referenced: new Set([1, 2, 3]) });
   assert.deepEqual(parseIssueRefs("RESOLVED #9"), { closing: new Set([9]), referenced: new Set([9]) });
 
-  // 冒号与中文关键词 GitHub 不触发关闭，只算引用
+  // 全量 9 种关键词逐一触发（close/closes/closed、fix/fixes/fixed、resolve/resolves/resolved）
+  for (const kw of ["close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved"]) {
+    assert.deepEqual(parseIssueRefs(`${kw} #8`), { closing: new Set([8]), referenced: new Set([8]) }, kw);
+  }
+
+  // 冒号、中文关键词、关键词跨行都只算引用；词根嵌在别的词里不触发（prefixes/unresolved）
   assert.deepEqual(parseIssueRefs("Fix: #12"), { closing: new Set(), referenced: new Set([12]) });
   assert.deepEqual(parseIssueRefs("关闭 #69"), { closing: new Set(), referenced: new Set([69]) });
+  assert.deepEqual(parseIssueRefs("fixes\n#12"), { closing: new Set(), referenced: new Set([12]) });
+  assert.deepEqual(parseIssueRefs("prefixes #3 unresolved #4"), { closing: new Set(), referenced: new Set([3, 4]) });
+
+  // 跨仓引用 owner/repo#N 不指本地 issue：关键词绑定给跨仓引用时，本地引用只算普通引用
+  assert.deepEqual(parseIssueRefs("fixes libfoo/bar#42，同时见 #7"), { closing: new Set(), referenced: new Set([7]) });
+  assert.deepEqual(parseIssueRefs("close #1 and lib/x#2"), { closing: new Set([1]), referenced: new Set([1]) });
 
   // 裸引用、正文引用、混入哈希样文本不误判
   assert.deepEqual(parseIssueRefs("找回会话（#69）"), { closing: new Set(), referenced: new Set([69]) });
