@@ -58,15 +58,18 @@ const HAPI_COMPACT_FILTER_MARKER = "hapiCompactFilter";
 const HAPI_SUBAGENT_MODELS_MARKER = "__hplSubagentModelsPick";
 /** 状态行追加不覆盖的 marker（showStatus 连续状态不再互相替换） */
 const HAPI_STATUS_STACK_MARKER = "hapiStatusStack";
+/** 思考折叠标签实时耗时（Thinking... 后跳秒）：两条规则的 marker 即钩子名本身 */
+const HAPI_THINKING_NODE_MARKER = "__hapiThinkingNode";
+const HAPI_THINKING_TICK_MARKER = "__hapiThinkingTick";
 /** Bundle chunk directory; the host file is located by signature, not its hash name. */
 const PI_BUNDLE_CHUNKS = "dist/bundle/chunks";
 /** SelectList 选中项描述两行展开的 marker */
 const HAPI_DESC_WRAP_MARKER = "hapiDescWrap";
 /**
  * 全部改动均为字符串级替换，逐条 anchors 与实际安装产物 byte-for-byte 校验过
- * （pi-tui editor.js 2 条 + select-list.js 2 条 + pi bundle chunk 5 条 + pi 主包 2 条
+ * （pi-tui editor.js 2 条 + select-list.js 2 条 + pi bundle chunk 7 条 + pi 主包 4 条
  * + background-tasks.ts 6 条 + pi-subagents host.js/settings.js 2 条 + ponytail 3 条
- * + billion-context-pi dist/index.js 2 条，共 24 条）。
+ * + billion-context-pi dist/index.js 2 条，共 28 条）。
  */
 /** 补丁规则表(导出仅供测试构造 fixture;运行时只读) */
 export const PATCH_RULES = [
@@ -356,6 +359,44 @@ export const PATCH_RULES = [
             + '    const nudge = decideNudge({\n      tokenCount: ctx.tokenCount,\n      config: ctx.config,\n      state: hapiNudgeState,',
         occurrences: 1,
         marker: HAPI_NUDGE_COOLDOWN_RESET_MARKER,
+    },
+    // ── 思考折叠标签计时：「Thinking...」后追加实时跳动的耗时（如 Thinking... 12s）。
+    //    pi 的折叠标签是 updateContent 时一次成型的静态 Text（缓存按文本判等），思考
+    //    chunk 的间隙里永远停在旧文本。三件事：① 标签节点改由 globalThis.__hapiThinkingNode
+    //    钩子构造（hpl-thinking-timer 扩展注册，持主题样式与按 run 序号的计时状态）；
+    //    ② render 每帧回调 __hapiThinkingTick 让秒数走表——流式期间工作 spinner 已在
+    //    80ms 节拍驱动 requestRender，无需自起定时器；③ 钩子缺席（裸 pi / print 模式）
+    //    回落原标签。历史消息与展开态不计时。上游若自带思考计时，删掉这四条。
+    //    marker 即钩子名（replace 文本自带），与 midTextSlash 同款做法。
+    {
+        file: "dist/modes/interactive/components/assistant-message.js",
+        find: '                    ? new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), this.outputPad, 0)',
+        replace: '                    ? (globalThis.__hapiThinkingNode?.(this, runIndex) ?? new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), this.outputPad, 0))',
+        occurrences: 1,
+        marker: HAPI_THINKING_NODE_MARKER,
+    },
+    {
+        file: "dist/modes/interactive/components/assistant-message.js",
+        find: "    render(width) {\n        const lines = super.render(width);\n        if (this.hasToolCalls || lines.length === 0) {",
+        replace: "    render(width) {\n        globalThis.__hapiThinkingTick?.(this);\n        const lines = super.render(width);\n        if (this.hasToolCalls || lines.length === 0) {",
+        occurrences: 1,
+        marker: HAPI_THINKING_TICK_MARKER,
+    },
+    {
+        file: PI_BUNDLE_CHUNKS,
+        signature: "hiddenThinkingLabel",
+        find: 'hidden?new Text(theme.italic(theme.fg("thinkingText",this.hiddenThinkingLabel)),this.outputPad,0)',
+        replace: 'hidden?(globalThis.__hapiThinkingNode?.(this,runIndex)??new Text(theme.italic(theme.fg("thinkingText",this.hiddenThinkingLabel)),this.outputPad,0))',
+        occurrences: 1,
+        marker: HAPI_THINKING_NODE_MARKER,
+    },
+    {
+        file: PI_BUNDLE_CHUNKS,
+        signature: "hiddenThinkingLabel",
+        find: "render(width){let lines=super.render(width);return this.hasToolCalls",
+        replace: "render(width){globalThis.__hapiThinkingTick?.(this);let lines=super.render(width);return this.hasToolCalls",
+        occurrences: 1,
+        marker: HAPI_THINKING_TICK_MARKER,
     },
 ];
 /**
