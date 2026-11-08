@@ -157,6 +157,11 @@ export function buildGuidelinesSection(
     add(g);
   }
 
+  // 网络工具在场时给检索通道指引：fetch_content 直连 HTTP 在部署环境常因 DNS 污染失败
+  if (selectedTools.includes("fetch_content")) {
+    add(BUILTIN_GUIDELINES.webSearchNoDirectFetch);
+  }
+
   // 内建准则
   add(BUILTIN_GUIDELINES.beConcise);
   add(BUILTIN_GUIDELINES.showFilePaths);

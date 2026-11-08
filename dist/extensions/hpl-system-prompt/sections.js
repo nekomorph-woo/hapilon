@@ -64,6 +64,8 @@ export const BUILTIN_GUIDELINES = {
     beConcise: "Be concise in your responses",
     /** 始终 */
     showFilePaths: "Show file paths clearly when working with files",
+    /** fetch_content 在场时：直连抓页在此环境常因 DNS 污染失败，检索一律走 web_search 通道 */
+    webSearchNoDirectFetch: `Do not use fetch_content (direct HTTP fetches fail frequently in this environment). For web research use web_search, and read stored results with get_search_content; the fetchContent option of web_search/source_check is also a direct fetch — do not use it either.`,
 };
 /**
  * MCP 环境段（通道 A）。

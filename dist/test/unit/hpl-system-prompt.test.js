@@ -294,6 +294,12 @@ describe("buildGuidelinesSection", () => {
         assert.ok(result.includes("Be concise in your responses"));
         assert.ok(result.includes("Show file paths clearly"));
     });
+    it("条件注入: fetch_content 在场时才给检索通道指引", () => {
+        const withFetch = buildGuidelinesSection([], ["read", "bash", "web_search", "fetch_content", "get_search_content"]);
+        assert.ok(withFetch.includes("Do not use fetch_content"), "fetch_content 在场时应注入");
+        const withoutFetch = buildGuidelinesSection([], ["read", "bash", "web_search", "get_search_content"]);
+        assert.ok(!withoutFetch.includes("Do not use fetch_content"), "fetch_content 缺席时不应注入");
+    });
     it("正常路径: 重复与空白 guideline 被去重和过滤", () => {
         const result = buildGuidelinesSection(["Be concise in your responses", "  Be concise in your responses  ", ""], ["read"]);
         assert.equal((result.match(/Be concise in your responses/g) ?? []).length, 1, "重复条目仅出现一次");
