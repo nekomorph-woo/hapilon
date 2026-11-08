@@ -307,4 +307,5 @@ export const SKILL_ROUTING_TEXT = `hapi built-in skills and npm-channel skills (
 - Investigation: pick by deliverable — recon for a targeted verbal briefing, understand-this-codebase for a repo mental model, how/why (pstack) for architecture walkthroughs / decision archaeology, research for external sources to notes on disk.
 - Prototypes: hapi prototype for UI variants (3 structures); pstack Prototype playbook for logic/behavior sketches that settle an empirical fork.
 - When a pstack playbook drives the task (poteto-mode active), its flow owns execution, while hapi skills still own their deliverables: snap for commits, answer-me-with-html for visual replies, domain-modeling for glossary updates.
-- Skill authoring: skill-craft owns the design side (whether to build, boundaries, shape, quality bar); poteto's authoring-a-skill playbook adds validation and PR flow on top when it fires.`;
+- Skill authoring: skill-craft owns the design side (whether to build, boundaries, shape, quality bar); poteto's authoring-a-skill playbook adds validation and PR flow on top when it fires.
+- Diagrams: ascii-uml owns in-chat ASCII UML structural sketches (code-block diagrams plus verbal readout); answer-me-with-html owns web-page visual explainers.`;

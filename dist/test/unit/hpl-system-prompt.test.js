@@ -122,6 +122,8 @@ describe("sections", () => {
         // 技能编写：skill-craft 管设计，authoring-a-skill playbook 管校验
         assert.ok(SKILL_ROUTING_TEXT.includes("skill-craft"));
         assert.ok(SKILL_ROUTING_TEXT.includes("authoring-a-skill"));
+        // 图表分家：对话内 ASCII 图归 ascii-uml，网页可视化归 answer-me-with-html
+        assert.ok(SKILL_ROUTING_TEXT.includes("ascii-uml"));
     });
 });
 // ── assemble.ts: individual builders ──────────────────────────────────
