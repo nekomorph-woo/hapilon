@@ -33,6 +33,7 @@ import {
   ROLE_COMMIT_BOUNDARY_TEXT,
   WORKFLOW_TEXT,
   CONFIRM_BEFORE_BUILDING_TEXT,
+  SKILL_ROUTING_TEXT,
   WRITING_STYLE_TEXT,
 } from "./sections.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
@@ -189,6 +190,11 @@ export function buildWorkflowSection(preconfirm = false): string {
 export function buildWritingStyleSection(): string {
   // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCodeStyleSection 同策略
   return `<writing_style>\n${WRITING_STYLE_TEXT}\n</writing_style>`;
+}
+
+export function buildSkillRoutingSection(): string {
+  // 纯常量正文（无用户输入），不经过 xmlEscape——与 buildCommitDisciplineSection 同策略
+  return `<skill_routing>\n${SKILL_ROUTING_TEXT}\n</skill_routing>`;
 }
 
 export function buildPiDocSection(): string {
@@ -388,6 +394,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   // 里都不出现这段（含 worker——角色豁免写进正文反而引入「我是哪个角色」的噪音）
   const workflowSection = buildWorkflowSection(teamSection === "");
   const writingStyleSection = buildWritingStyleSection();
+  const skillRoutingSection = buildSkillRoutingSection();
   const piDocSection = buildPiDocSection();
   const hapilonInstructions = buildHapilonInstructions(hapilonMd);
   const hapilonRulesSection = buildHapilonRules(hapilonRules);
@@ -412,6 +419,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     roleCommitBoundarySection,
     workflowSection,
     writingStyleSection,
+    skillRoutingSection,
     piDocSection,
     hapilonInstructions,
     hapilonRulesSection,

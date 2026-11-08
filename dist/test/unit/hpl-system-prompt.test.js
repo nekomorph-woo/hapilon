@@ -12,7 +12,7 @@ import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { xmlEscape } from "../../shared/format.js";
 import { wrapSystemPrompt } from "../../extensions/hpl-system-prompt/xml.js";
-import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildRunModeText, BUILTIN_GUIDELINES, COMMIT_DISCIPLINE_TEXT, ROLE_COMMIT_BOUNDARY_TEXT, WORKFLOW_TEXT, } from "../../extensions/hpl-system-prompt/sections.js";
+import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildRunModeText, BUILTIN_GUIDELINES, COMMIT_DISCIPLINE_TEXT, ROLE_COMMIT_BOUNDARY_TEXT, WORKFLOW_TEXT, SKILL_ROUTING_TEXT, } from "../../extensions/hpl-system-prompt/sections.js";
 import { buildRoleSection, buildCodeStyleSection, buildCommitDisciplineSection, buildRoleCommitBoundarySection, buildWorkflowSection, buildToolsSection, buildCustomToolsNote, buildGuidelinesSection, buildPiDocSection, buildHapilonInstructions, buildHapilonRules, buildContextSection, buildSkillsSection, buildAppendSection, buildExternalDirsSection, buildEnvironmentSection, buildDomainGlossarySection, assembleSystemPrompt, collectHapilonContext, } from "../../extensions/hpl-system-prompt/assemble.js";
 import hplSystemPrompt from "../../extensions/hpl-system-prompt/index.js";
 import { setAddedDirs, resetAddedDirs } from "../../extensions/hpl-add-dir/bridge.js";
@@ -104,6 +104,21 @@ describe("sections", () => {
         assert.ok(BUILTIN_GUIDELINES.beConcise.length > 0);
         assert.ok(BUILTIN_GUIDELINES.showFilePaths.length > 0);
         assert.ok(BUILTIN_GUIDELINES.bashOnlyFileOps.length > 0);
+    });
+    it("SKILL_ROUTING_TEXT 覆盖四处撞车区的归属", () => {
+        // snap 对 poteto/ponytail 提交约定
+        assert.ok(SKILL_ROUTING_TEXT.includes("snap always owns git commits"));
+        // 理解类按产出分工
+        for (const skill of ["recon", "understand-this-codebase", "how/why", "research"]) {
+            assert.ok(SKILL_ROUTING_TEXT.includes(skill), `提及 ${skill}`);
+        }
+        // 原型分家：UI 归 hapi，逻辑草图归 pstack
+        assert.ok(SKILL_ROUTING_TEXT.includes("hapi prototype for UI variants"));
+        assert.ok(SKILL_ROUTING_TEXT.includes("pstack Prototype playbook"));
+        // poteto 主导时流程归它，交付物仍归 hapi
+        assert.ok(SKILL_ROUTING_TEXT.includes("its flow owns execution"));
+        assert.ok(SKILL_ROUTING_TEXT.includes("answer-me-with-html"));
+        assert.ok(SKILL_ROUTING_TEXT.includes("domain-modeling"));
     });
 });
 // ── assemble.ts: individual builders ──────────────────────────────────

@@ -322,3 +322,9 @@ export const WRITING_STYLE_TEXT = `输出文风（中文与英文）——写给
 缺上下文的读者能懂吗？懂不了的展开一次。朗读一遍，有没有不像会对同事说的话？
 拿不准时，按忌口与句式逐条过一遍——不分长短。页面草稿类输出交给
 answer-me-with-html 的 lint 把关（它是行号级的，比自查准）。`
+
+export const SKILL_ROUTING_TEXT = `hapi built-in skills and npm-channel skills (ponytail, pstack) can trigger on the same words. Route by role: pstack skills orchestrate the work; hapi built-in skills carry harness conventions and deliverables.
+- Commits: snap always owns git commits; other modes' commit conventions defer to it.
+- Investigation: pick by deliverable — recon for a targeted verbal briefing, understand-this-codebase for a repo mental model, how/why (pstack) for architecture walkthroughs / decision archaeology, research for external sources to notes on disk.
+- Prototypes: hapi prototype for UI variants (3 structures); pstack Prototype playbook for logic/behavior sketches that settle an empirical fork.
+- When a pstack playbook drives the task (poteto-mode active), its flow owns execution, while hapi skills still own their deliverables: snap for commits, answer-me-with-html for visual replies, domain-modeling for glossary updates.`;
