@@ -197,14 +197,15 @@ describe("buildDomainGlossarySection", () => {
 });
 
 describe("buildWorkflowSection", () => {
-  it("正常路径: 包裹 <workflow> 标签且含四步工作流核心", () => {
+  it("正常路径: 包裹 <workflow> 标签且含五步工作流核心", () => {
     const result = buildWorkflowSection();
     assert.ok(result.startsWith("<workflow>\n"), "以 workflow 开标签开头");
     assert.ok(result.endsWith("\n</workflow>"), "以闭标签结尾");
     assert.ok(result.includes("Explore before editing"), "第一步: 探索先行");
     assert.ok(result.includes("Debug from cause to symptom"), "第二步: 根因调试");
-    assert.ok(result.includes("Verify before calling it done"), "第三步: 交付验证");
-    assert.ok(result.includes("Lead with the conclusion"), "第四步: 结论先行");
+    assert.ok(result.includes("Verify risks before asking"), "第三步: 风险先核实再问（#71）");
+    assert.ok(result.includes("Verify before calling it done"), "第四步: 交付验证");
+    assert.ok(result.includes("Lead with the conclusion"), "第五步: 结论先行");
   });
 
   it("开工确认前置段：非 team 拼在段首，team 版完全不出现", () => {
@@ -216,14 +217,15 @@ describe("buildWorkflowSection", () => {
       preconfirmed.indexOf("Confirm before building") < preconfirmed.indexOf("Work in this order"),
       "确认段在工作流列表之前",
     );
-    assert.ok(preconfirmed.includes("1. Explore before editing"), "四步正文不变");
+    assert.ok(preconfirmed.includes("1. Explore before editing"), "五步正文不变");
   });
 
   it("正文含反例约束与验证要求（非空泛口号）", () => {
     assert.ok(WORKFLOW_TEXT.includes("never build on an unexplained red"), "失败必查");
     assert.ok(WORKFLOW_TEXT.includes("Never suppress the symptom"), "禁止修症不修因");
+    assert.ok(WORKFLOW_TEXT.includes("what you genuinely cannot verify"), "核实不到才问（#71）");
     assert.ok(WORKFLOW_TEXT.includes("while tests are red"), "红测试不报完成");
-    assert.ok(WORKFLOW_TEXT.length > 800 && WORKFLOW_TEXT.length < 2000, "体量在预算内（~1.3KB）");
+    assert.ok(WORKFLOW_TEXT.length > 800 && WORKFLOW_TEXT.length < 2200, "体量在预算内（~2KB）");
   });
 });
 
