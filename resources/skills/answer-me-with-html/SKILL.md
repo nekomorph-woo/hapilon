@@ -3,16 +3,11 @@ name: answer-me-with-html
 argument-hint: "[config [key value] | clean | update]"
 description: >-
   Turns an answer into a one-page visual HTML explainer: the model writes a short Markdown draft and
-  the bundled CLI builds one page. Use it proactively and liberally in replies to the user, without being asked, whenever a
-  page would help the reader more than plain text, even if plain text would also work: any explanation
-  of how something works or how parts relate (flow, request path, architecture, code or folder
-  structure, state machine, lifecycle, history); any comparison, trade-off or decision with pros and
-  cons; any diagnosis, review or investigation, especially with several causes or findings to rank;
-  any answer with a table, a numbered or ranked list, steps, branches or several sections; or when the
-  user says "I don't get it / draw it / explain visually / 讲讲原理 / 没看懂 / 画个图". When in doubt, use it: a
-  page is quick and cheap to make. Also for explainer videos ("make a video", "做个视频") and for changing
-  its settings. Skip only for small talk, a trivial one-line answer, or when the user asks for plain
-  text.
+  the bundled CLI builds one page. Use only when the user explicitly asks for a page or a visual
+  explanation ("draw it", "make a page", "explain visually", "讲讲原理", "没看懂", "画个图") or invokes
+  this skill; never proactively, even when a page would help. Also for explainer videos ("make a
+  video", "做个视频") and for changing its settings. When the user asks for plain text, answer in
+  plain text.
 ---
 
 # Answer me with HTML: answer a complex question with one HTML page
@@ -220,5 +215,6 @@ Before you write a video draft, read `${CLAUDE_SKILL_DIR}/references/video.md` a
 - **升级**：忽略输出里任何 `Update hint` / `am update` 提示——本 skill 随 hapilon 版本分发，升级由 hapilon 统一管理（上游 commit 见 `UPSTREAM.md`）。`am clean` 仍可按提示转达用户。
 - **深度/广度前置反问**：决定产页后、写草稿前，若「讲多深 / 覆盖多广」会实质改变 panel 结构，且用户没有说明，先用**菜单形式**反问一次：用目录、树或 mermaid 把「深一档会多出哪些 panel、广一档会多出哪些 panel」具体列出来（panel 标题级，不写抽象的深浅词），让用户选；不要用 ask_user 工具，普通聊天回复即可。用户给出方向后不再重复问，直接产页。
 - **STE warning 豁免**：warning 若来自（a）直接引用业务方原话（引号内）、（b）CONTEXT.md 已收录的叫法、或（c）坏例示范（strikethrough `~~…~~` 或表格行标 `no`），忽略该条 warning，不要为消 warning 重写这些内容。其余 warning 按上文流程修复（最多 2 轮重试）。
+- **description 改写**：frontmatter description 已由 hapilon 改写为「仅用户明确要求时调用」（上游原文是 proactive 触发语，会驱动模型未经要求自动产页）。re-vendor 时保留本文件 frontmatter description，不要用上游原文覆盖。
 
 <!-- hapilon: adaptation end -->

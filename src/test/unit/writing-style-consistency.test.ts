@@ -60,5 +60,7 @@ describe("写作纪律一致性（writing_style ↔ amwh lint）", () => {
     );
     assert.ok(skill.includes("hapilon: adaptation start"), "amwh SKILL.md 须带 hapilon 适配段");
     assert.ok(skill.includes("AM_HOME"), "适配段须写明 AM_HOME 约定");
+    assert.ok(skill.includes("never proactively"), "description 须保持仅用户主动触发（#72）");
+    assert.equal(skill.includes("proactively and liberally"), false, "上游 proactive 触发语不得回流");
   });
 });
