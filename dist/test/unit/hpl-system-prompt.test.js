@@ -606,8 +606,7 @@ describe("assembleSystemPrompt", () => {
         assert.ok(result.includes("/skill:snap"), "commit_discipline 正文端到端进入 final prompt");
         assert.ok(!result.includes("<dispatch_discipline>"), "非 team 会话无 dispatch_discipline");
         assert.ok(!result.includes("READY / GO"), "非 team 会话无派发放行闸门");
-        assert.ok(result.includes("<role_commit_boundary>"), "含 role_commit_boundary");
-        assert.ok(result.includes("never run `git commit`"), "role_commit_boundary 正文端到端进入 final prompt");
+        assert.ok(!result.includes("<role_commit_boundary>"), "非 team 会话无角色提交边界");
         assert.ok(result.includes("<pi_documentation>"), "含 pi_doc");
         assert.ok(result.includes("<hapilon_instructions>"), "含 hapilon_instructions");
         assert.ok(result.includes("# Test"), "含 HAPILON.md 内容");
@@ -632,7 +631,7 @@ describe("assembleSystemPrompt", () => {
             skills: [{ name: "s1", description: "skill one", filePath: "/s1/SKILL.md" }],
             appendSystemPrompt: "appended text",
         });
-        // 全部 15 个 section 标签
+        // 全部 section 标签（role_commit_boundary 只属 team 会话，standalone 不在列）
         const tags = [
             "<role>",
             "<available_tools>",
@@ -640,7 +639,6 @@ describe("assembleSystemPrompt", () => {
             "<guidelines>",
             "<code_style>",
             "<commit_discipline>",
-            "<role_commit_boundary>",
             "<workflow>",
             "<pi_documentation>",
             "<hapilon_instructions>",
@@ -659,10 +657,8 @@ describe("assembleSystemPrompt", () => {
             result.indexOf("<code_style>") < result.indexOf("<pi_documentation>"), "code_style 位于 guidelines 与 pi_documentation 之间");
         assert.ok(result.indexOf("<commit_discipline>") > result.indexOf("<code_style>") &&
             result.indexOf("<commit_discipline>") < result.indexOf("<pi_documentation>"), "commit_discipline 位于 code_style 与 pi_documentation 之间");
-        assert.ok(result.indexOf("<role_commit_boundary>") > result.indexOf("<commit_discipline>") &&
-            result.indexOf("<role_commit_boundary>") < result.indexOf("<pi_documentation>"), "role_commit_boundary 紧随 commit_discipline");
-        assert.ok(result.indexOf("<workflow>") > result.indexOf("<role_commit_boundary>") &&
-            result.indexOf("<workflow>") < result.indexOf("<pi_documentation>"), "workflow 位于 role_commit_boundary 与 pi_documentation 之间");
+        assert.ok(result.indexOf("<workflow>") > result.indexOf("<commit_discipline>") &&
+            result.indexOf("<workflow>") < result.indexOf("<pi_documentation>"), "workflow 位于 commit_discipline 与 pi_documentation 之间");
         assert.ok(result.indexOf("<environment>") > result.indexOf("<additional_instructions>"), "environment 收尾");
     });
     it("正常路径: HAPILON.md 正文 XML 转义", () => {
@@ -772,12 +768,14 @@ describe("写入目标授权边界与提交权（真实 assemble）", () => {
         assert.ok(!result.includes("开始吗?"), "无显式放行询问");
         assert.ok(!result.includes(OWNER_CAN_STAGE), "无 owner staging 权限");
         assert.ok(!result.includes("待提交"), "无 owner 提交流程");
+        assert.ok(!result.includes("<role_commit_boundary>"), "无角色提交边界（曾致误拒已授权 push）");
     });
     it("herdr 单会话: 不注入 orchestrator 段", () => {
         const result = assembleAs("owner");
         assert.ok(!result.includes("开始吗?"), "无显式放行询问");
         assert.ok(!result.includes(GATE_TITLE), "无写入目标授权边界");
         assert.ok(!result.includes("NEVER modify project files"), "无 orchestrator 文件修改禁令");
+        assert.ok(!result.includes("<role_commit_boundary>"), "无 team 时不注入角色提交边界");
     });
     it("team owner: 授权以写入目标为单位，新目标与扩范围要问、只读与已批准链不问", () => {
         const result = assembleTeamOwner();
@@ -799,6 +797,7 @@ describe("写入目标授权边界与提交权（真实 assemble）", () => {
     });
     it("team owner: 计划含 commit 时可 staging + snap 本地提交，但不得直接编辑或 push", () => {
         const result = assembleTeamOwner();
+        assert.ok(result.includes("<role_commit_boundary>"), "team 会话注入角色提交边界");
         assert.ok(result.includes("Commit boundary — you stage and commit, you never write:"));
         assert.ok(result.includes(OWNER_CAN_STAGE), "可按已审范围显式 staging");
         assert.ok(result.includes("local commit through the snap skill"), "本地提交走 snap");

@@ -394,7 +394,9 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
       : (team?.orchestrator ?? "");
   const codeStyleSection = buildCodeStyleSection();
   const commitDisciplineSection = buildCommitDisciplineSection();
-  const roleCommitBoundarySection = buildRoleCommitBoundarySection();
+  // 角色提交边界只属 team 场景：standalone 没有 owner 身份，读到的「owner 永不
+  // push」会压过「用户明确要求才 push」的普适纪律（曾致独立会话误拒已授权的 push）
+  const roleCommitBoundarySection = teamSection === "" ? "" : buildRoleCommitBoundarySection();
   // 开工确认只给非 team 会话：team 的确认由 owner 写目标门承担，所有 role 的 prompt
   // 里都不出现这段（含 worker——角色豁免写进正文反而引入「我是哪个角色」的噪音）
   const workflowSection = buildWorkflowSection(teamSection === "");
