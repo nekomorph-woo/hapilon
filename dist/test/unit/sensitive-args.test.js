@@ -30,6 +30,11 @@ describe("extractPathArgs()", () => {
 });
 describe("hasSensitiveReadArg()", () => {
     const cases = [
+        ["ls -la .env", false, "列文件属性"],
+        ["ls -ld -- './.env.local'", false, "列字面路径属性"],
+        ["ls --unknown .env", true, "未识别的选项保留确认"],
+        ["wc -l .env", true, "计数也读取内容"],
+        ["docker compose --env-file .env up", true, "应用读取配置"],
         ["cat .env", true, "env 相对路径"],
         ["cat /proj/.env.local", true, "env 变体绝对路径"],
         ["head -20 ~/.npmrc", true, "npm token"],

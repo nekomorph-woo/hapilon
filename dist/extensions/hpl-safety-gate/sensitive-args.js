@@ -14,6 +14,18 @@ import { READ_CONFIRM } from "../hpl-protected-paths/rules.js";
 export function splitCommandSegments(command) {
     return command.split(/\||;|&&|\|\|/);
 }
+// 只在可完整识别的简单命令链里排除清单；遇到展开、重定向或复杂引号仍走原检测。
+const LITERAL_WORD = /^(?:[\w.,/+:-]+|'[\w.,/+:-]+'|"[\w.,/+:-]+")$/;
+function sensitiveReadSegments(command) {
+    const segments = splitCommandSegments(command);
+    if (!command.split(/&&|\r?\n/).every(line => line.split(/[ \t]+/).every(word => !word || LITERAL_WORD.test(word))))
+        return segments;
+    return segments.map(segment => segment.replace(/^[ \t]*ls[ \t]+([^\r\n]+)/gm, (line, rest) => {
+        const words = rest.trim().split(/[ \t]+/).map(word => word.replace(/^["']|["']$/g, ""));
+        return words.every(word => !word.startsWith("-") || /^-[ald]+$/.test(word) || word === "--")
+            ? "ls" : line;
+    }));
+}
 const KNOWN_FLAGS = new Set([
     "-n", "-c", "-A", "-B", "-C", "-e", "-f", "-m", "-o", "-s", "-v", "-w",
     "-l", "-r", "-u", "-q", "-x", "-z", "-t", "-k", "-i", "-E", "-P", "-a",
@@ -79,7 +91,7 @@ function isPathLike(tok) {
  * cwd 用于相对路径解析（与 read 工具同语义）。
  */
 export function hasSensitiveReadArg(command, cwd) {
-    for (const segment of splitCommandSegments(command)) {
+    for (const segment of sensitiveReadSegments(command)) {
         for (const arg of extractPathArgs(segment, cwd)) {
             const resolved = resolveTarget(expandTilde(arg), cwd);
             for (const pattern of READ_CONFIRM) {
@@ -93,7 +105,7 @@ export function hasSensitiveReadArg(command, cwd) {
 /** 返回命中的敏感文件 label 列表（提示用户时说明原因） */
 export function sensitiveReadLabels(command, cwd) {
     const labels = [];
-    for (const segment of splitCommandSegments(command)) {
+    for (const segment of sensitiveReadSegments(command)) {
         for (const arg of extractPathArgs(segment, cwd)) {
             const resolved = resolveTarget(expandTilde(arg), cwd);
             for (const pattern of READ_CONFIRM) {

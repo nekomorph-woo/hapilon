@@ -619,6 +619,17 @@ describe("hpl-safety-gate", () => {
       input: { command },
     });
 
+    it("列出 env 文件属性不拦，追加读取仍拦", async () => {
+      const handler = captureToolCallHandler();
+      const prefix = "cd voice-clone-lab && sed -n '1,180p' scripts/rssh.sh && sed -n '1,145p' scripts/lib.sh";
+      const ctx = { cwd: "/tmp", hasUI: false };
+      for (const gap of [" ", "\n "]) {
+        const cmd = `${prefix} && ls -la .env scripts/install_voxcpm.sh${gap}ref_audio && git status --short`;
+        assert.equal(await handler(bashEvent(cmd), ctx), undefined);
+        assert.deepEqual((await handler(bashEvent(`${cmd} && cat .env`), ctx) as { block: boolean }).block, true);
+      }
+    });
+
     it("BLOCK 命中 → console.warn 记录 reason（不再静默）", async () => {
       const handler = captureToolCallHandler();
       const warn = mock.method(console, "warn");
