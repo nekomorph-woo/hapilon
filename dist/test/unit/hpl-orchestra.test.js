@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Effect } from "effect";
 import hplOrchestra from "../../extensions/hpl-orchestra/index.js";
-import { handleTeamCommand, buildTeamMenuOptions, resetProbeCache, updateTeamStatus, TEAM_NAME_HEADS, TEAM_NAME_TAILS } from "../../extensions/hpl-orchestra/menu.js";
+import { handleTeamCommand, buildTeamMenuOptions, resetProbeCache, updateTeamStatus, ROLE_NICKNAMES, TEAM_NAME_HEADS, TEAM_NAME_TAILS } from "../../extensions/hpl-orchestra/menu.js";
 import { buildTeamSections, currentRole, findTeamStateForPane, findRoleEntry, isTeamOwner, planTaskDirFor, readTeamState, resolveSessionStatePath, teamStateError, writeTeamStateEffect, } from "../../extensions/hpl-orchestra/state.js";
 import { resetTeamSections, setTeamSections } from "../../extensions/hpl-orchestra/bridge.js";
 import { buildTeamRoleSection, fillOrchestratorSection, ORCHESTRATOR_SECTION } from "../../extensions/hpl-orchestra/roles.js";
@@ -18,7 +18,24 @@ const originalEnv = {
     pane: process.env.HERDR_PANE_ID,
     role: process.env.HAPI_ORCH_ROLE,
     cliPath: process.env.HAPILON_CLI_PATH,
+    coreTerminal: process.env.HC_TERMINAL_ID,
+    coreSocket: process.env.HC_TERMINAL_SOCKET,
 };
+/** 本文件模拟 TUI 宿主：core 身份变量一并清掉，歧义守卫不会把宿主判成 none。 */
+function clearCoreIdentity() {
+    delete process.env.HC_TERMINAL_ID;
+    delete process.env.HC_TERMINAL_SOCKET;
+}
+function restoreCoreIdentity() {
+    if (originalEnv.coreTerminal === undefined)
+        delete process.env.HC_TERMINAL_ID;
+    else
+        process.env.HC_TERMINAL_ID = originalEnv.coreTerminal;
+    if (originalEnv.coreSocket === undefined)
+        delete process.env.HC_TERMINAL_SOCKET;
+    else
+        process.env.HC_TERMINAL_SOCKET = originalEnv.coreSocket;
+}
 let home;
 const stateFor = (overrides = {}) => ({
     enabled: true,
@@ -193,6 +210,7 @@ beforeEach(() => {
     process.env.HERDR_PANE_ID = "w1:p7";
     process.env.HAPILON_CLI_PATH = "/fake/dist/cli.js";
     delete process.env.HAPI_ORCH_ROLE;
+    clearCoreIdentity();
     resetTeamSections();
 });
 before(() => {
@@ -204,6 +222,7 @@ before(() => {
     process.env.HERDR_PANE_ID = "w1:p7";
     process.env.HAPILON_CLI_PATH = "/fake/dist/cli.js";
     delete process.env.HAPI_ORCH_ROLE;
+    clearCoreIdentity();
 });
 after(() => {
     if (originalEnv.home === undefined)
@@ -230,6 +249,7 @@ after(() => {
         delete process.env.HAPILON_CLI_PATH;
     else
         process.env.HAPILON_CLI_PATH = originalEnv.cliPath;
+    restoreCoreIdentity();
     rmSync(home, { recursive: true, force: true });
 });
 describe("hpl-orchestra state", { concurrency: false }, () => {
@@ -486,13 +506,14 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         const filled = fillOrchestratorSection([{ key: "worker", paneId: "w1:p8" }]);
         assert.ok(filled.includes("worker w1:p8"));
         assert.ok(filled.includes("reviewer not open"));
-        const reviewerLine = filled.split("\n").find((line) => line.startsWith("- reviewer not open")) ?? "";
-        assert.ok(reviewerLine.includes("pick the tier from the table"), reviewerLine);
-        assert.ok(reviewerLine.includes("Never skip review for a non-trivial change"), reviewerLine);
-        assert.ok(reviewerLine.includes("/team:open reviewer"), reviewerLine);
-        assert.ok(reviewerLine.includes("wait for it in the crew table"), reviewerLine);
-        assert.equal(reviewerLine.includes("tell the user to open it via /team menu"), false);
-        assert.equal(reviewerLine.includes("do not dispatch until open"), false);
+        // selfOpen 文案含换行：reviewer 指引断言取整个段落（从 "- reviewer not open" 起）
+        const reviewerBlock = filled.slice(filled.indexOf("- reviewer not open"));
+        assert.ok(reviewerBlock.includes("pick the tier from the table"), reviewerBlock);
+        assert.ok(reviewerBlock.includes("Never skip review for a non-trivial change"), reviewerBlock);
+        assert.ok(reviewerBlock.includes("/team:open reviewer"), reviewerBlock);
+        assert.ok(reviewerBlock.includes("wait for it in the crew table"), reviewerBlock);
+        assert.equal(reviewerBlock.includes("tell the user to open it via /team menu"), false);
+        assert.equal(reviewerBlock.includes("do not dispatch until open"), false);
         const dispatchLine = filled.split("\n").find((line) => line.includes("background(command=")) ?? "";
         assert.ok(dispatchLine.includes("herdr pane run <id>"), JSON.stringify(dispatchLine));
         assert.ok(dispatchLine.includes('node "$HAPILON_CLI_PATH" wait-pane <id>'), JSON.stringify(dispatchLine));
@@ -574,7 +595,7 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         const enabled = makeContext();
         await handleTeamCommand(makePi().pi, "", enabled.ctx, noSpawn.spawn);
         assert.deepEqual(enabled.selectedOptions[0], [
-            "打开面板", "暂停编排", "结束编排", "踢出角色", "解散团队", "清空面板上下文", "创建自定义角色", "管理自定义角色", "派发给 Worker", "查看面板分工", "退出",
+            "打开面板", "暂停编排", "踢出角色", "解散团队", "清空面板上下文", "创建自定义角色", "管理自定义角色", "派发给 Worker", "查看面板分工", "退出",
         ]);
         process.env.HAPI_ORCH_ROLE = "worker";
         const worker = makeContext(["查看面板分工"]);
@@ -603,8 +624,9 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         assert.equal(existsSync(statePath()), false, "拒绝后不得写状态");
         delete process.env.HAPI_ORCH_ROLE;
     });
-    it("无 HERDR_ENV 时 /team 报错且不弹菜单", async () => {
+    it("无团队宿主时 /team 报错且不弹菜单", async () => {
         delete process.env.HERDR_ENV;
+        clearCoreIdentity();
         const mock = makePi();
         hplOrchestra(mock.pi);
         const ctx = makeContext();
@@ -634,13 +656,16 @@ describe("hpl-orchestra pane actions", { concurrency: false }, () => {
         assert.ok(split.args.every((arg, i) => !(arg === "--env" && split.args[i + 1]?.startsWith("HAPI_ORCH"))), "split args must not carry HAPI_ORCH_* env");
         assert.equal(run.args[2], "w1:p8");
         assert.match(run.args[3], /cli\.js --team-role worker --team-tasks \S+ --model anthropic\/claude-sonnet$/);
-        assert.ok(run.args[3].includes(`--team-tasks ${join(home, "teams", "w1_p8.tasks.json")}`), "任务列表必须是该 pane 自己的绝对路径");
-        assert.ok(run.args[3].startsWith(process.execPath), "run command must use process.execPath, not bare node");
         const started = readTeamState(statePath());
         assert.equal(started.enabled, true);
+        // 落盘 key（roleId）在创建时分配：任务列表路径跟着 roleId 走，不随地址换家
+        const createdInstance = started.roles[0].instances[0];
+        assert.match(createdInstance.roleId ?? "", /^[0-9a-f]{12}$/);
+        assert.ok(run.args[3].includes(`--team-tasks ${join(home, "teams", `${createdInstance.roleId}.tasks.json`)}`), "任务列表必须是该实例 roleId 自己的绝对路径");
+        assert.ok(run.args[3].startsWith(process.execPath), "run command must use process.execPath, not bare node");
         assert.deepEqual(started.roles, [{
                 key: "worker",
-                instances: [{ paneId: "w1:p8", model: "anthropic/claude-sonnet", nickname: "阿岚" }],
+                instances: [{ paneId: "w1:p8", roleId: createdInstance.roleId, model: "anthropic/claude-sonnet", nickname: "ash" }],
             }]);
         assert.equal(Number.isNaN(Date.parse(started.since)), false);
     });
@@ -782,12 +807,15 @@ if (group === "agent" && action === "get") {
         assert.ok(run);
         assert.ok(run.args[3].includes("--model anthropic/claude-opus"));
         const updated = readTeamState(statePath());
-        assert.deepEqual(findRoleEntry(updated, "reviewer"), {
+        const entry = findRoleEntry(updated, "reviewer");
+        const instance = entry?.instances[0];
+        assert.match(instance.roleId ?? "", /^[0-9a-f]{12}$/);
+        assert.deepEqual(entry, {
             key: "reviewer",
-            instances: [{ paneId: "w1:p9", model: "anthropic/claude-opus", nickname: "阿岚" }],
+            instances: [{ paneId: "w1:p9", roleId: instance.roleId, model: "anthropic/claude-opus", nickname: "ash" }],
         });
     });
-    it("暂停保留 roles，结束时状态文件消失；无文件时结束返回提示", async () => {
+    it("暂停保留 roles 并清除 footer 状态", async () => {
         saveState();
         const ctx = makeContext();
         await handleTeamCommand(makePi().pi, "暂停编排", ctx.ctx, makeSpawn().spawn);
@@ -795,14 +823,6 @@ if (group === "agent" && action === "get") {
         assert.equal(paused.enabled, false);
         assert.deepEqual(paused.roles, stateFor().roles);
         assert.deepEqual(ctx.statuses.at(-1), { key: "team", text: undefined }, "暂停后即时清除 footer 状态");
-        const before = ctx.statuses.length;
-        await handleTeamCommand(makePi().pi, "结束编排", ctx.ctx, makeSpawn().spawn);
-        assert.equal(existsSync(statePath()), false);
-        assert.ok(ctx.statuses.length > before, "finish 应实际执行清除");
-        assert.deepEqual(ctx.statuses.at(-1), { key: "team", text: undefined }, "结束后即时清除 footer 状态");
-        const ctx2 = makeContext();
-        await handleTeamCommand(makePi().pi, "结束编排", ctx2.ctx, makeSpawn().spawn);
-        assert.ok(ctx2.notices.some(({ message }) => message.includes("没有可结束") || message.includes("没有进行中")));
     });
     it("清空菜单只列出有实例的角色并以都清收尾", async () => {
         saveState({
@@ -858,8 +878,9 @@ describe("hpl-orchestra team 恢复与解散", { concurrency: false }, () => {
         assert.equal(run?.args[2], "w1:p8");
         assert.ok(ctx.notices.some(({ message }) => message.includes("重灌")), JSON.stringify(ctx.notices));
         const state = readTeamState(statePath());
+        // 重灌实例补记 roleId = 原 pane id（store key 不变，任务列表原地沿用）
         assert.deepEqual(findRoleEntry(state, "reviewer")?.instances, [
-            { paneId: "w1:p8", model: "anthropic/sonnet", nickname: "阿岚" },
+            { paneId: "w1:p8", roleId: "w1:p8", model: "anthropic/sonnet", nickname: "ash" },
         ]);
     });
     it("/team:open 开未开过的角色，且不弹档位选择（自愈路径不能卡对话框）", async () => {
@@ -916,7 +937,7 @@ describe("hpl-orchestra team 恢复与解散", { concurrency: false }, () => {
         assert.equal(withExtras[1], "接续主 agent 会话");
         assert.equal(buildTeamMenuOptions(true).includes("接续主 agent 会话"), false);
     });
-    it("解散：确认后结束编排并关闭全部存活角色面板", async () => {
+    it("解散：确认后清除团队状态并关闭全部存活角色面板", async () => {
         saveState({
             ...stateFor(),
             roles: [
@@ -1000,14 +1021,20 @@ describe("hpl-orchestra team 恢复与解散", { concurrency: false }, () => {
         assert.deepEqual(calls.filter((call) => call.args[1] === "close").map((call) => call.args[2]), ["w1:p8"]);
         assert.deepEqual(readTeamState(statePath()).roles, [], "踢空后不留空条目");
     });
-    it("创建角色面板时打上 herdr 标签「拟人名 · 角色 · 面板 id」并写进状态", async () => {
+    it("角色名池保留 100 个不重复的英文单名", () => {
+        assert.equal(ROLE_NICKNAMES.length, 100);
+        assert.equal(new Set(ROLE_NICKNAMES).size, 100);
+        for (const name of ROLE_NICKNAMES)
+            assert.match(name, /^[a-z]{1,32}$/);
+    });
+    it("新角色的 herdr 标签只显示花名册中的名字", async () => {
         saveState({ ...stateFor(), roles: [] });
         const { spawn, calls } = makeSpawn({ paneId: "w1:p11" });
         await handleTeamCommand(makePi().pi, "打开角色 reviewer", makeContext().ctx, spawn);
         const rename = calls.find((call) => call.args[0] === "pane" && call.args[1] === "rename");
-        assert.deepEqual(rename?.args, ["pane", "rename", "w1:p11", "阿岚 · reviewer · p11"]);
+        assert.deepEqual(rename?.args, ["pane", "rename", "w1:p11", "ash"]);
         const state = readTeamState(statePath());
-        assert.equal(findRoleEntry(state, "reviewer")?.instances[0].nickname, "阿岚");
+        assert.equal(findRoleEntry(state, "reviewer")?.instances[0].nickname, "ash");
     });
     it("拟人名写进状态且不重名", async () => {
         saveState({ ...stateFor(), roles: [] });
@@ -1028,10 +1055,10 @@ describe("hpl-orchestra team 恢复与解散", { concurrency: false }, () => {
         assert.equal(named.calls.some((call) => call.args[1] === "rename"), false, "不得覆盖手动改过的名字");
         const unnamed = makeSpawn();
         await handleTeamCommand(makePi().pi, "打开角色 reviewer", makeContext().ctx, unnamed.spawn);
-        assert.deepEqual(unnamed.calls.find((call) => call.args[1] === "rename")?.args, ["pane", "rename", "w1:p8", "阿岚 · reviewer · p8"]);
+        assert.deepEqual(unnamed.calls.find((call) => call.args[1] === "rename")?.args, ["pane", "rename", "w1:p8", "ash"]);
         // 老状态没拟人名：复用时就补上并落盘，标签才稳定
         const state = readTeamState(statePath());
-        assert.equal(findRoleEntry(state, "reviewer")?.instances[0].nickname, "阿岚");
+        assert.equal(findRoleEntry(state, "reviewer")?.instances[0].nickname, "ash");
     });
     it("僵死 pane 重灌时沿用拟人名补回标签（单例角色 reviewer）", async () => {
         saveState({
@@ -1040,7 +1067,7 @@ describe("hpl-orchestra team 恢复与解散", { concurrency: false }, () => {
         });
         const { spawn, calls } = makeSpawn({ corpsePanes: ["w1:p8"] });
         await handleTeamCommand(makePi().pi, "打开角色 reviewer", makeContext().ctx, spawn);
-        assert.deepEqual(calls.find((call) => call.args[1] === "rename")?.args, ["pane", "rename", "w1:p8", "小满 · reviewer · p8"]);
+        assert.deepEqual(calls.find((call) => call.args[1] === "rename")?.args, ["pane", "rename", "w1:p8", "小满"]);
     });
     it("split 布局：首块角色面板从 owner 右侧开，之后叠在右列下面", async () => {
         saveState({ ...stateFor(), roles: [] });
@@ -1117,17 +1144,17 @@ describe("hpl-orchestra worker 多例", { concurrency: false }, () => {
     it("多实例花名册昵称各不相同（first-unused）", async () => {
         saveState({
             ...stateFor(),
-            owner: { paneId: "w1:p7", nickname: "阿岚" },
+            owner: { paneId: "w1:p7", nickname: "ash" },
             roles: [{ key: "worker", instances: [
-                        { paneId: "w1:p8", model: "anthropic/sonnet", nickname: "阿澈" },
-                        { paneId: "w1:p10", model: "anthropic/sonnet", nickname: "小满" },
+                        { paneId: "w1:p8", model: "anthropic/sonnet", nickname: "blake" },
+                        { paneId: "w1:p10", model: "anthropic/sonnet", nickname: "casey" },
                     ] }],
         });
         const { spawn } = makeSpawn({ paneId: "w1:p11", agentStatuses: ["idle"] });
         await handleTeamCommand(makePi().pi, "打开角色 worker", makeContext().ctx, spawn);
         const instances = findRoleEntry(readTeamState(statePath()), "worker").instances;
         assert.equal(instances.length, 3);
-        assert.equal(instances[2].nickname, "小柚", JSON.stringify(instances));
+        assert.equal(instances[2].nickname, "drew", JSON.stringify(instances));
         assert.equal(new Set(instances.map((instance) => instance.nickname)).size, 3, "不得重名");
     });
     it("开始编排多 worker：复用首个活实例，花名册不追加重复项", async () => {
@@ -1195,8 +1222,10 @@ else out({ result: {} });
             const runLine = log.split("\n").find((line) => line.startsWith("pane run ")) ?? "";
             assert.ok(runLine.includes("--model anthropic/claude-opus"), `reviewer 应用 opus 档：${runLine}`);
             const createdState = readTeamState(statePath());
+            const createdInstance = findRoleEntry(createdState, "reviewer")?.instances[0];
+            assert.match(createdInstance.roleId ?? "", /^[0-9a-f]{12}$/);
             assert.deepEqual(findRoleEntry(createdState, "reviewer")?.instances, [
-                { paneId: "w1:p9", model: "anthropic/claude-opus", nickname: "阿岚" },
+                { paneId: "w1:p9", roleId: createdInstance.roleId, model: "anthropic/claude-opus", nickname: "ash" },
             ]);
             writeFileSync(logPath, "");
             const reused = makeContext();
@@ -1205,7 +1234,7 @@ else out({ result: {} });
             assert.equal(readFileSync(logPath, "utf8").includes("pane split"), false, "已开面板必须复用而非新建");
             const reusedState = readTeamState(statePath());
             assert.deepEqual(findRoleEntry(reusedState, "reviewer")?.instances, [
-                { paneId: "w1:p9", model: "anthropic/claude-opus", nickname: "阿岚" },
+                { paneId: "w1:p9", roleId: createdInstance.roleId, model: "anthropic/claude-opus", nickname: "ash" },
             ]);
         }
         finally {
@@ -1256,7 +1285,7 @@ describe("hpl-orchestra system prompt exclusivity", { concurrency: false }, () =
         assert.equal((result.systemPrompt.match(/<team mode=/g) ?? []).length, 1);
         const dispatchLine = ORCHESTRATOR_SECTION.split("\n").find((line) => line.includes("background(command=")) ?? "";
         assert.ok(dispatchLine.includes("herdr pane run <id>"));
-        assert.ok(dispatchLine.includes('node "$HAPILON_CLI_PATH" wait-pane <id>'));
+        assert.ok(dispatchLine.includes("node \"$HAPILON_CLI_PATH\" wait-pane <id>"));
         assert.equal(dispatchLine.includes("herdr pane send-text"), false);
         assert.equal(dispatchLine.includes("herdr pane send-keys"), false);
     });

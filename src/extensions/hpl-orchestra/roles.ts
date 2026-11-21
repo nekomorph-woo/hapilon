@@ -78,7 +78,7 @@ Hold discipline — never interrupt a pane; there is no enqueue:
   collected.
 
 Unmanaged panes (a hapi pane in this tab that is not in the crew table):
-1. Read it first (\`herdr pane read <id> --source recent-unwrapped --lines 60\` plus
+1. Read it first (<UNMANAGED_READ> plus
    its label) and say what it is doing.
 2. Match that work against the registered roles (worker, reviewer, ux-tester,
    discussant, plus any custom role). A registered role match is
@@ -98,7 +98,7 @@ Crew state handling (states from the /team panel):
   directly.
 - working → wait. A pane reporting working is active — its task record age is
   never evidence of staleness, and its turn is never interrupted.
-- stale → alive but stopped (herdr idle) with an in_progress task whose report
+- stale → alive but stopped (状态已停) with an in_progress task whose report
   is still missing past the threshold: read the pane, then re-poll, re-dispatch,
   or report to the user.
 - waiting-input → read the pane to see the question. Design clarifications
@@ -112,8 +112,8 @@ Crew state handling (states from the /team panel):
 - unknown → read the pane manually before acting; ask the human if still unclear.
 
 Dispatch discipline (a "new task" includes fix rounds from review):
-1. Clear through \`/team:clear <pane-id>\`, sent to your own pane — never send
-   \`/new\` by hand. \`/team:clear\` has no dialog and refuses while the pane is
+1. Clear through <CLEAR_ROUTE> — never send
+   \`/new\` by hand. The clear entry has no dialog and refuses while the pane is
    working or blocked; that refusal is the point, and a hand-written \`/new\`
    bypasses it. If it refuses, hold the work instead of clearing (Hold
    discipline above). After a successful clear, re-check that the state is idle.
@@ -121,25 +121,20 @@ Dispatch discipline (a "new task" includes fix rounds from review):
    context may still be the old one. Re-run \`/team:clear\` until the mark is gone,
    and never dispatch while it is set; if it keeps failing, report to the user.
    When the clear reply says no new-session marker was seen, read that pane's
-   viewport (\`herdr pane read <id> --source visible\`) before dispatching — the
+   viewport (<SCREEN_VISIBLE>) before dispatching — the
    old context may still be loaded.
-2. Dispatch (pane run 一次写入文本+回车——send-text + send-keys 两段式的
-   enter 会被 bracketed-paste 吞掉;agent prompt 对自定义 agent 类型以
-   agent_not_ready 拒绝):
-   background(command="herdr pane run <id> \"<task>\" && node \"$HAPILON_CLI_PATH\" wait-pane <id>")
-   <task> 必须单行——pane run 遇文本内换行会把半截话直接提交。
+2. Dispatch (<DISPATCH_NOTE>):
+   <DISPATCH_ROUTE>
+   <task> 必须单行——遇文本内换行会把半截话直接提交。
    报告与产物路径在 brief 里必须写绝对路径，禁止「同目录」类相对指代——
    弱模型消解相对指代会失败，就近写进高频工作目录。
    派发前扫一眼 <project>/.hapilon/go-case/（cases.yaml 或 cases/ 目录）
    是否有与任务相关的 case：有就在 brief 里带上相关 case 的 id/锚点与
    文件路径（已封金则带 frozen.md），让实现者知道会被怎么验收；
    没有就什么都不加，不为凑数硬扯。
-   wait-pane 以「状态**变过**且落到 idle/blocked」为收敛判据;不要用 herdr
-   的 agent wait --until idle——它只看当前值,而 pane 派发前就是 idle,会秒回。
-   退出码:0 收敛、2 卡在等待输入、3 到时未收敛(重新 get 状态:仍 working 就再
-   开一次等待;状态已变但未落到终态则读屏确认,回报用户)。
+   <WAIT_SEMANTICS>
    Then end your turn — the background job wakes you when the pane settles.
-3. Collect: herdr agent read <id> --source recent-unwrapped --lines 120
+3. Collect: <AGENT_READ>
 4. Review routing — pick the tier, do not send everything:
    - none: docs/comments/strings only, or ≤3 lines with no behavior change →
      no reviewer; the worker self-verifies.
@@ -163,8 +158,8 @@ It prints every crew pane's state plus that pane's task list and report status;
 read a pane by hand only when it reports waiting-input or unknown.
 1. Only a pane that reports waiting-input or unknown gets the by-hand read;
    every other pane needs no per-pane call at all. For that pane:
-   herdr agent get <id>. When the status is blocked, sample the screen twice:
-   herdr pane read <id> --source visible --lines 40. Two consecutive samples
+   <AGENT_GET>. When the status is blocked, sample the screen twice:
+   <SCREEN_SAMPLE>. Two consecutive samples
    showing an ask_user or approval dialog mean waiting-input — a single sample
    can be a half-drawn frame.
 2. States: working | idle | waiting-input | stale | dead | done | unknown.
@@ -172,7 +167,7 @@ read a pane by hand only when it reports waiting-input or unknown.
    reviewer-report.md): a live pane is never evidence that work finished,
    and idle alone is not done. idle = alive, no turn running, nothing owed:
    clear and dispatch directly. stale requires
-   a stopped pane (herdr idle/done) with an in_progress task whose report is still
+   a stopped pane (状态已停/done) with an in_progress task whose report is still
    missing past 15 minutes without an update — idle with no task is never stale,
    and a pane that reports working is never stale (task record age is bookkeeping,
    not an activity signal). Read a stale pane, then re-poll, re-dispatch, or report
@@ -182,7 +177,7 @@ read a pane by hand only when it reports waiting-input or unknown.
    The /team menu shows the same state per pane.
 3. Answer policy at waiting-input:
    | question kind                                            | action |
-   | design clarification, constraint arbitration, scoping     | answer it yourself in the brief's context (herdr pane send-keys the option that matches intent) |
+   | design clarification, constraint arbitration, scoping     | answer it yourself in the brief's context (<SEND_KEYS> the option that matches intent) |
    | irreversible action, credentials, anything published externally | never answer — escalate to the user and wait |
 
 Waking and reports — the panes wake you, you do not poll them:
@@ -193,11 +188,11 @@ Waking and reports — the panes wake you, you do not poll them:
   this pane (metadata paneId): each held item dispatches now — /team:clear,
   re-check idle, dispatch, mark the entry completed.
 - \`wait-pane\` settling with NO report file is not done: idle and done look
-  identical in herdr, and a pane waiting on its own background job also looks
+  identical to idle, and a pane waiting on its own background job also looks
   idle. Re-arm instead of escalating —
-    background(command="node \"$HAPILON_CLI_PATH\" wait-pane <id>")
+    <REARM_ROUTE>
   — and end your turn. Only after 2-3 re-arms with no state change — and only
-  once herdr reports that pane stopped — treat it as stale and read the pane; a
+  once the transport reports that pane stopped — treat it as stale and read the pane; a
   pane still reporting working keeps waiting.
 </team>`;
 
@@ -229,39 +224,113 @@ export const MISSING_ROLE_SECTION = `<team mode="unknown">
 This panel's team role definition is missing. Ask the user to re-create the role or run /team.
 </team>`;
 
-/** 自愈指令：主 agent 把 /team:open <key> 用 pane run 一次打进自己的输入框就能开/救活对应角色面板。 */
-function selfOpenLine(key: string): string {
-  return `- ${key} not open — \`herdr pane run "$HERDR_PANE_ID" "/team:open ${key}"\` (text + Enter in one call;
-  a send-text + send-keys enter lands too fast and gets dropped), wait for it in the crew table, then dispatch.`;
+/**
+ * 宿主专属路由表：orchestrator 指令里的每一条传输命令都从这张表出，
+ * TUI（herdr）与 core（hc）互不出现对方的命令——模板里只有 token，
+ * 不写死任何 herdr/hc 字面量。
+ */
+export type HostRoutes = {
+  clearRoute: string;
+  unmanagedRead: string;
+  waitSemantics: string;
+  agentRead: string;
+  dispatchNote: string;
+  dispatchRoute: string;
+  screenVisible: string;
+  sendKeys: string;
+  agentGet: string;
+  screenSample: string;
+  rearmRoute: string;
+  selfOpen: (key: string) => string;
+};
+
+const TUI_ROUTES: HostRoutes = {
+  clearRoute: "\`/team:clear <pane-id>\`, sent to your own pane",
+  unmanagedRead: "`herdr pane read <id> --source recent-unwrapped --lines 60`",
+  dispatchNote: "pane run 一次写入文本+回车——send-text + send-keys 两段式的 enter 会被 bracketed-paste 吞掉；agent prompt 对自定义 agent 类型以 agent_not_ready 拒绝",
+  dispatchRoute: 'background(command="herdr pane run <id> \"<task>\" && node \"$HAPILON_CLI_PATH\" wait-pane <id>")',
+  screenVisible: "`herdr pane read <id> --source visible`",
+  sendKeys: "`herdr pane send-keys`",
+  agentGet: "`herdr agent get <id>`",
+  screenSample: "`herdr pane read <id> --source visible --lines 40`",
+  rearmRoute: 'background(command="node \"$HAPILON_CLI_PATH\" wait-pane <id>")',
+  waitSemantics: "wait-pane 以「状态**变过**且落到 idle/blocked」为收敛判据;不要用 herdr 的 agent wait --until idle——它只看当前值,而 pane 派发前就是 idle,会秒回。退出码:0 收敛、2 卡在等待输入、3 到时未收敛(重新 get 状态:仍 working 就再开一次等待;状态已变但未落到终态则读屏确认,回报用户)",
+  agentRead: "`herdr agent read <id> --source recent-unwrapped --lines 120`",
+  selfOpen: (key) => `\`herdr pane run "$HERDR_PANE_ID" "/team:open ${key}"\` (text + Enter in one call;
+  a send-text + send-keys enter lands too fast and gets dropped)`,
+};
+
+const CORE_ROUTES: HostRoutes = {
+  // core 里 slash 文本会被 pi 输入包装层改写、且 --if idle 投不进正在工作的
+  // owner：owner 控制动作走注册的 team_ctl 工具，不走 CLI slash。
+  clearRoute: 'the team_ctl tool (action "clear", target <pane-id 或角色 key>)',
+  unmanagedRead: "`hc read <id> --lines 60`",
+  // hc 守卫发送/等待一体：--if idle 只在目标空闲时落键，--wait 等这一轮结束。
+  dispatchNote: "background 里跑 `hc send <id> \"<task>\" --if idle --wait`——目标非 idle 时 hc 拒绝（守卫内建）；--wait 观察这一轮的 .wait 结果再返回，输出无法判读就当未提交，绝不把模糊结果当成功",
+  dispatchRoute: 'background(command="hc send <id> \"<task>\" --if idle --wait")',
+  screenVisible: "`hc read <id> --lines 20`",
+  sendKeys: "`hc keys`",
+  agentGet: "`hc get <id> --json`",
+  screenSample: "`hc read <id> --lines 40`",
+  rearmRoute: 'background(command="hc wait <id> --timeout 900")',
+  waitSemantics: "--if idle --wait 以「状态变过且落到 idle/blocked」为收敛判据，不依赖派发前的旧 idle；退出码非 0 时重新 get 状态（仍 working 就再等一次；状态已变但未落到终态则读屏确认，回报用户）",
+  agentRead: "`hc read <id> --lines 120`",
+  selfOpen: (key) => `the team_ctl tool (action "open", role "${key}")（角色终端由它以
+  hc run --bg --outlive-parent 直接 argv 拉起，不经 shell 不经 send）`,
+};
+
+function selfOpenLine(key: string, routes: HostRoutes): string {
+  return `- ${key} not open — ${routes.selfOpen(key)}, wait for it in the crew table, then dispatch.`;
 }
 
 /** reviewer 缺席时的唯一定义：crew 行与无 reviewer 兜底行共用，避免两处文案漂移。 */
-const REVIEWER_NOT_OPEN_LINE = "- reviewer not open — pick the tier from the table above: docs/comments/"
+const reviewerNotOpenLine = (routes: HostRoutes): string => "- reviewer not open — pick the tier from the table above: docs/comments/"
   + "strings or ≤3 lines with no behavior change → no review; one file, ≤~50 lines, nothing"
-  + " concurrent/security/persistent → open it (`herdr pane run \"$HERDR_PANE_ID\" \"/team:open reviewer\"` —"
-  + " one call, text + enter; send-text + send-keys gets dropped), wait for it in the crew table,"
+  + ` concurrent/security/persistent → open it (${routes.selfOpen("reviewer")}),`
+  + " wait for it in the crew table,"
   + " and dispatch 简审; multi-file, behavior change, or you are unsure →"
   + " 深审. Never skip review for a non-trivial change.";
 
-function crewLine(key: string, paneId: string, clearPending: boolean): string {
+function crewLine(key: string, paneId: string, clearPending: boolean, routes: HostRoutes): string {
   const mark = clearPending ? " [clear?]" : "";
   if (key === "worker" && paneId !== "not open") return `- worker ${paneId}: all code changes happen there${mark}`;
   if (key === "reviewer" && paneId !== "not open") return `- reviewer ${paneId}: code review — route it by the review tiers${mark}`;
-  if (key === "reviewer") return REVIEWER_NOT_OPEN_LINE;
-  return paneId === "not open" ? selfOpenLine(key) : `- ${key} ${paneId}${mark}`;
+  if (key === "reviewer") return reviewerNotOpenLine(routes);
+  return paneId === "not open" ? selfOpenLine(key, routes) : `- ${key} ${paneId}${mark}`;
+}
+
+/**
+ * 宿主判别：显式传入优先（状态文件里记录的宿主），否则按当前进程环境解析。
+ * 指令里的路由永远与团队实际宿主一致，不与运行进程混淆。
+ */
+function routesForHost(host?: "tui" | "core"): HostRoutes {
+  return (host ?? "tui") === "core" ? CORE_ROUTES : TUI_ROUTES;
 }
 
 export function fillOrchestratorSection(
   roles: Array<{ key: string; paneId: string; clearPending?: boolean }>,
+  host?: "tui" | "core",
 ): string {
-  const crew = roles.map(({ key, paneId, clearPending }) => crewLine(key, paneId, clearPending === true));
+  const routes = routesForHost(host);
+  const crew = roles.map(({ key, paneId, clearPending }) => crewLine(key, paneId, clearPending === true, routes));
   if (!roles.some(({ key }) => key === "reviewer")) {
-    crew.push(REVIEWER_NOT_OPEN_LINE);
+    crew.push(reviewerNotOpenLine(routes));
   }
   return ORCHESTRATOR_TEMPLATE
+    .replace("<CLEAR_ROUTE>", routes.clearRoute)
+    .replace("<UNMANAGED_READ>", routes.unmanagedRead)
+    .replace("<WAIT_SEMANTICS>", routes.waitSemantics)
+    .replace("<AGENT_READ>", routes.agentRead)
+    .replace("<DISPATCH_NOTE>", routes.dispatchNote)
+    .replace("<DISPATCH_ROUTE>", routes.dispatchRoute)
+    .replace("<SCREEN_VISIBLE>", routes.screenVisible)
+    .replace("<SEND_KEYS>", routes.sendKeys)
+    .replace("<AGENT_GET>", routes.agentGet)
+    .replace("<SCREEN_SAMPLE>", routes.screenSample)
+    .replace("<REARM_ROUTE>", routes.rearmRoute)
     .replace("<CREW>", crew.join("\n"))
     .replace("<PLAN_TASK_DIR>", () => join(hapilonHome(), "plan-task"));
 }
 
-// 默认兜底段不带任何 pane id；正常路径由 hpl-orchestra 经 bridge 传入真实 crew。
+// 默认兜底段不带任何 pane id（TUI 路由）；正常路径由 hpl-orchestra 经 bridge 传入真实 crew。
 export const ORCHESTRATOR_SECTION = fillOrchestratorSection([]);

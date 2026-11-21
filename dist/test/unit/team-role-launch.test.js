@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildPaneRunCommand, paneSplitEnvArgs } from "../../extensions/hpl-orchestra/herdr.js";
+import { buildPaneRunArgv, buildPaneRunCommand, paneSplitEnvArgs } from "../../extensions/hpl-orchestra/herdr.js";
 import { rolePromptPathFor, teamTasksPathFor } from "../../extensions/hpl-orchestra/state.js";
 describe("team role 启动链路", () => {
     describe("buildPaneRunCommand()", () => {
@@ -27,6 +27,37 @@ describe("team role 启动链路", () => {
             assert.ok(!buildPaneRunCommand("worker").includes("--team-tasks"));
             // 没有角色就没有任务列表：flag 不许单独出现
             assert.ok(!buildPaneRunCommand("", undefined, undefined, "/tmp/x.tasks.json").includes("--team-tasks"));
+        });
+    });
+    describe("buildPaneRunArgv()", () => {
+        it("设了 HAPILON_HOME 时以 /usr/bin/env 前缀注入", () => {
+            const previous = process.env.HAPILON_HOME;
+            try {
+                process.env.HAPILON_HOME = "/tmp/hapilon-dev";
+                const argv = buildPaneRunArgv("worker", "sonnet");
+                assert.deepStrictEqual(argv.slice(0, 2), ["/usr/bin/env", "HAPILON_HOME=/tmp/hapilon-dev"]);
+                assert.strictEqual(argv[2], process.execPath);
+                assert.match(argv.join(" "), /--team-role worker/);
+            }
+            finally {
+                if (previous === undefined)
+                    delete process.env.HAPILON_HOME;
+                else
+                    process.env.HAPILON_HOME = previous;
+            }
+        });
+        it("无 HAPILON_HOME 时无 env 前缀", () => {
+            const previous = process.env.HAPILON_HOME;
+            try {
+                delete process.env.HAPILON_HOME;
+                const argv = buildPaneRunArgv("worker");
+                assert.strictEqual(argv[0], process.execPath);
+                assert.ok(!argv.some((a) => a.startsWith("HAPILON_HOME=")));
+            }
+            finally {
+                if (previous !== undefined)
+                    process.env.HAPILON_HOME = previous;
+            }
         });
     });
     describe("paneSplitEnvArgs()", () => {

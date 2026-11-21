@@ -725,9 +725,11 @@ describe("写入目标授权边界与提交权（真实 assemble）", () => {
     const OWNER_CAN_STAGE = "reviewed ranges explicitly by path";
     let prevHerdr;
     let prevRole;
+    let prevPane;
     before(() => {
         prevHerdr = process.env.HERDR_ENV;
         prevRole = process.env.HAPI_ORCH_ROLE;
+        prevPane = process.env.HERDR_PANE_ID;
     });
     after(() => {
         if (prevHerdr === undefined)
@@ -738,15 +740,25 @@ describe("写入目标授权边界与提交权（真实 assemble）", () => {
             delete process.env.HAPI_ORCH_ROLE;
         else
             process.env.HAPI_ORCH_ROLE = prevRole;
+        if (prevPane === undefined)
+            delete process.env.HERDR_PANE_ID;
+        else
+            process.env.HERDR_PANE_ID = prevPane;
     });
     /** 按会话形态真实组装：herdr 面板 + 角色 env，与运行时接线同路径。 */
     function assembleAs(session) {
         if (session === "plain") {
             delete process.env.HERDR_ENV;
+            delete process.env.HERDR_PANE_ID;
+            delete process.env.HC_TERMINAL_ID;
+            delete process.env.HC_TERMINAL_SOCKET;
             delete process.env.HAPI_ORCH_ROLE;
         }
         else {
             process.env.HERDR_ENV = "1";
+            process.env.HERDR_PANE_ID = "w1:t";
+            delete process.env.HC_TERMINAL_ID;
+            delete process.env.HC_TERMINAL_SOCKET;
             if (session === "owner")
                 delete process.env.HAPI_ORCH_ROLE;
             else

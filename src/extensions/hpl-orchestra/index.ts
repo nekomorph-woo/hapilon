@@ -10,12 +10,13 @@ import {
   TEAM_ACTIONS,
   updateTeamStatus,
 } from "./menu.js";
-import { herdrEnvAvailable } from "./herdr.js";
+import { isTeamCapableHost, resolveHost } from "./host.js";
 import { discardPendingThinkingSwitch, recordModelSwitch, recordOwnCompletedTasks, recordThinkingSwitch, writeBackPaneModel } from "./adaptive-facts.js";
 import { buildTeamSectionsEffect } from "./state.js";
 import { setTeamSections } from "./bridge.js";
 import { parseRoleDefSentinel } from "./role-wizard.js";
 import { getAllRoleDefs } from "./role-registry.js";
+import { registerCoreOwnerTools } from "./core-owner-tools.js";
 import { argumentCompletions } from "../../shared/argument-completion.js";
 
 /** system-prompt 组装方只消费 setStatus 能力——收窄参数面 */
@@ -45,6 +46,8 @@ const roleKeyCompletions = (query: string) =>
   argumentCompletions(getAllRoleDefs().map((d) => ({ value: d.key, label: d.key, description: d.label })), query);
 
 export default function hplOrchestra(pi: ExtensionAPI): void {
+  // core 宿主的 owner 控制工具（自开面板/清空）：TUI 宿主不注册，维持 slash 流。
+  registerCoreOwnerTools(pi);
   pi.registerCommand("team", {
     description: "Manage the herdr three-pane team",
     // handler 按 actionForArgs 匹配中文标签（menu.ts），补全值必须给标签而不是 key
@@ -54,8 +57,8 @@ export default function hplOrchestra(pi: ExtensionAPI): void {
         query,
       ),
     handler: async (args: string, ctx: ExtensionCommandContext) => {
-      if (!herdrEnvAvailable()) {
-        ctx.ui.notify("/team 仅能在 herdr 面板环境中使用。", "error");
+      if (!isTeamCapableHost()) {
+        ctx.ui.notify(`/team 需要团队宿主（herdr 面板或 herdr-core 终端）`, "error");
         return;
       }
       await handleTeamCommand(pi, args, ctx);
@@ -66,8 +69,8 @@ export default function hplOrchestra(pi: ExtensionAPI): void {
     description: "Open (or revive) a role pane at its default tier, no dialogs",
     getArgumentCompletions: roleKeyCompletions,
     handler: async (args: string, ctx: ExtensionCommandContext) => {
-      if (!herdrEnvAvailable()) {
-        ctx.ui.notify("/team:open 仅能在 herdr 面板环境中使用。", "error");
+      if (!isTeamCapableHost()) {
+        ctx.ui.notify(`/team:open 需要团队宿主（herdr 面板或 herdr-core 终端）`, "error");
         return;
       }
       const parts = args.trim().split(/\s+/).filter(Boolean);
@@ -87,8 +90,8 @@ export default function hplOrchestra(pi: ExtensionAPI): void {
     description: "Kick a role pane out of the team (role key or pane id), no dialogs",
     getArgumentCompletions: roleKeyCompletions,
     handler: async (args: string, ctx: ExtensionCommandContext) => {
-      if (!herdrEnvAvailable()) {
-        ctx.ui.notify("/team:kick 仅能在 herdr 面板环境中使用。", "error");
+      if (!isTeamCapableHost()) {
+        ctx.ui.notify(`/team:kick 需要团队宿主（herdr 面板或 herdr-core 终端）`, "error");
         return;
       }
       const target = args.trim();
@@ -104,8 +107,8 @@ export default function hplOrchestra(pi: ExtensionAPI): void {
     description: "Clear a role pane's context, no dialogs (role key or pane id)",
     getArgumentCompletions: roleKeyCompletions,
     handler: async (args: string, ctx: ExtensionCommandContext) => {
-      if (!herdrEnvAvailable()) {
-        ctx.ui.notify("/team:clear 仅能在 herdr 面板环境中使用。", "error");
+      if (!isTeamCapableHost()) {
+        ctx.ui.notify(`/team:clear 需要团队宿主（herdr 面板或 herdr-core 终端）`, "error");
         return;
       }
       const target = args.trim();
@@ -130,7 +133,7 @@ export default function hplOrchestra(pi: ExtensionAPI): void {
     setTeamSections(Effect.runSync(buildTeamSectionsEffect()));
     // 角色 pane 自己上报已完成任务（事实来源是该 pane 的任务列表；owner 不代报）
     recordOwnCompletedTasks(ctx as { model?: { provider?: string; id?: string } });
-    if (!herdrEnvAvailable()) {
+    if (!isTeamCapableHost()) {
       (ctx as unknown as StatusOnlyContext).ui.setStatus("team", undefined);
       return;
     }

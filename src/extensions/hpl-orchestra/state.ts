@@ -2,18 +2,37 @@ import { notify } from "../notify.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Data, Effect } from "effect";
+import { randomUUID } from "node:crypto";
 import { hapilonHome } from "../../config/hapilon-home.js";
 import { getAllRoleDefs, type TeamRoleDef } from "./role-registry.js";
 import { fillOrchestratorSection } from "./roles.js";
-import { herdrEnvAvailable, panePresence, type PanePresence } from "./herdr.js";
+import { panePresence, type PanePresence } from "./transport.js";
+import { hostAddress, isTeamCapableHost, resolveHost } from "./host.js";
+
+/**
+ * Role 实例的落盘 key：任务列表、prompt 文件都按它派生路径。
+ * core 宿主里终端地址在启动时才分配（且死终端重灌会换地址），因此创建实例时
+ * 先分配稳定 id，store 路径与地址解耦；TUI 实例无 roleId，回退 pane id（不变）。
+ */
+export function instanceStoreKey(instance: Pick<RoleInstance, "roleId" | "paneId">): string {
+  return instance.roleId ?? instance.paneId;
+}
+
+/** 新实例的落盘 key：创建路径在拿到宿主编址之前调用。 */
+export function newRoleId(): string {
+  return randomUUID().replaceAll("-", "").slice(0, 12);
+}
 
 export type TeamRole = string;
 
 export interface RoleInstance {
+  /** 宿主编址 id：TUI 是 herdr pane id，core 是 hc 终端 id */
   paneId: string;
+  /** 落盘 key（任务列表/prompt 文件）；core 实例在启动前分配，与地址解耦 */
+  roleId?: string;
   model: string | null;
   transient?: boolean;
-  /** 拟人名（阿岚/阿澈/…）：只用来给人看 pane 标签，保证一个团队内不重名 */
+  /** 团队花名册里的显示名；新角色用同一名字创建宿主终端。 */
   nickname?: string;
   /** 清空提交失败：该 pane 的上下文可能仍是旧的，派发前必须先补清空。 */
   clearPending?: boolean;
@@ -39,6 +58,8 @@ export interface TeamState {
   roles: RoleEntry[];
   /** 团队名（随机好玩的那种，如「摸鱼突击队」）：写进 owner pane 的 herdr 标签 */
   name?: string;
+  /** 宿主种类：缺席 = TUI（herdr 面板）；"core" = herdr-core 终端宿主 */
+  host?: "core";
 }
 
 export interface DisabledTeamState {
@@ -87,6 +108,7 @@ const isRoleInstance = (value: unknown): value is RoleInstance => {
   const instance = value as Record<string, unknown>;
   return typeof instance.paneId === "string"
     && (typeof instance.model === "string" || instance.model === null)
+    && (instance.roleId === undefined || typeof instance.roleId === "string")
     && (instance.transient === undefined || typeof instance.transient === "boolean")
     && (instance.nickname === undefined || typeof instance.nickname === "string")
     && (instance.clearPending === undefined || typeof instance.clearPending === "boolean");
@@ -118,6 +140,7 @@ const isTeamState = (value: unknown, defs: readonly TeamRoleDef[]): value is Tea
   if (ownerRecord.session !== undefined && typeof ownerRecord.session !== "string") return false;
   if (ownerRecord.nickname !== undefined && typeof ownerRecord.nickname !== "string") return false;
   if (state.name !== undefined && typeof state.name !== "string") return false;
+  if (state.host !== undefined && state.host !== "core") return false;
   if (!Array.isArray(roles) || !roles.every((entry) => isRoleEntry(entry, defs))) return false;
   return new Set(roles.map((entry) => entry.key)).size === roles.length;
 };
@@ -134,17 +157,17 @@ export function teamsDir(): string {
   return join(hapilonHome(), "teams");
 }
 
-/** transient 角色 prompt 落盘路径（pane id 派生，revive 无需另行存储）。 */
-export function rolePromptPathFor(paneId: string): string {
-  return join(teamsDir(), `${paneId.replaceAll(":", "_")}.prompt`);
+/** transient 角色 prompt 落盘路径（实例 store key 派生，revive 无需另行存储）。 */
+export function rolePromptPathFor(storeKey: string): string {
+  return join(teamsDir(), `${storeKey.replaceAll(":", "_")}.prompt`);
 }
 
 /**
  * 角色 pane 自己的 pi-tasks 任务列表路径（pane id 派生，与 rolePromptPathFor 同款）。
  * 一个 role 一份列表：不共享、不聚合，owner 想看得走 team-status。
  */
-export function teamTasksPathFor(paneId: string): string {
-  return join(teamsDir(), `${paneId.replaceAll(":", "_")}.tasks.json`);
+export function teamTasksPathFor(storeKey: string): string {
+  return join(teamsDir(), `${storeKey.replaceAll(":", "_")}.tasks.json`);
 }
 
 /** 任务档案根目录；每任务一子目录，见 planTaskDirFor */
@@ -159,9 +182,18 @@ export function planTaskDirFor(slug: string): string {
  * 状态文件按主面板 herdr pane id 绑定（并行编排天然隔离；主面板 /new
  * 换会话不受影响）。冒号是 pane id 分隔符，转下划线。
  */
-export function resolveSessionStatePath(ownerPaneId?: string): string {
-  const pane = ownerPaneId ?? process.env.HERDR_PANE_ID ?? "";
-  return join(teamsDir(), `${pane.replaceAll(":", "_")}.json`);
+/**
+ * 状态文件按 owner 编址 id 绑定，并按宿主命名空间隔离：TUI 是
+ * `<pane>.json`，core 是 `core-<terminal>.json`——两族文件互不认领，
+ * 跨宿主接管被 candidates 过滤挡下，不会写错命名空间。
+ */
+export function resolveSessionStatePath(ownerAddress?: string): string {
+  const host = resolveHost();
+  const prefix = host.kind === "core"
+    ? `core-${host.namespace ? `${host.namespace.replaceAll(":", "_")}-` : ""}`
+    : "";
+  const address = ownerAddress ?? hostAddress(host) ?? "";
+  return join(teamsDir(), `${prefix}${address.replaceAll(":", "_")}.json`);
 }
 
 export function currentRole(defs: readonly TeamRoleDef[] = getAllRoleDefs()): TeamRole | undefined {
@@ -174,7 +206,7 @@ export function currentRole(defs: readonly TeamRoleDef[] = getAllRoleDefs()): Te
   }
   // 自定义定义可能在角色面板仍存活时被删除；该 pane 仍应保持角色
   // prompt，而不是因缺失 registry 定义退回 orchestrator。
-  const paneId = process.env.HERDR_PANE_ID;
+  const paneId = hostAddress();
   if (!paneId || !existsSync(teamsDir())) return undefined;
   try {
     const roleState = findTeamStateForPane(paneId, defs);
@@ -359,14 +391,19 @@ export const deleteTeamStateEffect = (path?: string): Effect.Effect<boolean, nev
 
 export function isTeamOwner(state: ReadTeamState, defs?: readonly TeamRoleDef[]): boolean {
   if (!("roles" in state) || !isTeamState(state, defs ?? getAllRoleDefs())) return false;
-  const paneId = process.env.HERDR_PANE_ID;
-  return Boolean(paneId) && state.owner.paneId === paneId;
+  // 宿主一致性：core 状态文件只能被 core 宿主认领（TUI 状态文件反之），
+  // 跨宿主的地址即便相同也不是同一个面板。
+  const host = resolveHost();
+  if (host.kind === "none") return false;
+  if ((state.host === "core") !== (host.kind === "core")) return false;
+  const address = hostAddress(host);
+  return Boolean(address) && state.owner.paneId === address;
 }
 
 /** Read the state on every prompt build; this intentionally has no module cache. */
 export const buildTeamSectionsEffect = (): Effect.Effect<TeamSections, never> => Effect.try({
   try: () => {
-    if (!herdrEnvAvailable()) return {};
+    if (!isTeamCapableHost()) return {};
 
     const defs = getAllRoleDefs();
     const role = currentRole(defs);
@@ -432,7 +469,7 @@ export const buildTeamSectionsEffect = (): Effect.Effect<TeamSections, never> =>
         })
         .map((key) => ({ key, paneId: "not open" })),
     );
-    return { orchestrator: fillOrchestratorSection(crew) };
+    return { orchestrator: fillOrchestratorSection(crew, state.host === "core" ? "core" : undefined) };
   },
   catch: (error) => new TeamStateError({
     message: error instanceof Error ? error.message : String(error),

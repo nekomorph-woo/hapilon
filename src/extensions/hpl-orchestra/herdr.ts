@@ -433,6 +433,28 @@ export function buildPaneRunCommand(
   return command.join(" ");
 }
 
+/**
+ * 与 buildPaneRunCommand 同一命令的 argv 形态：core 宿主经 `hc run --bg` 直接以
+ * argv 拉起 hapi（不经 shell、不经 send，避开包装层对文本的改写）。
+ */
+export function buildPaneRunArgv(
+  role: string,
+  model?: string,
+  promptFile?: string,
+  tasksPath?: string,
+): string[] {
+  // 不经 shell，env 只能拼进 argv 前缀（/usr/bin/env 是绝对路径，不依赖 PATH）。
+  const home = process.env.HAPILON_HOME;
+  const argv = home
+    ? ["/usr/bin/env", `HAPILON_HOME=${home}`, process.execPath, hapilonCliPath() ?? "UNKNOWN_HAPILON_CLI"]
+    : [process.execPath, hapilonCliPath() ?? "UNKNOWN_HAPILON_CLI"];
+  if (role) argv.push("--team-role", role);
+  if (role && tasksPath) argv.push("--team-tasks", tasksPath);
+  if (promptFile) argv.push("--team-role-prompt-file", promptFile);
+  if (model) argv.push("--model", model);
+  return argv;
+}
+
 /** pane split 仅注入配置（HAPILON_HOME）；身份类变量一律走 paneRun 命令行。 */
 export function paneSplitEnvArgs(): string[] {
   const home = process.env.HAPILON_HOME;

@@ -7,7 +7,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { agentPrompt, defaultSpawn, paneAgentAlive } from "./herdr.js";
+import { defaultSpawn } from "./herdr.js";
+import { paneAgentAlive, paneNotify } from "./transport.js";
+import { hostAddress } from "./host.js";
+import { instanceStoreKey } from "./state.js";
 import { allInstances, findTeamStateForPane, isTeamOwner, readTeamState, teamTasksPathFor } from "./state.js";
 import { sampleAgentStateEffect } from "./agent-state.js";
 import { briefDirOf, readTaskStoreEffect, taskLabel, taskUpdatedAt } from "./team-tasks.js";
@@ -62,7 +65,7 @@ export function paneHeaderLine(who, state, clearPending, report) {
 function paneLines(key, instance, spawn) {
     const paneId = instance.paneId;
     const who = `${key} ${paneId}${instance.nickname ? ` ${instance.nickname}` : ""}`;
-    const { tasks, error } = readStore(teamTasksPathFor(paneId));
+    const { tasks, error } = readStore(teamTasksPathFor(instanceStoreKey(instance)));
     const reportFile = REPORT_FILES[key];
     const current = currentTaskOf(tasks);
     const currentDir = current ? briefDirOf(current) : undefined;
@@ -123,9 +126,10 @@ export function runTeamStatusCommand(_args, spawn = defaultSpawn) {
  * 退出码 0 已投递 / 2 不属于任何团队 / 3 herdr 投递失败。
  */
 export function runWakeOwnerCommand(args, spawn = defaultSpawn) {
-    const paneId = process.env.HERDR_PANE_ID;
+    // 发送方身份随宿主：TUI 是 herdr pane id，core 是 hc 终端 id。
+    const paneId = hostAddress();
     if (!paneId) {
-        console.error("[wake-owner] 缺少 HERDR_PANE_ID，无法确定发送方。");
+        console.error("[wake-owner] 当前宿主没有团队地址（HERDR_PANE_ID / HC_TERMINAL_ID 皆缺），无法确定发送方。");
         return WAKE_OWNER_EXIT.noTeam;
     }
     const state = findTeamStateForPane(paneId);
@@ -138,10 +142,12 @@ export function runWakeOwnerCommand(args, spawn = defaultSpawn) {
     const text = `[${instance?.nickname ?? paneId} ${paneId}] ${message}`;
     const ownerPane = state.owner.paneId;
     if (!Effect.runSync(paneAgentAlive(ownerPane, spawn))) {
-        console.error(`[wake-owner] owner 面板 ${ownerPane} 不可用，未投递。`);
+        console.error(`[wake-owner] owner ${ownerPane} 不可用，未投递。`);
         return WAKE_OWNER_EXIT.herdr;
     }
-    if (!Effect.runSync(agentPrompt(ownerPane, text, spawn))) {
+    // 投递通道随宿主分流：TUI 是 herdr pane run；core 是 hc send --if idle
+    // （owner 非 idle 被拒即失败，不盲目重试——working 的 owner 该等它空闲）。
+    if (!Effect.runSync(paneNotify(ownerPane, text, spawn))) {
         console.error(`[wake-owner] 向 ${ownerPane} 投递失败，未送达。`);
         return WAKE_OWNER_EXIT.herdr;
     }

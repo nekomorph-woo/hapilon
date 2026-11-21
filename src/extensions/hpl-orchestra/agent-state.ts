@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { Effect } from "effect";
-import { agentGet, defaultSpawn, paneAgentAlive, paneRead, type AgentStatus, type SpawnFn } from "./herdr.js";
+import { defaultSpawn, type AgentStatus, type SpawnFn } from "./herdr.js";
+import { agentGet, paneAgentAlive, paneRead } from "./transport.js";
 
 /**
  * 状态判定与展示分离：本模块只出状态，按键/代答由 orchestrator LLM 执行（代码不按键）。

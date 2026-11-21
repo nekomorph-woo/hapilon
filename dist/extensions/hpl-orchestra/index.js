@@ -1,12 +1,13 @@
 import { notify } from "../notify.js";
 import { Effect } from "effect";
 import { assistantMessageText, completePendingRole, getPendingRoleWizard, handlePendingUserMessage, handleTeamCommand, TEAM_ACTIONS, updateTeamStatus, } from "./menu.js";
-import { herdrEnvAvailable } from "./herdr.js";
+import { isTeamCapableHost } from "./host.js";
 import { discardPendingThinkingSwitch, recordModelSwitch, recordOwnCompletedTasks, recordThinkingSwitch, writeBackPaneModel } from "./adaptive-facts.js";
 import { buildTeamSectionsEffect } from "./state.js";
 import { setTeamSections } from "./bridge.js";
 import { parseRoleDefSentinel } from "./role-wizard.js";
 import { getAllRoleDefs } from "./role-registry.js";
+import { registerCoreOwnerTools } from "./core-owner-tools.js";
 import { argumentCompletions } from "../../shared/argument-completion.js";
 /**
  * 程序化恢复期间抑制偏好事报。pi 的 setModel 无论 persist 与否都会发 model_select
@@ -19,13 +20,15 @@ let savedPanePreference;
 /** role key 候选（内置 + 自定义）；kick/clear 还接受 pane id，自由文本不补。 */
 const roleKeyCompletions = (query) => argumentCompletions(getAllRoleDefs().map((d) => ({ value: d.key, label: d.key, description: d.label })), query);
 export default function hplOrchestra(pi) {
+    // core 宿主的 owner 控制工具（自开面板/清空）：TUI 宿主不注册，维持 slash 流。
+    registerCoreOwnerTools(pi);
     pi.registerCommand("team", {
         description: "Manage the herdr three-pane team",
         // handler 按 actionForArgs 匹配中文标签（menu.ts），补全值必须给标签而不是 key
         getArgumentCompletions: (query) => argumentCompletions(Object.values(TEAM_ACTIONS).map((label) => ({ value: label, label })), query),
         handler: async (args, ctx) => {
-            if (!herdrEnvAvailable()) {
-                ctx.ui.notify("/team 仅能在 herdr 面板环境中使用。", "error");
+            if (!isTeamCapableHost()) {
+                ctx.ui.notify(`/team 需要团队宿主（herdr 面板或 herdr-core 终端）`, "error");
                 return;
             }
             await handleTeamCommand(pi, args, ctx);
@@ -35,8 +38,8 @@ export default function hplOrchestra(pi) {
         description: "Open (or revive) a role pane at its default tier, no dialogs",
         getArgumentCompletions: roleKeyCompletions,
         handler: async (args, ctx) => {
-            if (!herdrEnvAvailable()) {
-                ctx.ui.notify("/team:open 仅能在 herdr 面板环境中使用。", "error");
+            if (!isTeamCapableHost()) {
+                ctx.ui.notify(`/team:open 需要团队宿主（herdr 面板或 herdr-core 终端）`, "error");
                 return;
             }
             const parts = args.trim().split(/\s+/).filter(Boolean);
@@ -55,8 +58,8 @@ export default function hplOrchestra(pi) {
         description: "Kick a role pane out of the team (role key or pane id), no dialogs",
         getArgumentCompletions: roleKeyCompletions,
         handler: async (args, ctx) => {
-            if (!herdrEnvAvailable()) {
-                ctx.ui.notify("/team:kick 仅能在 herdr 面板环境中使用。", "error");
+            if (!isTeamCapableHost()) {
+                ctx.ui.notify(`/team:kick 需要团队宿主（herdr 面板或 herdr-core 终端）`, "error");
                 return;
             }
             const target = args.trim();
@@ -71,8 +74,8 @@ export default function hplOrchestra(pi) {
         description: "Clear a role pane's context, no dialogs (role key or pane id)",
         getArgumentCompletions: roleKeyCompletions,
         handler: async (args, ctx) => {
-            if (!herdrEnvAvailable()) {
-                ctx.ui.notify("/team:clear 仅能在 herdr 面板环境中使用。", "error");
+            if (!isTeamCapableHost()) {
+                ctx.ui.notify(`/team:clear 需要团队宿主（herdr 面板或 herdr-core 终端）`, "error");
                 return;
             }
             const target = args.trim();
@@ -93,7 +96,7 @@ export default function hplOrchestra(pi) {
         setTeamSections(Effect.runSync(buildTeamSectionsEffect()));
         // 角色 pane 自己上报已完成任务（事实来源是该 pane 的任务列表；owner 不代报）
         recordOwnCompletedTasks(ctx);
-        if (!herdrEnvAvailable()) {
+        if (!isTeamCapableHost()) {
             ctx.ui.setStatus("team", undefined);
             return;
         }

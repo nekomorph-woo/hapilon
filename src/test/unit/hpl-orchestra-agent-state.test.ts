@@ -121,6 +121,14 @@ function makeContext(selections: string[] = []) {
   return { ctx: ctx as never, notices };
 }
 
+
+// 本文件模拟 TUI 宿主：core 身份变量（实测会话可能自带）一并清掉，
+// 否则歧义守卫把宿主判 none，探活/清空等传输被拒。
+const CORE_ID_VARS = ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET"] as const;
+function clearCoreIdentity(): void {
+  for (const key of CORE_ID_VARS) delete process.env[key];
+}
+
 const originalEnv = {
   home: process.env.HAPILON_HOME,
   herdr: process.env.HERDR_ENV,
@@ -134,6 +142,8 @@ before(() => {
   home = mkdtempSync(join(tmpdir(), "hapilon-agent-state-test-"));
   process.env.HAPILON_HOME = home;
   process.env.HERDR_ENV = "1";
+  clearCoreIdentity();
+  clearCoreIdentity();
   process.env.HERDR_PANE_ID = "w1:p7";
   delete process.env.HAPI_ORCH_ROLE;
 });
@@ -150,6 +160,7 @@ after(() => {
   else process.env.HAPILON_HOME = originalEnv.home;
   if (originalEnv.herdr === undefined) delete process.env.HERDR_ENV;
   else process.env.HERDR_ENV = originalEnv.herdr;
+  // core 身份变量从未改过，无需恢复
   if (originalEnv.pane === undefined) delete process.env.HERDR_PANE_ID;
   else process.env.HERDR_PANE_ID = originalEnv.pane;
   if (originalEnv.role === undefined) delete process.env.HAPI_ORCH_ROLE;

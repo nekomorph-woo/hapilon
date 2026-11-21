@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { Effect } from "effect";
-import { agentGet, defaultSpawn, paneAgentAlive, paneRead } from "./herdr.js";
+import { defaultSpawn } from "./herdr.js";
+import { agentGet, paneAgentAlive, paneRead } from "./transport.js";
 /**
  * 弹窗标记的单一出处：pi 升级改文案只动这里。命中任一即视为「人机交互弹窗」。
  * ask_user：question-view.ts / submit-view.ts 底部提示行；

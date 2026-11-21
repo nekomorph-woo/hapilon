@@ -12,11 +12,15 @@ import { readTeamState, resolveSessionStatePath, setPaneClearPendingEffect, team
 const ownerPane = "w9:p7";
 const workerPane = "w9:p8";
 let home;
-const originalEnv = { home: process.env.HAPILON_HOME, pane: process.env.HERDR_PANE_ID };
+const originalEnv = { home: process.env.HAPILON_HOME, pane: process.env.HERDR_PANE_ID, herdr: process.env.HERDR_ENV };
 before(() => {
+    for (const k of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET"])
+        delete process.env[k];
     home = mkdtempSync(join(tmpdir(), "hapilon-team-clear-test-"));
     process.env.HAPILON_HOME = home;
     process.env.HERDR_PANE_ID = ownerPane;
+    // team 传输按宿主分流：本文件模拟 herdr 面板（TUI）宿主
+    process.env.HERDR_ENV = "1";
 });
 after(() => {
     if (originalEnv.home === undefined)
@@ -27,6 +31,10 @@ after(() => {
         delete process.env.HERDR_PANE_ID;
     else
         process.env.HERDR_PANE_ID = originalEnv.pane;
+    if (originalEnv.herdr === undefined)
+        delete process.env.HERDR_ENV;
+    else
+        process.env.HERDR_ENV = originalEnv.herdr;
     rmSync(home, { recursive: true, force: true });
 });
 beforeEach(() => {
@@ -113,6 +121,24 @@ describe("promptOutcomeFromErrorCode", () => {
     });
 });
 describe("submitClear", () => {
+    it("Core 空闲角色只经 hc 提交 /new，不调用 Herdr TUI", async () => {
+        const previous = process.env.HC_TERMINAL_ID;
+        delete process.env.HERDR_ENV;
+        process.env.HC_TERMINAL_ID = "t1";
+        const { spawn, calls } = makeSpawn();
+        try {
+            assert.equal(await submitClear("t2", spawn), "submitted");
+            assert.ok(calls.some((args) => args.join(" ") === "keys t2 / n e w enter"));
+            assert.ok(calls.every((args) => args[0] === "read" || args[0] === "keys"));
+        }
+        finally {
+            process.env.HERDR_ENV = "1";
+            if (previous === undefined)
+                delete process.env.HC_TERMINAL_ID;
+            else
+                process.env.HC_TERMINAL_ID = previous;
+        }
+    });
     it("agent 级接受时提交成功，不走 pane 级", async () => {
         const { spawn, calls } = makeSpawn();
         assert.equal(await submitClear(workerPane, spawn), "submitted");

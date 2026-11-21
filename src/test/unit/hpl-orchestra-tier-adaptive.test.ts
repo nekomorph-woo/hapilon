@@ -31,6 +31,14 @@ import type { SpawnFn } from "../../extensions/hpl-orchestra/herdr.js";
 import { appendAdaptiveEvent, readAdaptiveEvents } from "../../extensions/hpl-model-tiers/adaptive-events.js";
 import { writeQuotaSnapshot } from "../../extensions/hpl-quota-usage/cache.js";
 
+
+// 本文件模拟 TUI 宿主：core 身份变量（实测会话可能自带）一并清掉，
+// 否则歧义守卫把宿主判 none，探活/清空等传输被拒。
+const CORE_ID_VARS = ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET"] as const;
+function clearCoreIdentity(): void {
+  for (const key of CORE_ID_VARS) delete process.env[key];
+}
+
 const originalEnv = {
   home: process.env.HAPILON_HOME,
   cache: process.env["HAPILON_QUOTA_CACHE"],
@@ -47,6 +55,7 @@ before(() => {
   process.env.HAPILON_HOME = home;
   process.env["HAPILON_QUOTA_CACHE"] = join(home, "quota-cache.json");
   process.env.HERDR_ENV = "1";
+  clearCoreIdentity();
   process.env.HERDR_PANE_ID = "w1:p7";
   process.env.HAPILON_CLI_PATH = "/fake/dist/cli.js";
   delete process.env.HAPI_ORCH_ROLE;

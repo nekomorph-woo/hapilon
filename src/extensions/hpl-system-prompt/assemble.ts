@@ -41,6 +41,7 @@ import { hapilonHome } from "../../config/hapilon-home.js";
 import { getAddedDirs } from "../hpl-add-dir/bridge.js";
 import { buildContextInjection } from "../hpl-add-dir/context.js";
 import { buildTeamRoleSection, MISSING_ROLE_SECTION } from "../hpl-orchestra/roles.js";
+import { resolveHost } from "../hpl-orchestra/host.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -387,7 +388,9 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   // 不变量（review-r3 N2）：HAPI_ORCH_ROLE 非空的面板永远不落回 orchestrator 段——
   // 即使它的角色定义与状态文件都被删除，也只能拿到 MISSING_ROLE_SECTION。
   const hasRoleEnv = Boolean(process.env.HAPI_ORCH_ROLE);
-  const teamSection = process.env.HERDR_ENV !== "1"
+  // 团队段随宿主张开：herdr 面板（TUI）与 herdr-core 终端（core）都注入，
+  // 段内容里的传输路由由 fillOrchestratorSection 按宿主专属表填充。
+  const teamSection = resolveHost().kind === "none"
     ? ""
     : hasRoleEnv || team?.role
       ? (buildTeamRoleSection(team?.role ?? (process.env.HAPI_ORCH_ROLE as string)) ?? MISSING_ROLE_SECTION)

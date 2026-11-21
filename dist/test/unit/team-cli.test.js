@@ -15,11 +15,15 @@ const originalEnv = {
     home: process.env.HAPILON_HOME,
     pane: process.env.HERDR_PANE_ID,
     role: process.env.HAPI_ORCH_ROLE,
+    herdr: process.env.HERDR_ENV,
 };
 before(() => {
+    for (const k of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET"])
+        delete process.env[k];
     home = mkdtempSync(join(tmpdir(), "hapilon-team-cli-test-"));
     process.env.HAPILON_HOME = home;
     process.env.HERDR_PANE_ID = ownerPane;
+    process.env.HERDR_ENV = "1"; // team 传输按宿主分流：本文件模拟 herdr 面板宿主
     delete process.env.HAPI_ORCH_ROLE;
 });
 after(() => {
@@ -35,6 +39,10 @@ after(() => {
         delete process.env.HAPI_ORCH_ROLE;
     else
         process.env.HAPI_ORCH_ROLE = originalEnv.role;
+    if (originalEnv.herdr === undefined)
+        delete process.env.HERDR_ENV;
+    else
+        process.env.HERDR_ENV = originalEnv.herdr;
     rmSync(home, { recursive: true, force: true });
 });
 beforeEach(() => {
@@ -211,15 +219,18 @@ describe("hapi wake-owner", { concurrency: false }, () => {
         // 回归：两段式 send-text + send-keys 的 enter 会被 bracketed-paste 吞掉，投递必须走 pane run 原子提交
         assert.equal(calls.find((call) => call.args[1] === "send-text" || call.args[1] === "send-keys"), undefined);
     });
-    it("没有 HERDR_PANE_ID / 不属于任何团队 → 退出 2", () => {
+    it("没有宿主地址 / 不属于任何团队 → 退出 2", () => {
+        delete process.env.HERDR_ENV;
         saveState();
         delete process.env.HERDR_PANE_ID;
         assert.equal(capture(() => runWakeOwnerCommand([], makeSpawn().spawn)).code, WAKE_OWNER_EXIT.noTeam);
+        process.env.HERDR_ENV = "1"; // 上一段删了宿主环境；这里要测的是「面板不属于任何团队」
         process.env.HERDR_PANE_ID = "w1:pBogus";
         const { code, errors } = capture(() => runWakeOwnerCommand([], makeSpawn().spawn));
         assert.equal(code, WAKE_OWNER_EXIT.noTeam);
         assert.match(errors.join("\n"), /不属于任何团队/);
         process.env.HERDR_PANE_ID = workerPane;
+        process.env.HERDR_ENV = "1"; // 上一段删了宿主环境，恢复给后续用例
     });
     it("owner pane 已不可用 → 退出 3", () => {
         saveState();
@@ -227,6 +238,6 @@ describe("hapi wake-owner", { concurrency: false }, () => {
         const { spawn } = makeSpawn({ alivePanes: [workerPane] });
         const { code, errors } = capture(() => runWakeOwnerCommand([], spawn));
         assert.equal(code, WAKE_OWNER_EXIT.herdr);
-        assert.match(errors.join("\n"), /owner 面板 w1:p7 不可用/);
+        assert.match(errors.join("\n"), /owner w1:p7 不可用/);
     });
 });
