@@ -378,21 +378,36 @@ export const PATCH_RULES: readonly PatchRule[] = [
     occurrences: 1,
     marker: HAPI_PONYTAIL_COMMENTS_MARKER,
   },
-  // ── 状态行追加不覆盖：pi 的 showStatus 对连续状态就地替换（防刷屏），扩展经
-  //    ctx.ui.notify 发的多条提示会互相顶掉。去掉替换分支后每条通知各占一行；
-  //    pi 自身的状态提示（Switched to… 等）同样改为追加。
+  // 状态行改为追加后，每条主题文本须捕获自己的消息，避免重绘时都显示末条。
   {
     file: "dist/modes/interactive/interactive-mode.js",
-    find: "        if (last && secondLast && last === this.lastStatusText && secondLast === this.lastStatusSpacer) {\n            this.lastStatusMessage = message;\n            this.lastStatusText.invalidate();\n            this.ui.requestRender();\n            return;\n        }\n",
-    replace: "        // hapilon: 状态行追加不覆盖（hapiStatusStack）\n",
+    find: "    showStatus(message) {\n"
+      + "        const children = this.chatContainer.children;\n"
+      + "        const last = children.length > 0 ? children[children.length - 1] : undefined;\n"
+      + "        const secondLast = children.length > 1 ? children[children.length - 2] : undefined;\n"
+      + "        if (last && secondLast && last === this.lastStatusText && secondLast === this.lastStatusSpacer) {\n"
+      + "            this.lastStatusMessage = message;\n"
+      + "            this.lastStatusText.invalidate();\n"
+      + "            this.ui.requestRender();\n"
+      + "            return;\n"
+      + "        }\n"
+      + "        const spacer = new Spacer(1);\n"
+      + "        this.lastStatusMessage = message;\n"
+      + '        const text = new ThemedText(() => theme.fg("dim", this.lastStatusMessage), 1, 0);',
+    replace: "    showStatus(message) {\n"
+      + "        // hapilon: hapiStatusStack\n"
+      + "        const spacer = new Spacer(1);\n"
+      + '        const text = new ThemedText(() => theme.fg("dim", message), 1, 0);',
     occurrences: 1,
     marker: HAPI_STATUS_STACK_MARKER,
   },
   {
     file: PI_BUNDLE_CHUNKS,
     signature: "lastStatusSpacer",
-    find: 'if(last&&secondLast&&last===this.lastStatusText&&secondLast===this.lastStatusSpacer){this.lastStatusMessage=message,this.lastStatusText.invalidate(),this.ui.requestRender();return}',
-    replace: "/*hapilon:状态行追加不覆盖(hapiStatusStack)*/",
+    find: 'showStatus(message){let children=this.chatContainer.children,last=children.length>0?children[children.length-1]:void 0,secondLast=children.length>1?children[children.length-2]:void 0;'
+      + 'if(last&&secondLast&&last===this.lastStatusText&&secondLast===this.lastStatusSpacer){this.lastStatusMessage=message,this.lastStatusText.invalidate(),this.ui.requestRender();return}'
+      + 'let spacer=new Spacer(1);this.lastStatusMessage=message;let text=new ThemedText(()=>theme.fg("dim",this.lastStatusMessage),1,0);',
+    replace: 'showStatus(message){/*hapilon:hapiStatusStack*/let spacer=new Spacer(1),text=new ThemedText(()=>theme.fg("dim",message),1,0);',
     occurrences: 1,
     marker: HAPI_STATUS_STACK_MARKER,
   },
@@ -504,9 +519,9 @@ export const PATCH_RULES: readonly PatchRule[] = [
   {
     file: PI_BUNDLE_CHUNKS,
     signature: "hiddenThinkingLabel",
-    find: "render(width){let lines=super.render(width);return this.hasToolCalls",
+    find: "render(width){let lines=super.render(width);if(this.hasToolCalls",
     replace:
-      "render(width){globalThis.__hapiThinkingTick?.(this);let lines=super.render(width);return this.hasToolCalls",
+      "render(width){globalThis.__hapiThinkingTick?.(this);let lines=super.render(width);if(this.hasToolCalls",
     occurrences: 1,
     marker: HAPI_THINKING_TICK_MARKER,
   },
