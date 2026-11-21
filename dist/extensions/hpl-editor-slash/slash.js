@@ -12,17 +12,6 @@ export function midTextSlashFragment(line, cursorCol) {
     const match = /(?:^|\s)\/([\w:.:-]*)$/.exec(before);
     return match ? match[1] : null;
 }
-function toItem(entry) {
-    if (typeof entry.value === "string") {
-        return { value: entry.value, label: entry.label ?? entry.value, description: entry.description };
-    }
-    const name = entry.name ?? "";
-    return {
-        value: name,
-        label: entry.argumentHint ? `${name} ${entry.argumentHint}` : entry.label ?? name,
-        description: entry.description,
-    };
-}
 export function extractNames(commands) {
     const names = new Set();
     for (const entry of commands ?? []) {
@@ -36,23 +25,26 @@ export function extractNames(commands) {
     return names;
 }
 /**
- * 包装内置 provider:中段 slash 片段(空白为界)命令优先 —— 内置会把它当路径
- * 返回文件建议(唯一中段门槛 beforePrefix.trim()==="" 挡不住路径分支);行首
- * 片段仍归内置(原行为不变),其余场景原样委托。
+ * 包装内置 provider:中段 slash 片段(空白为界)借道内置行首分支 —— 把片段改写到
+ * 行首后委托(force:false 触发其自然路径)，模糊命中、skill 裸名、参数提示与行首
+ * 完全同语义，不用本地过滤重造一套；行首/其余场景原样委托。落词仍由本 wrapper
+ * 接住中段命令(内置按 beforePrefix 判行首会拒掉)。
  */
 export function wrapAutocomplete(current) {
     return {
         async getSuggestions(lines, cursorLine, cursorCol, options) {
-            const fragment = midTextSlashFragment(lines[cursorLine] ?? "", cursorCol);
+            const line = lines[cursorLine] ?? "";
+            const fragment = midTextSlashFragment(line, cursorCol);
             const slashIndex = fragment === null ? -1 : cursorCol - fragment.length - 1;
             if (fragment === null || slashIndex === 0) {
                 return current.getSuggestions(lines, cursorLine, cursorCol, options);
             }
-            const query = fragment.toLowerCase();
-            const items = (current.commands ?? [])
-                .map(toItem)
-                .filter((item) => item.value.toLowerCase().startsWith(query));
-            return items.length > 0 ? { items, prefix: `/${fragment}` } : null;
+            const doctored = [...lines];
+            doctored[cursorLine] = `/${fragment}`;
+            return current.getSuggestions(doctored, cursorLine, fragment.length + 1, {
+                signal: options.signal,
+                force: false,
+            });
         },
         applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
             const line = lines[cursorLine] ?? "";

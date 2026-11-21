@@ -4,10 +4,12 @@ import { colorizeLine, extractNames, isMidTextSlashBefore, midTextSlashFragment,
 const ABORT = new AbortController().signal;
 function makeCurrent(commands, builtin = null) {
     const calls = { suggestions: 0, apply: 0 };
+    let lastArgs;
     const current = {
         commands,
-        async getSuggestions() {
+        async getSuggestions(lines, cursorLine, cursorCol, options) {
             calls.suggestions++;
+            lastArgs = { lines, cursorLine, cursorCol, force: options.force };
             return builtin ? { items: builtin, prefix: "/x" } : null;
         },
         applyCompletion(lines, cursorLine, cursorCol) {
@@ -15,7 +17,7 @@ function makeCurrent(commands, builtin = null) {
             return { lines, cursorLine, cursorCol };
         },
     };
-    return { current, calls };
+    return { current, calls, lastArgs: () => lastArgs };
 }
 describe("midTextSlashFragment()", () => {
     it("中段(逗号后)识别", () => {
@@ -46,53 +48,42 @@ describe("wrapAutocomplete()", () => {
         assert.deepEqual(result?.items, [builtinItem]);
         assert.equal(calls.suggestions, 1);
     });
-    it("内置 null 且中段 slash → 从命令表生成", async () => {
-        const { current, calls } = makeCurrent([
-            { name: "team", description: "Team" },
-            { name: "team:open", argumentHint: "<key>" },
-            { name: "exit" },
-        ]);
+    it("内置 null 且中段 slash → 借道内置行首分支(改写行文本+force:false)", async () => {
+        const { current, calls, lastArgs } = makeCurrent([{ name: "team" }]);
         const wrapped = wrapAutocomplete(current);
         const before = "需求, /te";
         const result = await wrapped.getSuggestions([before], 0, before.length, { signal: ABORT });
-        assert.equal(calls.suggestions, 0, "中段不委托内置(内置会误当路径)");
-        assert.deepEqual(result, {
-            prefix: "/te",
-            items: [
-                { value: "team", label: "team", description: "Team" },
-                { value: "team:open", label: "team:open <key>", description: undefined },
-            ],
-        });
+        assert.equal(calls.suggestions, 1, "中段委托内置(模糊命中与 skill 裸名语义复用行首)");
+        assert.deepEqual(lastArgs(), { lines: ["/te"], cursorLine: 0, cursorCol: 3, force: false });
+        assert.equal(result, null, "内置 null 原样透传");
     });
-    it("中段 slash 无匹配命令 → null(不出空弹窗)", async () => {
+    it("中段 slash 无匹配命令 → 内置 null 透传(不出空弹窗)", async () => {
         const { current } = makeCurrent([{ name: "team" }]);
         const wrapped = wrapAutocomplete(current);
         const before = "需求, /zz";
         const result = await wrapped.getSuggestions([before], 0, before.length, { signal: ABORT });
         assert.equal(result, null);
     });
-    it("中段 slash 命令优先:即使内置返回了文件建议也拦截", async () => {
-        const { current, calls } = makeCurrent([{ name: "team" }], [{ value: "/team-dir", label: "team-dir" }]);
+    it("中段 slash → 内置返回的建议与 prefix 原样透传", async () => {
+        const builtinItem = { value: "team", label: "team" };
+        const { current } = makeCurrent([{ name: "team" }], [builtinItem]);
         const wrapped = wrapAutocomplete(current);
         const before = "需求, /te";
         const result = await wrapped.getSuggestions([before], 0, before.length, { signal: ABORT });
-        assert.deepEqual(result, { prefix: "/te", items: [{ value: "team", label: "team", description: undefined }] });
-        assert.equal(calls.suggestions, 0, "中段不委托内置(内置会误当路径)");
+        assert.deepEqual(result, { items: [builtinItem], prefix: "/x" });
     });
-    it("空片段(/ 刚打完)返回全部命令", async () => {
-        const { current } = makeCurrent([{ name: "team" }, { name: "exit" }]);
+    it("空片段(/ 刚打完)同样借道行首分支", async () => {
+        const { current, lastArgs } = makeCurrent([{ name: "team" }], []);
         const wrapped = wrapAutocomplete(current);
-        const result = await wrapped.getSuggestions(["需求, /"], 0, 6, { signal: ABORT });
-        assert.equal(result?.items.length, 2);
-        assert.equal(result?.prefix, "/");
+        await wrapped.getSuggestions(["需求, /"], 0, 6, { signal: ABORT });
+        assert.deepEqual(lastArgs(), { lines: ["/"], cursorLine: 0, cursorCol: 1, force: false });
     });
-    it("空片段不截断超过内置命令数量的扩展命令", async () => {
-        const commands = Array.from({ length: 24 }, (_, index) => ({ name: `builtin-${index}` }));
-        commands.push({ name: "team" });
-        const { current } = makeCurrent(commands);
+    it("无片段(非 slash 文本)原样委托,不改写参数", async () => {
+        const { current, calls, lastArgs } = makeCurrent([{ name: "team" }], []);
         const wrapped = wrapAutocomplete(current);
-        const result = await wrapped.getSuggestions(["需求, /"], 0, 6, { signal: ABORT });
-        assert.equal(result?.items.at(-1)?.value, "team");
+        await wrapped.getSuggestions(["hello"], 0, 5, { signal: ABORT, force: true });
+        assert.equal(calls.suggestions, 1);
+        assert.deepEqual(lastArgs(), { lines: ["hello"], cursorLine: 0, cursorCol: 5, force: true });
     });
     it("行首 slash 仍委托内置(原行为不变)", async () => {
         const { current, calls } = makeCurrent([{ name: "team" }]);
