@@ -1,6 +1,7 @@
 // startup header 纯函数测试：路径缩短 + 解析 + 布局构建
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { shortenWorkspacePath, parseExtensionsEnv, hapilonLogo, currentLayoutIndex, buildLayoutB, } from "../../extensions/hpl-startup-header/content.js";
 describe("shortenWorkspacePath", () => {
     it("home 直接返回 ~", () => {
@@ -59,6 +60,16 @@ describe("buildLayoutB", () => {
         const statusIdx = lines.findIndex((l) => l.includes("hapilon v"));
         const hintsIdx = lines.findIndex((l) => l.includes("queue"));
         assert.ok(statusIdx >= 0 && hintsIdx === statusIdx + 1, `status=${statusIdx} hints=${hintsIdx}`);
+    });
+    it("窄面板的页眉在上色前是纯文本，且不超过终端宽度", () => {
+        for (const expanded of [false, true]) {
+            for (const width of [3, 12, 57]) {
+                for (const line of buildLayoutB({ ...data, modelName: "中文模型名称" }, expanded, width)) {
+                    assert.ok(visibleWidth(line) <= width);
+                    assert.ok(!line.includes("\x1b"), "上色按字符下标切片，页眉不能含转义序列");
+                }
+            }
+        }
     });
     it("expanded 不含快捷键提示行", () => {
         const lines = buildLayoutB(data, true, 100);

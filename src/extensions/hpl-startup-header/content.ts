@@ -10,7 +10,7 @@
 
 import { notify } from "../notify.js";
 import type { TUI } from "@earendil-works/pi-tui";
-import { hyperlink, getCapabilities } from "@earendil-works/pi-tui";
+import { hyperlink, getCapabilities, stripTerminalSequences, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
 import { VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
@@ -521,8 +521,10 @@ function expandedInfoLines(data: HeaderData, width: number): string[] {
 // ─── 布局 B：猫居中 + 底部信息条 ─────────────────────────────────────
 
 function centerLine(line: string, width: number): string {
-  const pad = Math.max(1, Math.floor((width - line.length) / 2));
-  return " ".repeat(Math.max(0, pad)) + line;
+  // 截断会插入 ANSI 重置序列，去掉后才能按字符下标给图案上色。
+  const clipped = stripTerminalSequences(truncateToWidth(line, width));
+  const pad = Math.floor((width - visibleWidth(clipped)) / 2);
+  return " ".repeat(pad) + clipped;
 }
 
 export function buildLayoutB(data: HeaderData, expanded: boolean, width: number): string[] {
@@ -535,16 +537,15 @@ export function buildLayoutB(data: HeaderData, expanded: boolean, width: number)
   }
   lines.push("");
 
+  const bar = H_BAR.repeat(Math.max(0, Math.min(width - 4, 60)));
+  lines.push(centerLine(bar, width));
   if (!expanded) {
-    const bar = H_BAR.repeat(Math.min(width - 4, 60));
-    lines.push(centerLine(bar, width));
     lines.push(centerLine(statusLine(data) + " · ctrl+o expand", width));
     // 排队与引导键位按平台分组展示，不判定当前平台
     lines.push(
       centerLine("enter steer · mac/linux> alt+enter queue, alt+up edit queue · win> ctrl+q queue, alt+q edit queue", width),
     );
   } else {
-    lines.push(centerLine(H_BAR.repeat(Math.min(width - 4, 60)), width));
     for (const info of expandedInfoLines(data, width)) {
       lines.push(centerLine(info, width));
     }
