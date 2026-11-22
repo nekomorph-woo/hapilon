@@ -72,7 +72,7 @@ export default function hplFooter(pi) {
                     const line2 = dingIdx < 0
                         ? theme.fg("dim", line2Plain)
                         : theme.fg("dim", line2Plain.slice(0, dingIdx))
-                            + renderDing(percent, now)
+                            + renderDing(percent, now, theme.appearance)
                             + (dingTail ? theme.fg("dim", dingTail) : "");
                     // 终极兜底：布局按可见宽度控制，ANSI 只由这里按段包裹，
                     // 仍按可见宽度复核一次（truncatePlain 按 ANSI 感知宽度裁切）。

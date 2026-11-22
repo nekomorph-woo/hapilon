@@ -31,7 +31,10 @@ export function dingGlyph(percent, nowMs = Date.now()) {
     return `<${BREATH_GLYPHS[breathBeat(nowMs, GLYPH_STEP_MS)]}>`;
 }
 // ─── 渐变色 ─────────────────────────────────────────────────────────
+// 两套低段起点：同一黄系热度的深浅两版。深色终端用暗橄榄（低占用不显眼），
+// 浅色终端用奶油浅黄——暗橄榄在浅背景上是一块突兀的深色斑。
 const DARK_YELLOW = [64, 52, 0];
+const LIGHT_YELLOW = [255, 244, 214];
 const YELLOW = [255, 200, 0];
 const RED = [220, 40, 30];
 const DARK_RED = [139, 0, 0];
@@ -48,21 +51,23 @@ function lerp(from, to, t) {
     ];
 }
 /**
- * 按占用率返回背景色 + 自适应字色。
+ * 按占用率返回背景色 + 自适应字色。appearance 选低段起点，黄→红→深红高段两主题共用
+ * （浅背景下仍可读，字色由亮度自适应）。
  *
  * 分段插值：
  *   p ≤ 0 或 null → 无背景
- *   (0, 70]  暗黄 → 正黄
+ *   (0, 70]  低段起点（dark=暗黄 / light=奶油浅黄）→ 正黄
  *   (70, 90] 正黄 → 红
  *   (90, 95] 红 → 深红
  *   > 95     深红恒定
  */
-export function dingColor(percent) {
+export function dingColor(percent, appearance = "dark") {
     if (percent === null || percent <= 0)
         return { bg: null, fg: null };
+    const low = appearance === "light" ? LIGHT_YELLOW : DARK_YELLOW;
     let bg;
     if (percent <= 70) {
-        bg = lerp(DARK_YELLOW, YELLOW, percent / 70);
+        bg = lerp(low, YELLOW, percent / 70);
     }
     else if (percent <= 90) {
         bg = lerp(YELLOW, RED, (percent - 70) / 20);
@@ -84,11 +89,11 @@ export function dingColor(percent) {
  * 两端半角尖括号包裹徽章；
  * 字色仍按未调制基色算：80–90 段的 RED 提亮会跨亮度阈值，字色随拍翻转是闪烁事故。
  */
-export function renderDing(percent, nowMs = Date.now()) {
+export function renderDing(percent, nowMs = Date.now(), appearance = "dark") {
     const label = dingGlyph(percent, nowMs);
     if (!label)
         return "";
-    const { bg, fg } = dingColor(percent);
+    const { bg, fg } = dingColor(percent, appearance);
     if (!bg || !fg)
         return label;
     const gain = breathing(percent)

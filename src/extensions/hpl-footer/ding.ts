@@ -38,7 +38,10 @@ export function dingGlyph(percent: number | null, nowMs: number = Date.now()): s
 
 // ─── 渐变色 ─────────────────────────────────────────────────────────
 
+// 两套低段起点：同一黄系热度的深浅两版。深色终端用暗橄榄（低占用不显眼），
+// 浅色终端用奶油浅黄——暗橄榄在浅背景上是一块突兀的深色斑。
 const DARK_YELLOW: RGB = [64, 52, 0];
+const LIGHT_YELLOW: RGB = [255, 244, 214];
 const YELLOW: RGB = [255, 200, 0];
 const RED: RGB = [220, 40, 30];
 const DARK_RED: RGB = [139, 0, 0];
@@ -59,21 +62,26 @@ function lerp(from: RGB, to: RGB, t: number): RGB {
 }
 
 /**
- * 按占用率返回背景色 + 自适应字色。
+ * 按占用率返回背景色 + 自适应字色。appearance 选低段起点，黄→红→深红高段两主题共用
+ * （浅背景下仍可读，字色由亮度自适应）。
  *
  * 分段插值：
  *   p ≤ 0 或 null → 无背景
- *   (0, 70]  暗黄 → 正黄
+ *   (0, 70]  低段起点（dark=暗黄 / light=奶油浅黄）→ 正黄
  *   (70, 90] 正黄 → 红
  *   (90, 95] 红 → 深红
  *   > 95     深红恒定
  */
-export function dingColor(percent: number | null): { bg: RGB | null; fg: RGB | null } {
+export function dingColor(
+  percent: number | null,
+  appearance: "dark" | "light" = "dark",
+): { bg: RGB | null; fg: RGB | null } {
   if (percent === null || percent <= 0) return { bg: null, fg: null };
 
+  const low = appearance === "light" ? LIGHT_YELLOW : DARK_YELLOW;
   let bg: RGB;
   if (percent <= 70) {
-    bg = lerp(DARK_YELLOW, YELLOW, percent / 70);
+    bg = lerp(low, YELLOW, percent / 70);
   } else if (percent <= 90) {
     bg = lerp(YELLOW, RED, (percent - 70) / 20);
   } else if (percent <= 95) {
@@ -94,10 +102,14 @@ export function dingColor(percent: number | null): { bg: RGB | null; fg: RGB | n
  * 两端半角尖括号包裹徽章；
  * 字色仍按未调制基色算：80–90 段的 RED 提亮会跨亮度阈值，字色随拍翻转是闪烁事故。
  */
-export function renderDing(percent: number | null, nowMs: number = Date.now()): string {
+export function renderDing(
+  percent: number | null,
+  nowMs: number = Date.now(),
+  appearance: "dark" | "light" = "dark",
+): string {
   const label = dingGlyph(percent, nowMs);
   if (!label) return "";
-  const { bg, fg } = dingColor(percent);
+  const { bg, fg } = dingColor(percent, appearance);
   if (!bg || !fg) return label;
   const gain = breathing(percent)
     ? [1, 1.25, 1, 0.82][breathBeat(nowMs, BG_STEP_MS)]

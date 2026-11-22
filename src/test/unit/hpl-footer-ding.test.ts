@@ -122,3 +122,28 @@ describe("renderDing — 字符/背景拍独立", () => {
     assert.equal(out, "\x1b[48;2;255;50;38m\x1b[38;2;245;245;245m<⣽>\x1b[0m");
   });
 });
+
+describe("dingColor / renderDing — 浅色主题", () => {
+  it("正常路径: 低占用换奶油浅黄底配黑字（深色主题同点位仍是暗橄榄底白字）", () => {
+    const light = dingColor(9.3, "light");
+    // 奶油浅黄 [255,244,214] 向正黄插 13.3%：G 略降 B 明显降，但仍是高亮度浅底
+    assert.equal(light.bg![0], 255);
+    assert.ok(light.bg![2] > 150, "B 通道保持高位（浅底）");
+    assert.deepEqual(light.fg, [30, 30, 30]);
+    const dark = dingColor(9.3);
+    assert.deepEqual(dark.bg, [89, 72, 0]);
+    assert.deepEqual(dark.fg, [245, 245, 245]);
+  });
+
+  it("正常路径: 高段两主题同色——70%/90%/95% 端点不受 appearance 影响", () => {
+    for (const p of [70, 90, 95]) {
+      assert.deepEqual(dingColor(p, "light").bg, dingColor(p).bg);
+      assert.deepEqual(dingColor(p, "light").fg, dingColor(p).fg);
+    }
+  });
+
+  it("正常路径: renderDing 透传 appearance；缺省仍为深色主题（向后兼容）", () => {
+    assert.equal(renderDing(9.3, 0, "light").startsWith("\x1b[48;2;255;"), true);
+    assert.equal(renderDing(9.3, 0), renderDing(9.3, 0, "dark"));
+  });
+});
