@@ -97,6 +97,25 @@ export const COMMANDS: CommandDef[] = [
     },
   },
   {
+    name: "send-mail",
+    description: "向团队 pane 信箱投派发信：忙时排队不拒绝（退出码 0 已入队/--wait 已收敛、2 无归属或 blocked、3 到时未收敛、4 用法）",
+    usage: `${cliIdentity.cliName} send-mail <pane-id> --text "<一行>" [--wait] [--timeout <秒>]`,
+    subcommands: [
+      {
+        name: "--text <一行>",
+        description: "派发的任务简报（单行，报告写绝对路径）",
+      },
+      {
+        name: "--wait",
+        description: "投递后等这一轮收敛再返回（超时缺省 900s）",
+      },
+    ],
+    handler: async (args) => {
+      const { runSendMailCommand } = await import("../extensions/hpl-orchestra/team-cli.js");
+      process.exitCode = runSendMailCommand(args.slice(1));
+    },
+  },
+  {
     name: "help",
     description: "显示帮助信息",
     usage: `${cliIdentity.cliName} help [command]`,

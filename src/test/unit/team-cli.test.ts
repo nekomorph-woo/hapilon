@@ -6,11 +6,15 @@ import { dirname, join } from "node:path";
 import { Effect } from "effect";
 import { DEFAULT_STALE_THRESHOLD_MS } from "../../extensions/hpl-orchestra/agent-state.js";
 import {
+  SEND_MAIL_EXIT,
   TEAM_STATUS_EXIT,
   WAKE_OWNER_EXIT,
+  resolveMailboxKey,
+  runSendMailCommand,
   runTeamStatusCommand,
   runWakeOwnerCommand,
 } from "../../extensions/hpl-orchestra/team-cli.js";
+import { WAIT_EXIT, type WaitDeps } from "../../extensions/hpl-orchestra/wait-pane.js";
 import {
   resolveSessionStatePath,
   teamTasksPathFor,
@@ -228,6 +232,50 @@ describe("hapi team-status", { concurrency: false }, () => {
     const { code, logs } = capture(() => runTeamStatusCommand([], makeSpawn().spawn));
     assert.equal(code, TEAM_STATUS_EXIT.noTeam);
     assert.match(logs.join("\n"), /不是 Team 主面板/);
+  });
+});
+
+describe("hapi send-mail", { concurrency: false }, () => {
+  it("投递进目标 role 的信箱即返回，信为 dispatch kind", () => {
+    saveState();
+    process.env.HERDR_PANE_ID = ownerPane;
+    const { code, logs } = capture(() => runSendMailCommand([workerPane, "--text", "修 /tmp/a.ts 的超时，报告写 /tmp/r.md"]));
+    assert.equal(code, SEND_MAIL_EXIT.sent);
+    assert.match(logs.join("\n"), /已入队/);
+    const storeKey = resolveMailboxKey(workerPane)!;
+    const lines = readFileSync(mailPath(storeKey, workerPane), "utf8").trim().split("\n");
+    const mail = JSON.parse(lines[lines.length - 1]!) as MailMessage;
+    assert.equal(mail.kind, "dispatch");
+    assert.equal(mail.from, ownerPane);
+    assert.equal(mail.to, workerPane);
+    assert.equal(mail.text, "修 /tmp/a.ts 的超时，报告写 /tmp/r.md");
+  });
+
+  it("目标不属于任何团队 → exit 2", () => {
+    saveState();
+    process.env.HERDR_PANE_ID = ownerPane;
+    const { code, errors } = capture(() => runSendMailCommand(["x:nope", "--text", "hi"]));
+    assert.equal(code, SEND_MAIL_EXIT.noTeam);
+    assert.match(errors.join("\n"), /不属于任何团队/);
+  });
+
+  it("缺 --text → exit 4", () => {
+    const { code } = capture(() => runSendMailCommand([workerPane]));
+    assert.equal(code, SEND_MAIL_EXIT.usage);
+  });
+
+  it("--wait 等状态变过且落到 idle 才返回", () => {
+    saveState();
+    process.env.HERDR_PANE_ID = ownerPane;
+    let polls = 0;
+    let clock = 0;
+    const deps: WaitDeps = {
+      snapshot: () => (polls++ === 0 ? { status: "working", seq: 1 } : { status: "idle", seq: 2 }),
+      sleepMs: () => {},
+      now: () => (clock += 1000),
+    };
+    const { code } = capture(() => runSendMailCommand([workerPane, "--text", "hi", "--wait"], deps));
+    assert.equal(code, WAIT_EXIT.settled);
   });
 });
 

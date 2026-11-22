@@ -228,8 +228,8 @@ export function paneForegroundBusy(paneId: string, spawn: SpawnFn = defaultSpawn
 }
 
 /**
- * 通知类投递（wake-owner）：同 paneRun 守卫，但 core 不等 owner 整轮收敛
- * （hc send 无 --wait）——通知发出即返回，owner 侧收敛由它自己的循环处理。
+ * 通知类投递（keystroke 通道）：mail.ts 信箱上线后已无生产调用方——消息一律走
+ * postMail 排队，busy 不再构成拒绝。保留导出待下游确认无消费者后删除。
  */
 export function paneNotify(paneId: string, text: string, spawn: SpawnFn = defaultSpawn): Effect.Effect<boolean, never> {
   return paneRun(paneId, text, spawn);

@@ -249,14 +249,15 @@ export type HostRoutes = {
 const TUI_ROUTES: HostRoutes = {
   clearRoute: "\`/team:clear <pane-id>\`, sent to your own pane",
   unmanagedRead: "`herdr pane read <id> --source recent-unwrapped --lines 60`",
-  dispatchNote: "pane run 一次写入文本+回车——send-text + send-keys 两段式的 enter 会被 bracketed-paste 吞掉；agent prompt 对自定义 agent 类型以 agent_not_ready 拒绝",
-  dispatchRoute: 'background(command="herdr pane run <id> \"<task>\" && node \"$HAPILON_CLI_PATH\" wait-pane <id>")',
+  // 派发走信箱：写信即返回，忙时排队不拒绝；pane run 的 bracketed-paste 问题不再相关（消息不经输入框）。
+  dispatchNote: "background 里跑 `node \"$HAPILON_CLI_PATH\" send-mail <id> --text \"<task>\" --wait`——信写进对方信箱即返回，对方 working 也排队不拒绝（派发只在 settle+clear 之后发生，见上）；--wait 等这一轮收敛再返回，输出无法判读就当未提交",
+  dispatchRoute: 'background(command="node \"$HAPILON_CLI_PATH\" send-mail <id> --text \"<task>\" --wait")',
   screenVisible: "`herdr pane read <id> --source visible`",
   sendKeys: "`herdr pane send-keys`",
   agentGet: "`herdr agent get <id>`",
   screenSample: "`herdr pane read <id> --source visible --lines 40`",
   rearmRoute: 'background(command="node \"$HAPILON_CLI_PATH\" wait-pane <id>")',
-  waitSemantics: "wait-pane 以「状态**变过**且落到 idle/blocked」为收敛判据;不要用 herdr 的 agent wait --until idle——它只看当前值,而 pane 派发前就是 idle,会秒回。退出码:0 收敛、2 卡在等待输入、3 到时未收敛(重新 get 状态:仍 working 就再开一次等待;状态已变但未落到终态则读屏确认,回报用户)",
+  waitSemantics: "send-mail --wait 与 wait-pane 同判据：「状态**变过**且落到 idle/blocked」才算收敛;不要用 herdr 的 agent wait --until idle——它只看当前值,而 pane 派发前就是 idle,会秒回。退出码:0 收敛、2 卡在等待输入、3 到时未收敛(重新 get 状态:仍 working 就再开一次等待;状态已变但未落到终态则读屏确认,回报用户)",
   agentRead: "`herdr agent read <id> --source recent-unwrapped --lines 120`",
   selfOpen: (key) => `\`herdr pane run "$HERDR_PANE_ID" "/team:open ${key}"\` (text + Enter in one call;
   a send-text + send-keys enter lands too fast and gets dropped)`,
@@ -267,15 +268,15 @@ const CORE_ROUTES: HostRoutes = {
   // owner：owner 控制动作走注册的 team_ctl 工具，不走 CLI slash。
   clearRoute: 'the team_ctl tool (action "clear", target <pane-id 或角色 key>)',
   unmanagedRead: "`hc read <id> --lines 60`",
-  // hc 守卫发送/等待一体：--if idle 只在目标空闲时落键，--wait 等这一轮结束。
-  dispatchNote: "background 里跑 `hc send <id> \"<task>\" --if idle --wait`——目标非 idle 时 hc 拒绝（守卫内建）；--wait 观察这一轮的 .wait 结果再返回，输出无法判读就当未提交，绝不把模糊结果当成功",
-  dispatchRoute: 'background(command="hc send <id> \"<task>\" --if idle --wait")',
+  // 派发走信箱：写信即返回，忙时排队不拒绝；hc send 的 --if idle 协议守卫退役，「不向 working 派发」上移为编排纪律（clear 段）。
+  dispatchNote: "background 里跑 `node \"$HAPILON_CLI_PATH\" send-mail <id> --text \"<task>\" --wait`——信写进对方信箱即返回，对方 working 也排队不拒绝（派发只在 settle+clear 之后发生，见上）；--wait 等这一轮收敛再返回，输出无法判读就当未提交，绝不把模糊结果当成功",
+  dispatchRoute: 'background(command="node \"$HAPILON_CLI_PATH\" send-mail <id> --text \"<task>\" --wait")',
   screenVisible: "`hc read <id> --lines 20`",
   sendKeys: "`hc keys`",
   agentGet: "`hc get <id> --json`",
   screenSample: "`hc read <id> --lines 40`",
   rearmRoute: 'background(command="hc wait <id> --timeout 900")',
-  waitSemantics: "--if idle --wait 以「状态变过且落到 idle/blocked」为收敛判据，不依赖派发前的旧 idle；退出码非 0 时重新 get 状态（仍 working 就再等一次；状态已变但未落到终态则读屏确认，回报用户）",
+  waitSemantics: "send-mail --wait 以「状态变过且落到 idle/blocked」为收敛判据，不依赖派发前的旧 idle；退出码 2 blocked=卡在等待输入、3=到时未收敛：重新 get 状态（仍 working 就再等一次；状态已变但未落到终态则读屏确认，回报用户）",
   agentRead: "`hc read <id> --lines 120`",
   selfOpen: (key) => `the team_ctl tool (action "open", role "${key}")（角色终端由它以
   hc run --bg --outlive-parent 直接 argv 拉起，不经 shell 不经 send）`,

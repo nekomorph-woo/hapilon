@@ -1,5 +1,5 @@
 /**
- * team-cli.ts — owner 侧团队收口 CLI：team-status / wake-owner。
+ * team-cli.ts — owner 侧团队收口 CLI：team-status / wake-owner / send-mail。
  *
  * 与 wait-pane 同级注册（cli/commands.ts），沿用同一套约定：退出码即结果
  * （background 唤醒只带退出码），stdout 给人和模型看。
@@ -11,12 +11,15 @@ import { defaultSpawn } from "./herdr.js";
 import { paneAgentAlive } from "./transport.js";
 import { hostAddress } from "./host.js";
 import { newMailId, postMail } from "./mail.js";
+import { DEFAULT_TIMEOUT_SEC, WAIT_EXIT, defaultWaitDeps, waitForPaneSettle } from "./wait-pane.js";
 import { instanceStoreKey } from "./state.js";
-import { allInstances, findTeamStateForPane, isTeamOwner, readTeamState, teamTasksPathFor } from "./state.js";
+import { allInstances, findTeamStateForPane, isTeamOwner, listTeamStates, readTeamState, teamTasksPathFor } from "./state.js";
 import { sampleAgentStateEffect } from "./agent-state.js";
 import { briefDirOf, readTaskStoreEffect, taskLabel, taskUpdatedAt } from "./team-tasks.js";
 export const TEAM_STATUS_EXIT = { ok: 0, noTeam: 2 };
 export const WAKE_OWNER_EXIT = { sent: 0, noTeam: 2, herdr: 3 };
+/** --wait 阶段复用 wait-pane 码表：2 blocked、3 超时；noTeam 同为 2，同属「需人看输出」的非收敛类。 */
+export const SEND_MAIL_EXIT = { sent: 0, noTeam: 2, timeout: 3, usage: 4 };
 /** pane 回执文件名（按角色定）：只有这两个角色有固定回执名，其余不猜。 */
 const REPORT_FILES = {
     worker: "worker-report.md",
@@ -160,4 +163,46 @@ export function runWakeOwnerCommand(args, spawn = defaultSpawn) {
     }
     console.log(`[wake-owner] 已入队 ${ownerPane}：${message}`);
     return WAKE_OWNER_EXIT.sent;
+}
+/** 目标信箱定位（发送侧）：与 mail-inbox.ownMailbox 同一规则——owner 用 paneId 本名，role 用落盘 key；非团队成员 undefined。 */
+export function resolveMailboxKey(targetPaneId) {
+    const state = findTeamStateForPane(targetPaneId);
+    if (state && "roles" in state) {
+        const instance = allInstances(state).find((candidate) => candidate.paneId === targetPaneId);
+        return instance ? instanceStoreKey(instance) : undefined;
+    }
+    const ownerTeam = listTeamStates().find((entry) => entry.state.owner.paneId === targetPaneId);
+    return ownerTeam ? targetPaneId : undefined;
+}
+/**
+ * `hapi send-mail <pane-id> --text "<一行>" [--wait] [--timeout <秒>]`：owner 向 role 信箱投派发信。
+ * 写信箱即返回，目标 working 也排队不拒绝——「不向 working 派发」上移为编排纪律；
+ * --wait 复用 wait-pane 收敛原语，等这一轮结束再返回。退出码 0 已入队（--wait 时已收敛）、
+ * 2 无归属团队或 blocked、3 到时未收敛、4 用法。
+ */
+export function runSendMailCommand(args, deps = defaultWaitDeps) {
+    const paneId = args.find((arg) => !arg.startsWith("--"));
+    const text = flagValue(args, "--text")?.trim();
+    if (!paneId || !text) {
+        console.error('用法：hapi send-mail <pane-id> --text "<一行>" [--wait] [--timeout <秒>]');
+        return SEND_MAIL_EXIT.usage;
+    }
+    const storeKey = resolveMailboxKey(paneId);
+    if (!storeKey) {
+        console.error(`[send-mail] ${paneId} 不属于任何团队，未投递。`);
+        return SEND_MAIL_EXIT.noTeam;
+    }
+    const mail = { id: newMailId(), from: hostAddress() ?? paneId, to: paneId, kind: "dispatch", text };
+    const result = Effect.runSync(Effect.either(postMail(storeKey, mail)));
+    if (result._tag === "Left") {
+        console.error(`[send-mail] 写 ${storeKey} 信箱失败：${result.left.message}`);
+        return SEND_MAIL_EXIT.noTeam;
+    }
+    console.log(`[send-mail] 已入队 ${storeKey}：${text}`);
+    if (!args.includes("--wait"))
+        return SEND_MAIL_EXIT.sent;
+    const timeoutSec = Number(flagValue(args, "--timeout")) || DEFAULT_TIMEOUT_SEC;
+    const wait = waitForPaneSettle(paneId, { timeoutMs: timeoutSec * 1000 }, deps);
+    console.log(`[send-mail] ${paneId} → ${wait.outcome}（status=${wait.status}，耗时 ${Math.round(wait.elapsedMs / 1000)}s）`);
+    return WAIT_EXIT[wait.outcome];
 }
