@@ -11,37 +11,27 @@ const mkResolver = (files) => {
 };
 describe("expandSkillStack", () => {
     const resolve = mkResolver({ a: "BODY_A", b: "BODY_B", c: "BODY_C", d: "BODY_D" });
-    it("头部堆叠: 两个 skill + 尾部参数 → 全部展开，参数拼在末尾一次", () => {
+    it("头部堆叠: 两个 skill + 尾部参数 → 全部展开，原位占位", () => {
         const result = expandSkillStack("/skill:a /skill:b 修个 bug", resolve);
-        assert.equal(result, "<skill name=\"a\" location=\"/skills/a/SKILL.md\">\n" +
+        assert.equal(result, '<skill name="a" location="/skills/a/SKILL.md">\n' +
             "References are relative to /skills/a.\n\nBODY_A\n</skill>\n\n" +
-            "<skill name=\"b\" location=\"/skills/b/SKILL.md\">\n" +
+            '<skill name="b" location="/skills/b/SKILL.md">\n' +
             "References are relative to /skills/b.\n\nBODY_B\n</skill>\n\n" +
-            "修个 bug");
+            "[skill:a] [skill:b] 修个 bug");
     });
-    it("头部堆叠: 两个 skill 无参数 → 仅两块拼接", () => {
-        const result = expandSkillStack("/skill:a /skill:b", resolve);
-        assert.ok(result?.startsWith("<skill name=\"a\""));
-        assert.ok(result?.endsWith('References are relative to /skills/b.\n\nBODY_B\n</skill>'));
+    it("单个 skill 在开头也展开并占位（不再交还 pi 原生挖空）", () => {
+        const result = expandSkillStack("/skill:a 修个 bug", resolve);
+        assert.ok(result?.startsWith('<skill name="a"'));
+        assert.ok(result?.endsWith("[skill:a] 修个 bug"));
+        const bare = expandSkillStack("/skill:a", resolve);
+        assert.ok(bare?.endsWith("BODY_A\n</skill>\n\n[skill:a]"));
     });
-    it("交还原生: 开头恰好单个 skill 且别处没有 → null（pi 原生单展开接管）", () => {
-        assert.equal(expandSkillStack("/skill:a 修个 bug", resolve), null);
-        assert.equal(expandSkillStack("/skill:a", resolve), null);
-    });
-    it("交还原生: 普通文本与空输入 → null", () => {
+    it("普通文本与空输入 → null", () => {
         assert.equal(expandSkillStack("干点活", resolve), null);
         assert.equal(expandSkillStack("", resolve), null);
         assert.equal(expandSkillStack("/skill:", resolve), null);
     });
-    it("交还原生: 头部单个 + 中段未知名 → null（未知名按字面交原生路径）", () => {
-        assert.equal(expandSkillStack("/skill:a 修 /skill:nope 一下", resolve), null);
-    });
-    it("中段展开: 开头是正文，/skill: 在中间也展开为块，原位留占位符", () => {
-        const result = expandSkillStack("帮我 /skill:a 看看", resolve);
-        assert.ok(result?.startsWith('<skill name="a"'));
-        assert.ok(result?.endsWith("帮我 [skill:a] 看看"));
-    });
-    it("中段展开: 未知名按字面保留，不挡后面的可解析 token", () => {
+    it("未知名按字面保留，不挡后面的可解析 token", () => {
         const result = expandSkillStack("先 /skill:nope 再 /skill:b 收尾", resolve);
         assert.ok(result?.startsWith('<skill name="b"'));
         assert.ok(result?.endsWith("先 /skill:nope 再 [skill:b] 收尾"));
@@ -52,20 +42,21 @@ describe("expandSkillStack", () => {
         assert.ok(result?.includes('name="b"'));
         assert.ok(result?.includes('name="c"'));
         assert.ok(!result?.includes('name="d" location'));
-        assert.ok(result?.endsWith("/skill:d 尾部"));
+        assert.ok(result?.endsWith("[skill:a] [skill:b] [skill:c] /skill:d 尾部"));
     });
-    it("去重: 重复堆叠同一 skill 只展开一次；中段重复原位也留占位符", () => {
+    it("去重: 重复 token 只展开一次，原位都留占位符", () => {
         const result = expandSkillStack("/skill:a /skill:a /skill:b", resolve);
         assert.equal(result?.match(/<skill name="a"/g)?.length, 1);
         assert.equal(result?.match(/<skill name="b"/g)?.length, 1);
+        assert.ok(result?.endsWith("[skill:a] [skill:a] [skill:b]"));
         const mid = expandSkillStack("帮我 /skill:a 再 /skill:a 一下", resolve);
         assert.equal(mid?.match(/<skill name="a"/g)?.length, 1);
         assert.ok(mid?.endsWith("帮我 [skill:a] 再 [skill:a] 一下"));
     });
-    it("herdr 包裹: <hc from=…> 内层展开后重新包回，尾部保留", () => {
+    it("herdr 包裹: <hc from=…> 内层展开后重新包回", () => {
         const result = expandSkillStack('<hc from="t23">/skill:a /skill:b 修个 bug</hc>', resolve);
         assert.ok(result?.startsWith('<hc from="t23"><skill name="a"'));
-        assert.ok(result?.endsWith("修个 bug</hc>"));
+        assert.ok(result?.endsWith("[skill:a] [skill:b] 修个 bug</hc>"));
     });
     it("herdr 包裹: 中段 token 与普通消息", () => {
         const wrapped = expandSkillStack('<hc from="t23">帮我 /skill:a 看看</hc>', resolve);
@@ -73,10 +64,9 @@ describe("expandSkillStack", () => {
         assert.ok(wrapped?.endsWith("帮我 [skill:a] 看看</hc>"));
         assert.equal(expandSkillStack('<hc from="t23">普通消息</hc>', resolve), null);
     });
-    it("herdr 包裹: 单个 skill 也由这里展开（包裹下 pi 原生不触发）；直连单个仍交原生", () => {
+    it("herdr 包裹: 单个 skill 也由这里展开（包裹下 pi 原生不触发）", () => {
         const wrapped = expandSkillStack('<hc from="t23">/skill:a 修个 bug</hc>', resolve);
         assert.ok(wrapped?.startsWith('<hc from="t23"><skill name="a"'));
-        assert.ok(wrapped?.endsWith("修个 bug</hc>"));
-        assert.equal(expandSkillStack("/skill:a 修个 bug", resolve), null);
+        assert.ok(wrapped?.endsWith("[skill:a] 修个 bug</hc>"));
     });
 });
