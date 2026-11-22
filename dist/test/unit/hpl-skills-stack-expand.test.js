@@ -57,4 +57,14 @@ describe("expandSkillStack", () => {
         assert.equal(expandSkillStack("", resolve), null);
         assert.equal(expandSkillStack("/skill:", resolve), null);
     });
+    it("herdr 包裹: <hc from=…> 内层堆叠展开后重新包回，尾部保留", () => {
+        const result = expandSkillStack('<hc from="t23">/skill:a /skill:b 修个 bug</hc>', resolve);
+        assert.ok(result?.startsWith('<hc from="t23"><skill name="a"'));
+        assert.ok(result?.endsWith("修个 bug</hc>"));
+        assert.ok(result?.includes('name="b"'));
+    });
+    it("herdr 包裹: 普通消息与单 skill 仍返回 null", () => {
+        assert.equal(expandSkillStack('<hc from="t23">普通消息</hc>', resolve), null);
+        assert.equal(expandSkillStack('<hc from="t23">/skill:a 参数</hc>', resolve), null);
+    });
 });

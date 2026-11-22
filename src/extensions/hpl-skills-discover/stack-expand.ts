@@ -22,12 +22,26 @@ export const MAX_STACK = 3;
 /** 与 pi 技能名规范一致：小写字母/数字/连字符 */
 const SKILL_TOKEN_RE = /^\/skill:([a-z0-9-]+)$/;
 
+/** herdr hc send 派送的消息带 <hc from="…"> 包裹，需穿透后展开内层 */
+const HC_WRAP_RE = /^(<hc from="[^"]*">)([\s\S]*)(<\/hc>)$/;
+
 /**
- * 展开 /skill: 堆叠输入。
+ * 展开 /skill: 堆叠输入（自动穿透 herdr 的 <hc from="…"> 包裹，展开后重新包回）。
  * 返回完整替换文本；不满足堆叠条件（非 /skill: 开头、可解析 skill 少于 2 个）返回 null。
  * resolve 返回 null 表示名字不可解析，游走在那个 token 处停止，其后全部算尾部参数。
  */
 export function expandSkillStack(
+  text: string,
+  resolve: (name: string) => ResolvedSkill | null,
+): string | null {
+  const wrap = HC_WRAP_RE.exec(text);
+  const inner = wrap ? wrap[2] : text;
+  const expanded = expandInner(inner, resolve);
+  if (expanded === null) return null;
+  return wrap ? `${wrap[1]}${expanded}${wrap[3]}` : expanded;
+}
+
+function expandInner(
   text: string,
   resolve: (name: string) => ResolvedSkill | null,
 ): string | null {

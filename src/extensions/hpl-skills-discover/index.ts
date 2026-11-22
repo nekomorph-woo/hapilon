@@ -150,8 +150,6 @@ export default function hplContext(pi: ExtensionAPI): void {
   // pi 原生只展开首个 /skill: token，这里把头部连续多个全部展开，
   // 尾部文本作为公共参数；单个/未知名仍交还 pi 原生处理。
   pi.on("input", (event, ctx) => {
-    if (!event.text.startsWith("/skill:")) return { action: "continue" };
-
     const byName = new Map<string, string>();
     for (const p of discoverAllSkillPaths(ctx.cwd)) {
       byName.set(readSkillFrontmatterName(p), p);
