@@ -27,14 +27,24 @@ hapilon 把 [Pi Coding Agent](https://github.com/earendil-works/pi/tree/main/pac
 
 ## 快速开始
 
-需要 **Node.js 22.19 或更新版本**。在 [GitHub Releases](https://github.com/nekomorph-woo/hapilon/releases/latest) 的 Assets 中复制 `hapilon-*.tgz` 的下载链接，用 npm 全局安装。下面以已发布的 `v0.21.63` 为例。
+需要 **Node.js 22.19 或更新版本**。下面安装已发布的 `v0.21.63`，其他版本可在 [GitHub Releases](https://github.com/nekomorph-woo/hapilon/releases/latest) 找到。
 
 ```sh
-npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v0.21.63/hapilon-0.21.63.tgz
-hapilon
+hapilon_releases=https://github.com/nekomorph-woo/hapilon/releases/download
+npm i -g "$hapilon_releases/v0.21.63/hapilon-0.21.63.tgz"
 ```
 
-在你要工作的仓库里启动 `hapilon`。进入交互界面后，用 `/login` 连接 Pi 支持的 provider，用 `/model` 选模型。自定义模型可通过 `~/.hapilon/agent/models.json` 接入。
+<details>
+<summary>Windows PowerShell</summary>
+
+```powershell
+$hapilonReleases = 'https://github.com/nekomorph-woo/hapilon/releases/download'
+npm.cmd i -g "$hapilonReleases/v0.21.63/hapilon-0.21.63.tgz"
+```
+
+</details>
+
+装好后，在你要工作的仓库里运行 `hapilon`。进入交互界面后，用 `/login` 连接 Pi 支持的 provider，用 `/model` 选模型。自定义模型可通过 `~/.hapilon/agent/models.json` 接入。
 
 第一次可以先让 Agent 读一遍项目，再决定改什么。
 
