@@ -8,6 +8,7 @@ import { setTeamSections } from "./bridge.js";
 import { parseRoleDefSentinel } from "./role-wizard.js";
 import { getAllRoleDefs } from "./role-registry.js";
 import { registerCoreOwnerTools } from "./core-owner-tools.js";
+import { startMailInbox, stopMailInbox } from "./mail-inbox.js";
 import { argumentCompletions } from "../../shared/argument-completion.js";
 /**
  * 程序化恢复期间抑制偏好事报。pi 的 setModel 无论 persist 与否都会发 model_select
@@ -134,6 +135,8 @@ export default function hplOrchestra(pi) {
         savedPanePreference = { provider, id, thinking: ctx.thinkingLevel ?? pi.getThinkingLevel() };
     });
     pi.on("session_start", async (event, ctx) => {
+        // 信箱接收侧：任何原因的会话启动都清空滞留邮件并确保轮询在跑
+        startMailInbox(pi);
         if (event.reason !== "new")
             return;
         const saved = savedPanePreference;
@@ -155,6 +158,9 @@ export default function hplOrchestra(pi) {
         finally {
             suppressingRestore = false;
         }
+    });
+    pi.on("session_shutdown", () => {
+        stopMailInbox();
     });
     pi.on("message_end", async (event) => {
         if (handlePendingUserMessage(event.message))
