@@ -59,6 +59,7 @@ const HAPI_NUDGE_WORDING_MARKER = "hapiNudgeWording";
 const HAPI_NUDGE_COOLDOWN_RESET_MARKER = "hapiNudgeCooldownReset";
 /** /compact 条目移除后数组空洞的源头过滤（补全项不含 undefined）的 marker */
 const HAPI_COMPACT_FILTER_MARKER = "hapiCompactFilter";
+const HAPI_CLEAN_TITLE_MARKER = "hapiCleanTitle";
 /** SubagentWorkflow 派发模型列表钩子的 marker */
 const HAPI_SUBAGENT_MODELS_MARKER = "__hplSubagentModelsPick";
 /** 状态行追加不覆盖的 marker（showStatus 连续状态不再互相替换） */
@@ -72,9 +73,9 @@ const PI_BUNDLE_CHUNKS = "dist/bundle/chunks";
 const HAPI_DESC_WRAP_MARKER = "hapiDescWrap";
 /**
  * 全部改动均为字符串级替换，逐条 anchors 与实际安装产物 byte-for-byte 校验过
- * （pi-tui editor.js 2 条 + select-list.js 2 条 + pi bundle chunk 7 条 + pi 主包 4 条
+ * （pi-tui editor.js 2 条 + select-list.js 2 条 + pi bundle chunk 8 条 + pi 主包 5 条
  * + background-tasks.ts 6 条 + pi-subagents host.js/settings.js 2 条 + ponytail 3 条
- * + billion-context-pi dist/index.js 2 条，共 28 条）。
+ * + billion-context-pi dist/index.js 2 条，共 30 条）。
  */
 /** 补丁规则表(导出仅供测试构造 fixture;运行时只读) */
 export const PATCH_RULES = [
@@ -218,6 +219,25 @@ export const PATCH_RULES = [
         replace: "slashCommands=BUILTIN_SLASH_COMMANDS.filter(Boolean).map(command=>/*hapiCompactFilter*/",
         occurrences: 1,
         marker: HAPI_COMPACT_FILTER_MARKER,
+    },
+    // ── tab 标题只显示 session 名：pi 的标题格式是「π - <session名> - <目录>」，
+    //    hpl-herdr 的自动命名（issue#75）把任务名写进 session 名后，前缀后缀在
+    //    herdr tab 里是噪音。有 session 名时只显示名字，无名保持原样。
+    //    上游若自行修复，删掉这两条。
+    {
+        file: "dist/modes/interactive/interactive-mode.js",
+        find: "this.ui.terminal.setTitle(`${APP_TITLE} - ${sessionName} - ${cwdBasename}`);",
+        replace: "this.ui.terminal.setTitle(sessionName); /* hapilon: hapiCleanTitle */",
+        occurrences: 1,
+        marker: HAPI_CLEAN_TITLE_MARKER,
+    },
+    {
+        file: PI_BUNDLE_CHUNKS,
+        signature: "updateTerminalTitle",
+        find: 'sessionName?this.ui.terminal.setTitle(`${APP_TITLE} - ${sessionName} - ${cwdBasename}`)',
+        replace: "sessionName?this.ui.terminal.setTitle(sessionName)/*hapiCleanTitle*/",
+        occurrences: 1,
+        marker: HAPI_CLEAN_TITLE_MARKER,
     },
     // ── bg-task 完成通知：从 notify()（聊天区永久行）改为 setStatus（footer 5s
     //    自动清除）——hapiStatusStack 补丁使 notify 永久堆积，完成消息不该占聊天区。

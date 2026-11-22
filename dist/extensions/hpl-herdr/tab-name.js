@@ -15,7 +15,7 @@
  * session 名随 session 存续，所以人工收手不随 session_start 重置，
  * 只重置「本会话已命名」的一次性标记，并把现有名收编为我们的基线。
  */
-export const TAB_TITLE_MAX_CHARS = 24;
+export const TAB_TITLE_MAX_CHARS = 6;
 /** 取首个非空行，剥 markdown 前缀与行内标记，压空白，截到 maxChars（按码点切，不劈 emoji）。 */
 export function sanitizeTitle(text, maxChars = TAB_TITLE_MAX_CHARS) {
     // herdr-core 转发的输入带来源包裹（hc send 语义），不剥会进标题
@@ -28,7 +28,15 @@ export function sanitizeTitle(text, maxChars = TAB_TITLE_MAX_CHARS) {
         .trim();
     if (cleaned === "")
         return undefined;
-    return [...cleaned].slice(0, maxChars).join("");
+    const chars = [...cleaned];
+    if (chars.length <= maxChars)
+        return cleaned;
+    let out = chars.slice(0, maxChars).join("");
+    // 截断落在英文单词中间时丢掉残词（「帮我确认 p」→「帮我确认」），但结果不能短于 2 字
+    const partial = out.match(/^(.*\S)\s+[A-Za-z0-9]{1,3}$/);
+    if (partial && [...partial[1]].length >= 2)
+        out = partial[1];
+    return out.trimEnd();
 }
 /** 底座命名的输入过滤：交互式、非排队续跑、非命令的首条用户输入才算任务消息。 */
 export function qualifyingTaskInput(text, source, streamingBehavior) {

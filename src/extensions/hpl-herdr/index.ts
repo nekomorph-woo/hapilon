@@ -38,12 +38,12 @@ function buildRenameTabTool(namer: TabNamer) {
 	return defineTool({
 		name: "rename_tab",
 		label: "重命名标签",
-		description: "改本会话的 tab 标签（终端/面板标签名）。只在明显切换到新任务时调用，用 3-6 个词概括当前任务；同一任务的后续消息不要调用。",
+		description: "改本会话的 tab 标签（终端/面板标签名）。只在明显切换到新任务时调用，用 3-6 个字概括当前任务；同一任务的后续消息不要调用。",
 		parameters: Type.Object({
-			title: Type.String({ description: "新标签，3-6 个词" }),
+			title: Type.String({ description: "新标签，3-6 个字" }),
 		}),
 		promptGuidelines: [
-			"rename_tab 只在话题切换、开始新任务时调用一次，用 3-6 个词命名当前任务；同一任务的后续消息不要调用。",
+			"rename_tab 只在话题切换、开始新任务时调用一次，用 3-6 个字命名当前任务；同一任务的后续消息不要调用。",
 		],
 		execute: async (_toolCallId, params) => {
 			const outcome = namer.renameTo(params.title);

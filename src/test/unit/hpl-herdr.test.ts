@@ -51,19 +51,23 @@ const ENV = { herdrEnv: "1", binPath: "/opt/herdr/bin/herdr", paneId: "w1:p7" };
 
 describe("sanitizeTitle()", () => {
 	it("取首个非空行", () => {
-		assert.equal(sanitizeTitle("  \n修 issue#75 的 tab 命名\n第二行"), "修 issue#75 的 tab 命名");
+		assert.equal(sanitizeTitle("  \n修 issue#75 的 tab 命名\n第二行", 24), "修 issue#75 的 tab 命名");
 	});
 	it("剥 markdown 前缀与行内标记，压空白", () => {
-		assert.equal(sanitizeTitle("## **修 bug** `v1`"), "修 bug v1");
-		assert.equal(sanitizeTitle("## a   b"), "a b");
+		assert.equal(sanitizeTitle("## **修 bug** `v1`", 24), "修 bug v1");
+		assert.equal(sanitizeTitle("## a   b", 24), "a b");
 	});
 	it("剥 herdr-core 来源包裹（hc send 语义）", () => {
-		assert.equal(sanitizeTitle('<hc from="t3t">帮我确认 package.json</hc>'), "帮我确认 package.json");
-		assert.equal(sanitizeTitle('<hc from="t3t">\n第二行'), "第二行");
+		assert.equal(sanitizeTitle('<hc from="t3t">帮我确认 package.json</hc>', 24), "帮我确认 package.json");
+		assert.equal(sanitizeTitle('<hc from="t3t">\n第二行', 24), "第二行");
 	});
-	it("截到 24 字符且按码点切，不劈 emoji", () => {
-		assert.equal(sanitizeTitle("x".repeat(30))!.length, 24);
-		assert.equal([...sanitizeTitle("🎉".repeat(30))!].length, 24);
+	it("默认截到 6 字符且按码点切，不劈 emoji", () => {
+		assert.equal(sanitizeTitle("x".repeat(30))!.length, 6);
+		assert.equal([...sanitizeTitle("🎉".repeat(30))!].length, 6);
+	});
+	it("截断落在英文单词中间时丢残词，结果不短于 2 字", () => {
+		assert.equal(sanitizeTitle("帮我确认 package.json 里的 name"), "帮我确认");
+		assert.equal(sanitizeTitle("修 bug 的按钮位置"), "修 bug");
 	});
 	it("空内容 undefined", () => {
 		assert.equal(sanitizeTitle("   \n  "), undefined);
@@ -100,7 +104,7 @@ describe("createTabNamer()", () => {
 		const { state, namer } = harness();
 		namer.onUserInput("修 issue#75 的 tab 命名");
 		namer.onUserInput("换个写法");
-		assert.deepEqual(state.sets, ["修 issue#75 的 tab 命名"]);
+		assert.deepEqual(state.sets, ["修 issu"]);
 	});
 
 	it("session 重置后恢复一次机会", () => {
@@ -181,7 +185,7 @@ describe("registerHerdrReporting() tab 命名接线", () => {
 			source: "interactive",
 			streamingBehavior: undefined,
 		} as never);
-		assert.equal(state.name, "修 issue#75 的 tab 命名");
+		assert.equal(state.name, "修 issu");
 	});
 
 	it("命令、排队续跑不触发底座命名", () => {
@@ -199,7 +203,7 @@ describe("registerHerdrReporting() tab 命名接线", () => {
 		const result = await tool.execute("t1", { title: "## **修 issue#75**  " });
 		assert.equal(result.isError, undefined);
 		assert.match(result.content[0].text, /已改为/);
-		assert.equal(state.name, "修 issue#75");
+		assert.equal(state.name, "修 issu");
 	});
 
 	it("会话名被人工改掉后 rename_tab 拒绝", async () => {
