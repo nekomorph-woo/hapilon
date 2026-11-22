@@ -1,202 +1,127 @@
-# HAPi
+<p align="center">
+  <a href="docs/artifacts/hapilon-theme-pixel.webp">
+    <img src="docs/artifacts/hapilon-theme-pixel.webp" width="288" alt="六位角色围坐在长满苔藓的铜管上，右侧的角色打开了一台终端">
+  </a>
+</p>
 
-以 [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) 为运行内核的终端 Coding Agent。`hapilon` 与 `hapi` 双命令入口，行为完全一致。
+<h1 align="center">hapilon</h1>
 
-## 安装
+<p align="center"><strong>基于 Pi 的终端 Coding Agent</strong></p>
 
-前置：Node.js ≥ 22.19。
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#工作流">工作流</a> ·
+  <a href="#常用命令">常用命令</a> ·
+  <a href="https://github.com/nekomorph-woo/hapilon/releases/latest">最新发布</a>
+</p>
 
-从 GitHub Release 安装 tarball：
+## 关于
 
-```bash
-npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v0.21.0/hapilon-0.21.0.tgz
+hapilon 把 [Pi Coding Agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) 和一组面向日常开发的扩展打包到一起。你可以在终端里把任务交给合适的模型、用自然语言找回以前的会话，或在 herdr 里开几个独立的角色面板协作。
+
+- **接着上次做。** 用 `/find-session` 描述记得的任务或改动，从带原文证据的候选结果中恢复会话。
+- **按档位用模型。** 给 `opus`、`sonnet`、`haiku` 分别配置模型和候补，用同一个档位名启动会话或指定团队角色。
+- **在终端里分工。** 用 `/team` 打开角色面板，让 Worker 实现、Review 审查，由 owner 统一派发和收取结果。
+- **看见配额和上下文。** 状态栏显示已接入的 provider 用量和重置时间，长命令输出可按需展开，上下文可增量压缩。
+- **让项目约定跟着代码走。** 在 `.hapilon/HAPILON.md` 写项目约定。子目录也能单独定义规则，在 Agent 访问相关文件时载入。
+
+## 快速开始
+
+需要 **Node.js 22.19 或更新版本**。在 [GitHub Releases](https://github.com/nekomorph-woo/hapilon/releases/latest) 的 Assets 中复制 `hapilon-*.tgz` 的下载链接，用 npm 全局安装。下面以已发布的 `v0.21.63` 为例。
+
+```sh
+npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v0.21.63/hapilon-0.21.63.tgz
+hapilon
 ```
 
-首次使用：
+在你要工作的仓库里启动 `hapilon`。进入交互界面后，用 `/login` 连接 Pi 支持的 provider，用 `/model` 选模型，就可以输入第一个任务。自定义模型可通过 `~/.hapilon/agent/models.json` 接入。
 
-```bash
-hapilon setup    # 交互式配置 provider（API key、模型）
-hapilon doctor   # 环境体检
-hapilon          # 或 hapi —— 进入 TUI
+`hapi` 和 `hapilon` 是同一个 CLI 的两个入口。遇到配置问题，运行 `hapilon doctor` 检查 Node、Pi 启动入口和认证状态。升级时安装目标 Release 的 tarball，再重新启动 hapilon。下文功能对应仓库当前代码，已发布版本的差异见各版 Release 说明。
+
+## 工作流
+
+### 找回上次的工作
+
+打开 `/find-session`，像向同事描述任务一样描述你要找的会话。
+
+> 上次排查 Windows Terminal 换行问题的是哪个会话？我想接着验证那次改动。
+
+检索使用 `haiku` 档的首选模型。浮层里的检索子进程只能读取会话记录，候选结果里的原文证据会与记录核对。确认候选后，当前终端会切换到对应会话。想直接从历史列表挑选时，可以在 shell 中运行 `hapilon -r`。
+
+### 给任务选一个模型档位
+
+在 `/tiers` 里为三档选模型、调整候补顺序，也可以设置启动时的默认模型。三档是 hapilon 的配置名，可以绑定任意已接入的 provider。当前仓库还提供 `/fast-hapilon-setup`，登录后可从可用模型生成一份推荐配置，再由你编辑和确认。
+
+设好档位后，可以在 shell 里按档启动。下面的 `[0]` 是从零开始的档内索引。
+
+```sh
+hapilon --model "tier:sonnet[0]"
 ```
 
-用户数据（provider 配置、sessions、扩展配置）都在 `~/.hapilon/`，与安装目录分离——多台机器各自独立，升级 hapilon 不影响配置。
+项目的 `.hapilon/model-tiers.json` 按档覆盖全局设置。用 `/subagent-models` 与 `/vision-models` 可以分别配置常规子代理和图像子代理的模型顺序。适用的派发会优先保留你明确点名的模型，并根据已有的配额快照顺延用量紧张的候选。
 
-> 为什么是 tarball 而不是 `npm install -g github:nekomorph-woo/hapilon`？npm 对 git 依赖的 `prepare` 是强沙箱（目标机无 devDeps、无 npx 重入、无嵌套 install，无法构建 dist），且 git 依赖实时解析在 express 5 嵌套依赖树上存在 npm reify bug。tarball 是构建完成的完整快照，两条坑都绕开。
+### 开一组角色面板
 
-## HAPILON.md 上下文体系
+在 **herdr pane** 或 **herdr-core 终端**里启动 hapilon，输入 `/team`，选择「开始编排」。可以让 Worker 实现、Review 只读审查，也可以加入体验官、讨论成员或自己的角色。
 
-hapilon 用 `HAPILON.md` 承载项目约定，分两层注入模型上下文：
-
-- **总是加载**：全局 `~/.hapilon/HAPILON.md`，加上从当前目录向上到 home 的每一层 `.hapilon/HAPILON.md`（monorepo 根、仓库根的约定随会话常驻）。
-- **按需加载**（v0.20.4）：当前目录之下任意子目录的 `<子目录>/.hapilon/HAPILON.md`，在模型首次读取或编辑该子树的文件时自动注入。每个文件每次会话只注入一次，上下文压缩后重新生效——monorepo 每个包可以有各自行事历，不用的包不占上下文。
-
-注意：通过 bash `cat` 读文件不会触发按需注入，用 read 工具（或让模型正常读写文件）才会。项目根与向上链的行为不受此影响。
-
-## 模型档位与派发
-
-- **档位选模**：CLI 与配置里用 `tier:<档位>[<序号>]` 指代模型（如 `tier:haiku`、`tier:sonnet[2]`）。档位定义在全局 `~/.hapilon/model-tiers.json`，项目可用 `.hapilon/model-tiers.json` 按档覆盖。序号越界自动绕回，整档为空则启动失败。
-- **默认模型**：TUI 内 `/tiers` 的 Default Model 项选择，写入 Pi 原生 `agent/settings.json` 的 `defaultProvider/defaultModel`；未设置时兕底取 opus[0]。
-- **找回会话**：TUI 内 `/find-session` 打开浮层小对话面板：拉起隔离的 RPC 子进程（`--mode rpc --no-session`，只加载只读会话工具与目标提示词，haiku 档模型，无 shell/写入/联网），多轮自由提问让模型找会话；结果带 sessionId、总结、匹配理由和逐字证据（代码核验），空输入回车确认后由父侧 `ctx.switchSession` 热切换（当前会话留在磁盘，可再切回）。查找过程不落盘；新实现不再读写旧索引实现的磁盘缓存（`~/.hapilon*/agent/sessions/` 下的 `index.json`、`.digest-progress/`、`index.lock.db*`、`indexer-owner.json`、`indexer.lock`、`coordination/`），但已启动的旧实例仍在写；待所有旧实例重新加载新版本、确认停止索引并释放数据库后，才可删除。
-- **Agent 派发列表**：子代理不点名模型时，按 `~/.hapilon/subagent-models.json` 的顺序取第一个可用项（图像类 `subagent_type=vision` 走 `vision-models.json`）。项目层的 `.hapilon/` 同名文件整体替换全局。列表项带 provider 配额感知：某 provider 已用 ≥90% 时自动顺延下一候选，全部紧张则回落父会话模型。
-- **额度可见**：状态栏实时显示各 provider 的窗口用量与重置倒计时（如 `18%/5h~2h 76%/mo~9d`），烧到阈值前先看见。
-
-## 内置能力
-
-核心由 20 余个内置扩展与 20 余个随版本分发的技能组成（完整清单见 `src/extensions/` 与 `resources/skills/`），常用的几块：
-
-| 能力 | 做什么 |
-|---|---|
-| 危险命令防护 | 见下节，bash 调用先过分类门 |
-| bash 输出压缩 | 长输出自动收敛，`/econ` 随时开关 |
-| 上下文管理 | 自动折叠旧内容，`/acp` 看面板与水位，`/acp-export` 导出 |
-| 团队编排 | 多 pane / 多角色派发与收敛（`wait-pane` 为后台等待原语） |
-| 领域技能 | `snap`（提交快照）、`research`（调研沉淀）、`simplify`（事后清理）等，随版本分发 |
-| 主题 | 回落 pi 内置主题，`/settings` 可换 |
-
-## Windows Terminal 换行键
-
-Windows Terminal 经 ConPTY 传输按键，Enter 与 Shift+Enter 送出同一个 `\r`，Ctrl+J 也被上报为 Enter（WT 已知问题 #6912 / #18852）——所以 `Shift+Enter`/`Ctrl+J` 在 Windows 上都会直接发送。两条可行路径：
-
-- **零配置**：输入 `\` 再按 Enter（内置兜底，任何终端都可用）
-- **推荐**：给 Windows Terminal 加一条 sendInput 动作（设置 → 打开 JSON 文件，加到 `actions` 数组里，改完完全退出重启终端）
-
-```json
-{
-  "actions": [
-    {
-      "command": { "action": "sendInput", "input": "\u001b[13;2u" },
-      "keys": "shift+enter"
-    }
-  ]
-}
+```text
+/team:open worker tier:sonnet[0]
+/team:open reviewer
 ```
 
-WSL 里同样适用（sendInput 原样透传序列）。若 hapilon 跑在 herdr pane 内而该 pane 又展平了序列，回退到 `\` + Enter。
-
-## 升级
-
-```bash
-npm install -g https://github.com/nekomorph-woo/hapilon/releases/download/v<新版本>/hapilon-<新版本号>.tgz
-```
-
-覆盖安装即可，`~/.hapilon/` 配置原样保留。版本号见 `package.json` 的 `version` 字段，Release 页面列表见 GitHub Releases。
-
-## pi 补丁
-
-hapilon 在安装时（postinstall）与每次启动时对 pi 包与三方扩展做**幂等字符串补丁**（`src/patch/ensure-pi-patch.ts`），改动均为上游没有扩展点的行为，如编辑器中段 slash 触发门、后台任务插件的 Windows shell、subagent 配置目录迁移等。补丁可重复执行，已打过即只读判标记。
-
-补丁锚点按 `pi-coding-agent` 1.5 的代码字符串写死。pi 大版本重构后锚点会失配——此时 hapilon 启动会打印 `⚠ pi 或插件已变更，hapilon 补丁（…）未应用` 警告并**优雅降级**：其余功能完全不受影响。修复方式是对照新版 pi 源码更新 `src/patch/ensure-pi-patch.ts` 的锚点表，重新发版。
-
-同一张表也补第三方扩展：后台任务插件（`@nklisch/pi-background-tasks`）把 shell 写死成 `/bin/sh`，而 Windows 上没有这个路径，`background`/`monitor` 直接 spawn 失败（team 模式的派发链就跑在 `background` 里）。补丁让 Windows 改走 pi 的 `getShellConfig()`（优先 Git Bash，尊重 settings 里的 `shellPath`），POSIX 仍用 `/bin/sh`。上游自行修复后可删掉这条规则。
-
-> 开发环境提示：本仓库 `npm ci` 需要 `--legacy-peer-deps`。`@zhushanwen/pi-ask-user` 的 peer 声明落后于根依赖，npm 会 ERESOLVE 报错——属上游待升问题，不是本地配置错误。
-
-## 危险命令防护
-
-bash 工具调用先过安全门（`hpl-safety-gate`）分类为 block / confirm / allow，另有敏感路径保护与可选 OS 沙箱。
-
-分类只看「真正的命令」，不误伤搜索词：
-
-- **引号内容不参与匹配**——`grep -n "shutdown" file`、`git commit -m "fix git push"` 正常放行
-- **只读命令整体跳过**（grep/rg/find/ls/cat/ps/jq…）——`rg -n "chmod 777"` 不弹窗；破坏性用法（`find -exec rm`、`find -delete`）仍由目标规则拦住
-- **命令替换递归判定**——`S=$(ls -t dir | head -1)` 放行，`echo $(shutdown -h now)` 与 `rm -rf $(echo /)` 拦截；`sh -c "…"` 与 `eval "…"` 的脚本载荷同样递归检查
-- **SQL 关键字只对数据库客户端生效**——`psql -c "DROP TABLE t"` 弹确认，`grep -c "DROP TABLE" schema.sql` 放行
-
-## herdr 集成
-
-在 herdr pane 内运行时，hapilon **以自己的身份 `hapi`** 向 herdr 上报（herdr 官方自定义集成协议）：
-
-- **身份**：pane 在 `herdr agent list` / 侧边栏里是 `hapi`，不再是 `pi`
-- **状态**：从进程内部上报，不再靠屏幕抓取——`working` / `idle` / `blocked`（后者来自 pi 的阻塞式 UI prompt 事件，比屏幕匹配可靠）
-- **不再加载 herdr 的 pi 集成**：否则 herdr 会按 pi 的恢复命令处理，服务器重启时用 `pi --resume` 拉起裸 pi，hapilon 的能力（系统提示、安全门、角色、补丁）全丢。需要旧行为时设 `HAPILON_HERDR_PI_INTEGRATION=1`
-
-因此需要知晓的 herdr 现状：
-
-| 命令 | 对 hapi 可用性 |
-| --- | --- |
-| `herdr agent get/list/read/wait/rename/focus/attach/explain` | ✅ 可用 |
-| `herdr pane send-text` / `pane send-keys` | ✅ 可用（派发与清空走这里） |
-| `herdr agent prompt` / `agent send-keys` | ❌ 以 `agent_not_ready` 拒绝——herdr 只对原生识别的 agent 类型开放；hapilon 的自动派发已改为 pane 级输入 |
-| 服务器重启自动恢复 pane | ❌ 新 agent 类型的启动/恢复命令编在 herdr 二进制里，需上游支持 |
-
-## 发版打包流程（开发机）
-
-一条命令，notes 在发版现场自动生成。版本号由用户指定且须等于当前 package.json 版本（snap 提交已自动迭代）；发版不产生 commit，tag 直接打在 HEAD：
-
-```bash
-./scripts/release.sh 0.21.1 "修复 xxx"
-./scripts/release.sh --dry-run 0.21.1 "..."   # 只打印将执行的命令
-```
-
-自动完成：**生成 release notes**（conventional type 机械映射到分块；无法映射的提交由 haiku 档模型决策分块并改写用户视角描述，产出到 `.hapilon/release/v<版本>.md`）→ 版本号升级 → 依赖精确锁定检查（`^`/`~` 范围直接拒绝）→ build + 全量测试门禁（不绿即中止回滚）→ commit（含 dist）→ 附注 tag → push（HTTPS 失败自动回退 ssh）→ `npm pack` → **全新安装冒烟验证**（隔离环境真装一遍：版本号 + 补丁钩子）→ `gh release create --notes-file` 附 tarball → 清理。
-
-notes 在第 0 步现场生成：prev-tag 自动取最近祖先 tag（`git describe --tags --abbrev=0`），不存在「草稿生成后、打 tag 前的新提交漏出 notes」的时间差。每条提交都会进某个分块：conventional type 机械映射（含 chore/docs/test 归入「其他」），无法映射的交给 haiku 决策并在日志里列出条数。haiku 调用失败时发版中止，不静默降级；`HAPILON_HOME` 需指向带 auth 的数据目录（默认 `~/.hapilon`）。
-
-冒烟验证是 v0.4.0 事故的产物：依赖范围在用户全新安装时会漂移到未验证版本、运行时 pi-tui 嵌套副本未打补丁——包能装但能力失效。任何检查不过都不上 Release。
-
-版本语义（0.x 阶段）：patch（`0.x.y`）= 修复与小调整；minor（`0.x`）= 一批新能力收敛。
-
-### 手动流程（等价）
-
-```bash
-npm run build && npm test                      # 1. 构建并全量测试（必须绿）
-npm pack --pack-destination /tmp               # 2. 打 tarball → /tmp/hapilon-<版本>.tgz
-git tag -a v<X.Y.Z> -m "v<X.Y.Z>" && git push origin v<X.Y.Z>   # 3. tag + push
-gh release create v<X.Y.Z> /tmp/hapilon-<版本>.tgz --notes-file .hapilon/release/v<X.Y.Z>.md --title "v<X.Y.Z>"   # 4. Release 附 tarball 与定稿 notes
-```
-
-包内容 = `files: ["dist"]` 白名单 + package.json。不含源码、测试与 node_modules；依赖在目标机安装时由 npm 从 registry 拉取。
-
-### 沙箱验证（可选，不动开发机环境）
-
-发布前验证「tarball → 安装 → 运行」链路，npm 全局目录、缓存、HOME 全部重定向到临时沙箱：
-
-```bash
-./scripts/sandbox-verify.sh          # 打包 + 沙箱安装 + 双 bin/版本/doctor 验证 + 清理
-./scripts/sandbox-verify.sh --keep   # 保留沙箱目录供检查
-```
+在团队终端运行 `hapilon team-status` 可以查看角色状态、任务进度和回执。派发任务和角色完工回报通过信箱投递，忙碌中的角色可以在后续处理排队的消息。herdr-app 用户可运行 `hapilon setup-herdr` 添加启动菜单入口。
 
 ## 常用命令
 
-| 命令 | 用途 |
-|---|---|
-| `hapilon` / `hapi` | 进入 TUI（同文件双入口） |
-| `hapilon doctor` | 环境体检 |
-| `hapilon --version` / `-v` | 查看 hapilon 版本 |
-| `hapi -p "…" --model tier:<档位>[<序号>]` | 一次性调用按档位选模型（如 `tier:haiku`）；发版脚本用它调 haiku 档 |
+带 `/` 的命令在 hapilon 的交互界面输入。
 
-MCP server 直接编辑 `~/.hapilon/agent/mcp.json` 或在 TUI 内用 `/mcp` 管理。
+| 你想做什么 | 命令 |
+| --- | --- |
+| 续接、选模和编排 | `/find-session` · `/tiers` · `/team` |
+| 把外部目录加入当前会话 | `/add-dir` · `/dirs` · `/remove-dir` |
+| 查看 provider 配额或余额 | `/quota-usage` |
+| 查看或调节上下文与命令输出 | `/acp` · `/econ` |
+| 在浮层查看折叠的工具面板 | `/pop` |
+| 管理 MCP 连接 | `/mcp` |
+| 配置受支持模型的 OpenAI Fast 模式 | `/fast` |
+| 查看本地会话或技能使用统计 | `/hapi-metrics` |
+| 在 shell 中查帮助、版本、配置状态 | `hapilon --help` · `hapilon --version` · `hapilon doctor` |
 
-TUI 内常用 slash command：`/econ`（bash 输出压缩开关）、`/acp`（上下文面板）、`/settings`(主题等)、`/mcp`（MCP server 管理）、`/ponytail lite|full|ultra|off`（极简编码强度）。
+## 配置和安全
 
-## 开发
+用户数据默认在 `~/.hapilon/`。可以用绝对路径设置 `HAPILON_HOME`，为另一套环境单独保存设置和会话。
 
-```bash
-npm install --legacy-peer-deps
-npm run dev              # build + 启动
-npm run typecheck
-npm test                 # 全量（跑 dist 下的 unit + integration 测试）
-npm run test:unit        # 只跑单元测试
-npm run test:integration # 只跑集成测试
+| 放在哪里 | 放什么 |
+| --- | --- |
+| `~/.hapilon/agent/` | Pi 的认证、模型、设置、MCP 和会话记录 |
+| `~/.hapilon/model-tiers.json` | 全局模型档位 |
+| `~/.hapilon/teams/roles/` | 团队自定义角色 |
+| `~/.hapilon/HAPILON.md` 与项目的 `.hapilon/HAPILON.md` | 全局与项目约定 |
+| `<子目录>/.hapilon/HAPILON.md` | Agent 通过文件工具访问对应目录时载入的约定 |
+
+hapilon 会对 Agent 通过 `bash` 工具发出的命令做分级处理，并对受保护的文件路径做单独检查。需要操作系统级隔离时，可使用 `hapilon --sandbox`。实现与平台准备条件见 [启动入口](src/cli/main.ts) 和 [安全模块](src/safety/)。
+
+## 从源码运行
+
+```sh
+npm ci --legacy-peer-deps
+npm run build
+node dist/cli.js --help
+npm test
 ```
 
-- 源码 `src/`，扩展在 `src/extensions/`（`hpl-*` 自研 + npm 集成，见 `src/extensions/npm-extensions.ts` 的接线表）
-- 任务/决策记录在 GitHub issues
+在当前仓库启动开发版可以用 `npm run dev`。提交 TypeScript 改动时同步构建结果 `dist/`。只检查类型可用 `npm run typecheck`，也可以用 `npm run test:unit` 或 `npm run test:integration` 分别执行两类测试。
 
-### 开发版隔离运行（devhapi）
+<details>
+<summary>源码和维护入口</summary>
 
-开发中的 hapilon 与正式安装版数据隔离：`scripts/setup-dev-alias.sh` 向 shell rc 幂等写入 `devhapi` 别名，数据目录指向 `~/.hapilon-dev`，不影响正式版的 `~/.hapilon`：
+| 位置 | 负责什么 |
+| --- | --- |
+| [`src/cli/`](src/cli/) · [`src/providers/`](src/providers/) | 命令路由、启动 Pi、加载配置 |
+| [`src/extensions/`](src/extensions/) · [第三方扩展接线](src/extensions/npm-extensions.ts) | 模型、会话、团队、上下文、检索、任务与终端工具 |
+| [`src/config/`](src/config/) · [`src/safety/`](src/safety/) | 用户与项目配置、信任记录和沙箱 |
+| [`resources/skills/`](resources/skills/) | 随包分发的技能 |
+| [`src/patch/`](src/patch/) · [`src/test/`](src/test/) | Pi 兼容补丁、单元与集成测试 |
+| [发版脚本](scripts/release.sh) · [安装冒烟脚本](scripts/sandbox-verify.sh) | 打包、发布和隔离环境安装验证 |
 
-```bash
-npm install --legacy-peer-deps && npm run build   # 换机器克隆后先构建
-./scripts/setup-dev-alias.sh   # 写入别名（幂等，重复执行只更新）
-source ~/.zshrc                # 或重开终端
-devhapi doctor
-```
-
-可选参数：`--alias <名>`、`--home <数据目录>`、`--rc <文件>`、`--remove` 移除。
-
-### 构建产物入库注意
-
-`dist/` 随仓库分发（服务于 tarball 安装路径）。**提交源码改动时同步 `npm run build` 并提交 dist**，否则 Release tarball 装到的是旧代码。
+</details>
