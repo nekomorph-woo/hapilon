@@ -434,6 +434,28 @@ describe("hpl-safety-gate", () => {
                 assert.deepEqual((await handler(bashEvent(`${cmd} && cat .env`), ctx)).block, true);
             }
         });
+        it("只放行已检查的脚本正文，后续调用会重新检查文件", { skip: !["darwin", "linux"].includes(process.platform) }, async () => {
+            const cwd = mkdtempSync(join(tmpdir(), "hapi-private-script-"));
+            try {
+                const handler = captureToolCallHandler();
+                const ctx = { cwd, hasUI: false };
+                const path = join(cwd, "inspect.sh");
+                const command = "bash ./inspect.sh .env";
+                const privateRead = 'IFS= read -r value < "$1" && printf "DONE\\n"';
+                writeFileSync(path, privateRead);
+                const approved = bashEvent(command);
+                assert.equal(await handler(approved, ctx), undefined);
+                assert.notEqual(approved.input.command, command);
+                assert.ok(approved.input.command.includes(privateRead));
+                writeFileSync(path, `${privateRead}\ncat "$1"\n`);
+                const changed = bashEvent(command);
+                assert.equal((await handler(changed, ctx)).block, true);
+                assert.equal(changed.input.command, command);
+            }
+            finally {
+                rmSync(cwd, { recursive: true, force: true });
+            }
+        });
         it("BLOCK 命中 → console.warn 记录 reason（不再静默）", async () => {
             const handler = captureToolCallHandler();
             const warn = mock.method(console, "warn");

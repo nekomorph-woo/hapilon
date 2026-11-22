@@ -23,7 +23,8 @@ import { classifyWithLabel } from "./classifier.js";
 import { checkSandboxWrite } from "./sandbox-allow.js";
 import { describeScenario, judgeCommand, judgePromptSource, recentAllows, readGateAutoConfig, setGateAutoEnabled, } from "./auto-judge.js";
 import { deriveAllowPattern } from "./derive-allow.js";
-import { hasSensitiveReadArg, sensitiveReadLabels, splitCommandSegments } from "./sensitive-args.js";
+import { sensitiveReadLabels, splitCommandSegments } from "./sensitive-args.js";
+import { preparePrivateScript } from "./private-script.js";
 import { requestConfirm } from "../hpl-protected-paths/confirm.js";
 import { runTune, buildCalibrationSet, quotaStopReason, readTuneState, } from "./tune.js";
 import { readQuotaSnapshots } from "../hpl-quota-usage/cache.js";
@@ -417,14 +418,20 @@ export default function (pi) {
             // 敏感文件 bash 读检测：危险命令规则放行后，
             // 参数命中 READ_CONFIRM 的命令进入分级拦截——
             // subagent 会话硬拦（read 同级），主会话走 confirm。
-            if (hasSensitiveReadArg(command, ctx.cwd)) {
-                const labels = sensitiveReadLabels(command, ctx.cwd).join("、");
+            const matches = sensitiveReadLabels(command, ctx.cwd);
+            if (matches.length > 0) {
+                const labels = matches.join("、");
                 if (inSubagentSession()) {
                     notify(`[hpl-safety-gate] subagent 会话禁止读取敏感文件（${labels}）: ${shown}`, "warning");
                     return {
                         block: true,
                         reason: `🛡️ subagent 会话禁止读取敏感文件（${labels}）：secret 只该被应用运行时读取，agent 读取会进入 LLM 上下文与 transcript。请在主会话中操作，或使用白名单文件（.env.example）。`,
                     };
+                }
+                const prepared = preparePrivateScript(command, ctx.cwd);
+                if (prepared !== undefined) {
+                    event.input.command = prepared;
+                    return;
                 }
                 if (bashTrusted(normalized, ctx.cwd))
                     return;
