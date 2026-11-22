@@ -180,7 +180,7 @@ read a pane by hand only when it reports waiting-input or unknown.
    | irreversible action, credentials, anything published externally | never answer — escalate to the user and wait |
 
 Waking and reports — the panes wake you, you do not poll them:
-- A role pane runs \`node "$HAPILON_CLI_PATH" wake-owner "..."\` when its turn ends
+- A role pane runs \`node "$HAPILON_CLI_PATH" wake-owner --message "<一句话结果>" --report <报告绝对路径>\` when its turn ends
   or when it needs a decision — it never fails because you are busy: while you
   work, the message queues in the owner mailbox and arrives when your turn ends.
   When that message arrives, collect immediately:

@@ -64,12 +64,16 @@ export const COMMANDS = [
     },
     {
         name: "wake-owner",
-        description: "角色 pane 一轮结束/需要决策时给 owner 写信箱（退出码 0 已入队 / 2 无归属团队 / 3 owner 不可用）",
-        usage: `${cliIdentity.cliName} wake-owner [--message <一行>]`,
+        description: "角色 pane 一轮结束/需要决策时给 owner 写信箱（退出码 0 已入队 / 1 用法 / 2 无归属团队 / 3 owner 不可用）",
+        usage: `${cliIdentity.cliName} wake-owner --message "<一句话结果>" [--report <报告绝对路径>]`,
         subcommands: [
             {
-                name: "--message <一行>",
-                description: "给 owner 的一行结论（缺省「一轮结束」）",
+                name: "--message <一句话结果>",
+                description: "给 owner 的一句话人读结果（必填）",
+            },
+            {
+                name: "--report <报告绝对路径>",
+                description: "完整报告的绝对路径，文件必须已存在（可选）",
             },
         ],
         handler: async (args) => {

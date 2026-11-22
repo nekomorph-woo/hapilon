@@ -1,6 +1,6 @@
 import { after, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Effect } from "effect";
@@ -337,7 +337,7 @@ describe("hapi wake-owner", { concurrency: false }, () => {
     saveState();
     process.env.HERDR_PANE_ID = workerPane;
     const { spawn, calls } = makeSpawn({ agentStatuses: { [ownerPane]: "working" } });
-    const { code, logs } = capture(() => runWakeOwnerCommand(["--message", "done: 修好了 -> /tmp/r.md"], spawn));
+    const { code, logs } = capture(() => runWakeOwnerCommand(["--message", "报告写好了"], spawn));
     assert.equal(code, WAKE_OWNER_EXIT.sent);
     assert.match(logs.join("\n"), /已入队 w1:p7/);
     const lines = readFileSync(mailPath(ownerPane, ownerPane), "utf8").trim().split("\n");
@@ -346,19 +346,91 @@ describe("hapi wake-owner", { concurrency: false }, () => {
     assert.equal(mail.from, workerPane);
     assert.equal(mail.to, ownerPane);
     assert.equal(mail.kind, "done");
-    assert.equal(mail.text, "done: 修好了 -> /tmp/r.md");
+    assert.equal(mail.text, "报告写好了");
+    assert.equal(mail.reportPath, undefined);
     // 投递不再经 herdr 输入框：无 pane run / send-text / send-keys 调用（owner 探活的 pane get 保留）
     assert.equal(calls.find((call) => ["run", "send-text", "send-keys"].includes(call.args[1] ?? "")), undefined);
+  });
+
+  it("--report 指向已存在的报告：信封带 reportPath，文本只留人读结果", () => {
+    saveState();
+    process.env.HERDR_PANE_ID = workerPane;
+    const report = join(home, "worker-report.md");
+    mkdirSync(dirname(report), { recursive: true });
+    writeFileSync(report, "# 报告\n");
+    const { code } = capture(
+      () => runWakeOwnerCommand(["--message", "实现完成", "--report", report], makeSpawn().spawn),
+    );
+    assert.equal(code, WAKE_OWNER_EXIT.sent);
+    const mail = JSON.parse(readFileSync(mailPath(ownerPane, ownerPane), "utf8").trim()) as MailMessage;
+    assert.equal(mail.text, "实现完成");
+    assert.equal(mail.reportPath, report);
+  });
+
+  it("位置参数被拒绝：退出 1 且不投递", () => {
+    saveState();
+    process.env.HERDR_PANE_ID = workerPane;
+    const { code, errors } = capture(
+      () => runWakeOwnerCommand(["done: 修好了 -> /tmp/r.md"], makeSpawn().spawn),
+    );
+    assert.equal(code, WAKE_OWNER_EXIT.usage);
+    assert.match(errors.join("\n"), /不接受的参数/);
+    assert.match(errors.join("\n"), /用法/);
+    assert.equal(existsSync(mailPath(ownerPane, ownerPane)), false);
+  });
+
+  it("缺 --message：退出 1 且不投递", () => {
+    saveState();
+    process.env.HERDR_PANE_ID = workerPane;
+    const { code, errors } = capture(() => runWakeOwnerCommand([], makeSpawn().spawn));
+    assert.equal(code, WAKE_OWNER_EXIT.usage);
+    assert.match(errors.join("\n"), /缺少 --message/);
+    assert.equal(existsSync(mailPath(ownerPane, ownerPane)), false);
+  });
+
+  it("--report 指向目录：退出 1 且不投递", () => {
+    saveState();
+    process.env.HERDR_PANE_ID = workerPane;
+    const dir = join(home, "reports");
+    mkdirSync(dir, { recursive: true });
+    const { code, errors } = capture(
+      () => runWakeOwnerCommand(["--message", "实现完成", "--report", dir], makeSpawn().spawn),
+    );
+    assert.equal(code, WAKE_OWNER_EXIT.usage);
+    assert.match(errors.join("\n"), /不是文件/);
+    assert.equal(existsSync(mailPath(ownerPane, ownerPane)), false);
+  });
+
+  it("--report= 空取值：退出 1 且不投递", () => {
+    saveState();
+    process.env.HERDR_PANE_ID = workerPane;
+    const { code, errors } = capture(
+      () => runWakeOwnerCommand(["--message", "实现完成", "--report="], makeSpawn().spawn),
+    );
+    assert.equal(code, WAKE_OWNER_EXIT.usage);
+    assert.match(errors.join("\n"), /参数 --report 缺少取值/);
+    assert.equal(existsSync(mailPath(ownerPane, ownerPane)), false);
+  });
+
+  it("--report 指向不存在的文件：退出 1 且不投递", () => {
+    saveState();
+    process.env.HERDR_PANE_ID = workerPane;
+    const { code, errors } = capture(
+      () => runWakeOwnerCommand(["--message", "实现完成", "--report", join(home, "nope.md")], makeSpawn().spawn),
+    );
+    assert.equal(code, WAKE_OWNER_EXIT.usage);
+    assert.match(errors.join("\n"), /不存在/);
+    assert.equal(existsSync(mailPath(ownerPane, ownerPane)), false);
   });
 
   it("没有宿主地址 / 不属于任何团队 → 退出 2", () => {
     delete process.env.HERDR_ENV;
     saveState();
     delete process.env.HERDR_PANE_ID;
-    assert.equal(capture(() => runWakeOwnerCommand([], makeSpawn().spawn)).code, WAKE_OWNER_EXIT.noTeam);
+    assert.equal(capture(() => runWakeOwnerCommand(["--message", "x"], makeSpawn().spawn)).code, WAKE_OWNER_EXIT.noTeam);
     process.env.HERDR_ENV = "1";  // 上一段删了宿主环境；这里要测的是「面板不属于任何团队」
     process.env.HERDR_PANE_ID = "w1:pBogus";
-    const { code, errors } = capture(() => runWakeOwnerCommand([], makeSpawn().spawn));
+    const { code, errors } = capture(() => runWakeOwnerCommand(["--message", "x"], makeSpawn().spawn));
     assert.equal(code, WAKE_OWNER_EXIT.noTeam);
     assert.match(errors.join("\n"), /不属于任何团队/);
     process.env.HERDR_PANE_ID = workerPane;
@@ -369,7 +441,7 @@ describe("hapi wake-owner", { concurrency: false }, () => {
     saveState();
     process.env.HERDR_PANE_ID = workerPane;
     const { spawn } = makeSpawn({ alivePanes: [workerPane] });
-    const { code, errors } = capture(() => runWakeOwnerCommand([], spawn));
+    const { code, errors } = capture(() => runWakeOwnerCommand(["--message", "x"], spawn));
     assert.equal(code, WAKE_OWNER_EXIT.herdr);
     assert.match(errors.join("\n"), /owner w1:p7 不可用/);
   });

@@ -1,6 +1,6 @@
 /**
  * mail-inbox.ts — 信箱接收侧：pane 进程内 2s 定时 drain 自己的信箱，
- * 经 pi.sendUserMessage 投递。busy 时 pi 自动排队、回合结束自动送达，
+ * 经 pi.sendUserMessage 投递。只在会话空闲时投：忙时信件留在文件里等下一个 tick。
  * 全程不碰输入框，与人打键不冲突。
  */
 import { existsSync } from "node:fs";
@@ -12,6 +12,8 @@ import { clearMail, drainMail, MailError } from "./mail.js";
 const DRAIN_INTERVAL_MS = 2000;
 let drainTimer;
 let drainInFlight = false;
+/** 最近一次会话启动的 ctx：忙闲判断只能问它（ExtensionAPI 没有 idle 查询）。 */
+let inboxCtx;
 /** 自己的信箱定位：owner 读自己宿主的状态文件，role 实例用落盘 key。非团队成员返回 undefined。 */
 export function ownMailbox() {
     const paneId = hostAddress();
@@ -35,22 +37,38 @@ export function senderLabel(state, fromPaneId) {
         return state.owner.nickname ?? fromPaneId;
     return fromPaneId;
 }
-const deliverMail = (pi, state) => (msg) => Effect.try({
-    try: () => {
-        const report = msg.reportPath ? `（报告：${msg.reportPath}）` : "";
-        pi.sendUserMessage(`[${senderLabel(state, msg.from)} ${msg.from}] ${msg.text}${report}`);
-        return true;
-    },
-    catch: (error) => new MailError({ message: `投递信件 ${msg.id} 失败：${String(error)}` }),
-});
+/** 单封信投递：忙时返回 false（排队重试），真正失败才是 MailError。 */
+export const deliverMail = (pi, state, isIdle) => (msg) => {
+    // 忙时返回 false 而不报错：drainMail 据此把剩余信件写回文件、下个 tick 重试。
+    // 不能靠 sendUserMessage 的 rejection——ExtensionAPI 版本返回 void 并在 pi 内部
+    // 自行 catch，流式期间抛的「Agent is already processing」根本到不了调用方。
+    if (!isIdle())
+        return Effect.succeed(false);
+    return Effect.try({
+        try: () => {
+            const report = msg.reportPath ? `（报告：${msg.reportPath}）` : "";
+            // followUp 兜住 isIdle 与 pi 内部 isStreaming 检查之间的毫秒级窗口：那一瞬起跑的话
+            // 无选项发送会抛错并被 pi 内部 catch 吞掉（信已标已送、实际丢失）；忙时进队由循环拉取永不 reject
+            pi.sendUserMessage(`[${senderLabel(state, msg.from)} ${msg.from}] ${msg.text}${report}`, {
+                deliverAs: "followUp",
+            });
+            return true;
+        },
+        catch: (error) => new MailError({ message: `投递信件 ${msg.id} 失败：${String(error)}` }),
+    });
+};
 function drainOnce(pi) {
     if (drainInFlight)
         return;
     const own = ownMailbox();
     if (!own)
         return;
+    const ctx = inboxCtx;
+    // 拿不到 ctx 就不投：宁可让信留在文件里，也不拿「已送」赌一次必然失败的发送
+    if (!ctx)
+        return;
     drainInFlight = true;
-    const result = Effect.runSync(Effect.either(drainMail(own.storeKey, own.paneId, deliverMail(pi, own.state))));
+    const result = Effect.runSync(Effect.either(drainMail(own.storeKey, own.paneId, deliverMail(pi, own.state, () => ctx.isIdle()))));
     drainInFlight = false;
     if (result._tag === "Left") {
         notify(`[hpl-orchestra] 信箱 drain 失败：${result.left.message}`, "warning");
@@ -67,7 +85,8 @@ function discardStaleMail() {
     }
 }
 /** 会话启动即起轮询；非团队 pane 每个 tick 只做一次目录存在性检查。 */
-export function startMailInbox(pi) {
+export function startMailInbox(pi, ctx) {
+    inboxCtx = ctx;
     discardStaleMail();
     if (drainTimer)
         return;
@@ -78,4 +97,5 @@ export function stopMailInbox() {
     if (drainTimer)
         clearInterval(drainTimer);
     drainTimer = undefined;
+    inboxCtx = undefined;
 }

@@ -138,7 +138,7 @@ export default function hplOrchestra(pi) {
     });
     pi.on("session_start", async (event, ctx) => {
         // 信箱接收侧：任何原因的会话启动都清空滞留邮件并确保轮询在跑
-        startMailInbox(pi);
+        startMailInbox(pi, ctx);
         if (event.reason !== "new")
             return;
         const saved = savedPanePreference;

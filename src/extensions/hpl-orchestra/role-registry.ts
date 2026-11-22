@@ -27,7 +27,7 @@ const ROLE_PROGRESS_CONTRACT = `Progress and reporting (every role pane):
 - The owner does not poll you, so silence is a lost report. When this turn's work
   is done, or you need a decision: write the report file the brief asks for, mark
   the task completed, then wake the owner in one line —
-    node "$HAPILON_CLI_PATH" wake-owner "done: <one-line result> -> <report path>"
+    node "$HAPILON_CLI_PATH" wake-owner --message "<一句话结果>" --report <报告绝对路径>
   — and end the turn. Never start more work on your own: every next dispatch
   goes through the owner, who clears and re-briefs you fresh.
 - Report location is mechanical, never guessed: the directory of the brief file

@@ -1,10 +1,12 @@
 import { after, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { ownMailbox, senderLabel } from "../../extensions/hpl-orchestra/mail-inbox.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { deliverMail, ownMailbox, senderLabel } from "../../extensions/hpl-orchestra/mail-inbox.js";
+import { drainMail, mailPath, postMail, type MailMessage } from "../../extensions/hpl-orchestra/mail.js";
 import { resolveSessionStatePath, teamsDir, writeTeamStateEffect, type TeamState } from "../../extensions/hpl-orchestra/state.js";
 
 const ownerPane = "w9:p1";
@@ -90,5 +92,62 @@ describe("ownMailboxForTest", () => {
   it("不在任何团队返回 undefined", () => {
     process.env.HERDR_PANE_ID = "w9:nowhere";
     assert.equal(ownMailbox(), undefined);
+  });
+});
+
+describe("deliverMail + drainMail", () => {
+  const fakePi = (sent: string[], opts: Array<{ deliverAs?: string }> = []): ExtensionAPI => ({
+    sendUserMessage: (text: string, options?: { deliverAs?: "steer" | "followUp" }) => {
+      sent.push(text);
+      opts.push({ ...(options?.deliverAs ? { deliverAs: options.deliverAs } : {}) });
+    },
+  }) as unknown as ExtensionAPI;
+
+  const post = (text: string, reportPath?: string): void => {
+    const msg: MailMessage = {
+      id: `m-${text}`,
+      from: workerPane,
+      to: ownerPane,
+      kind: "done",
+      text,
+      ...(reportPath ? { reportPath } : {}),
+    };
+    Effect.runSync(postMail(ownerPane, msg));
+  };
+
+  const drain = (sent: string[], idle: boolean, opts?: Array<{ deliverAs?: string }>): void => {
+    const result = Effect.runSync(
+      Effect.either(drainMail(ownerPane, ownerPane, deliverMail(fakePi(sent, opts), stateFor(), () => idle))),
+    );
+    assert.equal(result._tag, "Right");
+  };
+
+  it("忙时不投递：信留在文件里，空闲后下一轮补投并清空", () => {
+    const sent: string[] = [];
+    post("回归测试通过", "/abs/worker-report.md");
+    drain(sent, false);
+    assert.deepEqual(sent, []);
+    assert.equal(readFileSync(mailPath(ownerPane, ownerPane), "utf8").trim().split("\n").length, 1);
+    drain(sent, true);
+    assert.deepEqual(sent, ["[阿澈 w9:p2] 回归测试通过（报告：/abs/worker-report.md）"]);
+    assert.equal(readFileSync(mailPath(ownerPane, ownerPane), "utf8"), "");
+  });
+
+  it("投递带 deliverAs: followUp：忙时进队而不反弹，信号不丢", () => {
+    const sent: string[] = [];
+    const opts: Array<{ deliverAs?: string }> = [];
+    post("兜底");
+    drain(sent, true, opts);
+    assert.deepEqual(sent, ["[阿澈 w9:p2] 兜底"]);
+    assert.deepEqual(opts, [{ deliverAs: "followUp" }]);
+  });
+
+  it("空闲时按顺序投完并清空文件", () => {
+    const sent: string[] = [];
+    post("第一封");
+    post("第二封");
+    drain(sent, true);
+    assert.deepEqual(sent, ["[阿澈 w9:p2] 第一封", "[阿澈 w9:p2] 第二封"]);
+    assert.equal(readFileSync(mailPath(ownerPane, ownerPane), "utf8"), "");
   });
 });

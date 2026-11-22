@@ -4,8 +4,8 @@
  * 与 wait-pane 同级注册（cli/commands.ts），沿用同一套约定：退出码即结果
  * （background 唤醒只带退出码），stdout 给人和模型看。
  */
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, statSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { Effect } from "effect";
 import { defaultSpawn } from "./herdr.js";
 import { paneAgentAlive } from "./transport.js";
@@ -18,7 +18,8 @@ import { allInstances, findTeamStateForPane, isTeamOwner, listTeamStates, readTe
 import { sampleAgentStateEffect } from "./agent-state.js";
 import { briefDirOf, readTaskStoreEffect, taskLabel, taskUpdatedAt } from "./team-tasks.js";
 export const TEAM_STATUS_EXIT = { ok: 0, noTeam: 2 };
-export const WAKE_OWNER_EXIT = { sent: 0, noTeam: 2, herdr: 3 };
+export const WAKE_OWNER_EXIT = { sent: 0, usage: 1, noTeam: 2, herdr: 3 };
+export const WAKE_OWNER_USAGE = '用法：hapi wake-owner --message "<一句话结果>" [--report <报告绝对路径>]';
 /** --wait 阶段复用 wait-pane 码表：2 blocked、3 超时；noTeam 同为 2，同属「需人看输出」的非收敛类。 */
 export const SEND_MAIL_EXIT = { sent: 0, noTeam: 2, timeout: 3, usage: 4 };
 /** pane 回执文件名（按角色定）：只有这两个角色有固定回执名，其余不猜。 */
@@ -36,6 +37,36 @@ function flagValue(args, flag) {
             return arg.slice(flag.length + 1);
     }
     return undefined;
+}
+/**
+ * 只认 --message / --report 两个具名参数，任何位置参数一律拒绝。
+ * 位置参数形式（`wake-owner "done: … -> 路径"`）曾在花名册提示下被静默吞掉、
+ * 退回缺省文案而无人察觉——丢信事故的起点，所以宁可用法报错也不猜意图。
+ */
+function parseWakeOwnerArgs(args) {
+    let message;
+    let reportPath;
+    for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        const eq = arg.startsWith("--") ? arg.indexOf("=") : -1;
+        const flag = eq > 0 ? arg.slice(0, eq) : arg;
+        const inlineValue = eq > 0 ? arg.slice(eq + 1) : undefined;
+        if (flag !== "--message" && flag !== "--report")
+            return { ok: false, error: `不接受的参数：${arg}` };
+        const value = inlineValue ?? args[i + 1];
+        if (inlineValue === undefined)
+            i++;
+        // 空取值（`--report=`、`--report ""`）不能静默丢弃：信照发但 owner 拿不到报告路径
+        if (value === undefined || value.trim() === "")
+            return { ok: false, error: `参数 ${flag} 缺少取值` };
+        if (flag === "--message")
+            message = value.trim();
+        else
+            reportPath = value.trim();
+    }
+    if (!message)
+        return { ok: false, error: "缺少 --message" };
+    return { ok: true, params: { message, ...(reportPath ? { reportPath } : {}) } };
 }
 function countBy(tasks, status) {
     return tasks.filter((task) => task.status === status);
@@ -127,11 +158,36 @@ export function runTeamStatusCommand(_args, spawn = defaultSpawn) {
     return TEAM_STATUS_EXIT.ok;
 }
 /**
- * `hapi wake-owner [--message <一行>]`：角色 pane 一轮结束/需要决策时主动叫 owner。
- * 写 owner 信箱即返回；owner 忙时消息排队，回合结束自动收到。
- * 退出码 0 已入队 / 2 不属于任何团队 / 3 owner 不可用（含写信箱失败，历史键名 herdr）。
+ * `hapi wake-owner --message <一句话结果> [--report <报告绝对路径>]`：角色 pane 一轮结束/需要决策时主动叫 owner。
+ * 写 owner 信箱即返回；owner 忙时消息留在信箱，空闲后收到。
+ * 退出码 0 已入队 / 1 用法（含 --report 不存在或不是文件）/ 2 不属于任何团队 / 3 owner 不可用（含写信箱失败，历史键名 herdr）。
  */
 export function runWakeOwnerCommand(args, spawn = defaultSpawn) {
+    const parsed = parseWakeOwnerArgs(args);
+    if (!parsed.ok) {
+        console.error(`[wake-owner] ${parsed.error}`);
+        console.error(WAKE_OWNER_USAGE);
+        return WAKE_OWNER_EXIT.usage;
+    }
+    const { message, reportPath } = parsed.params;
+    // 报告路径由 owner 在自己的 cwd 里读：相对路径只是发送方的私有约定，收方解析必错
+    if (reportPath !== undefined && !isAbsolute(reportPath)) {
+        console.error(`[wake-owner] --report 必须是绝对路径：${reportPath}`);
+        console.error(WAKE_OWNER_USAGE);
+        return WAKE_OWNER_EXIT.usage;
+    }
+    if (reportPath !== undefined) {
+        const stat = statSync(reportPath, { throwIfNoEntry: false });
+        if (!stat) {
+            console.error(`[wake-owner] --report 指向的文件不存在：${reportPath}，未投递。`);
+            return WAKE_OWNER_EXIT.usage;
+        }
+        // 只收文件：目录/设备路径拼出来的「报告」到 owner 手上必定读不出东西
+        if (!stat.isFile()) {
+            console.error(`[wake-owner] --report 不是文件：${reportPath}，未投递。`);
+            return WAKE_OWNER_EXIT.usage;
+        }
+    }
     // 发送方身份随宿主：TUI 是 herdr pane id，core 是 hc 终端 id。
     const paneId = hostAddress();
     if (!paneId) {
@@ -143,7 +199,6 @@ export function runWakeOwnerCommand(args, spawn = defaultSpawn) {
         console.error(`[wake-owner] 面板 ${paneId} 不属于任何团队，未投递。`);
         return WAKE_OWNER_EXIT.noTeam;
     }
-    const message = flagValue(args, "--message")?.trim() || "一轮结束";
     const ownerPane = state.owner.paneId;
     if (!Effect.runSync(paneAgentAlive(ownerPane, spawn))) {
         console.error(`[wake-owner] owner ${ownerPane} 不可用，未投递。`);
@@ -156,13 +211,14 @@ export function runWakeOwnerCommand(args, spawn = defaultSpawn) {
         to: ownerPane,
         kind: "done",
         text: message,
+        ...(reportPath !== undefined ? { reportPath } : {}),
     };
     const result = Effect.runSync(Effect.either(postMail(ownerPane, mail)));
     if (result._tag === "Left") {
         console.error(`[wake-owner] 写 owner ${ownerPane} 信箱失败：${result.left.message}`);
         return WAKE_OWNER_EXIT.herdr;
     }
-    console.log(`[wake-owner] 已入队 ${ownerPane}：${message}`);
+    console.log(`[wake-owner] 已入队 ${ownerPane}：${message}${reportPath ? `（报告：${reportPath}）` : ""}`);
     return WAKE_OWNER_EXIT.sent;
 }
 /** 目标信箱定位（发送侧）：与 mail-inbox.ownMailbox 同一规则——owner 用 paneId 本名，role 用落盘 key；非团队成员 undefined。 */
