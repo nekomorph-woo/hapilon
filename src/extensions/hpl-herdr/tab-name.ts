@@ -1,22 +1,28 @@
 /**
- * tab-name.ts — herdr pane 标签的任务命名状态机（issue#75）。
+ * tab-name.ts — tab 标签的任务命名状态机（issue#75）。
  *
  * 两路触发共用一个状态机：底座是会话首条任务消息的首行截断（确定性兜底，
  * 保证每个新任务周期至少有一次像样的名字）；主力是模型经 rename_tab 在换
  * 任务时自报（它有全对话上下文，读得懂「继续昨天那个」是续聊而非新任务）。
  *
- * 保护是硬规则：标签当前值 ≠ 我们最后一次设的值（人工或 orchestra 改过）
- * 就永久收手——动态改名踩人工名字是 Claude Code 实锤翻车的形态；改名/查询
- * 通道一次失败也收手（herdr-app 不认 pane id，重试只会空转）。pane 标签
- * 跨会话存续，所以人工收手与通道收手不随 session_start 重置，只重置
- * 「本会话已命名」的一次性标记。
+ * 写入通道是 ctx.setSessionName：pi 自己会把标题渲染成
+ * 「π - <sessionName> - <cwd>」写进 OSC，herdr GUI 的 tab 跟随 OSC 标题，
+ * 名字还随 session 文件持久、resume 后仍在——不跟 pi 抢终端标题，也不需要
+ * 按宿主派发 pane rename。
+ *
+ * 保护是硬规则：会话名当前值 ≠ 我们最后一次设的值（用户 /name 等改过）
+ * 就永久收手——动态改名踩人工名字是 Claude Code 实锤翻车的形态。
+ * session 名随 session 存续，所以人工收手不随 session_start 重置，
+ * 只重置「本会话已命名」的一次性标记，并把现有名收编为我们的基线。
  */
 
 export const TAB_TITLE_MAX_CHARS = 24;
 
 /** 取首个非空行，剥 markdown 前缀与行内标记，压空白，截到 maxChars（按码点切，不劈 emoji）。 */
 export function sanitizeTitle(text: string, maxChars: number = TAB_TITLE_MAX_CHARS): string | undefined {
-	const firstLine = text.split("\n").find((line) => line.trim() !== "") ?? "";
+	// herdr-core 转发的输入带来源包裹（hc send 语义），不剥会进标题
+	const unwrapped = text.replace(/^<hc from="[^"]*">/, "").replace(/<\/hc>\s*$/, "");
+	const firstLine = unwrapped.split("\n").find((line) => line.trim() !== "") ?? "";
 	const cleaned = firstLine
 		.replace(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+[.)]\s+)*/, "")
 		.replace(/[`*_~]/g, "")
@@ -51,42 +57,32 @@ export interface TabNamer {
 	onUserInput(text: string): void;
 	/** 主力：模型自报改名，不受一次性标记限制 */
 	renameTo(title: string): RenameOutcome;
-	/** 会话边界：只重置「本会话已命名」，人工/通道收手不重置 */
+	/** 会话边界：只重置一次性标记并收编现有名，人工收手不重置 */
 	resetSession(): void;
 }
 
 export function createTabNamer(deps: {
-	/** 读当前 pane；undefined = 通道不可用或 pane 不存在（触发通道收手）。label 缺席 = 未命名 */
-	readPane: () => { label?: string } | undefined;
-	/** 写标签；false = 被宿主拒绝（触发通道收手） */
-	rename: (label: string) => boolean;
+	/** 读写 session 名（pi.ExtensionAPI）；读写都走同一处，divergence 才有单一定义 */
+	sessionName: {
+		get(): string | undefined;
+		set(name: string): void;
+	};
 	maxChars?: number;
 }): TabNamer {
 	const max = deps.maxChars ?? TAB_TITLE_MAX_CHARS;
 	let ourLabel = "";
 	let manualOwned = false;
-	let broken = false;
 	let namedThisSession = false;
 
 	const attempt = (raw: string): RenameOutcome => {
 		if (manualOwned) return { ok: false, reason: "标签被人工或 orchestra 改过，不再自动改名" };
-		if (broken) return { ok: false, reason: "改名通道不可用" };
 		const title = sanitizeTitle(raw, max);
 		if (title === undefined) return { ok: false, reason: "标题为空" };
-		const pane = deps.readPane();
-		if (pane === undefined) {
-			broken = true;
-			return { ok: false, reason: "查询不到本 pane，改名通道不可用" };
-		}
-		const current = pane.label ?? "";
-		if (current !== ourLabel) {
+		if ((deps.sessionName.get() ?? "") !== ourLabel) {
 			manualOwned = true;
-			return { ok: false, reason: "标签被人工或 orchestra 改过，不再自动改名" };
+			return { ok: false, reason: "标签被人工改过（/name），不再自动改名" };
 		}
-		if (!deps.rename(title)) {
-			broken = true;
-			return { ok: false, reason: "herdr 拒绝了改名" };
-		}
+		deps.sessionName.set(title);
 		ourLabel = title;
 		return { ok: true, label: title };
 	};
@@ -101,6 +97,8 @@ export function createTabNamer(deps: {
 		},
 		resetSession() {
 			namedThisSession = false;
+			// resume/新会话：现有 session 名收编为基线。若是人工起的，后续 divergence 检测照样能拦
+			ourLabel = deps.sessionName.get() ?? "";
 		},
 	};
 }

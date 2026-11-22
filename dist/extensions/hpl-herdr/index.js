@@ -15,16 +15,14 @@
  * CLI 被拒后自动切 OSC 7501 直接写 pty（osc.ts）。两路互斥，同一 pane 只有一条
  * 活通道；都不满足时严格 no-op。
  *
- * tab 命名（issue#75）：独立于上报通道，凡 team 宿主（herdr-tui / herdr-core）
- * 都激活，改名走 orchestra 传输层按宿主分流；herdr-app 改不了名（OSC 无名字
- * 字段），状态机自己会在首次尝试后收手。
+ * tab 命名（issue#75）：独立于上报通道，所有会话都激活（worker 角色面板除外）。
+ * 写入通道是 ctx.setSessionName——pi 自己把「π - <sessionName> - <cwd>」
+ * 渲染成 OSC 终端标题，herdr GUI/TUI 与普通终端的 tab 都跟随，名字随
+ * session 文件持久、resume 后仍在，不需要按宿主派发 pane rename。
  */
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { Effect } from "effect";
-import { hostAddress, resolveHost } from "../hpl-orchestra/host.js";
 import { defaultSpawn } from "../hpl-orchestra/herdr.js";
-import { paneGet, paneRename } from "../hpl-orchestra/transport.js";
 import { notify } from "../notify.js";
 import { blockMessage, createHerdrReporter } from "./report.js";
 import { createOscReporter } from "./osc.js";
@@ -39,7 +37,7 @@ function buildRenameTabTool(namer) {
     return defineTool({
         name: "rename_tab",
         label: "重命名标签",
-        description: "改 herdr 里本 pane 的标签（tab 名）。只在明显切换到新任务时调用，用 3-6 个词概括当前任务；同一任务的后续消息不要调用。",
+        description: "改本会话的 tab 标签（终端/面板标签名）。只在明显切换到新任务时调用，用 3-6 个词概括当前任务；同一任务的后续消息不要调用。",
         parameters: Type.Object({
             title: Type.String({ description: "新标签，3-6 个词" }),
         }),
@@ -70,12 +68,7 @@ function sessionPathOf(ctx) {
         return undefined;
     }
 }
-function renameHostOf() {
-    const host = resolveHost();
-    if (host.kind === "none")
-        return undefined;
-    return { kind: host.kind, paneId: hostAddress(host) ?? "" };
-}
+/** 可改名的宿主身份：herdr-tui 面板或 herdr-core 终端；非团队宿主 undefined。 */
 export function registerHerdrReporting(pi, deps) {
     // 两条出口同接口；herdr-app GUI 注入 HERDR_* 却不认这个 pane id（herdr-app#358），
     // CLI 首次 pane_not_found 后 escalate 翻转：CLI 通道闭嘴、OSC 顶上——同一 pane 仍只有一条活通道
@@ -95,17 +88,13 @@ export function registerHerdrReporting(pi, deps) {
         sinks.push(cli);
     if (deps.osc?.isTTY)
         sinks.push(osc);
-    const paneId = deps.host?.paneId;
-    const namer = paneId
-        ? createTabNamer({
-            readPane: () => Effect.runSync(paneGet(paneId, deps.spawn)),
-            rename: (label) => Effect.runSync(paneRename(paneId, label, deps.spawn)),
-        })
-        : undefined;
-    if (sinks.length === 0 && !namer)
-        return;
+    // 命名状态机不再依赖宿主身份：写入走 pi.setSessionName，pi 自己渲染 OSC
+    // 标题，herdr GUI/TUI/裸终端的 tab 都跟随，名字随 session 文件持久。
+    const namer = createTabNamer({
+        sessionName: { get: () => pi.getSessionName(), set: (name) => pi.setSessionName(name) },
+    });
     // 主力命名：rename_tab 由模型自报。角色面板（worker）的标签归 orchestra，不注册。
-    if (namer && !process.env.HAPI_ORCH_ROLE) {
+    if (!process.env.HAPI_ORCH_ROLE) {
         pi.registerTool(buildRenameTabTool(namer));
     }
     if (sinks.length > 0) {
@@ -176,15 +165,13 @@ export function registerHerdrReporting(pi, deps) {
         });
     }
     // 底座命名：会话首条任务消息（命令、排队续跑、rpc/extension 投递不算）。
-    // 会话边界只重置一次性标记；人工/通道收手状态随 pane 标签存续，不重置。
-    if (namer) {
-        pi.on("session_start", () => namer.resetSession());
-        pi.on("input", (event) => {
-            if (!qualifyingTaskInput(event.text, event.source, event.streamingBehavior))
-                return;
-            namer.onUserInput(event.text);
-        });
-    }
+    // 会话边界只重置一次性标记并收编现有名；人工收手状态随 session 名存续，不重置。
+    pi.on("session_start", () => namer.resetSession());
+    pi.on("input", (event) => {
+        if (!qualifyingTaskInput(event.text, event.source, event.streamingBehavior))
+            return;
+        namer.onUserInput(event.text);
+    });
 }
 export default function hplHerdr(pi) {
     registerHerdrReporting(pi, {
@@ -194,7 +181,6 @@ export default function hplHerdr(pi) {
             binPath: process.env.HERDR_BIN_PATH,
             paneId: process.env.HERDR_PANE_ID,
         },
-        host: renameHostOf(),
         // 不传 TTY 信息 OSC 通道永远 no-op（isTTY undefined → enabled false）
         osc: { isTTY: process.stdout.isTTY },
     });
