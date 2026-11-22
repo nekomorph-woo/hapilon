@@ -14,13 +14,21 @@
  * 齐全时激活）；herdr-app 同样注入这些变量但 pane 注册表不认（herdr-app#358），
  * CLI 被拒后自动切 OSC 7501 直接写 pty（osc.ts）。两路互斥，同一 pane 只有一条
  * 活通道；都不满足时严格 no-op。
+ *
+ * tab 命名（issue#75）：独立于上报通道，凡 team 宿主（herdr-tui / herdr-core）
+ * 都激活，改名走 orchestra 传输层按宿主分流；herdr-app 改不了名（OSC 无名字
+ * 字段），状态机自己会在首次尝试后收手。
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Effect } from "effect";
+import { hostAddress, resolveHost } from "../hpl-orchestra/host.js";
 import { defaultSpawn, type SpawnFn } from "../hpl-orchestra/herdr.js";
+import { paneGet, paneRename } from "../hpl-orchestra/transport.js";
 import { notify } from "../notify.js";
 import { blockMessage, createHerdrReporter, type HerdrEnv, type HerdrReporter } from "./report.js";
 import { createOscReporter } from "./osc.js";
 import { createHerdrState, type DerivedReport } from "./state.js";
+import { createTabNamer, qualifyingTaskInput } from "./tab-name.js";
 
 function sessionPathOf(ctx: ExtensionContext): string | undefined {
 	try {
@@ -38,9 +46,26 @@ interface BgJobLifecycleEvent {
 	id?: unknown;
 }
 
+/** 可改名的宿主身份：herdr-tui 面板或 herdr-core 终端；非团队宿主 undefined。 */
+interface RenameHost {
+	kind: "tui" | "core";
+	paneId: string;
+}
+
+function renameHostOf(): RenameHost | undefined {
+	const host = resolveHost();
+	if (host.kind === "none") return undefined;
+	return { kind: host.kind, paneId: hostAddress(host) ?? "" };
+}
+
 export function registerHerdrReporting(
 	pi: ExtensionAPI,
-	deps: { spawn: SpawnFn; env: HerdrEnv; osc?: { isTTY?: boolean | undefined; write?: (sequence: string) => void } },
+	deps: {
+		spawn: SpawnFn;
+		env: HerdrEnv;
+		osc?: { isTTY?: boolean | undefined; write?: (sequence: string) => void };
+		host?: RenameHost;
+	},
 ): void {
 	// 两条出口同接口；herdr-app GUI 注入 HERDR_* 却不认这个 pane id（herdr-app#358），
 	// CLI 首次 pane_not_found 后 escalate 翻转：CLI 通道闭嘴、OSC 顶上——同一 pane 仍只有一条活通道
@@ -58,71 +83,91 @@ export function registerHerdrReporting(
 	const sinks: HerdrReporter[] = [];
 	if (cli.enabled) sinks.push(cli);
 	if (deps.osc?.isTTY) sinks.push(osc);
-	if (sinks.length === 0) return;
 
-	const state = createHerdrState();
-	const report = (derived: DerivedReport | undefined) => {
-		if (!derived) return;
-		for (const sink of sinks) {
-			sink.report(derived.state, derived.message ? { message: derived.message } : undefined);
-		}
-	};
-	const subagentId = (event: unknown): string | undefined => {
-		const id = (event as SubagentLifecycleEvent | undefined)?.id;
-		return typeof id === "string" ? id : undefined;
-	};
+	const paneId = deps.host?.paneId;
+	const namer = paneId
+		? createTabNamer({
+			readPane: () => Effect.runSync(paneGet(paneId, deps.spawn)),
+				rename: (label) => Effect.runSync(paneRename(paneId, label, deps.spawn)),
+			})
+		: undefined;
+	if (sinks.length === 0 && !namer) return;
 
-	// 起始：新会话重置状态机，并带上 session 路径（herdr 展示/resume 判断用）
-	pi.on("session_start", (_event, ctx) => {
-		state.reset();
-		for (const sink of sinks) sink.report("idle", { sessionPath: sessionPathOf(ctx) });
-	});
+	if (sinks.length > 0) {
+		const state = createHerdrState();
+		const report = (derived: DerivedReport | undefined) => {
+			if (!derived) return;
+			for (const sink of sinks) {
+				sink.report(derived.state, derived.message ? { message: derived.message } : undefined);
+			}
+		};
+		const subagentId = (event: unknown): string | undefined => {
+			const id = (event as SubagentLifecycleEvent | undefined)?.id;
+			return typeof id === "string" ? id : undefined;
+		};
 
-	// 主循环：起跑与每轮开始算 working；完全沉淀（无重试/压缩/排队续跑）才是
-	// idle——agent_end 可能还有续跑，不报
-	pi.on("agent_start", () => report(state.agentStart()));
-	pi.on("turn_start", () => report(state.turnStart()));
-	pi.on("agent_settled", () => report(state.agentSettled()));
+		// 起始：新会话重置状态机，并带上 session 路径（herdr 展示/resume 判断用）
+		pi.on("session_start", (_event, ctx) => {
+			state.reset();
+			for (const sink of sinks) sink.report("idle", { sessionPath: sessionPathOf(ctx) });
+		});
 
-	// 后台 subagent 在跑同样撑住 working：主循环 settle 后由这两路事实接管，
-	// 最后一个结束才真正 idle（Agent/TaskExecute/Workflow 三路派发都过 manager）
-	pi.events.on("subagents:started", (event) => {
-		const id = subagentId(event);
-		if (id) report(state.subagentStarted(id));
-	});
-	pi.events.on("subagents:completed", (event) => {
-		const id = subagentId(event);
-		if (id) report(state.subagentEnded(id));
-	});
-	pi.events.on("subagents:failed", (event) => {
-		const id = subagentId(event);
-		if (id) report(state.subagentEnded(id));
-	});
+		// 主循环：起跑与每轮开始算 working；完全沉淀（无重试/压缩/排队续跑）才是
+		// idle——agent_end 可能还有续跑，不报
+		pi.on("agent_start", () => report(state.agentStart()));
+		pi.on("turn_start", () => report(state.turnStart()));
+		pi.on("agent_settled", () => report(state.agentSettled()));
 
-	// 后台 shell 任务（background-tasks 插件）在跑同样撑住 working：任务 id 是
-	// 数字，与 subagent 的字符串 id 分开收
-	const jobId = (event: unknown): number | undefined => {
-		const id = (event as BgJobLifecycleEvent | undefined)?.id;
-		return typeof id === "number" ? id : undefined;
-	};
-	pi.events.on("bg-jobs:started", (event) => {
-		const id = jobId(event);
-		if (id !== undefined) report(state.bgStarted(id));
-	});
-	pi.events.on("bg-jobs:ended", (event) => {
-		const id = jobId(event);
-		if (id !== undefined) report(state.bgEnded(id));
-	});
+		// 后台 subagent 在跑同样撑住 working：主循环 settle 后由这两路事实接管，
+		// 最后一个结束才真正 idle（Agent/TaskExecute/Workflow 三路派发都过 manager）
+		pi.events.on("subagents:started", (event) => {
+			const id = subagentId(event);
+			if (id) report(state.subagentStarted(id));
+		});
+		pi.events.on("subagents:completed", (event) => {
+			const id = subagentId(event);
+			if (id) report(state.subagentEnded(id));
+		});
+		pi.events.on("subagents:failed", (event) => {
+			const id = subagentId(event);
+			if (id) report(state.subagentEnded(id));
+		});
 
-	// 阻塞：ask_user / 权限确认等阻塞式 UI prompt，标题优先当说明
-	pi.on("ui_prompt_start", (event) => report(state.promptStart(blockMessage(event))));
-	pi.on("ui_prompt_end", () => report(state.promptEnd()));
+		// 后台 shell 任务（background-tasks 插件）在跑同样撑住 working：任务 id 是
+		// 数字，与 subagent 的字符串 id 分开收
+		const jobId = (event: unknown): number | undefined => {
+			const id = (event as BgJobLifecycleEvent | undefined)?.id;
+			return typeof id === "number" ? id : undefined;
+		};
+		pi.events.on("bg-jobs:started", (event) => {
+			const id = jobId(event);
+			if (id !== undefined) report(state.bgStarted(id));
+		});
+		pi.events.on("bg-jobs:ended", (event) => {
+			const id = jobId(event);
+			if (id !== undefined) report(state.bgEnded(id));
+		});
 
-	// 退出：释放生命周期权威（CLI 的 release-agent / OSC 的 state=clear），
-	// herdr 不再把这个 pane 当活跃 agent
-	pi.on("session_shutdown", () => {
-		for (const sink of sinks) sink.release();
-	});
+		// 阻塞：ask_user / 权限确认等阻塞式 UI prompt，标题优先当说明
+		pi.on("ui_prompt_start", (event) => report(state.promptStart(blockMessage(event))));
+		pi.on("ui_prompt_end", () => report(state.promptEnd()));
+
+		// 退出：释放生命周期权威（CLI 的 release-agent / OSC 的 state=clear），
+		// herdr 不再把这个 pane 当活跃 agent
+		pi.on("session_shutdown", () => {
+			for (const sink of sinks) sink.release();
+		});
+	}
+
+	// 底座命名：会话首条任务消息（命令、排队续跑、rpc/extension 投递不算）。
+	// 会话边界只重置一次性标记；人工/通道收手状态随 pane 标签存续，不重置。
+	if (namer) {
+		pi.on("session_start", () => namer.resetSession());
+		pi.on("input", (event) => {
+			if (!qualifyingTaskInput(event.text, event.source, event.streamingBehavior)) return;
+			namer.onUserInput(event.text);
+		});
+	}
 }
 
 export default function hplHerdr(pi: ExtensionAPI): void {
@@ -133,6 +178,7 @@ export default function hplHerdr(pi: ExtensionAPI): void {
 			binPath: process.env.HERDR_BIN_PATH,
 			paneId: process.env.HERDR_PANE_ID,
 		},
+		host: renameHostOf(),
 		// 不传 TTY 信息 OSC 通道永远 no-op（isTTY undefined → enabled false）
 		osc: { isTTY: process.stdout.isTTY },
 	});
