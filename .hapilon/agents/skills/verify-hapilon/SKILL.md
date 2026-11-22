@@ -41,4 +41,4 @@ RPC 能证明 hapi 发出确认请求及下一次模型请求包含什么，不�
 
 ## Helpers
 
-[敏感文件读取确认](sensitive-file-confirmation.mjs)是首个验收脚本。用例和脚本命名规则见[功能地图](features/README.md)。地图落后于真实入口时，用 `/skill:maintain-verification-skill` 更新。
+[敏感文件读取确认](sensitive-file-confirmation.mjs)是首个验收脚本。[RPC 验收环境](rpc-verification.mjs)负责启动、就绪检查、事件记录和清理；功能脚本负责夹具、模型替身回复和断言。直接用 hapi 或 `hc` 就能验证的功能，不需要另写脚本。地图落后于真实入口时，用 `/skill:maintain-verification-skill` 更新。

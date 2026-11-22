@@ -1,6 +1,6 @@
 # hapi 功能地图
 
-验收脚本用功能名命名，例如 `sensitive-file-confirmation.mjs`。新增脚本时，在这里补上用户入口、验证命令和证据位置。不要用 `verify.mjs` 这类看不出功能的名字。
+先在地图写用户入口、操作和通过条件。能用 hapi 或 `hc` 验收时，直接用现有命令。需要重复执行、自动断言时再加脚本，按用途命名。Pi RPC 验收可共用 [`rpc-verification.mjs`](../rpc-verification.mjs) 的隔离环境、事件记录和清理。
 
 | 功能 | 用户入口 | 验证 |
 | --- | --- | --- |
