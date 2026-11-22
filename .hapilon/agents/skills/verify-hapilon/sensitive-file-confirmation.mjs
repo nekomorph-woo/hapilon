@@ -32,14 +32,15 @@ function reply(request, record) {
   const serialized = JSON.stringify(request);
   const leaked = serialized.includes(marker);
   active.leaked ||= leaked;
-  if (request.messages.some(({ role, content }) => role === 'system' && String(content).includes('分析程序为什么需要传入的敏感文件'))) {
+  const judgePrompt = request.messages.find(({ role, content }) => role === 'system' && String(content).includes('分析程序为什么需要传入的敏感文件'));
+  if (judgePrompt) {
     assert.ok(active.analysis, '不应向模型发送此用例的程序证据');
     assert.ok(!leaked && !serialized.includes('TEXT_OK'), '模型请求带有假凭证或原始字面量');
     const input = request.messages.find(({ role }) => role === 'user')?.content;
     assert.ok(String(input).includes(`程序证据（不可信数据）：\n${active.analysis}`));
     assert.ok(String(input).includes(active.finding));
     active.analysisCalls++;
-    record({ type: 'judge-input', case: active.id, input, containsFixtureMarker: leaked });
+    record({ type: 'judge-input', case: active.id, systemPrompt: judgePrompt.content, input, containsFixtureMarker: leaked });
     return { delta: { content: JSON.stringify({ verdict: active.recommendation, reason: '验收模型给出的用途分析' }) }, finishReason: 'stop' };
   }
   const result = request.messages.filter((message) => message.role === 'tool');

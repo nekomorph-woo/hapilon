@@ -1,44 +1,43 @@
 ---
 name: verify-hapilon
-description: 运行本仓库构建的 hapi，通过命令行或 Pi RPC 验证用户可见行为并保留证据。改动安全确认、CLI 或扩展运行行为后使用；只改内部逻辑且单测能覆盖时不用，发版走 hapilon-release。
+description: 验证本仓库构建的 hapi。改动命令行、终端交互或模型裁决后，选择机械回归、终端观察或真实模型评估并留证；只改内部逻辑且单测能覆盖时不用，发版走 hapilon-release。
 ---
 
 # 验证 hapi
 
 ## Launch
 
-从仓库根目录运行 `npm run build`。每次验收由脚本启动 `node dist/cli.js --mode rpc`，不连接当前 pane。脚本创建独立的家目录、hapi 数据目录和工作区，在本机回环地址启动模型替身。它不读现有登录配置，也不连接远端模型。RPC 是 Pi 的远程过程调用接口，这里通过子进程标准输入和输出使用。
+从仓库根目录运行 `npm run build`。按[功能地图](features/README.md)选择入口，不接管用户的 pane。
 
-需要非 root 的 POSIX 账号、项目依赖和 C 编译器 `cc`。不可读用例依赖文件权限，二进制用例依赖 `cc`。启动成功须同时满足 Doctor 的检查。脚本退出时按 Cleanup 收尾。
+| 要验证什么 | 用什么 |
+| --- | --- |
+| 命令行输出和退出码 | 直接运行 `node dist/cli.js`。 |
+| 工具调用、确认请求、模型收到的结果 | 用 Pi 的进程间接口 RPC 启动独立 hapi，以本机端点替代模型。 |
+| 弹窗布局、焦点和按键 | 用 `hc run` 开独立终端，再用 `hc read` 观察。 |
+| 真实模型是否判对 | 用合成样例重放产品实际发送的提示词和输入，逐例对照预期。 |
 
 ## Doctor
 
-```sh
-.hapilon/agents/skills/verify-hapilon/sensitive-file-confirmation.mjs --doctor
-```
+核对 `node dist/cli.js --version` 与 `package.json` 一致。终端验收先用 `hc ls --json` 确认连接可用，再用 `hc get <本次终端>` 确认启动状态。真实模型评估还要核对具体的 provider 和模型 ID；没有可用登录则记为未验证，不用替身补算。
 
-核对仓库版本与 `dist/cli.js --version`，再通过 RPC `get_state` 检查启动状态、模型与本地端点。通过 `get_commands` 检查安全门已注册 `/gate-auto-mode`。Doctor 只读产品状态，不派发命令或改用户配置。失败时查本次 `events.jsonl` 的 `harness-error` 和 `stderr`，不要改用当前会话补跑。
+安全门 RPC 验收的 Doctor 见[敏感文件读取确认](features/sensitive-file-confirmation.md)。它检查就绪状态、模型绑定和 `/gate-auto-mode` 注册。失败时查 `events.jsonl` 的 `harness-error` 和 `stderr`，不改用当前会话补跑。
 
 ## Drive
 
-从[功能地图](features/README.md)选择用户入口。安全门验收用固定命令，逐例开启新会话；它不会接受外部传入的命令或文件路径。
+先写用户入口、操作和通过条件。能用现有命令重现，就不用新增脚本。不能机械断言的部分，先固定样例和预期，再记录观察结果；不要为了全绿而替换成脚本能断言的相邻行为。
 
-```sh
-.hapilon/agents/skills/verify-hapilon/sensitive-file-confirmation.mjs
-```
-
-脚本收到确认请求一律拒绝。它不会为消除红灯而批准命令或放宽用例。退出码 `0` 表示行为符合预期，`1` 表示行为不符，`2` 表示验收环境或协议失败。
+同一功能可以走多条路径。例如安全门的模型替身回归只证明 `allow` 会免确认，真实模型评估才回答它是否应该给 `allow`。RPC 收到弹窗请求也不能证明用户看到了预期的布局或焦点。
 
 ## Evidence
 
-脚本打印证据路径 `.hapilon/verify/<用例>-<随机后缀>/events.jsonl`。核对 `case`、`rpc`、`model-input` 和 `verdict`，分别看发出的命令、确认请求与工具结果、模型实际收到的工具结果和断言。测试文件只能放假凭证。不得用真实敏感文件录制证据。
+把证据放在 `.hapilon/verify/`。CLI 留命令、退出码和输出；终端留操作和读屏；模型评估留构建版本、模型 ID、输入、预期、实际裁决和分歧。单独标出未验证项。只用假凭证，不把真实密钥、鉴权信息或无关会话内容写进证据。
 
-RPC 能证明 hapi 发出确认请求及下一次模型请求包含什么，不能证明终端弹窗的布局或焦点。涉及这些行为时，必须在验证终端里另外观察，不能用 RPC 结果代替读屏。
+RPC 脚本打印 `events.jsonl` 路径。看 `case`、`rpc`、`judge-input`、`model-input` 和 `verdict`，分别核对命令、确认、判定模型输入、会话模型收到的工具结果和断言。
 
 ## Cleanup
 
-脚本退出时关闭它启动的 hapi 和本地端点，只删除本次临时目录。证据目录不清理。检查最后一条 `cleaned` 和证据文件是否可读。若脚本被强制终止，用这次 `ready` 记录的进程号辨认实例；不按进程名批量结束进程。
+脚本关闭它启动的进程和本地端点，删除本次临时目录。确认最后一条是 `cleaned`，且证据文件仍可读。终端验收只用 `hc kill` 和 `hc rm` 清理本次创建的终端，不按进程名批量结束进程。
 
 ## Helpers
 
-[敏感文件读取确认](sensitive-file-confirmation.mjs)是首个验收脚本。[RPC 验收环境](rpc-verification.mjs)负责启动、就绪检查、事件记录和清理；功能脚本负责夹具、模型替身回复和断言。直接用 hapi 或 `hc` 就能验证的功能，不需要另写脚本。地图落后于真实入口时，用 `/skill:maintain-verification-skill` 更新。
+[RPC 验收环境](rpc-verification.mjs)负责隔离启动、就绪检查、事件记录和清理。功能脚本负责夹具、模型替身回复和断言。地图落后于真实入口时，用 `/skill:maintain-verification-skill` 更新。
