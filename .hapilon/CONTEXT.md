@@ -24,3 +24,4 @@
 | herdr-core | herdr 的守护进程层，pane 真正宿主；区别于未运行的 TUI 版 herdr | 2026-11-08 |
 | hc | herdr-core 自带 CLI（run/read/send/wait/get/kill），agent 化验证的自动化通道 | 2026-11-08 |
 | 验证终端 | verify-hapilon 经 hc run 开的 verify- 前缀 devhapi 终端，验收跑真实环境 | 2026-11-08 |
+| 快速设置 | `/fast-hapilon-setup` 打开的菜单，按所选项预览并确认修改本机配置 | 2026-11-21 |
