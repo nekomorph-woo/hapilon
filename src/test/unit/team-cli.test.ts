@@ -277,6 +277,59 @@ describe("hapi send-mail", { concurrency: false }, () => {
     const { code } = capture(() => runSendMailCommand([workerPane, "--text", "hi", "--wait"], deps));
     assert.equal(code, WAIT_EXIT.settled);
   });
+
+  it("core 宿主 --wait 走 hc wait：ended:true 且非 working → settled", () => {
+    saveState();
+    delete process.env.HERDR_ENV;
+    process.env.HC_TERMINAL_ID = ownerPane;
+    try {
+      const coreSpawn: SpawnFn = () => ({
+        status: 0,
+        stdout: JSON.stringify({ ended: true, reason: "status", status: "idle", terminal: workerPane, turn: 1 }),
+        stderr: "",
+      });
+      const deps: WaitDeps = {
+        snapshot: () => {
+          throw new Error("core 分支不该轮询 herdr 状态");
+        },
+        sleepMs: () => {},
+        now: () => 0,
+        coreSpawn,
+      };
+      const { code, logs } = capture(() => runSendMailCommand([workerPane, "--text", "hi", "--wait"], deps));
+      assert.equal(code, WAIT_EXIT.settled);
+      assert.match(logs.join("\n"), /settled/);
+    } finally {
+      process.env.HERDR_ENV = "1";
+      delete process.env.HC_TERMINAL_ID;
+    }
+  });
+
+  it("core 宿主 --wait 未收敛 → timeout 退出 3", () => {
+    saveState();
+    delete process.env.HERDR_ENV;
+    process.env.HC_TERMINAL_ID = ownerPane;
+    try {
+      const coreSpawn: SpawnFn = () => ({
+        status: 1,
+        stdout: JSON.stringify({ ended: false, status: "working", terminal: workerPane }),
+        stderr: "",
+      });
+      const deps: WaitDeps = {
+        snapshot: () => {
+          throw new Error("core 分支不该轮询 herdr 状态");
+        },
+        sleepMs: () => {},
+        now: () => 0,
+        coreSpawn,
+      };
+      const { code } = capture(() => runSendMailCommand([workerPane, "--text", "hi", "--wait"], deps));
+      assert.equal(code, WAIT_EXIT.timeout);
+    } finally {
+      process.env.HERDR_ENV = "1";
+      delete process.env.HC_TERMINAL_ID;
+    }
+  });
 });
 
 describe("hapi wake-owner", { concurrency: false }, () => {

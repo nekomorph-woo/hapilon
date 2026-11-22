@@ -171,15 +171,16 @@ describe("宿主专属 prompt 路由", () => {
         { key: "worker", paneId: "ADDR" },
         { key: "reviewer", paneId: "REV" },
     ];
-    it("TUI 段用 herdr 路由、不含 hc", () => {
+    it("TUI 段派发走信箱通道（send-mail），不含 hc", () => {
         const text = fillOrchestratorSection(crew, "tui");
-        assert.ok(text.includes("herdr pane run"));
+        assert.ok(text.includes("send-mail"));
         assert.ok(!text.includes("hc send"));
         assert.ok(!text.includes("team_ctl"));
     });
-    it("core 段用 hc/team_ctl 路由、不含 herdr 命令", () => {
+    it("core 段派发走信箱通道 + hc 等待、不含 herdr 命令", () => {
         const text = fillOrchestratorSection(crew, "core");
-        assert.ok(text.includes("hc send"));
+        assert.ok(text.includes("send-mail"));
+        assert.ok(text.includes("hc wait"));
         assert.ok(text.includes("team_ctl"));
         assert.ok(!text.includes("herdr pane"));
         assert.ok(!text.includes("herdr agent"));

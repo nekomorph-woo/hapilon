@@ -11,7 +11,7 @@
  *   0 收敛（idle/done）  2 卡在等待输入（blocked）  3 到时未收敛  4 用法/环境错误
  */
 import { Effect } from "effect";
-import { agentStateWithSeq, type AgentSnapshot } from "./herdr.js";
+import { agentStateWithSeq, type AgentSnapshot, type SpawnFn } from "./herdr.js";
 
 /** 默认安静多久算超时（秒）——与派发纪律里的 stale 阈值一致 */
 export const DEFAULT_TIMEOUT_SEC = 900;
@@ -42,6 +42,8 @@ export interface WaitDeps {
   snapshot: (paneId: string) => AgentSnapshot;
   sleepMs: (ms: number) => void;
   now: () => number;
+  /** core 宿主 send-mail --wait 的 hc wait 通道桩（测试注入用；缺省跑真 hc） */
+  coreSpawn?: SpawnFn;
 }
 
 export const defaultWaitDeps: WaitDeps = {

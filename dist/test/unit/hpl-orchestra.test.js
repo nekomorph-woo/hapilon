@@ -516,9 +516,10 @@ describe("hpl-orchestra roles and menus", { concurrency: false }, () => {
         assert.equal(reviewerBlock.includes("tell the user to open it via /team menu"), false);
         assert.equal(reviewerBlock.includes("do not dispatch until open"), false);
         const dispatchLine = filled.split("\n").find((line) => line.includes("background(command=")) ?? "";
-        assert.ok(dispatchLine.includes("herdr pane run <id>"), JSON.stringify(dispatchLine));
-        assert.ok(dispatchLine.includes('node "$HAPILON_CLI_PATH" wait-pane <id>'), JSON.stringify(dispatchLine));
+        assert.ok(dispatchLine.includes("node \"$HAPILON_CLI_PATH\" send-mail <id>"), JSON.stringify(dispatchLine));
+        assert.ok(dispatchLine.includes("--wait"), JSON.stringify(dispatchLine));
         // 回归：两段式 send-text + send-keys 的 enter 会被 bracketed-paste 吞掉（文本进了输入框但不提交）
+        assert.equal(dispatchLine.includes("herdr pane run"), false, JSON.stringify(dispatchLine));
         assert.equal(dispatchLine.includes("herdr pane send-text"), false, JSON.stringify(dispatchLine));
         assert.equal(dispatchLine.includes("herdr pane send-keys"), false, JSON.stringify(dispatchLine));
         // 回归：herdr 的 wait --until idle 只看当前状态，pane 派发前本来就是 idle → 秒回
@@ -1285,8 +1286,9 @@ describe("hpl-orchestra system prompt exclusivity", { concurrency: false }, () =
         assert.ok(result.systemPrompt.includes("worker w1:p8"));
         assert.equal((result.systemPrompt.match(/<team mode=/g) ?? []).length, 1);
         const dispatchLine = ORCHESTRATOR_SECTION.split("\n").find((line) => line.includes("background(command=")) ?? "";
-        assert.ok(dispatchLine.includes("herdr pane run <id>"));
-        assert.ok(dispatchLine.includes("node \"$HAPILON_CLI_PATH\" wait-pane <id>"));
+        assert.ok(dispatchLine.includes("node \"$HAPILON_CLI_PATH\" send-mail <id>"));
+        assert.ok(dispatchLine.includes("--wait"));
+        assert.equal(dispatchLine.includes("herdr pane run"), false);
         assert.equal(dispatchLine.includes("herdr pane send-text"), false);
         assert.equal(dispatchLine.includes("herdr pane send-keys"), false);
     });

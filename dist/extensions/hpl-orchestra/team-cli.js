@@ -9,7 +9,8 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { defaultSpawn } from "./herdr.js";
 import { paneAgentAlive } from "./transport.js";
-import { hostAddress } from "./host.js";
+import { hostAddress, isCoreHost } from "./host.js";
+import { coreWaitSettle, normalizeCoreStatus } from "./core.js";
 import { newMailId, postMail } from "./mail.js";
 import { DEFAULT_TIMEOUT_SEC, WAIT_EXIT, defaultWaitDeps, waitForPaneSettle } from "./wait-pane.js";
 import { instanceStoreKey } from "./state.js";
@@ -202,6 +203,15 @@ export function runSendMailCommand(args, deps = defaultWaitDeps) {
     if (!args.includes("--wait"))
         return SEND_MAIL_EXIT.sent;
     const timeoutSec = Number(flagValue(args, "--timeout")) || DEFAULT_TIMEOUT_SEC;
+    if (isCoreHost()) {
+        // core 宿主收敛走 hc wait 原语：wait-pane 轮询依赖 herdr 状态序号，core 下恒缺（herdr server 不在场）
+        const wait = Effect.runSync(coreWaitSettle(paneId, timeoutSec, deps.coreSpawn ?? defaultSpawn));
+        const outcome = !wait.settled
+            ? "timeout"
+            : normalizeCoreStatus(wait.status) === "blocked" ? "blocked" : "settled";
+        console.log(`[send-mail] ${paneId} → ${outcome}（status=${wait.status ?? "unknown"}）`);
+        return WAIT_EXIT[outcome];
+    }
     const wait = waitForPaneSettle(paneId, { timeoutMs: timeoutSec * 1000 }, deps);
     console.log(`[send-mail] ${paneId} → ${wait.outcome}（status=${wait.status}，耗时 ${Math.round(wait.elapsedMs / 1000)}s）`);
     return WAIT_EXIT[wait.outcome];
