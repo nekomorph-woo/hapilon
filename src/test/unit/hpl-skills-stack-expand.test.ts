@@ -91,6 +91,12 @@ describe("expandSkillStack", () => {
     assert.ok(wrapped?.startsWith('<hc from="t23"><skill name="a"'));
     assert.ok(wrapped?.endsWith("帮我 看看</hc>"));
     assert.equal(expandSkillStack('<hc from="t23">普通消息</hc>', resolve), null);
-    assert.equal(expandSkillStack('<hc from="t23">/skill:a 参数</hc>', resolve), null);
+  });
+
+  it("herdr 包裹: 单个 skill 也由这里展开（包裹下 pi 原生不触发）；直连单个仍交原生", () => {
+    const wrapped = expandSkillStack('<hc from="t23">/skill:a 修个 bug</hc>', resolve);
+    assert.ok(wrapped?.startsWith('<hc from="t23"><skill name="a"'));
+    assert.ok(wrapped?.endsWith("修个 bug</hc>"));
+    assert.equal(expandSkillStack("/skill:a 修个 bug", resolve), null);
   });
 });

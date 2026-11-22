@@ -17,12 +17,13 @@ const HC_WRAP_RE = /^(<hc from="[^"]*">)([\s\S]*)(<\/hc>)$/;
  * 展开输入中的 /skill: token（自动穿透 herdr 的 <hc from="…"> 包裹，展开后重新包回）。
  * 可解析 token 依出现顺序展开为 pi 原生 <skill> 块置于输出前部，其余文本按原顺序拼为尾部。
  * 未知名、重复名（第二次起）、超上限的 token 按字面保留。
- * 返回 null 的情况：无任何可解析 token，或开头恰好单个且别处没有（pi 原生单展开接管）。
+ * 返回 null 的情况：无任何可解析 token；或未包裹时开头恰好单个且别处没有
+ * （交还 pi 原生单展开）——包裹下原生不生效，单个也由这里展开。
  */
 export function expandSkillStack(text, resolve) {
     const wrap = HC_WRAP_RE.exec(text);
     const inner = wrap ? wrap[2] : text;
-    const expanded = expandInner(inner, resolve);
+    const expanded = expandInner(inner, resolve, wrap === null);
     if (expanded === null)
         return null;
     return wrap ? `${wrap[1]}${expanded}${wrap[3]}` : expanded;
@@ -32,7 +33,7 @@ function formatBlock(name, skill) {
         `References are relative to ${dirname(skill.filePath)}.\n\n` +
         `${skill.body}\n</skill>`);
 }
-function expandInner(text, resolve) {
+function expandInner(text, resolve, handbackSingle) {
     const re = /\S+/g;
     const blocks = [];
     const seen = new Set();
@@ -68,7 +69,7 @@ function expandInner(text, resolve) {
         }
     }
     prose.push(text.slice(prev));
-    if (headBlocks === 1 && otherBlocks === 0)
+    if (handbackSingle && headBlocks === 1 && otherBlocks === 0)
         return null;
     if (blocks.length === 0)
         return null;
