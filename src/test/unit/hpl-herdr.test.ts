@@ -161,11 +161,13 @@ describe("registerHerdrReporting() tab 命名接线", () => {
 	function fakePi() {
 		const handlers = new Map<string, (...args: never[]) => unknown>();
 		const events = new Map<string, (payload: unknown) => void>();
+		const tools = new Map<string, { execute: (id: string, params: { title: string }) => Promise<{ content: Array<{ text: string }>; isError?: boolean }> }>();
 		const pi = {
 			on: (name: string, handler: (...args: never[]) => unknown) => void handlers.set(name, handler),
 			events: { on: (name: string, handler: (payload: unknown) => void) => void events.set(name, handler) },
+			registerTool: (tool: { name: string; execute: (id: string, params: { title: string }) => Promise<{ content: Array<{ text: string }>; isError?: boolean }> }) => void tools.set(tool.name, tool),
 		};
-		return { pi: pi as never, handlers, events };
+		return { pi: pi as never, handlers, events, tools };
 	}
 
 	/** 模拟 herdr CLI：pane get 返回当前标签，pane rename 记录并生效 */
@@ -187,7 +189,7 @@ describe("registerHerdrReporting() tab 命名接线", () => {
 	}
 
 	/** transport 守卫读 process.env，测试内临时置 herdr 身份并清掉 core 身份（防宿主歧义） */
-	function withHerdrEnv<T>(fn: () => T): T {
+	async function withHerdrEnv<T>(fn: () => T | Promise<T>): Promise<T> {
 		const keys = ["HERDR_ENV", "HERDR_PANE_ID", "HERDR_BIN_PATH", "HC_TERMINAL_ID", "HC_SERVER_ID", "HC_TERMINAL_SOCKET"] as const;
 		const saved = keys.map((k) => [k, process.env[k]] as const);
 		process.env.HERDR_ENV = "1";
@@ -195,7 +197,7 @@ describe("registerHerdrReporting() tab 命名接线", () => {
 		process.env.HERDR_BIN_PATH = "/opt/herdr/bin/herdr";
 		for (const k of ["HC_TERMINAL_ID", "HC_SERVER_ID", "HC_TERMINAL_SOCKET"]) delete process.env[k];
 		try {
-			return fn();
+			return await fn();
 		} finally {
 			for (const [k, v] of saved) {
 				if (v === undefined) delete process.env[k];
@@ -204,8 +206,8 @@ describe("registerHerdrReporting() tab 命名接线", () => {
 		}
 	}
 
-	it("host 存在时首条交互输入触发 pane rename", () => {
-		withHerdrEnv(() => {
+	it("host 存在时首条交互输入触发 pane rename", async () => {
+		await withHerdrEnv(() => {
 			const { calls, spawn } = makePaneSpawn();
 			const { pi, handlers } = fakePi();
 			registerHerdrReporting(pi, {
@@ -224,12 +226,69 @@ describe("registerHerdrReporting() tab 命名接线", () => {
 		});
 	});
 
-	it("无 host 不注册 input 监听", () => {
-		withHerdrEnv(() => {
+	it("无 host 不注册 input 监听", async () => {
+		await withHerdrEnv(() => {
 			const { spawn } = makePaneSpawn();
 			const { pi, handlers } = fakePi();
 			registerHerdrReporting(pi, { spawn: spawn as never, env: ENV });
 			assert.equal(handlers.has("input"), false);
+		});
+	});
+
+	it("host 存在时注册 rename_tab，执行成功并净入参", async () => {
+		await withHerdrEnv(async () => {
+			const { calls, spawn } = makePaneSpawn();
+			const { pi, tools } = fakePi();
+			registerHerdrReporting(pi, {
+				spawn: spawn as never,
+				env: ENV,
+				host: { kind: "tui", paneId: "w1:p7" },
+			});
+			const tool = tools.get("rename_tab");
+			assert.ok(tool, "rename_tab 应已注册");
+			const result = await tool.execute("t1", { title: "## **修 issue#75**  " });
+			assert.equal(result.isError, undefined);
+			assert.match(result.content[0].text, /已改为/);
+			const renamed = calls.find((c) => c.args[0] === "pane" && c.args[1] === "rename");
+			assert.equal(renamed?.args[3], "修 issue#75");
+		});
+	});
+
+	it("标签被人工占有时 rename_tab 拒绝", async () => {
+		await withHerdrEnv(async () => {
+			const { calls, spawn } = makePaneSpawn("人起的名");
+			const { pi, tools } = fakePi();
+			registerHerdrReporting(pi, {
+				spawn: spawn as never,
+				env: ENV,
+				host: { kind: "tui", paneId: "w1:p7" },
+			});
+			const tool = tools.get("rename_tab");
+			assert.ok(tool);
+			const result = await tool.execute("t1", { title: "模型的名" });
+			assert.equal(result.isError, true);
+			assert.match(result.content[0].text, /人工/);
+			assert.equal(calls.some((c) => c.args[1] === "rename"), false);
+		});
+	});
+
+	it("角色面板（HAPI_ORCH_ROLE）不注册 rename_tab", async () => {
+		await withHerdrEnv(() => {
+			const saved = process.env.HAPI_ORCH_ROLE;
+			process.env.HAPI_ORCH_ROLE = "worker";
+			try {
+				const { spawn } = makePaneSpawn();
+				const { pi, tools } = fakePi();
+				registerHerdrReporting(pi, {
+					spawn: spawn as never,
+					env: ENV,
+					host: { kind: "tui", paneId: "w1:p7" },
+				});
+				assert.equal(tools.has("rename_tab"), false);
+			} finally {
+				if (saved === undefined) delete process.env.HAPI_ORCH_ROLE;
+				else process.env.HAPI_ORCH_ROLE = saved;
+			}
 		});
 	});
 });

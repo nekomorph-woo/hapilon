@@ -19,7 +19,8 @@
  * 都激活，改名走 orchestra 传输层按宿主分流；herdr-app 改不了名（OSC 无名字
  * 字段），状态机自己会在首次尝试后收手。
  */
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { defineTool, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import { Effect } from "effect";
 import { hostAddress, resolveHost } from "../hpl-orchestra/host.js";
 import { defaultSpawn, type SpawnFn } from "../hpl-orchestra/herdr.js";
@@ -28,7 +29,40 @@ import { notify } from "../notify.js";
 import { blockMessage, createHerdrReporter, type HerdrEnv, type HerdrReporter } from "./report.js";
 import { createOscReporter } from "./osc.js";
 import { createHerdrState, type DerivedReport } from "./state.js";
-import { createTabNamer, qualifyingTaskInput } from "./tab-name.js";
+import { createTabNamer, qualifyingTaskInput, type TabNamer } from "./tab-name.js";
+
+/**
+ * rename_tab — 模型自报改名（issue#75 主力路）：它有全对话上下文，读得懂
+ * 「继续昨天那个」是续聊而非新任务，边界判断比事件侧启发式准。使用时机靠
+ * promptGuidelines 进系统提示；人工保护在 TabNamer 状态机里，工具只转述结果。
+ */
+function buildRenameTabTool(namer: TabNamer) {
+	return defineTool({
+		name: "rename_tab",
+		label: "重命名标签",
+		description: "改 herdr 里本 pane 的标签（tab 名）。只在明显切换到新任务时调用，用 3-6 个词概括当前任务；同一任务的后续消息不要调用。",
+		parameters: Type.Object({
+			title: Type.String({ description: "新标签，3-6 个词" }),
+		}),
+		promptGuidelines: [
+			"rename_tab 只在话题切换、开始新任务时调用一次，用 3-6 个词命名当前任务；同一任务的后续消息不要调用。",
+		],
+		execute: async (_toolCallId, params) => {
+			const outcome = namer.renameTo(params.title);
+			if (!outcome.ok) {
+				return {
+					content: [{ type: "text" as const, text: `[rename_tab] 未改名：${outcome.reason}` }],
+					details: {},
+					isError: true,
+				};
+			}
+			return {
+				content: [{ type: "text" as const, text: `[rename_tab] 标签已改为「${outcome.label}」` }],
+				details: {},
+			};
+		},
+	});
+}
 
 function sessionPathOf(ctx: ExtensionContext): string | undefined {
 	try {
@@ -92,6 +126,11 @@ export function registerHerdrReporting(
 			})
 		: undefined;
 	if (sinks.length === 0 && !namer) return;
+
+	// 主力命名：rename_tab 由模型自报。角色面板（worker）的标签归 orchestra，不注册。
+	if (namer && !process.env.HAPI_ORCH_ROLE) {
+		pi.registerTool(buildRenameTabTool(namer));
+	}
 
 	if (sinks.length > 0) {
 		const state = createHerdrState();
