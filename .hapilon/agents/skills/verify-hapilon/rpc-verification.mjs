@@ -21,7 +21,7 @@ export function bounded(promise, label, ms = 20_000) {
   })]).finally(() => clearTimeout(timer));
 }
 
-export async function withRpcVerification({ name, tools, reply, onEvent }, run) {
+export async function withRpcVerification({ name, tools, settings = {}, reply, onEvent }, run) {
   assert.equal(execFileSync(process.execPath, [cli, '--version'], { encoding: 'utf8' }).trim(), version);
   const evidenceDir = join(repo, '.hapilon/verify');
   mkdirSync(evidenceDir, { recursive: true });
@@ -89,6 +89,7 @@ export async function withRpcVerification({ name, tools, reply, onEvent }, run) 
     writeFileSync(join(agent, 'settings.json'), JSON.stringify({
       retry: { enabled: false },
       'pi-browser-use': { envAllowlist: ['CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS'] },
+      ...settings,
     }));
     child = spawn(process.execPath, [cli, '--mode', 'rpc', '--no-session', '--no-mcp', '--no-econ', '--tools', tools.join(','), '--provider', provider, '--model', model], {
       cwd: workspace, detached: true, stdio: ['pipe', 'pipe', 'pipe'],

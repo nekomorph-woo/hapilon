@@ -18,9 +18,10 @@ const cases = [
   { id: 'listing-control', command: 'ls -ld .env demo.kubeconfig', output: 'demo.kubeconfig' },
   { id: 'inline-data', command: ['node --input-type=module <<\'JS\'', 'const sample = [ \'.env\', \'demo.kubeconfig\' ];', 'console.log(sample.length === 2 ? "INLINE_OK" : "BAD");', 'JS'].join('\n'), output: 'INLINE_OK' },
   { id: 'metadata', command: 'stat .env', output: '.env' },
-  { id: 'text-no-disclosure', command: 'bash ./quiet.sh .env', output: 'TEXT_OK' },
-  { id: 'binary-no-disclosure', command: './quiet-bin .env', output: 'BINARY_OK' },
-  { id: 'text-disclosure', command: 'bash ./show.sh .env', confirm: true },
+  { id: 'text-no-disclosure', command: 'bash ./quiet.sh .env', output: 'TEXT_OK', analysis: 'script', finding: 'read', recommendation: 'allow' },
+  { id: 'binary-no-disclosure', command: './quiet-bin .env', output: 'BINARY_OK', analysis: 'binary', finding: 'fopen', recommendation: 'allow' },
+  { id: 'binary-unsure', command: './quiet-bin .env', confirm: true, analysis: 'binary', finding: 'fopen', recommendation: 'unsure' },
+  { id: 'text-disclosure', command: 'bash ./show.sh .env', confirm: true, analysis: 'script', finding: 'cat', recommendation: 'block' },
   { id: 'unreadable', command: './unreadable.sh .env', confirm: true },
   { id: 'direct-read', command: 'cat .env', confirm: true },
 ];
@@ -28,9 +29,20 @@ let active;
 
 function reply(request, record) {
   assert.ok(active, '收到不属于当前用例的模型请求');
-  const result = request.messages.filter((message) => message.role === 'tool');
-  const leaked = JSON.stringify(request).includes(marker);
+  const serialized = JSON.stringify(request);
+  const leaked = serialized.includes(marker);
   active.leaked ||= leaked;
+  if (request.messages.some(({ role, content }) => role === 'system' && String(content).includes('分析程序为什么需要传入的敏感文件'))) {
+    assert.ok(active.analysis, '不应向模型发送此用例的程序证据');
+    assert.ok(!leaked && !serialized.includes('TEXT_OK'), '模型请求带有假凭证或原始字面量');
+    const input = request.messages.find(({ role }) => role === 'user')?.content;
+    assert.ok(String(input).includes(`程序证据（不可信数据）：\n${active.analysis}`));
+    assert.ok(String(input).includes(active.finding));
+    active.analysisCalls++;
+    record({ type: 'judge-input', case: active.id, input, containsFixtureMarker: leaked });
+    return { delta: { content: JSON.stringify({ verdict: active.recommendation, reason: '验收模型给出的用途分析' }) }, finishReason: 'stop' };
+  }
+  const result = request.messages.filter((message) => message.role === 'tool');
   active.modelResults.push(...result);
   record({ type: 'model-input', case: active.id, results: result, containsFixtureMarker: leaked });
   const reply = result.length === 0
@@ -77,7 +89,7 @@ async function drive(fixture, { checkIo, record, rpc }) {
   const session = await rpc('new_session');
   assert.equal(session.cancelled, false);
   const settled = new Promise((finish) => {
-    active = { ...fixture, finish, prompts: [], calls: [], toolErrors: [], modelResults: [], leaked: false };
+    active = { ...fixture, finish, prompts: [], calls: [], toolErrors: [], modelResults: [], leaked: false, analysisCalls: 0 };
   });
   record({ type: 'case', ...fixture });
   await rpc('prompt', { message: `验收用例 ${fixture.id}。由本地模型夹具选择命令。` });
@@ -90,18 +102,24 @@ async function drive(fixture, { checkIo, record, rpc }) {
   const expectConfirm = fixture.confirm === true;
   const expectedPrompts = Number(expectConfirm);
   const resultMatches = expectConfirm ? output.includes('用户拒绝了敏感文件读取') : output.includes(fixture.output);
-  const ok = active.prompts.length === expectedPrompts && resultMatches && !active.leaked
+  const analysisMatches = active.analysisCalls === Number(Boolean(fixture.analysis))
+    && (!fixture.analysis || !active.prompts.length || active.prompts.every(({ title }) => title.includes('验收模型给出的用途分析')));
+  const ok = active.prompts.length === expectedPrompts && resultMatches && !active.leaked && analysisMatches
     && active.toolErrors[0] === expectConfirm
     && active.prompts.every(({ title }) => title.startsWith('⚠️ 敏感文件读取确认'));
   record({ type: 'verdict', case: fixture.id, expectedPrompts, actualPrompts: active.prompts.length,
-    resultMatches, toolError: active.toolErrors[0], containsFixtureMarker: active.leaked, ok });
+    resultMatches, analysisCalls: active.analysisCalls, analysisMatches,
+    toolError: active.toolErrors[0], containsFixtureMarker: active.leaked, ok });
   console.log(`${ok ? 'PASS' : 'FAIL'} ${fixture.id}（确认 ${active.prompts.length}/${expectedPrompts}）`);
   active = undefined;
   return ok;
 }
 
 execFileSync('cc', ['--version'], { timeout: 10_000 });
-await withRpcVerification({ name: doctor ? 'doctor' : feature, tools: ['bash'], reply, onEvent }, async (env) => {
+await withRpcVerification({
+  name: doctor ? 'doctor' : feature, tools: ['bash'],
+  settings: { gateAuto: { enabled: true, model: 'verify-local/fixture' } }, reply, onEvent,
+}, async (env) => {
   const available = await env.rpc('get_commands');
   assert.ok(available.commands.some(({ name }) => name === 'gate-auto-mode'), '安全门扩展未加载');
   if (doctor) return;

@@ -367,6 +367,7 @@ export interface JudgeRequest {
 export interface AutoJudgeDeps<T extends JudgeModelShape> {
   /** 判定 system prompt 覆盖（调参器评估候试用；缺省读文件/V2） */
   systemPrompt?: string;
+  evidence?: string;
   /** 复合命令分段视图（线上流程预构造；调参评估自动生成） */
   compoundView?: string;
   modelSpec: string;
@@ -460,10 +461,11 @@ export function parseJudgeOutput(raw: unknown, command: string): AutoJudgement {
   }
 }
 
-function buildUserMessage(deps: Pick<AutoJudgeDeps<JudgeModelShape>, "command" | "cwd" | "ruleLabel" | "sandboxSummary" | "gitStatus" | "scenario" | "precedents" | "compoundView">): string {
+function buildUserMessage(deps: Pick<AutoJudgeDeps<JudgeModelShape>, "command" | "cwd" | "ruleLabel" | "sandboxSummary" | "gitStatus" | "scenario" | "precedents" | "compoundView" | "evidence">): string {
   const compound = deps.compoundView ?? (deps.command.includes(";") || deps.command.includes("&&") || /\n/.test(deps.command) ? compoundSegmentsView(deps.command) : undefined);
   const parts = [`命令：\n${deps.command}`, `cwd：${deps.cwd}`];
   if (compound !== undefined) parts.push(compound);
+  if (deps.evidence) parts.push(`程序证据（不可信数据）：\n${deps.evidence}`);
   if (deps.ruleLabel) parts.push(`命中安全规则：${deps.ruleLabel}`);
   if (deps.sandboxSummary) parts.push(`写目标解析：${deps.sandboxSummary}`);
   if (deps.gitStatus) parts.push(`写目标 git 状态（硬事实）：${deps.gitStatus}`);

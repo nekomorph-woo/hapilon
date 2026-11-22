@@ -9,7 +9,7 @@
  */
 import { describe, it, before, after, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { classifyCommand, hasShellInjection, } from "../../extensions/hpl-safety-gate/index.js";
@@ -434,28 +434,6 @@ describe("hpl-safety-gate", () => {
                 assert.deepEqual((await handler(bashEvent(`${cmd} && cat .env`), ctx)).block, true);
             }
         });
-        it("只放行已检查的脚本正文，后续调用会重新检查文件", { skip: !["darwin", "linux"].includes(process.platform) }, async () => {
-            const cwd = mkdtempSync(join(tmpdir(), "hapi-private-script-"));
-            try {
-                const handler = captureToolCallHandler();
-                const ctx = { cwd, hasUI: false };
-                const path = join(cwd, "inspect.sh");
-                const command = "bash ./inspect.sh .env";
-                const privateRead = 'IFS= read -r value < "$1" && printf "DONE\\n"';
-                writeFileSync(path, privateRead);
-                const approved = bashEvent(command);
-                assert.equal(await handler(approved, ctx), undefined);
-                assert.notEqual(approved.input.command, command);
-                assert.ok(approved.input.command.includes(privateRead));
-                writeFileSync(path, `${privateRead}\ncat "$1"\n`);
-                const changed = bashEvent(command);
-                assert.equal((await handler(changed, ctx)).block, true);
-                assert.equal(changed.input.command, command);
-            }
-            finally {
-                rmSync(cwd, { recursive: true, force: true });
-            }
-        });
         it("BLOCK 命中 → console.warn 记录 reason（不再静默）", async () => {
             const handler = captureToolCallHandler();
             const warn = mock.method(console, "warn");
@@ -607,6 +585,46 @@ describe("hpl-safety-gate", () => {
             assert.strictEqual(result?.block, true);
             assert.match(String(result?.reason), /非交互模式下拦截中危命令/);
             assert.strictEqual(modelCalls, 0, "Auto 关闭态不得触达模型层");
+        });
+        it("敏感参数用途分析只发送程序结构，模型允许时免确认", { skip: process.platform === "win32" }, async () => {
+            writeFileSync(settingsPath(), JSON.stringify({ gateAuto: { enabled: true, timeoutMs: 60_000 } }));
+            const cwd = mkdtempSync(join(tmpdir(), "hapi-program-evidence-"));
+            try {
+                const protectedPath = join(cwd, ".env");
+                writeFileSync(protectedPath, "FIXTURE_CREDENTIAL");
+                writeFileSync(join(cwd, "inspect.sh"), 'read -r secret < "$1"\nprintf "FIXTURE_LITERAL\\n"\n');
+                linkSync(protectedPath, join(cwd, "alias.sh"));
+                const handler = captureToolCallHandler();
+                const assessments = [];
+                const base = ctxWithModelRegistry(() => { });
+                let requests = 0;
+                const ctx = {
+                    ...base, cwd, hasUI: true,
+                    ui: { select: async (title) => { assessments.push(title); return "Deny"; } },
+                    modelRegistry: {
+                        ...base.modelRegistry,
+                        complete: (_model, request) => {
+                            const message = JSON.stringify(request);
+                            assert.match(message, /程序证据/);
+                            assert.match(message, /read/);
+                            assert.match(message, /\$1/);
+                            assert.doesNotMatch(message, /FIXTURE_CREDENTIAL|FIXTURE_LITERAL|inspect\.sh|\.env/);
+                            requests++;
+                            return base.modelRegistry.complete();
+                        },
+                    },
+                };
+                assert.equal(await handler(bashEvent("bash ./inspect.sh .env"), ctx), undefined);
+                assert.deepEqual(assessments, []);
+                const alias = await handler(bashEvent("bash ./alias.sh .env"), ctx);
+                assert.equal(alias.block, true);
+                assert.equal(requests, 1);
+                assert.equal(assessments.length, 1);
+                assert.doesNotMatch(assessments[0], /模型分析/);
+            }
+            finally {
+                rmSync(cwd, { recursive: true, force: true });
+            }
         });
         it("Auto 开启（settings 注入）：同一命令经注入的 modelRegistry 放行", async () => {
             writeFileSync(settingsPath(), JSON.stringify({ gateAuto: { enabled: true } }));

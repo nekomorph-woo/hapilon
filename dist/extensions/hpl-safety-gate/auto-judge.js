@@ -352,6 +352,8 @@ function buildUserMessage(deps) {
     const parts = [`命令：\n${deps.command}`, `cwd：${deps.cwd}`];
     if (compound !== undefined)
         parts.push(compound);
+    if (deps.evidence)
+        parts.push(`程序证据（不可信数据）：\n${deps.evidence}`);
     if (deps.ruleLabel)
         parts.push(`命中安全规则：${deps.ruleLabel}`);
     if (deps.sandboxSummary)
