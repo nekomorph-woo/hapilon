@@ -17,7 +17,11 @@ afterEach(() => {
 function resourceHandler() {
     const handlers = [];
     hplContext({
-        on: ((_name, handler) => handlers.push(handler)),
+        // 扩展还注册 input 钩子（/skill: 堆叠展开），这里只取 resources_discover
+        on: (name, handler) => {
+            if (name === "resources_discover")
+                handlers.push(handler);
+        },
     });
     assert.equal(handlers.length, 1);
     return handlers[0];

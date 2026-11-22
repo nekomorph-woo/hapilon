@@ -21,7 +21,10 @@ afterEach(() => {
 function resourceHandler(): (event: { cwd: string }) => { skillPaths: string[] } {
   const handlers: Array<(event: { cwd: string }) => { skillPaths: string[] }> = [];
   hplContext({
-    on: ((_name: string, handler: (event: { cwd: string }) => { skillPaths: string[] }) => handlers.push(handler)),
+    // 扩展还注册 input 钩子（/skill: 堆叠展开），这里只取 resources_discover
+    on: (name: string, handler: (event: { cwd: string }) => { skillPaths: string[] }) => {
+      if (name === "resources_discover") handlers.push(handler);
+    },
   } as never);
   assert.equal(handlers.length, 1);
   return handlers[0];

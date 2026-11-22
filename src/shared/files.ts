@@ -55,6 +55,23 @@ function splitFrontmatter(content: string): { meta: FrontmatterMeta | undefined;
   return { meta, body };
 }
 
+/** 去掉 frontmatter 的正文（供 /skill: 堆叠展开复用 pi 原生展开格式） */
+export function stripFrontmatter(content: string): string {
+  return splitFrontmatter(content).body;
+}
+
+/** 从 SKILL.md 头部读 frontmatter 的 name 字段；缺失回落目录名（与 Agent Skills 规范一致） */
+export function readSkillFrontmatterName(skillMdPath: string): string {
+  try {
+    const head = readFileSync(skillMdPath, "utf-8").slice(0, 4096);
+    const fm = FRONTMATTER_RE.exec(head.trimStart())?.[1] ?? "";
+    return /^name:[ \t]*(.+)$/m.exec(fm)?.[1]?.trim() || basename(dirname(skillMdPath));
+  } catch (err) {
+    console.warn(`Warning: 读 skill 名失败 ${skillMdPath}:`, err);
+    return basename(dirname(skillMdPath));
+  }
+}
+
 /** 单层目录内的文件发现：返回匹配 pattern 的完整路径数组（仅直接子级，不递归；字母序） */
 export function listFiles(dir: string, pattern: string): string[] {
   if (!existsSync(dir)) return [];

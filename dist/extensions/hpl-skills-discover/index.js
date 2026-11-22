@@ -7,13 +7,14 @@
  *       由 before_agent_start 全量接管 system prompt 组装。
  *
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
-import { collectUpwardEffect, discoverSkillPathsEffect, } from "../../shared/files.js";
+import { collectUpwardEffect, discoverSkillPathsEffect, readSkillFrontmatterName, stripFrontmatter, } from "../../shared/files.js";
+import { expandSkillStack } from "./stack-expand.js";
 import { getEffectPolicyMode } from "../hpl-effect-policy/bridge.js";
 import { hapilonHome } from "../../config/hapilon-home.js";
 /** npm 扩展自带 skills 的接线表：包名 → 包内 skills 目录 */
@@ -91,24 +92,54 @@ export const resolveNpmPkgDirEffect = (pkg, resolveModule) => Effect.sync(() => 
 export function resolveNpmPkgDir(pkg, resolveModule) {
     return Effect.runSync(resolveNpmPkgDirEffect(pkg, resolveModule));
 }
-export default function hplContext(pi) {
+/**
+ * 汇总一次会话 cwd 可见的全部 skill 路径（resources_discover 与 input 堆叠展开共用）。
+ */
+function discoverAllSkillPaths(cwd) {
     // os.homedir():POSIX 读 HOME,Windows 读 USERPROFILE——process.env.HOME
     // 在 Windows 的 cmd/PowerShell 下为空,会误报「HOME 未设置」
-    const userHome = homedir();
+    // 使用传入 cwd（会话工作目录）而非 process.cwd()，与 hpl-system-prompt 一致
+    const skillPaths = Effect.runSync(Effect.flatMap(collectUpwardEffect(cwd, homedir(), "agents/skills", hapilonHome()), (dirs) => Effect.map(Effect.forEach(dirs, (dir) => discoverSkillPathsEffect([dir])), (paths) => paths.flat())));
+    // npm 扩展自带 skills：从模块位置解析（不依赖 cwd）。
+    // 单个 SKILL.md 文件路径——Pi loadSkills 支持文件级条目。
+    // 包缺失/布局变更时静默跳过：skill 是增强，不应炸掉上下文发现。
+    const req = createRequire(import.meta.url);
+    for (const [pkg, dir] of NPM_SKILL_DIRS) {
+        skillPaths.push(...Effect.runSync(discoverNpmSkillsEffect(pkg, dir, (id) => req.resolve(id))));
+    }
+    // 内置 skill 按 skill 粒度应用 policy；通用 skill 不受 Effect policy 影响。
+    skillPaths.push(...Effect.runSync(discoverBuiltInSkillsEffect()));
+    return skillPaths;
+}
+export default function hplContext(pi) {
     // ── Skills: 委托 Pi 原生引擎 ────────────────────────────────
-    // 使用 event.cwd（会话工作目录）而非 process.cwd()，与 hpl-system-prompt 一致
-    pi.on("resources_discover", (event) => {
-        const skillPaths = Effect.runSync(Effect.flatMap(collectUpwardEffect(event.cwd, userHome, "agents/skills", hapilonHome()), (dirs) => Effect.map(Effect.forEach(dirs, (dir) => discoverSkillPathsEffect([dir])), (paths) => paths.flat())));
-        // npm 扩展自带 skills：从模块位置解析（不依赖 cwd）。
-        // 单个 SKILL.md 文件路径——Pi loadSkills 支持文件级条目。
-        // 包缺失/布局变更时静默跳过：skill 是增强，不应炸掉上下文发现。
-        const req = createRequire(import.meta.url);
-        for (const [pkg, dir] of NPM_SKILL_DIRS) {
-            skillPaths.push(...Effect.runSync(discoverNpmSkillsEffect(pkg, dir, (id) => req.resolve(id))));
+    pi.on("resources_discover", (event) => ({
+        skillPaths: discoverAllSkillPaths(event.cwd),
+    }));
+    // ── /skill: 头部堆叠展开 ────────────────────────────────
+    // pi 原生只展开首个 /skill: token，这里把头部连续多个全部展开，
+    // 尾部文本作为公共参数；单个/未知名仍交还 pi 原生处理。
+    pi.on("input", (event, ctx) => {
+        if (!event.text.startsWith("/skill:"))
+            return { action: "continue" };
+        const byName = new Map();
+        for (const p of discoverAllSkillPaths(ctx.cwd)) {
+            byName.set(readSkillFrontmatterName(p), p);
         }
-        // 内置 skill 按 skill 粒度应用 policy；通用 skill 不受 Effect policy 影响。
-        skillPaths.push(...Effect.runSync(discoverBuiltInSkillsEffect()));
-        return { skillPaths };
+        const expanded = expandSkillStack(event.text, (name) => {
+            const filePath = byName.get(name);
+            if (!filePath)
+                return null;
+            try {
+                return { filePath, body: stripFrontmatter(readFileSync(filePath, "utf-8")).trim() };
+            }
+            catch (err) {
+                // 与 pi 原生一致：读失败当不可解析，停在此处，剩余文本照常传递
+                console.warn(`Warning: /skill:${name} 展开读文件失败:`, err);
+                return null;
+            }
+        });
+        return expanded === null ? { action: "continue" } : { action: "transform", text: expanded };
     });
 }
 const discoverNpmSkillsEffect = (pkg, relativeDir, resolveModule) => Effect.sync(() => {
