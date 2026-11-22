@@ -487,8 +487,16 @@ describe("buildHapilonRules", () => {
     assert.ok(result.includes("if a &lt; b &amp; c &gt; d"), "正文 < > & 转义");
   });
 
-  it("边界条件: 空数组返回空字符串", () => {
-    assert.equal(buildHapilonRules([]), "");
+  it("边界条件: 空文件规则仍渲染内置基线", () => {
+    const result = buildHapilonRules([]);
+    assert.ok(result.includes('name="action-bias"'));
+    assert.ok(result.includes('name="report-shape"'));
+  });
+
+  it("边界条件: 文件规则与内置同名时不双注入", () => {
+    const result = buildHapilonRules([{ name: "action-bias", content: "旧拷贝" }]);
+    assert.equal(result.split('name="action-bias"').length - 1, 1);
+    assert.ok(!result.includes("旧拷贝"), "同名文件规则被跳过");
   });
 });
 
@@ -868,9 +876,10 @@ describe("assembleSystemPrompt", () => {
     assert.ok(!result.includes("<hapilon_instructions>"));
   });
 
-  it("边界条件: 空 hapilonRules 时不输出 rules section", () => {
+  it("边界条件: 空 hapilonRules 时仍输出内置 rules 段", () => {
     const result = assembleSystemPrompt({ ...defaultOpts, hapilonRules: [] });
-    assert.ok(!result.includes("<hapilon_rules>"));
+    assert.ok(result.includes("<hapilon_rules>"));
+    assert.ok(result.includes('name="action-bias"'), "内置基线恒在场");
   });
 
   it("assemble 传入 agentDirPath 时 environment 含 MCP 段", () => {

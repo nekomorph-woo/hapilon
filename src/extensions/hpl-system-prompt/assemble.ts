@@ -35,6 +35,7 @@ import {
   CONFIRM_BEFORE_BUILDING_TEXT,
   SKILL_ROUTING_TEXT,
   WRITING_STYLE_TEXT,
+  BUILTIN_RULES,
 } from "./sections.js";
 import { getPolicySection } from "../hpl-effect-policy/bridge.js";
 import { hapilonHome } from "../../config/hapilon-home.js";
@@ -215,11 +216,17 @@ export function buildHapilonInstructions(hapilonMd: FileEntry[]): string {
 }
 
 export function buildHapilonRules(rules: RuleEntry[]): string {
-  if (rules.length === 0) return "";
-  // name 属性与正文均转义
-  const items = rules
-    .map((r) => `<rule name="${xmlEscape(r.name)}">\n${xmlEscape(r.content)}\n</rule>`)
-    .join("\n\n");
+  // name 属性与正文均转义。内置基线恒在场，同名文件规则跳过：
+  // 用户全局层残留旧拷贝时会双注入同一份纪律
+  const fileItems = rules
+    .filter((r) => !BUILTIN_RULES.some((b) => b.name === r.name))
+    .map((r) => `<rule name="${xmlEscape(r.name)}">\n${xmlEscape(r.content)}\n</rule>`);
+  const items = [
+    ...BUILTIN_RULES.map(
+      (r) => `<rule name="${xmlEscape(r.name)}">\n${xmlEscape(r.content)}\n</rule>`,
+    ),
+    ...fileItems,
+  ].join("\n\n");
   return `<hapilon_rules>\n\n${items}\n\n</hapilon_rules>`;
 }
 

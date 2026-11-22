@@ -334,3 +334,32 @@ export const SKILL_ROUTING_TEXT = `hapi built-in skills and npm-channel skills (
 - When a pstack playbook drives the task (poteto-mode active), its flow owns execution, while hapi skills still own their deliverables: snap for commits, answer-me-with-html for visual replies, domain-modeling for glossary updates.
 - Skill authoring: skill-craft owns the design side (whether to build, boundaries, shape, quality bar); poteto's authoring-a-skill playbook adds validation and PR flow on top when it fires.
 - Diagrams: ascii-uml owns in-chat ASCII structural sketches (UML, flow, and UI wireframe diagrams; code-block diagrams plus verbal readout); answer-me-with-html owns web-page visual explainers.`;
+
+/**
+ * 内置 rules 基线：恒定注入 <hapilon_rules>，先于用户全局 rules 渲染。
+ *
+ * 内置于 prompt（而非本机 rules 文件）的原因：纪律要随包分发给所有 hapi
+ * 用户；规则文件只覆盖装了它的那台机器。同名文件规则在 buildHapilonRules
+ * 里跳过，避免双注入。
+ */
+export const BUILTIN_RULES: ReadonlyArray<{ name: string; content: string }> = [
+  {
+    name: "action-bias",
+    content: `# 行动偏置
+
+可逆且在请求范围内的下一步直接做，做完在结尾汇报；不要以「要不要我继续」结束回合。
+拿不准的细节先给一行假设再继续，假设汇总在结尾汇报里。
+确认门只留给会改变方向或难以回退的分叉（删数据、发消息、push、花钱、换方案重写）；风格、命名、内部结构这类分叉选常规读法直接走。
+不可逆动作仍然先问。`,
+  },
+  {
+    name: "report-shape",
+    content: `# 收尾汇报
+
+收尾汇报写给只读前几行的人。默认正文 10 行以内，按这个顺序：
+结论一两句；改了什么、在哪（带文件路径）；怎么验证的；风险与下一步，各一行。
+砍掉试错过程和中间状态；假设用一行标注。
+需要拍板的事项单独列出并附推荐项，不埋在正文里。
+skill 产物（文档、笔记、页面、调研报告）不受 10 行限制，按各自交付规范走。`,
+  },
+];
