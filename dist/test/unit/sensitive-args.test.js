@@ -32,7 +32,12 @@ describe("hasSensitiveReadArg()", () => {
     const cases = [
         ["ls -la .env", false, "列文件属性"],
         ["ls -ld -- './.env.local'", false, "列字面路径属性"],
+        ["ls -lh .env", false, "只改变属性的显示格式"],
+        ["stat .env", false, "只查询文件属性"],
+        ["ls -l ~/.npmrc", false, "列出家目录文件属性"],
         ["ls --unknown .env", true, "未识别的选项保留确认"],
+        ["cat < .env", true, "标准输入来自受保护文件"],
+        ["cat <.env", true, "紧贴重定向符的文件名也受保护"],
         ["wc -l .env", true, "计数也读取内容"],
         ["docker compose --env-file .env up", true, "应用读取配置"],
         ["cat .env", true, "env 相对路径"],
@@ -53,6 +58,20 @@ describe("hasSensitiveReadArg()", () => {
             assert.equal(hasSensitiveReadArg(cmd, "/proj"), want);
         });
     }
+    it("内嵌 Node 程序只输出字面数据的派生值，不视为文件读取", () => {
+        const command = [
+            "node --input-type=module <<'JS'",
+            "const names = [ '.env', 'demo.kubeconfig' ];",
+            "console.log(names.length === 2 ? 'OK' : 'BAD');",
+            "JS",
+        ].join("\n");
+        assert.equal(hasSensitiveReadArg(command, "/proj"), false);
+        assert.equal(hasSensitiveReadArg(`${command}\ncat .env`, "/proj"), true);
+    });
+    it("不能判明内嵌 Node 程序用途时保留路径检查", () => {
+        const command = ["node --input-type=module <<'JS'", "await inspect( '.env' );", "JS"].join("\n");
+        assert.equal(hasSensitiveReadArg(command, "/proj"), true);
+    });
     it("复合命令：cat 正常文件 | xargs cat .env 仍命中", () => {
         assert.equal(hasSensitiveReadArg("cat list.txt | xargs cat .env", "/proj"), true);
     });
