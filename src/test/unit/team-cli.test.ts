@@ -19,6 +19,7 @@ import {
   type TeamState,
 } from "../../extensions/hpl-orchestra/state.js";
 import type { SpawnFn } from "../../extensions/hpl-orchestra/herdr.js";
+import { mailPath, type MailMessage } from "../../extensions/hpl-orchestra/mail.js";
 
 const ownerPane = "w1:p7";
 const workerPane = "w1:p8";
@@ -231,17 +232,22 @@ describe("hapi team-status", { concurrency: false }, () => {
 });
 
 describe("hapi wake-owner", { concurrency: false }, () => {
-  it("带上自己的昵称与 pane id 投给 owner pane", () => {
+  it("owner 忙时消息入队不拒绝：写 owner 信箱即返回，投递不经输入框", () => {
     saveState();
     process.env.HERDR_PANE_ID = workerPane;
-    const { spawn, calls } = makeSpawn();
+    const { spawn, calls } = makeSpawn({ agentStatuses: { [ownerPane]: "working" } });
     const { code, logs } = capture(() => runWakeOwnerCommand(["--message", "done: 修好了 -> /tmp/r.md"], spawn));
     assert.equal(code, WAKE_OWNER_EXIT.sent);
-    assert.match(logs.join("\n"), /已通知 w1:p7/);
-    const text = calls.find((call) => call.args[1] === "run");
-    assert.deepEqual(text?.args, ["pane", "run", ownerPane, "[阿澈 w1:p8] done: 修好了 -> /tmp/r.md"]);
-    // 回归：两段式 send-text + send-keys 的 enter 会被 bracketed-paste 吞掉，投递必须走 pane run 原子提交
-    assert.equal(calls.find((call) => call.args[1] === "send-text" || call.args[1] === "send-keys"), undefined);
+    assert.match(logs.join("\n"), /已入队 w1:p7/);
+    const lines = readFileSync(mailPath(ownerPane, ownerPane), "utf8").trim().split("\n");
+    assert.equal(lines.length, 1);
+    const mail = JSON.parse(lines[0]!) as MailMessage;
+    assert.equal(mail.from, workerPane);
+    assert.equal(mail.to, ownerPane);
+    assert.equal(mail.kind, "done");
+    assert.equal(mail.text, "done: 修好了 -> /tmp/r.md");
+    // 投递不再经 herdr 输入框：无 pane run / send-text / send-keys 调用（owner 探活的 pane get 保留）
+    assert.equal(calls.find((call) => ["run", "send-text", "send-keys"].includes(call.args[1] ?? "")), undefined);
   });
 
   it("没有宿主地址 / 不属于任何团队 → 退出 2", () => {

@@ -83,7 +83,7 @@ export const COMMANDS: CommandDef[] = [
   },
   {
     name: "wake-owner",
-    description: "角色 pane 一轮结束/需要决策时主动通知 owner（退出码 0 已投递 / 2 无归属团队 / 3 投递失败）",
+    description: "角色 pane 一轮结束/需要决策时给 owner 写信箱（退出码 0 已入队 / 2 无归属团队 / 3 owner 不可用）",
     usage: `${cliIdentity.cliName} wake-owner [--message <一行>]`,
     subcommands: [
       {

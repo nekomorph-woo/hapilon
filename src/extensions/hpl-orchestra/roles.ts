@@ -182,7 +182,9 @@ read a pane by hand only when it reports waiting-input or unknown.
 
 Waking and reports — the panes wake you, you do not poll them:
 - A role pane runs \`node "$HAPILON_CLI_PATH" wake-owner "..."\` when its turn ends
-  or when it needs a decision. When that message arrives, collect immediately:
+  or when it needs a decision — it never fails because you are busy: while you
+  work, the message queues in the owner mailbox and arrives when your turn ends.
+  When that message arrives, collect immediately:
   read its report file in the task dossier (the pane line is only a pointer; the
   file is the record). Then check your own task list for held work addressed to
   this pane (metadata paneId): each held item dispatches now — /team:clear,

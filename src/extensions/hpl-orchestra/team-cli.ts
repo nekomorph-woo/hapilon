@@ -8,8 +8,9 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { defaultSpawn, type SpawnFn } from "./herdr.js";
-import { paneAgentAlive, paneNotify } from "./transport.js";
+import { paneAgentAlive } from "./transport.js";
 import { hostAddress } from "./host.js";
+import { newMailId, postMail, type MailMessage } from "./mail.js";
 import { instanceStoreKey } from "./state.js";
 import { allInstances, findTeamStateForPane, isTeamOwner, readTeamState, teamTasksPathFor, type RoleInstance } from "./state.js";
 import { sampleAgentStateEffect } from "./agent-state.js";
@@ -131,7 +132,8 @@ export function runTeamStatusCommand(_args: string[], spawn: SpawnFn = defaultSp
 
 /**
  * `hapi wake-owner [--message <一行>]`：角色 pane 一轮结束/需要决策时主动叫 owner。
- * 退出码 0 已投递 / 2 不属于任何团队 / 3 herdr 投递失败。
+ * 写 owner 信箱即返回；owner 忙时消息排队，回合结束自动收到。
+ * 退出码 0 已入队 / 2 不属于任何团队 / 3 owner 不可用（含写信箱失败，历史键名 herdr）。
  */
 export function runWakeOwnerCommand(args: string[], spawn: SpawnFn = defaultSpawn): number {
   // 发送方身份随宿主：TUI 是 herdr pane id，core 是 hc 终端 id。
@@ -145,20 +147,25 @@ export function runWakeOwnerCommand(args: string[], spawn: SpawnFn = defaultSpaw
     console.error(`[wake-owner] 面板 ${paneId} 不属于任何团队，未投递。`);
     return WAKE_OWNER_EXIT.noTeam;
   }
-  const instance = allInstances(state).find((candidate) => candidate.paneId === paneId);
   const message = flagValue(args, "--message")?.trim() || "一轮结束";
-  const text = `[${instance?.nickname ?? paneId} ${paneId}] ${message}`;
   const ownerPane = state.owner.paneId;
   if (!Effect.runSync(paneAgentAlive(ownerPane, spawn))) {
     console.error(`[wake-owner] owner ${ownerPane} 不可用，未投递。`);
     return WAKE_OWNER_EXIT.herdr;
   }
-  // 投递通道随宿主分流：TUI 是 herdr pane run；core 是 hc send --if idle
-  // （owner 非 idle 被拒即失败，不盲目重试——working 的 owner 该等它空闲）。
-  if (!Effect.runSync(paneNotify(ownerPane, text, spawn))) {
-    console.error(`[wake-owner] 向 ${ownerPane} 投递失败，未送达。`);
+  // 信箱是唯一投递通道：不再经输入框，busy 不构成拒绝；昵称前缀由接收侧按花名册组装。
+  const mail: MailMessage = {
+    id: newMailId(),
+    from: paneId,
+    to: ownerPane,
+    kind: "done",
+    text: message,
+  };
+  const result = Effect.runSync(Effect.either(postMail(ownerPane, mail)));
+  if (result._tag === "Left") {
+    console.error(`[wake-owner] 写 owner ${ownerPane} 信箱失败：${result.left.message}`);
     return WAKE_OWNER_EXIT.herdr;
   }
-  console.log(`[wake-owner] 已通知 ${ownerPane}：${text}`);
+  console.log(`[wake-owner] 已入队 ${ownerPane}：${message}`);
   return WAKE_OWNER_EXIT.sent;
 }
