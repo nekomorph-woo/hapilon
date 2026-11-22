@@ -1064,7 +1064,8 @@ describe("collectHapilonContext", () => {
   it("边界条件: 无任何 .hapilon 时返回空", () => {
     const emptyDir = mkdtempSync(join(tmpdir(), "hapilon-empty-"));
     try {
-      const { hapilonMd, hapilonRules } = collectHapilonContext(emptyDir, emptyDir);
+      // globalBase 也指向空目录：缺省会读真机 ~/.hapilon-dev 的全局层，rules 非空则断言必红
+      const { hapilonMd, hapilonRules } = collectHapilonContext(emptyDir, emptyDir, emptyDir);
       assert.equal(hapilonMd.length, 0);
       assert.equal(hapilonRules.length, 0);
     } finally {
