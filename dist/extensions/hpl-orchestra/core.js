@@ -106,7 +106,13 @@ export function parseCoreTerminal(raw) {
     const record = findRecord(raw, (candidate) => addressOf(candidate) !== undefined);
     if (!record)
         return undefined;
-    const label = typeof record.label === "string" && record.label.length > 0 ? record.label : undefined;
+    // hc 的标签在嵌套 labels.map（labels.label），顶层 label 字段不存在；
+    // 只读顶层会永远拿不到，下游人工占有判定会误触发
+    const labelsMap = record.labels && typeof record.labels === "object" && !Array.isArray(record.labels)
+        ? record.labels
+        : undefined;
+    const rawLabel = record.label ?? labelsMap?.label;
+    const label = typeof rawLabel === "string" && rawLabel.length > 0 ? rawLabel : undefined;
     const state = typeof record.state === "string" ? record.state : undefined;
     // status 双形态：对象（status.app / status.state）或字符串（工作状态词）
     let app;
@@ -174,6 +180,21 @@ export function coreTerminalGet(terminalId, spawn) {
 }
 export function coreStatus(terminalId, spawn) {
     return Effect.map(coreTerminalGet(terminalId, spawn), (terminal) => normalizeCoreStatus(terminal?.workStatus));
+}
+/** `hc wait <t> --timeout <sec>`：core 宿主的收敛原语（agent 语义，等停止 working）。 */
+export function coreWaitSettle(terminalId, timeoutSec, spawn) {
+    // 超时由 hc wait 自管；spawn 兑底只防 hc 卡死，留 5s 余量
+    return Effect.map(runCoreQuiet(["wait", terminalId, "--timeout", String(Math.ceil(timeoutSec))], spawn, timeoutSec * 1000 + 5_000), (text) => {
+        const parsed = text === undefined
+            ? undefined
+            : parseJson(text);
+        const status = typeof parsed?.status === "string" ? parsed.status : undefined;
+        return {
+            settled: parsed?.ended === true && normalizeCoreStatus(status) !== "working",
+            status,
+            reason: typeof parsed?.reason === "string" ? parsed.reason : undefined,
+        };
+    });
 }
 /** 终端生命周期已终结的判词：存活集合里不该再派发（陈旧地址的形态之一）。 */
 export function coreStateIrreversible(state) {

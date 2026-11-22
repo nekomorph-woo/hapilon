@@ -10,6 +10,7 @@ import { buildTeamSections, currentRole, findTeamStateForPane, findRoleEntry, is
 import { resetTeamSections, setTeamSections } from "../../extensions/hpl-orchestra/bridge.js";
 import { buildTeamRoleSection, fillOrchestratorSection, ORCHESTRATOR_SECTION } from "../../extensions/hpl-orchestra/roles.js";
 import { paneAgentAlive, paneGet, panePresence } from "../../extensions/hpl-orchestra/herdr.js";
+import { parseCoreTerminal } from "../../extensions/hpl-orchestra/core.js";
 import hplSystemPrompt from "../../extensions/hpl-system-prompt/index.js";
 const originalEnv = {
     home: process.env.HAPILON_HOME,
@@ -1412,5 +1413,16 @@ describe("hpl-orchestra v2 round-3 regressions (review-r3)", { concurrency: fals
         saveCustomRoleDef(parsed);
         const section = buildTeamRoleSection("raw-p") ?? "";
         assert.equal((section.match(/You are a custom team role/g) ?? []).length, 1, "框架恰好一层");
+    });
+});
+describe("parseCoreTerminal() 标签读取", () => {
+    it("从嵌套 labels.map 读标签（hc get 的真实形态）", () => {
+        const terminal = parseCoreTerminal({ address: "t9", state: "live", labels: { label: "验收任务" } });
+        assert.equal(terminal?.label, "验收任务");
+    });
+    it("顶层 label 兼容，labels.map 优先级在其后", () => {
+        assert.equal(parseCoreTerminal({ address: "t9", labels: { label: "嵌套" }, label: "顶层" })?.label, "顶层");
+        assert.equal(parseCoreTerminal({ address: "t9", label: "顶层" })?.label, "顶层");
+        assert.equal(parseCoreTerminal({ address: "t9", labels: {} })?.label, undefined);
     });
 });
