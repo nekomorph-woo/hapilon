@@ -27,8 +27,9 @@ const HC_WRAP_RE = /^(<hc from="[^"]*">)([\s\S]*)(<\/hc>)$/;
 
 /**
  * 展开输入中的 /skill: token（自动穿透 herdr 的 <hc from="…"> 包裹，展开后重新包回）。
- * 可解析 token 依出现顺序展开为 pi 原生 <skill> 块置于输出前部，其余文本按原顺序拼为尾部。
- * 未知名、重复名（第二次起）、超上限的 token 按字面保留。
+ * 可解析 token 依出现顺序展开为 pi 原生 <skill> 块置于输出前部；头部段 token 消失
+ * （与 pi 原生一致），中段 token 在原位置留 [skill:name] 占位符保句子通顺。
+ * 未知名、超上限的 token 按字面保留。
  * 返回 null 的情况：无任何可解析 token；或未包裹时开头恰好单个且别处没有
  * （交还 pi 原生单展开）——包裹下原生不生效，单个也由这里展开。
  */
@@ -75,15 +76,20 @@ function expandInner(
       headEnded = true;
       prose.push(gap + m[0]);
     } else if (seen.has(name)) {
-      prose.push(gap); // 重复名只展开首次，token 本身消化掉
+      // 重复名只展开首次；中段留占位符保句子通顺
+      prose.push(headEnded ? gap + `[skill:${name}]` : gap);
     } else if (blocks.length >= MAX_STACK) {
       headEnded = true;
       prose.push(gap + m[0]); // 超上限按字面保留
     } else {
       seen.add(name);
       blocks.push(formatBlock(name, skill));
-      if (headEnded) otherBlocks += 1;
-      else headBlocks += 1;
+      if (headEnded) {
+        otherBlocks += 1;
+        prose.push(gap + `[skill:${name}]`); // 中段 token 原位留占位符，块在上方
+      } else {
+        headBlocks += 1;
+      }
     }
   }
   prose.push(text.slice(prev));

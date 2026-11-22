@@ -53,16 +53,16 @@ describe("expandSkillStack", () => {
     assert.equal(expandSkillStack("/skill:a 修 /skill:nope 一下", resolve), null);
   });
 
-  it("中段展开: 开头是正文，/skill: 在中间也展开为块", () => {
+  it("中段展开: 开头是正文，/skill: 在中间也展开为块，原位留占位符", () => {
     const result = expandSkillStack("帮我 /skill:a 看看", resolve);
     assert.ok(result?.startsWith('<skill name="a"'));
-    assert.ok(result?.endsWith("帮我 看看"));
+    assert.ok(result?.endsWith("帮我 [skill:a] 看看"));
   });
 
   it("中段展开: 未知名按字面保留，不挡后面的可解析 token", () => {
     const result = expandSkillStack("先 /skill:nope 再 /skill:b 收尾", resolve);
     assert.ok(result?.startsWith('<skill name="b"'));
-    assert.ok(result?.endsWith("先 /skill:nope 再 收尾"));
+    assert.ok(result?.endsWith("先 /skill:nope 再 [skill:b] 收尾"));
   });
 
   it("上限: 超过 MAX_STACK 个 → 只展开前 MAX_STACK 个，其余落尾部字面", () => {
@@ -74,10 +74,13 @@ describe("expandSkillStack", () => {
     assert.ok(result?.endsWith("/skill:d 尾部"));
   });
 
-  it("去重: 重复堆叠同一 skill 只展开一次，token 不残留", () => {
+  it("去重: 重复堆叠同一 skill 只展开一次；中段重复原位也留占位符", () => {
     const result = expandSkillStack("/skill:a /skill:a /skill:b", resolve);
     assert.equal(result?.match(/<skill name="a"/g)?.length, 1);
     assert.equal(result?.match(/<skill name="b"/g)?.length, 1);
+    const mid = expandSkillStack("帮我 /skill:a 再 /skill:a 一下", resolve);
+    assert.equal(mid?.match(/<skill name="a"/g)?.length, 1);
+    assert.ok(mid?.endsWith("帮我 [skill:a] 再 [skill:a] 一下"));
   });
 
   it("herdr 包裹: <hc from=…> 内层展开后重新包回，尾部保留", () => {
@@ -89,7 +92,7 @@ describe("expandSkillStack", () => {
   it("herdr 包裹: 中段 token 与普通消息", () => {
     const wrapped = expandSkillStack('<hc from="t23">帮我 /skill:a 看看</hc>', resolve);
     assert.ok(wrapped?.startsWith('<hc from="t23"><skill name="a"'));
-    assert.ok(wrapped?.endsWith("帮我 看看</hc>"));
+    assert.ok(wrapped?.endsWith("帮我 [skill:a] 看看</hc>"));
     assert.equal(expandSkillStack('<hc from="t23">普通消息</hc>', resolve), null);
   });
 
