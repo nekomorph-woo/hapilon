@@ -87,7 +87,9 @@ export default function hplOrchestra(pi) {
             const result = await handleTeamCommand(pi, `清空角色 ${target}`, ctx);
             // 拒绝原因必须进模型上下文：命令回执只到 UI，owner 看不到自己刚被拒了
             if (result && !result.ok) {
-                await pi.sendMessage({ customType: "team:clear-refused", content: `[team:clear ${target}] ${result.line}`, display: false }, { deliverAs: "nextTurn" });
+                await pi.sendMessage({ customType: "team:clear-refused", content: `[team:clear ${target}] ${result.line}`, display: false }, 
+                // followUp：忙时进队由循环拉取，不等回合结束才追加（nextTurn 会迟到）
+                { deliverAs: "followUp" });
             }
         },
     });

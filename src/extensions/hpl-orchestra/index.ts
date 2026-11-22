@@ -122,7 +122,8 @@ export default function hplOrchestra(pi: ExtensionAPI): void {
       if (result && !result.ok) {
         await pi.sendMessage(
           { customType: "team:clear-refused", content: `[team:clear ${target}] ${result.line}`, display: false },
-          { deliverAs: "nextTurn" },
+          // followUp：忙时进队由循环拉取，不等回合结束才追加（nextTurn 会迟到）
+          { deliverAs: "followUp" },
         );
       }
     },

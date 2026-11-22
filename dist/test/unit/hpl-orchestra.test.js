@@ -785,7 +785,7 @@ if (group === "agent" && action === "get") {
             await mock.commands.get("team:clear").handler("w1:p8", makeContext().ctx);
             assert.equal(mock.sentCustom.length, 1, JSON.stringify(mock.sentCustom));
             assert.match(mock.sentCustom[0].content, /正在工作中/);
-            assert.equal(mock.sentCustom[0].deliverAs, "nextTurn");
+            assert.equal(mock.sentCustom[0].deliverAs, "followUp");
         }
         finally {
             if (previous === undefined)
