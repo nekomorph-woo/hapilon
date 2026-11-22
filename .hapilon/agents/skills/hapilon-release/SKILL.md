@@ -7,7 +7,7 @@ description: hapilon 发版全流程编排：issue 评论 → push main → rele
 
 ## 目标
 
-产出 `v<版本号>` tag、GitHub Release（附 tarball），且待发提交关联的 open issue 全部带方案评论、随 push 自动关闭。机械步骤全部由脚本执行，agent 只做三件判断活：时序编排、issue 评论起草、失败归因。
+产出 `v<版本号>` tag、GitHub Release（附 tarball），且待发提交关联的 open issue 全部带方案评论、由 agent 统一 `gh issue close`（提交统一用 Refs 引用，不触发 auto-close）。机械步骤全部由脚本执行，agent 只做三件判断活：时序编排、issue 评论起草、失败归因。
 
 ## 何时不用
 
@@ -22,11 +22,11 @@ description: hapilon 发版全流程编排：issue 评论 → push main → rele
 
 ## 时序（钉死，不可换序）
 
-1. `node scripts/issue-comments.mjs` → 按脚本头部起草模式读实现写评论 → `gh issue comment` 发布（只对 open issue 出候选，不设人工确认）
+1. `node scripts/issue-comments.mjs` → 按脚本头部起草模式读实现写评论 → `gh issue comment` 发布（只对 open issue 出候选，不设人工确认）→ 逐条 `gh issue close --reason completed` 关闭
 2. `git push origin main`
 3. `./scripts/release.sh <版本号> "<一句话内容>"`——拿不准可先加 `--dry-run` 预演
 
-评论必须在 push main 之前：push 落地那一刻 GitHub 扫描提交关键词并 auto-close，脚本只对 open issue 出候选——顺序反了候选清单里就没有它，评论只能靠自己想起补。
+评论必须在 push main 之前：评论与关闭同一条时间线上呈现，脚本只对 open issue 出候选——顺序反了候选清单里就没有它，评论只能靠自己想起补。
 
 main 的 push 仅发生在发版流程内（提交纪律禁止主动 push，用户下令发版即授权）。
 
@@ -34,7 +34,7 @@ main 的 push 仅发生在发版流程内（提交纪律禁止主动 push，用�
 
 | 谁 | 步骤 |
 |---|---|
-| agent | issue 评论（检测脚本 + 起草 + gh issue comment）、push main、失败归因 |
+| agent | issue 评论（检测脚本 + 起草 + gh issue comment）与统一关闭、push main、失败归因 |
 | release.sh 自跑 | notes 生成（机械映射 + haiku 兜底）→ build + 全量测试 → 附注 tag + push tag → npm pack → 全新安装冒烟 → gh release create 附 tarball |
 
 notes 文件落在 `.hapilon/release/v<版本号>.md`（gitignored 临时文件）：发布前可读它核对 notes 质量；发布成功脚本顺手删除，失败时保留供归因，重跑会重新生成。

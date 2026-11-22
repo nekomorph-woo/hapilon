@@ -3,9 +3,12 @@
  * issue 评论检测：扫 git log <range> 的提交，抓 GitHub 关闭关键词与裸 #N 引用，
  * 按 issue 聚合并查 open 状态，产出待评论清单。检测只读，不发评论。
  *
- * 发布流程位置：push 之前。GitHub 的 auto-close 发生在 commit 落到默认分支那一刻
- * （不是 commit 创建时），先评论后 push，读者在一条时间线上看到方案说明与关闭；
+ * 发布流程位置：push 之前。issue 引用统一用 Refs（不触发 auto-close），评论发完
+ * 由 agent 逐条人工关闭，读者在一条时间线上看到方案说明与关闭；
  * 错过顺序也无害，closed issue 仍可评论，只是通知显得迟到。
+ *
+ * 历史提交里的 fixes 关键词仍会被识别（closing 集合）并单独标注，
+ * 这是为旧 range 服务的兼容逻辑，新提交不应再产生它。
  *
  * 分工：检测归本脚本；评论正文由 agent 按下方起草模式读实现后撰写，直接
  * gh issue comment 发布（开源仓库，不设人工确认）。

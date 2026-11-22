@@ -38,7 +38,7 @@ hapilon 仓库的项目级约定。hapilon 是以 Pi Coding Agent 为内核的�
 ## 提交纪律
 
 - 一切修改提交必须走 snap 技能；Conventional commits：type/scope 英文，描述与正文简体中文（snap 语言判定的第一优先级：项目明确要求）；业务高度（用户视角，一行一个想法，禁止罗列文件/版本号）；正文 ≤3 行只讲 why——即 snap skill 的标准。修复坑的提交另需在正文末加 `Pit:` trailer（格式见「坑的记录与确认」）。
-- 关联 issue 的提交在正文带 `#N` 引用；确认随发版关闭的写 `fixes #N`（GitHub 只认英文关键词，push 到 main 才 auto-close）。发版前的 issue 评论通道靠它检测。
+- 关联 issue 的提交在正文带 `Refs: #N` 引用（统一用 Refs，不用 fixes 等 auto-close 关键词；issue 由发版流程在方案评论后统一人工关闭）。发版前的 issue 评论通道靠它检测。
 - 仓库常有并行会话写入：commit 前 `git status` 逐条过目，显式路径 staging，禁 `git add -A`。
 - 不主动 push；用户明确要求才 push / 走 PR。
 
