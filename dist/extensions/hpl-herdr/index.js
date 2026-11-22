@@ -19,47 +19,21 @@
  * 写入通道是 ctx.setSessionName——pi 自己把「π - <sessionName> - <cwd>」
  * 渲染成 OSC 终端标题，herdr GUI/TUI 与普通终端的 tab 都跟随，名字随
  * session 文件持久、resume 后仍在，不需要按宿主派发 pane rename。
+ * 生成走 hapi -p 子进程（haiku 档，对标 recap 档位策略，独立请求）；
+ * 时机 1 是首条任务消息，时机 2 对标 recap 触发（空闲到点且 agent 空闲）。
  */
-import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { Effect } from "effect";
 import { defaultSpawn } from "../hpl-orchestra/herdr.js";
 import { notify } from "../notify.js";
+import { readResolvedTiersEffect } from "../hpl-model-tiers/resolved.js";
+import { readRecapConfig } from "../hpl-recap/config.js";
+import { createRecapTimer } from "../hpl-recap/timer.js";
 import { blockMessage, createHerdrReporter } from "./report.js";
 import { createOscReporter } from "./osc.js";
 import { createHerdrState } from "./state.js";
-import { createTabNamer, qualifyingTaskInput } from "./tab-name.js";
-/**
- * rename_tab — 模型自报改名（issue#75 主力路）：它有全对话上下文，读得懂
- * 「继续昨天那个」是续聊而非新任务，边界判断比事件侧启发式准。使用时机靠
- * promptGuidelines 进系统提示；人工保护在 TabNamer 状态机里，工具只转述结果。
- */
-function buildRenameTabTool(namer) {
-    return defineTool({
-        name: "rename_tab",
-        label: "重命名标签",
-        description: "改本会话的 tab 标签（终端/面板标签名）。只在明显切换到新任务时调用，用 3-6 个字概括当前任务；同一任务的后续消息不要调用。",
-        parameters: Type.Object({
-            title: Type.String({ description: "新标签，3-6 个字" }),
-        }),
-        promptGuidelines: [
-            "rename_tab 只在话题切换、开始新任务时调用一次，用 3-6 个字命名当前任务；同一任务的后续消息不要调用。",
-        ],
-        execute: async (_toolCallId, params) => {
-            const outcome = namer.renameTo(params.title);
-            if (!outcome.ok) {
-                return {
-                    content: [{ type: "text", text: `[rename_tab] 未改名：${outcome.reason}` }],
-                    details: {},
-                    isError: true,
-                };
-            }
-            return {
-                content: [{ type: "text", text: `[rename_tab] 标签已改为「${outcome.label}」` }],
-                details: {},
-            };
-        },
-    });
-}
+import { buildNamingPrompt, createTabNamer, namingModelRef, qualifyingTaskInput } from "./tab-name.js";
 function sessionPathOf(ctx) {
     try {
         return ctx.sessionManager.getSessionFile();
@@ -68,7 +42,68 @@ function sessionPathOf(ctx) {
         return undefined;
     }
 }
-/** 可改名的宿主身份：herdr-tui 面板或 herdr-core 终端；非团队宿主 undefined。 */
+/**
+ * 命名生成：hapi -p 子进程（haiku 档，对标 recap 的档位选择策略；独立请求，
+ * 不搭 recap 的车）。--no-session --no-tools 避免污染会话列表、不加载工具；
+ * HERDR_/HAPI_ORCH_ 前缀的变量从子环境剥掉，避免子进程被 herdr 认成 pane。
+ */
+function createNamingGenerator() {
+    // 入口从模块位置定位：process.argv[1] 在安装形态是 shell shim（setup-herdr 生成），
+    // node 直接执行它会语法炸
+    const cliPath = fileURLToPath(new URL("../../cli.js", import.meta.url));
+    return async (texts) => {
+        if (!cliPath)
+            return undefined;
+        const resolved = Effect.runSync(Effect.either(readResolvedTiersEffect));
+        const modelRef = resolved._tag === "Right" ? namingModelRef(resolved.right) : undefined;
+        const env = { ...process.env };
+        for (const key of Object.keys(env)) {
+            if (key.startsWith("HERDR_") || key.startsWith("HAPI_ORCH_"))
+                delete env[key];
+        }
+        const args = [
+            "-p",
+            "--no-session",
+            "--no-tools",
+            ...(modelRef ? ["--model", modelRef] : []),
+            buildNamingPrompt(texts),
+        ];
+        try {
+            const label = await new Promise((resolve, reject) => {
+                // stdin 必须 ignore：pi print 模式等 stdin EOF 才开工，execFile 的常开管道会让它永久阻塞
+                const child = spawn(process.execPath, [cliPath, ...args], { env, stdio: ["ignore", "pipe", "pipe"] });
+                let out = "";
+                let errs = "";
+                const killer = setTimeout(() => child.kill("SIGKILL"), 90_000);
+                child.stdout.on("data", (chunk) => {
+                    out += chunk;
+                    if (out.length > 1024 * 1024)
+                        child.kill("SIGKILL");
+                });
+                child.stderr.on("data", (chunk) => {
+                    errs += chunk;
+                });
+                child.on("error", (e) => {
+                    clearTimeout(killer);
+                    reject(e);
+                });
+                child.on("close", (code) => {
+                    clearTimeout(killer);
+                    if (code === 0)
+                        resolve(out);
+                    else
+                        reject(new Error(errs.trim().slice(0, 200) || `exit ${code}`));
+                });
+            });
+            return label.trim() || undefined;
+        }
+        catch (error) {
+            const reason = (error instanceof Error ? error.message : String(error)).slice(0, 200);
+            notify(`[hpl-herdr] 标签命名子进程失败，用截断兑底：${reason}`, "warning");
+            return undefined;
+        }
+    };
+}
 export function registerHerdrReporting(pi, deps) {
     // 两条出口同接口；herdr-app GUI 注入 HERDR_* 却不认这个 pane id（herdr-app#358），
     // CLI 首次 pane_not_found 后 escalate 翻转：CLI 通道闭嘴、OSC 顶上——同一 pane 仍只有一条活通道
@@ -88,15 +123,6 @@ export function registerHerdrReporting(pi, deps) {
         sinks.push(cli);
     if (deps.osc?.isTTY)
         sinks.push(osc);
-    // 命名状态机不再依赖宿主身份：写入走 pi.setSessionName，pi 自己渲染 OSC
-    // 标题，herdr GUI/TUI/裸终端的 tab 都跟随，名字随 session 文件持久。
-    const namer = createTabNamer({
-        sessionName: { get: () => pi.getSessionName(), set: (name) => pi.setSessionName(name) },
-    });
-    // 主力命名：rename_tab 由模型自报。角色面板（worker）的标签归 orchestra，不注册。
-    if (!process.env.HAPI_ORCH_ROLE) {
-        pi.registerTool(buildRenameTabTool(namer));
-    }
     if (sinks.length > 0) {
         const state = createHerdrState();
         const report = (derived) => {
@@ -164,14 +190,43 @@ export function registerHerdrReporting(pi, deps) {
                 sink.release();
         });
     }
-    // 底座命名：会话首条任务消息（命令、排队续跑、rpc/extension 投递不算）。
-    // 会话边界只重置一次性标记并收编现有名；人工收手状态随 session 名存续，不重置。
-    pi.on("session_start", () => namer.resetSession());
-    pi.on("input", (event) => {
-        if (!qualifyingTaskInput(event.text, event.source, event.streamingBehavior))
-            return;
-        namer.onUserInput(event.text);
-    });
+    // 命名（issue#75）：时机 1 = 会话首条任务消息；时机 2 对标 recap 触发
+    // （同一组活动事件 + recap 的 idleMinutes，独立模型请求）。角色面板（worker）
+    // 的标签归 orchestra，命名整体不接；print/管道模式（hapi -p）没有 tab
+    // 标题概念，必须不激活——否则 -p 子进程里的命名扩展会自嵌套 spawn（每层
+    // 90s 超时递归）并在 stale ctx 上读 session 名炸掉子进程。
+    if (!process.env.HAPI_ORCH_ROLE && (deps.namingTTY ?? process.stdout.isTTY)) {
+        const namer = createTabNamer({
+            sessionName: { get: () => pi.getSessionName(), set: (name) => pi.setSessionName(name) },
+            generate: deps.generateNaming ?? createNamingGenerator(),
+        });
+        const idleMs = readRecapConfig().idleMinutes * 60_000;
+        let namingCtx;
+        const timer = createRecapTimer(() => {
+            // 与 recap 同款：忙时不改名也不重排，等下次活动事件重开计时
+            if (!namingCtx?.isIdle() || namingCtx.hasPendingMessages())
+                return;
+            void namer.onRecapFire();
+        }, deps.namingSchedule, deps.namingCancel);
+        const activity = () => {
+            timer.reset(idleMs);
+        };
+        pi.on("session_start", (_event, sessionCtx) => {
+            namer.resetSession();
+            namingCtx = sessionCtx;
+            activity();
+        });
+        pi.on("agent_settled", activity);
+        pi.on("message_end", activity);
+        pi.on("turn_end", activity);
+        pi.on("session_shutdown", () => timer.clear());
+        // 时机 1：首条任务消息（命令、排队续跑、rpc/extension 投递不算）
+        pi.on("input", (event) => {
+            if (!qualifyingTaskInput(event.text, event.source, event.streamingBehavior))
+                return;
+            void namer.onUserInput(event.text);
+        });
+    }
 }
 export default function hplHerdr(pi) {
     registerHerdrReporting(pi, {

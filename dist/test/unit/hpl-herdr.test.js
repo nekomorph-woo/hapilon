@@ -5,6 +5,11 @@ import { createTabNamer, qualifyingTaskInput, sanitizeTitle } from "../../extens
 import { createHerdrState } from "../../extensions/hpl-herdr/state.js";
 import { registerHerdrReporting } from "../../extensions/hpl-herdr/index.js";
 import { createOscReporter, oscEnabled, programStatusSequence, } from "../../extensions/hpl-herdr/osc.js";
+/** 命名计时器桩：断掉真实 3 分钟 setTimeout，防 suite 悬挂与假 ctx 误触 */
+const noTimer = {
+    namingSchedule: () => ({}),
+    namingCancel: () => { },
+};
 /** 记录 spawn 调用的假 SpawnFn */
 function makeSpawn(result = {}) {
     const calls = [];
@@ -66,9 +71,10 @@ describe("qualifyingTaskInput()", () => {
     });
 });
 describe("createTabNamer()", () => {
-    /** fake session 名存内存，set 记录 */
-    function harness({ initialName = undefined } = {}) {
+    /** fake session 名存内存，generate 可编程 */
+    function harness({ initialName = undefined, generate = undefined, } = {}) {
         const state = { name: initialName, sets: [] };
+        const genCalls = [];
         const namer = createTabNamer({
             sessionName: {
                 get: () => state.name,
@@ -77,51 +83,72 @@ describe("createTabNamer()", () => {
                     state.name = n;
                 },
             },
+            generate: async (texts) => {
+                genCalls.push([...texts]);
+                return generate ? generate(texts) : `生成名${genCalls.length}`;
+            },
         });
-        return { state, namer };
+        return { state, namer, genCalls };
     }
-    it("会话首条输入触发改名，之后不再动", () => {
-        const { state, namer } = harness();
-        namer.onUserInput("修 issue#75 的 tab 命名");
-        namer.onUserInput("换个写法");
-        assert.deepEqual(state.sets, ["修 issu"]);
+    it("时机 1：会话首条输入生成并改名，之后不再生成", async () => {
+        const { state, namer, genCalls } = harness();
+        await namer.onUserInput("修 issue#75 的 tab 命名");
+        await namer.onUserInput("换个写法继续");
+        assert.deepEqual(genCalls, [["修 issue#75 的 tab 命名"]]);
+        assert.deepEqual(state.sets, ["生成名1"]);
     });
-    it("session 重置后恢复一次机会", () => {
-        const { state, namer } = harness();
-        namer.onUserInput("任务一");
+    it("生成失败回落首行截断兑底", async () => {
+        const { state, namer } = harness({ generate: async () => undefined });
+        await namer.onUserInput("帮我确认 package.json 里的 name");
+        assert.deepEqual(state.sets, ["帮我确认"]);
+    });
+    it("生成抛错同样走截断兑底", async () => {
+        const { state, namer } = harness({ generate: async () => {
+                throw new Error("子进程炸了");
+            } });
+        await namer.onUserInput("修 bug 的按钮位置");
+        assert.deepEqual(state.sets, ["修 bug"]);
+    });
+    it("session 重置后恢复一次机会", async () => {
+        const { state, namer, genCalls } = harness();
+        await namer.onUserInput("任务一");
         namer.resetSession();
-        namer.onUserInput("任务二");
-        assert.deepEqual(state.sets, ["任务一", "任务二"]);
+        await namer.onUserInput("任务二");
+        assert.deepEqual(genCalls.map((c) => c[0]), ["任务一", "任务二"]);
+        assert.deepEqual(state.sets, ["生成名1", "生成名2"]);
     });
-    it("session 名被人工起过（≠我们的值）就永久收手，renameTo 也被拒", () => {
-        const { state, namer } = harness({ initialName: "我手起的名" });
-        namer.onUserInput("任何任务");
+    it("session 名被人工起过（≠我们的值）就永久收手", async () => {
+        const { state, namer, genCalls } = harness({ initialName: "我手起的名" });
+        await namer.onUserInput("任何任务");
         assert.deepEqual(state.sets, []);
-        const outcome = namer.renameTo("模型想起的名");
-        assert.equal(outcome.ok, false);
-        assert.match(outcome.reason, /人工/);
-        assert.deepEqual(state.sets, []);
+        assert.deepEqual(genCalls, [["任何任务"]]);
         assert.equal(state.name, "我手起的名");
     });
-    it("我们命名后被人工改掉，同样收手", () => {
+    it("我们命名后被人工改掉，同样收手", async () => {
         const { state, namer } = harness();
-        namer.onUserInput("任务一");
+        await namer.onUserInput("任务一");
         state.name = "人改的";
-        assert.equal(namer.renameTo("任务二").ok, false);
-        assert.deepEqual(state.sets, ["任务一"]);
+        await namer.onRecapFire();
+        assert.deepEqual(state.sets, ["生成名1"]);
     });
-    it("resetSession 收编外部已有名为基线，后续改名视为一致", () => {
+    it("时机 2：用近期任务消息生成，人工收手后不再生成", async () => {
+        const { state, namer, genCalls } = harness({ generate: async () => "命名新任务" });
+        await namer.onUserInput("第一条任务");
+        await namer.onUserInput("第二条任务");
+        await namer.onUserInput("第三条任务");
+        await namer.onUserInput("第四条任务");
+        assert.deepEqual(state.sets, ["命名新任务"]);
+        state.name = "人改的";
+        await namer.onRecapFire();
+        assert.deepEqual(state.sets, ["命名新任务"], "人工收手后时机 2 不覆盖");
+        // 时机 2 输入是近期 ring（最多 3 条），不含已消费的首条
+        assert.deepEqual(genCalls.at(-1), ["第二条任务", "第三条任务", "第四条任务"]);
+    });
+    it("resetSession 收编外部已有名为基线，后续改名视为一致", async () => {
         const { state, namer } = harness({ initialName: "已有名" });
         namer.resetSession();
-        namer.onUserInput("新任务");
-        assert.deepEqual(state.sets, ["新任务"]);
-    });
-    it("renameTo 净化入参，不受一次性标记限制", () => {
-        const { state, namer } = harness();
-        const outcome = namer.renameTo("## **新 名**  ");
-        assert.equal(outcome.ok, true);
-        assert.equal(outcome.label, "新 名");
-        assert.deepEqual(state.sets, ["新 名"]);
+        await namer.onUserInput("新任务");
+        assert.deepEqual(state.sets, ["生成名1"]);
     });
 });
 describe("registerHerdrReporting() tab 命名接线", () => {
@@ -143,57 +170,95 @@ describe("registerHerdrReporting() tab 命名接线", () => {
         };
         return { pi: pi, handlers, events, tools, state };
     }
-    /** 上报全关（env 空）→ 只注册命名机械，隔离宿主通道 */
-    function namingOnly(pi) {
-        registerHerdrReporting(pi, { spawn: (() => ({ status: 0 })), env: { herdrEnv: undefined, binPath: undefined, paneId: undefined } });
+    /** 上报全关（env 空）→ 只接命名机械；生成器与计时器注入，隔离子进程与真实时钟 */
+    function namingOnly(pi, opts = {}) {
+        const genCalls = [];
+        let timerCb;
+        registerHerdrReporting(pi, {
+            spawn: (() => ({ status: 0 })),
+            env: { herdrEnv: undefined, binPath: undefined, paneId: undefined },
+            namingTTY: true,
+            generateNaming: async (texts) => {
+                genCalls.push([...texts]);
+                return opts.generate ? opts.generate(texts) : `生成名${genCalls.length}`;
+            },
+            namingSchedule: (cb) => {
+                timerCb = cb;
+                return {};
+            },
+            namingCancel: () => { },
+        });
+        return { genCalls, fireTimer: () => timerCb?.() };
     }
-    it("注册 rename_tab 与 input；首条交互输入写 session 名", () => {
+    const idleCtx = { isIdle: () => true, hasPendingMessages: () => false };
+    it("不注册任何工具；首条交互输入经注入生成器写 session 名", async () => {
         const { pi, handlers, tools, state } = fakePi();
-        namingOnly(pi);
-        assert.ok(tools.has("rename_tab"));
-        assert.equal(handlers.has("input"), true);
+        const { genCalls } = namingOnly(pi);
+        assert.equal(tools.size, 0);
         handlers.get("input")({
             text: "修 issue#75 的 tab 命名",
             source: "interactive",
             streamingBehavior: undefined,
         });
-        assert.equal(state.name, "修 issu");
+        await Promise.resolve(); // 等命名 Promise 落地
+        assert.equal(state.name, "生成名1");
+        assert.deepEqual(genCalls, [["修 issue#75 的 tab 命名"]]);
     });
-    it("命令、排队续跑不触发底座命名", () => {
+    it("命令、排队续跑不触发生成", async () => {
         const { pi, handlers, state } = fakePi();
-        namingOnly(pi);
+        const { genCalls } = namingOnly(pi);
         handlers.get("input")({ text: "/compact", source: "interactive", streamingBehavior: undefined });
         handlers.get("input")({ text: "排队任务", source: "interactive", streamingBehavior: "queued" });
+        await Promise.resolve();
+        assert.deepEqual(genCalls, []);
         assert.equal(state.name, undefined);
     });
-    it("rename_tab 执行成功并净入参，写进 session 名", async () => {
-        const { pi, tools, state } = fakePi();
-        namingOnly(pi);
-        const tool = tools.get("rename_tab");
-        const result = await tool.execute("t1", { title: "## **修 issue#75**  " });
-        assert.equal(result.isError, undefined);
-        assert.match(result.content[0].text, /已改为/);
-        assert.equal(state.name, "修 issu");
+    it("时机 2：recap 计时器到点且 agent 空闲才生成；忙时不生成", async () => {
+        const { pi, handlers, state } = fakePi();
+        const { genCalls, fireTimer } = namingOnly(pi);
+        handlers.get("session_start")({}, idleCtx);
+        fireTimer();
+        assert.deepEqual(genCalls, [], "无任务消息时不生成");
+        handlers.get("input")({ text: "任务甲", source: "interactive", streamingBehavior: undefined });
+        await Promise.resolve();
+        assert.equal(state.name, "生成名1", "时机 1 已命名");
+        fireTimer();
+        await Promise.resolve();
+        assert.deepEqual(genCalls.length, 2, "空闲到点时机 2 生成");
+        assert.equal(state.name, "生成名2");
     });
-    it("会话名被人工改掉后 rename_tab 拒绝", async () => {
-        const { pi, handlers, tools, state } = fakePi();
-        namingOnly(pi);
-        handlers.get("session_start")({});
-        state.name = "人起的名";
-        const tool = tools.get("rename_tab");
-        const result = await tool.execute("t1", { title: "模型的名" });
-        assert.equal(result.isError, true);
-        assert.match(result.content[0].text, /人工/);
-        assert.equal(state.name, "人起的名");
+    it("时机 2：agent 忙（isIdle=false）不生成也不报错", async () => {
+        const { pi, handlers, state } = fakePi();
+        const { genCalls, fireTimer } = namingOnly(pi);
+        handlers.get("session_start")({}, { isIdle: () => false, hasPendingMessages: () => true });
+        handlers.get("input")({ text: "任务甲", source: "interactive", streamingBehavior: undefined });
+        await Promise.resolve();
+        fireTimer();
+        assert.deepEqual(genCalls.length, 1, "只有时机 1 那次");
+        assert.equal(state.name, "生成名1");
     });
-    it("角色面板（HAPI_ORCH_ROLE）不注册 rename_tab，input 上报保留", () => {
+    it("print/管道模式（namingTTY=false）命名整体不接——防 -p 子进程自嵌套", () => {
+        const { pi, handlers } = fakePi();
+        registerHerdrReporting(pi, {
+            spawn: (() => ({ status: 0 })),
+            env: { herdrEnv: undefined, binPath: undefined, paneId: undefined },
+            namingTTY: false,
+        });
+        // 上报全关 + 命名不激活：一个 handler 都不注册
+        assert.equal(handlers.size, 0);
+    });
+    it("角色面板（HAPI_ORCH_ROLE）命名整体不接（含 input 的命名监听）", () => {
         const saved = process.env.HAPI_ORCH_ROLE;
         process.env.HAPI_ORCH_ROLE = "worker";
         try {
-            const { pi, handlers, tools } = fakePi();
-            namingOnly(pi);
-            assert.equal(tools.has("rename_tab"), false);
-            assert.equal(handlers.has("input"), true);
+            const { pi, handlers } = fakePi();
+            const { genCalls } = namingOnly(pi);
+            // 上报也全关时连 handler 都不注册；有上报时 input 只剩上报自己的，命名不掺入
+            assert.equal(handlers.get("session_start"), undefined);
+            const inputHandler = handlers.get("input");
+            if (inputHandler)
+                inputHandler({ text: "任务", source: "interactive", streamingBehavior: undefined });
+            assert.deepEqual(genCalls, []);
         }
         finally {
             if (saved === undefined)
@@ -407,19 +472,19 @@ describe("registerHerdrReporting() 接线", () => {
         return { pi: pi, handlers, events, tools, state };
     }
     const states = (calls) => calls.map((c) => c.args[c.args.indexOf("--state") + 1]);
-    it("非 herdr 环境不上报；命名监听与 rename_tab 仍然注册", () => {
+    it("非 herdr 环境不上报；命名监听仍然注册（且不注册工具）", () => {
         const { spawn } = makeSpawn();
         const { pi, handlers, events, tools } = fakePi();
-        registerHerdrReporting(pi, { spawn, env: { herdrEnv: undefined, binPath: undefined, paneId: undefined } });
+        registerHerdrReporting(pi, { spawn, env: { herdrEnv: undefined, binPath: undefined, paneId: undefined }, namingTTY: true, ...noTimer });
         assert.equal(events.size, 0);
         assert.equal(handlers.has("input"), true);
         assert.equal(handlers.has("session_start"), true);
-        assert.equal(tools.has("rename_tab"), true);
+        assert.equal(tools.size, 0);
     });
     it("回归：subagent 生命周期事件在主循环 settle 后撑住 working", () => {
         const { spawn, calls } = makeSpawn();
         const { pi, handlers, events } = fakePi();
-        registerHerdrReporting(pi, { spawn, env: ENV });
+        registerHerdrReporting(pi, { spawn, env: ENV, ...noTimer });
         handlers.get("turn_start")();
         handlers.get("agent_settled")(); // 无 subagent：沉淀即 idle
         (events.get("subagents:started"))({ id: "a1" });
@@ -430,7 +495,7 @@ describe("registerHerdrReporting() 接线", () => {
     it("failed 同样解除在跑；blocked 事件流经状态机", () => {
         const { spawn, calls } = makeSpawn();
         const { pi, handlers, events } = fakePi();
-        registerHerdrReporting(pi, { spawn, env: ENV });
+        registerHerdrReporting(pi, { spawn, env: ENV, ...noTimer });
         (events.get("subagents:started"))({ id: "a1" });
         (events.get("subagents:failed"))({ id: "a1", status: "stopped" });
         assert.deepEqual(states(calls), ["working", "idle"]);
@@ -438,7 +503,7 @@ describe("registerHerdrReporting() 接线", () => {
     it("回归：bg-task 起止事件在主循环 settle 后撑住 working", () => {
         const { spawn, calls } = makeSpawn();
         const { pi, handlers, events } = fakePi();
-        registerHerdrReporting(pi, { spawn, env: ENV });
+        registerHerdrReporting(pi, { spawn, env: ENV, ...noTimer });
         handlers.get("turn_start")();
         handlers.get("agent_settled")(); // 无后台任务：沉淀即 idle
         (events.get("bg-jobs:started"))({ id: 1 });
@@ -449,7 +514,7 @@ describe("registerHerdrReporting() 接线", () => {
     it("session_start 重置状态机并带 session 路径", () => {
         const { spawn, calls } = makeSpawn();
         const { pi, handlers, events } = fakePi();
-        registerHerdrReporting(pi, { spawn, env: ENV });
+        registerHerdrReporting(pi, { spawn, env: ENV, ...noTimer });
         (events.get("subagents:started"))({ id: "a1" });
         handlers.get("session_start")({}, {
             sessionManager: { getSessionFile: () => "/s.jsonl" },
@@ -559,7 +624,7 @@ describe("registerHerdrReporting() OSC 通道接线", () => {
         const writes = [];
         const { spawn, calls } = makeSpawn();
         const { pi, handlers } = fakePi();
-        registerHerdrReporting(pi, { spawn, env: ENV, osc: { isTTY: true, write: (s) => writes.push(s) } });
+        registerHerdrReporting(pi, { spawn, env: ENV, osc: { isTTY: true, write: (s) => writes.push(s) }, ...noTimer });
         handlers.get("turn_start")();
         assert.deepEqual(writes, []);
         assert.equal(calls.length, 1);
@@ -570,7 +635,7 @@ describe("registerHerdrReporting() OSC 通道接线", () => {
         const writes = [];
         const { spawn, calls } = makeSpawn({ status: 1, stderr: '{"error":{"code":"pane_not_found"}}\n' });
         const { pi, handlers } = fakePi();
-        registerHerdrReporting(pi, { spawn, env: ENV, osc: { isTTY: true, write: (s) => writes.push(s) } });
+        registerHerdrReporting(pi, { spawn, env: ENV, osc: { isTTY: true, write: (s) => writes.push(s) }, ...noTimer });
         handlers.get("turn_start")();
         assert.equal(calls.length, 1);
         // cli.report 同步被拒、escalate 翻转，同一 report 轮内轮到 osc 时已激活——首次状态就落到 OSC
