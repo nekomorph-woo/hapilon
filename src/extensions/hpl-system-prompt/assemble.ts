@@ -72,6 +72,8 @@ export interface AssembleOptions {
   team?: { orchestrator?: string; role?: string };
   /** 项目 .hapilon/CONTEXT.md 领域词汇表内容（null=未建）——存在时内联进 prompt */
   domainGlossary?: string | null;
+  /** 当前会话模型；input 含 image 时 vision 段落改为直接读图引导 */
+  model?: { input: readonly string[] };
   /**
    * 先于本扩展加载的兄弟扩展经 systemPromptOptions.sections 贡献的段落
    * （如 ponytail 5.x）。pi 中 forceSystemPrompt 与 sections 互斥——全量
@@ -298,8 +300,15 @@ export function buildAppendSection(appendSystemPrompt?: string): string {
   return `<additional_instructions>\n${appendSystemPrompt}\n</additional_instructions>`;
 }
 
-/** vision 子代理派发纪律：输入构造与防幻觉双向约束（主模型侧） */
-export function buildVisionDelegationSection(): string {
+/** vision 段落按模型能力分叉：能读图的模型直接 read，其余派 vision 子代理（输入构造与防幻觉双向约束）。 */
+export function buildVisionDelegationSection(model?: { input: readonly string[] }): string {
+  if (model?.input.includes("image")) {
+    return [
+      "<vision_delegation>",
+      "The current model reads images itself: open image paths with the read tool directly instead of dispatching to the vision sub-agent.",
+      "</vision_delegation>",
+    ].join("\n");
+  }
   return [
     "<vision_delegation>",
     "Prefer dispatching image/screenshot analysis to the vision sub-agent (multimodal, subagent_type=vision); the main session does not read images directly:",
@@ -378,6 +387,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
     team,
     extensionSections,
     domainGlossary,
+    model,
   } = opts;
 
   // 统一归一化：undefined = Pi 默认工具集（两个 builder 语义一致）
@@ -419,7 +429,7 @@ export function assembleSystemPrompt(opts: AssembleOptions): string {
   const contextFilesSection = buildContextSection(contextFiles);
   const externalDirsSection = buildExternalDirsSection();
   const skillsSection = buildSkillsSection(skills, tools);
-  const visionDelegationSection = buildVisionDelegationSection();
+  const visionDelegationSection = buildVisionDelegationSection(model);
   const appendSection = buildAppendSection(appendSystemPrompt);
   const envSection = buildEnvironmentSection(cwd, agentDirPath, runModeText);
 

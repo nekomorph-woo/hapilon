@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { xmlEscape } from "../../shared/format.js";
 import { wrapSystemPrompt } from "../../extensions/hpl-system-prompt/xml.js";
 import { ROLE_TEXT, CUSTOM_TOOLS_NOTE, buildPiDocText, buildRunModeText, BUILTIN_GUIDELINES, COMMIT_DISCIPLINE_TEXT, ROLE_COMMIT_BOUNDARY_TEXT, WORKFLOW_TEXT, SKILL_ROUTING_TEXT, } from "../../extensions/hpl-system-prompt/sections.js";
-import { buildRoleSection, buildCodeStyleSection, buildCommitDisciplineSection, buildRoleCommitBoundarySection, buildWorkflowSection, buildToolsSection, buildCustomToolsNote, buildGuidelinesSection, buildPiDocSection, buildHapilonInstructions, buildHapilonRules, buildContextSection, buildSkillsSection, buildAppendSection, buildExternalDirsSection, buildEnvironmentSection, buildDomainGlossarySection, assembleSystemPrompt, collectHapilonContext, } from "../../extensions/hpl-system-prompt/assemble.js";
+import { buildRoleSection, buildCodeStyleSection, buildCommitDisciplineSection, buildRoleCommitBoundarySection, buildWorkflowSection, buildToolsSection, buildCustomToolsNote, buildGuidelinesSection, buildPiDocSection, buildHapilonInstructions, buildHapilonRules, buildContextSection, buildSkillsSection, buildAppendSection, buildExternalDirsSection, buildEnvironmentSection, buildDomainGlossarySection, buildVisionDelegationSection, assembleSystemPrompt, collectHapilonContext, } from "../../extensions/hpl-system-prompt/assemble.js";
 import hplSystemPrompt from "../../extensions/hpl-system-prompt/index.js";
 import { setAddedDirs, resetAddedDirs } from "../../extensions/hpl-add-dir/bridge.js";
 import { fillOrchestratorSection } from "../../extensions/hpl-orchestra/roles.js";
@@ -848,6 +848,25 @@ describe("写入目标授权边界与提交权（真实 assemble）", () => {
     });
 });
 // ── assemble.ts: collectHapilonContext（真实文件系统接线） ────────────
+describe("buildVisionDelegationSection", () => {
+    it("模型 input 含 image：一句直接 read 读图的引导，不提派发", () => {
+        const result = buildVisionDelegationSection({ input: ["text", "image"] });
+        assert.ok(result.startsWith("<vision_delegation>"));
+        assert.ok(result.includes("reads images itself"));
+        assert.equal(result.includes("vision sub-agent (multimodal"), false);
+    });
+    it("模型不能读图或缺省：保留 vision 子代理派发纪律", () => {
+        for (const model of [undefined, { input: ["text"] }]) {
+            const result = buildVisionDelegationSection(model);
+            assert.ok(result.includes("Prefer dispatching image/screenshot analysis to the vision sub-agent"), `model=${JSON.stringify(model)}`);
+        }
+    });
+    it("assembleSystemPrompt 按 opts.model 分叉", () => {
+        const base = { toolSnippets: {}, cwd: "/test", hapilonMd: [], hapilonRules: [] };
+        assert.ok(assembleSystemPrompt({ ...base, model: { input: ["text", "image"] } }).includes("reads images itself"));
+        assert.ok(assembleSystemPrompt(base).includes("Prefer dispatching image/screenshot analysis"));
+    });
+});
 describe("collectHapilonContext", () => {
     let tmpHome;
     let projectDir;
@@ -921,10 +940,17 @@ describe("hplSystemPrompt handler", () => {
                 promptGuidelines: [],
                 cwd: "/test",
             },
-        });
+        }, { model: undefined });
         assert.ok(result.systemPrompt, "返回 systemPrompt");
         assert.ok(result.systemPrompt.startsWith("<system_prompt>"), "XML 结构");
         assert.ok(result.systemPrompt.includes("Hapilon"), "含品牌标识");
+    });
+    it("模型能读图（ctx.model.input 含 image）时 vision 段落改为直接读图引导", () => {
+        const { handlers, pi } = createStubPi();
+        hplSystemPrompt(pi);
+        const result = handlers["before_agent_start"]({ systemPromptOptions: { toolSnippets: {}, cwd: "/test" } }, { model: { input: ["text", "image"] } });
+        assert.ok(result.systemPrompt.includes("reads images itself"), "直接读图引导");
+        assert.equal(result.systemPrompt.includes("Prefer dispatching"), false, "不再要求派发");
     });
     it("HOME 缺失(Windows cmd/PowerShell)不告警,走 os.homedir 解析", () => {
         const originalHome = process.env.HOME;
@@ -936,9 +962,7 @@ describe("hplSystemPrompt handler", () => {
             const { handlers, pi } = createStubPi();
             hplSystemPrompt(pi);
             assert.equal(warnings.filter((w) => w.includes("HOME")).length, 0, `不得再报 HOME 未设置：${JSON.stringify(warnings)}`);
-            const result = handlers["before_agent_start"]({
-                systemPromptOptions: { toolSnippets: {}, cwd: "/test" },
-            });
+            const result = handlers["before_agent_start"]({ systemPromptOptions: { toolSnippets: {}, cwd: "/test" } }, { model: undefined });
             assert.ok(result.systemPrompt, "HOME 缺失仍能组装 system prompt");
         }
         finally {

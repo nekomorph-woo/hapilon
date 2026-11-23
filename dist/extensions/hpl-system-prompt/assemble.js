@@ -197,8 +197,15 @@ export function buildAppendSection(appendSystemPrompt) {
         return "";
     return `<additional_instructions>\n${appendSystemPrompt}\n</additional_instructions>`;
 }
-/** vision 子代理派发纪律：输入构造与防幻觉双向约束（主模型侧） */
-export function buildVisionDelegationSection() {
+/** vision 段落按模型能力分叉：能读图的模型直接 read，其余派 vision 子代理（输入构造与防幻觉双向约束）。 */
+export function buildVisionDelegationSection(model) {
+    if (model?.input.includes("image")) {
+        return [
+            "<vision_delegation>",
+            "The current model reads images itself: open image paths with the read tool directly instead of dispatching to the vision sub-agent.",
+            "</vision_delegation>",
+        ].join("\n");
+    }
     return [
         "<vision_delegation>",
         "Prefer dispatching image/screenshot analysis to the vision sub-agent (multimodal, subagent_type=vision); the main session does not read images directly:",
@@ -245,7 +252,7 @@ function collectHapilonContext(cwd, userHome, globalBase = hapilonHome()) {
  * 两个 builder，保证语义一致。
  */
 export function assembleSystemPrompt(opts) {
-    const { toolSnippets, selectedTools, promptGuidelines, appendSystemPrompt, cwd, contextFiles, skills, hapilonMd, hapilonRules, agentDirPath, runModeText, team, extensionSections, domainGlossary, } = opts;
+    const { toolSnippets, selectedTools, promptGuidelines, appendSystemPrompt, cwd, contextFiles, skills, hapilonMd, hapilonRules, agentDirPath, runModeText, team, extensionSections, domainGlossary, model, } = opts;
     // 统一归一化：undefined = Pi 默认工具集（两个 builder 语义一致）
     const tools = selectedTools ?? DEFAULT_TOOLS;
     const roleSection = buildRoleSection();
@@ -284,7 +291,7 @@ export function assembleSystemPrompt(opts) {
     const contextFilesSection = buildContextSection(contextFiles);
     const externalDirsSection = buildExternalDirsSection();
     const skillsSection = buildSkillsSection(skills, tools);
-    const visionDelegationSection = buildVisionDelegationSection();
+    const visionDelegationSection = buildVisionDelegationSection(model);
     const appendSection = buildAppendSection(appendSystemPrompt);
     const envSection = buildEnvironmentSection(cwd, agentDirPath, runModeText);
     const prompt = wrapSystemPrompt([

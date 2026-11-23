@@ -51,6 +51,7 @@ export default function hplSystemPrompt(pi: ExtensionAPI): void {
         runModeText: buildRunModeText(),
         team: getTeamSections(),
         extensionSections: opts.sections as Record<string, string> | undefined,
+        model: ctx.model,
       });
 
       return { systemPrompt };

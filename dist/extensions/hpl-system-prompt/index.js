@@ -44,6 +44,7 @@ export default function hplSystemPrompt(pi) {
                 runModeText: buildRunModeText(),
                 team: getTeamSections(),
                 extensionSections: opts.sections,
+                model: ctx.model,
             });
             return { systemPrompt };
         }
