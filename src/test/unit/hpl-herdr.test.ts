@@ -9,14 +9,15 @@ import {
   reportAgentArgs,
   reporterEnabled,
 } from "../../extensions/hpl-herdr/report.js";
-import { createTabNamer, qualifyingTaskInput, sanitizeTitle } from "../../extensions/hpl-herdr/tab-name.js";
+import { createTabNamer, pickNamingTier, qualifyingTaskInput, sanitizeTitle } from "../../extensions/hpl-herdr/tab-name.js";
+import { generateTabName, registerHerdrReporting } from "../../extensions/hpl-herdr/index.js";
 import { createHerdrState } from "../../extensions/hpl-herdr/state.js";
-import { registerHerdrReporting } from "../../extensions/hpl-herdr/index.js";
 import {
   createOscReporter,
   oscEnabled,
   programStatusSequence,
 } from "../../extensions/hpl-herdr/osc.js";
+import { resetNotifySink, setNotifySink } from "../../extensions/notify.js";
 
 /** 命名计时器桩：断掉真实 3 分钟 setTimeout，防 suite 悬挂与假 ctx 误触 */
 const noTimer = {
@@ -122,13 +123,13 @@ describe("createTabNamer()", () => {
 		assert.deepEqual(state.sets, ["生成名1"]);
 	});
 
-	it("生成失败回落首行截断兑底", async () => {
+	it("生成失败回落首行截断兜底", async () => {
 		const { state, namer } = harness({ generate: async () => undefined });
 		await namer.onUserInput("帮我确认 package.json 里的 name");
 		assert.deepEqual(state.sets, ["帮我确认"]);
 	});
 
-	it("生成抛错同样走截断兑底", async () => {
+	it("生成抛错同样走截断兜底", async () => {
 		const { state, namer } = harness({ generate: async () => {
 			throw new Error("子进程炸了");
 		} });
@@ -180,6 +181,63 @@ describe("createTabNamer()", () => {
 		namer.resetSession();
 		await namer.onUserInput("新任务");
 		assert.deepEqual(state.sets, ["生成名1"]);
+	});
+});
+
+describe("pickNamingTier()", () => {
+	it("haiku 优先非推理候选，haiku 空时降级 sonnet，两档全空 undefined", () => {
+		const entry = (id: string, reasoning?: boolean) => ({ id, provider: "p", reasoning });
+		assert.equal(pickNamingTier({ opus: [], sonnet: [], haiku: [entry("h1", true), entry("h2", false)] })?.id, "h2");
+		assert.equal(pickNamingTier({ opus: [], sonnet: [entry("s1")], haiku: [] })?.id, "s1");
+		assert.equal(pickNamingTier({ opus: [], sonnet: [], haiku: [] }), undefined);
+	});
+});
+
+describe("generateTabName()", () => {
+	const tierModel = { id: "haiku-test", provider: "test", input: ["text"] };
+
+	/** 注册表桩：find 返回给定模型，complete 记录调用并返回给定正文（或抛错） */
+	function fakeCtx(opts: { found?: unknown; model?: unknown; complete?: () => Promise<unknown> }) {
+		const calls: Array<{ model: unknown; messages: Array<{ content: string }> }> = [];
+		const ctx = {
+			modelRegistry: {
+				find: () => opts.found,
+				complete: async (model: unknown, context: { messages: Array<{ content: string }> }) => {
+					calls.push({ model, messages: context.messages });
+					return opts.complete ? opts.complete() : { role: "assistant", content: [{ type: "text", text: "  修登录 bug \n" }] };
+				},
+			},
+			model: opts.model,
+		};
+		return { ctx: ctx as never, calls };
+	}
+
+	it("经 modelRegistry.complete 发一条 user 消息，返回去空白的正文", async () => {
+		const { ctx, calls } = fakeCtx({ found: tierModel });
+		assert.equal(await generateTabName(ctx, ["帮我修登录 bug"]), "修登录 bug");
+		assert.equal(calls.length, 1);
+		assert.equal(calls[0].model, tierModel);
+		assert.match(calls[0].messages[0].content, /帮我修登录 bug/);
+	});
+
+	it("档位模型不在注册表时回落当前会话模型", async () => {
+		const current = { id: "current" };
+		const { ctx, calls } = fakeCtx({ found: undefined, model: current });
+		await generateTabName(ctx, ["任务"]);
+		assert.equal(calls[0].model, current);
+	});
+
+	it("请求失败：告警一次并返回 undefined（调用侧截断兜底）", async () => {
+		const seen: Array<{ message: string; type: string }> = [];
+		setNotifySink({ notify: (message, type) => seen.push({ message, type: type ?? "info" }) });
+		try {
+			const { ctx } = fakeCtx({ found: tierModel, complete: () => Promise.reject(new Error("ECONNREFUSED")) });
+			assert.equal(await generateTabName(ctx, ["任务"]), undefined);
+		} finally {
+			resetNotifySink();
+		}
+		assert.deepEqual(seen.map((entry) => entry.type), ["warning"]);
+		assert.match(seen[0].message, /ECONNREFUSED/);
 	});
 });
 

@@ -1,10 +1,10 @@
 /**
  * tab-name.ts — tab 标签的任务命名状态机（issue#75）。
  *
- * 两个时机都自动触发，不再依赖模型自报：生成走独立的 hapi -p 子进程（haiku
- * 档，对标 recap 的档位选择策略，但独立请求、不搭 recap 的车）。时机 1 是
- * 会话首条任务消息，必定生成；时机 2 对标 recap 触发（空闲到点且 agent 空闲），
- * 用户手动改过名就不生成。子进程失败或输出不合规时回落首行截断（确定性兜底）。
+ * 两个时机都自动触发，不再依赖模型自报：生成走进程内独立请求（haiku 档，对标
+ * recap 的档位选择策略，不搭 recap 的车）。时机 1 是会话首条任务消息，必定生成；
+ * 时机 2 对标 recap 触发（空闲到点且 agent 空闲），用户手动改过名就不生成。
+ * 请求失败或输出不合规时回落首行截断（确定性兜底）。
  *
  * 写入通道是 ctx.setSessionName：pi 自己会把标题渲染成
  * 「π - <sessionName> - <cwd>」写进 OSC，herdr GUI 的 tab 跟随 OSC 标题，
@@ -17,7 +17,7 @@
  * 只重置「本会话已命名」的一次性标记与近期任务 ring，并把现有名收编为基线。
  */
 
-import type { ResolvedTierModels } from "../hpl-model-tiers/resolved.js";
+import type { ResolvedTierModel, ResolvedTierModels } from "../hpl-model-tiers/resolved.js";
 
 export const TAB_TITLE_MAX_CHARS = 6;
 /** 时机 2 生成输入保留的近期任务消息条数 */
@@ -56,20 +56,18 @@ export function qualifyingTaskInput(
 	return true;
 }
 
-/** 命名子进程的提示词：弱模型约束要死，只要一个名字。 */
+/** 命名请求的提示词：弱模型约束要死，只要一个名字。 */
 export function buildNamingPrompt(texts: readonly string[]): string {
 	return "你在给终端会话的标签起名。根据任务内容输出一个 3-6 个字的标签名，概括当前正在做的任务。" +
 		"只输出标签名本身：不要解释、不要引号、不要句尾标点。\n任务内容：\n" +
 		texts.join("\n---\n");
 }
 
-/** recap 同款档位策略：haiku 优先非推理候选，降级 sonnet；两档全空返回 undefined（子进程用 pi 默认模型）。 */
-export function namingModelRef(tiers: ResolvedTierModels): string | undefined {
-	const pick = (list: ResolvedTierModels["haiku"]): ResolvedTierModels["haiku"][number] | undefined =>
+/** recap 同款档位策略：haiku 优先非推理候选，降级 sonnet；两档全空返回 undefined（调用侧回落当前会话模型）。 */
+export function pickNamingTier(tiers: ResolvedTierModels): ResolvedTierModel | undefined {
+	const pick = (list: ResolvedTierModel[]): ResolvedTierModel | undefined =>
 		list.find((entry) => entry.reasoning === false) ?? list[0];
-	const model = pick(tiers.haiku) ?? pick(tiers.sonnet);
-	if (!model) return undefined;
-	return `${model.provider}/${model.id}${model.thinking ? `:${model.thinking}` : ""}`;
+	return pick(tiers.haiku) ?? pick(tiers.sonnet);
 }
 
 export interface TabNamer {
@@ -87,7 +85,7 @@ export function createTabNamer(deps: {
 		get(): string | undefined;
 		set(name: string): void;
 	};
-	/** 生成器（hapi -p 子进程）；返回 undefined 或抛错时走截断兜底 */
+	/** 生成器（进程内模型请求）；返回 undefined 或抛错时走截断兜底 */
 	generate(texts: readonly string[]): Promise<string | undefined>;
 	maxChars?: number;
 }): TabNamer {
@@ -124,7 +122,7 @@ export function createTabNamer(deps: {
 			try {
 				generated = await deps.generate(texts);
 			} catch {
-				// 生成异常走截断兜底，子进程侧已告警
+				// 生成异常走截断兜底，生成器侧已告警
 			}
 			if (!applyTitle(generated)) applyTitle(texts[texts.length - 1]);
 		} finally {

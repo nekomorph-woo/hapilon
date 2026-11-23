@@ -1,30 +1,4 @@
-/**
- * hpl-herdr — 让 herdr 把 hapilon 认成自己的 agent（hapi），而不是原生 pi
- *
- * 之前 hapilon 加载 herdr 的 pi 集成，herdr 就把它当 pi：界面显示 pi、状态靠
- * 屏幕抓取、服务器重启时按 `pi --resume` 恢复（hapilon 的壳全丢）。本扩展按
- * herdr 官方自定义集成协议，用 pi 的生命周期事件从进程内部上报语义状态。
- *
- * 状态来自三路事实的合成（state.ts）：主循环起跑/沉淀、后台 subagent 的
- * 生命周期、以及后台 shell 任务（background-tasks 插件经补丁发
- * bg-jobs:started/ended 事件，marker hapiBgJobEvents）——否则主循环 settle、
- * 后台还有活在跑时会误报 idle。
- *
- * 双通道：herdr-tui 走官方 CLI 集成（HERDR_ENV=1 且 HERDR_BIN_PATH/HERDR_PANE_ID
- * 齐全时激活）；herdr-app 同样注入这些变量但 pane 注册表不认（herdr-app#358），
- * CLI 被拒后自动切 OSC 7501 直接写 pty（osc.ts）。两路互斥，同一 pane 只有一条
- * 活通道；都不满足时严格 no-op。
- *
- * tab 命名（issue#75）：独立于上报通道，所有会话都激活（worker 角色面板除外）。
- * 写入通道是 ctx.setSessionName——pi 自己把「π - <sessionName> - <cwd>」
- * 渲染成 OSC 终端标题，herdr GUI/TUI 与普通终端的 tab 都跟随，名字随
- * session 文件持久、resume 后仍在，不需要按宿主派发 pane rename。
- * 生成走 hapi -p 子进程（haiku 档，对标 recap 档位策略，独立请求）；
- * 时机 1 是首条任务消息，时机 2 对标 recap 触发（空闲到点且 agent 空闲）。
- */
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import { defaultSpawn } from "../hpl-orchestra/herdr.js";
 import { notify } from "../notify.js";
 import { readResolvedTiersEffect } from "../hpl-model-tiers/resolved.js";
@@ -33,7 +7,7 @@ import { createRecapTimer } from "../hpl-recap/timer.js";
 import { blockMessage, createHerdrReporter } from "./report.js";
 import { createOscReporter } from "./osc.js";
 import { createHerdrState } from "./state.js";
-import { buildNamingPrompt, createTabNamer, namingModelRef, qualifyingTaskInput } from "./tab-name.js";
+import { buildNamingPrompt, createTabNamer, pickNamingTier, qualifyingTaskInput } from "./tab-name.js";
 function sessionPathOf(ctx) {
     try {
         return ctx.sessionManager.getSessionFile();
@@ -42,67 +16,31 @@ function sessionPathOf(ctx) {
         return undefined;
     }
 }
+class NamingRequestError extends Data.TaggedError("NamingRequestError") {
+}
 /**
- * 命名生成：hapi -p 子进程（haiku 档，对标 recap 的档位选择策略；独立请求，
- * 不搭 recap 的车）。--no-session --no-tools 避免污染会话列表、不加载工具；
- * HERDR_/HAPI_ORCH_ 前缀的变量从子环境剥掉，避免子进程被 herdr 认成 pane。
+ * 命名生成：进程内走 ctx.modelRegistry.complete（haiku 档，对标 recap 的档位策略，
+ * 独立请求，不搭 recap 的车）。此前 spawn `hapi -p` 子进程，入口指向 dist/cli.js，
+ * 而 npm run build 先删 dist 再 tsc：窗口期内命名必失败。档位模型不在注册表时
+ * 回落当前会话模型；请求失败告警并返回 undefined（调用侧截断兜底）。
  */
-function createNamingGenerator() {
-    // 入口从模块位置定位：process.argv[1] 在安装形态是 shell shim（setup-herdr 生成），
-    // node 直接执行它会语法炸
-    const cliPath = fileURLToPath(new URL("../../cli.js", import.meta.url));
-    return async (texts) => {
-        if (!cliPath)
+export function generateTabName(ctx, texts) {
+    return Effect.runPromise(Effect.gen(function* () {
+        const tier = pickNamingTier(yield* readResolvedTiersEffect);
+        const model = (tier ? ctx.modelRegistry.find(tier.provider, tier.id) : undefined) ?? ctx.model;
+        if (!model)
             return undefined;
-        const resolved = Effect.runSync(Effect.either(readResolvedTiersEffect));
-        const modelRef = resolved._tag === "Right" ? namingModelRef(resolved.right) : undefined;
-        const env = { ...process.env };
-        for (const key of Object.keys(env)) {
-            if (key.startsWith("HERDR_") || key.startsWith("HAPI_ORCH_"))
-                delete env[key];
-        }
-        const args = [
-            "-p",
-            "--no-session",
-            "--no-tools",
-            ...(modelRef ? ["--model", modelRef] : []),
-            buildNamingPrompt(texts),
-        ];
-        try {
-            const label = await new Promise((resolve, reject) => {
-                // stdin 必须 ignore：pi print 模式等 stdin EOF 才开工，execFile 的常开管道会让它永久阻塞
-                const child = spawn(process.execPath, [cliPath, ...args], { env, stdio: ["ignore", "pipe", "pipe"] });
-                let out = "";
-                let errs = "";
-                const killer = setTimeout(() => child.kill("SIGKILL"), 90_000);
-                child.stdout.on("data", (chunk) => {
-                    out += chunk;
-                    if (out.length > 1024 * 1024)
-                        child.kill("SIGKILL");
-                });
-                child.stderr.on("data", (chunk) => {
-                    errs += chunk;
-                });
-                child.on("error", (e) => {
-                    clearTimeout(killer);
-                    reject(e);
-                });
-                child.on("close", (code) => {
-                    clearTimeout(killer);
-                    if (code === 0)
-                        resolve(out);
-                    else
-                        reject(new Error(errs.trim().slice(0, 200) || `exit ${code}`));
-                });
-            });
-            return label.trim() || undefined;
-        }
-        catch (error) {
-            const reason = (error instanceof Error ? error.message : String(error)).slice(0, 200);
-            notify(`[hpl-herdr] 标签命名子进程失败，用截断兑底：${reason}`, "warning");
-            return undefined;
-        }
-    };
+        const response = yield* Effect.tryPromise({
+            try: () => ctx.modelRegistry.complete(model, {
+                messages: [{ role: "user", content: buildNamingPrompt(texts), timestamp: Date.now() }],
+            }),
+            catch: (error) => new NamingRequestError({ message: error instanceof Error ? error.message : String(error) }),
+        });
+        return response.content.find((part) => part.type === "text")?.text.trim() || undefined;
+    }).pipe(Effect.catchAll((error) => Effect.sync(() => {
+        notify(`[hpl-herdr] 标签命名请求失败，用截断兜底：${error.message.slice(0, 200)}`, "warning");
+        return undefined;
+    }))));
 }
 export function registerHerdrReporting(pi, deps) {
     // 两条出口同接口；herdr-app GUI 注入 HERDR_* 却不认这个 pane id（herdr-app#358），
@@ -192,16 +130,16 @@ export function registerHerdrReporting(pi, deps) {
     }
     // 命名（issue#75）：时机 1 = 会话首条任务消息；时机 2 对标 recap 触发
     // （同一组活动事件 + recap 的 idleMinutes，独立模型请求）。角色面板（worker）
-    // 的标签归 orchestra，命名整体不接；print/管道模式（hapi -p）没有 tab
-    // 标题概念，必须不激活——否则 -p 子进程里的命名扩展会自嵌套 spawn（每层
-    // 90s 超时递归）并在 stale ctx 上读 session 名炸掉子进程。
+    // 的标签归 orchestra，命名整体不接；print/管道模式（hapi -p）没有 tab 标题概念，
+    // 不激活。
     if (!process.env.HAPI_ORCH_ROLE && (deps.namingTTY ?? process.stdout.isTTY)) {
+        let namingCtx;
         const namer = createTabNamer({
             sessionName: { get: () => pi.getSessionName(), set: (name) => pi.setSessionName(name) },
-            generate: deps.generateNaming ?? createNamingGenerator(),
+            // 时机 1/2 都只在 session_start 之后触发，那时 namingCtx 已就位
+            generate: deps.generateNaming ?? ((texts) => generateTabName(namingCtx, texts)),
         });
         const idleMs = readRecapConfig().idleMinutes * 60_000;
-        let namingCtx;
         const timer = createRecapTimer(() => {
             // 与 recap 同款：忙时不改名也不重排，等下次活动事件重开计时
             if (!namingCtx?.isIdle() || namingCtx.hasPendingMessages())
