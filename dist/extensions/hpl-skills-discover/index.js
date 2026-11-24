@@ -20,7 +20,7 @@ import { hapilonHome } from "../../config/hapilon-home.js";
 /** npm 扩展自带 skills 的接线表：包名 → 包内 skills 目录 */
 const NPM_SKILL_DIRS = [
     ["@dietrichgebert/ponytail", "skills"],
-    // 58 个 pstack 技能：54 个 disable-model-invocation 只给人用 /skill: 调，
+    // 59 个 pstack 技能：55 个 disable-model-invocation 只给人用 /skill: 调，
     // 模型可见仅 how/typescript-best-practices/unslop/why，系统提示膨胀可控。
     ["@zenspc/pi-pstack", "skills"],
 ];

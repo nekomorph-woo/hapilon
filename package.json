@@ -1,6 +1,6 @@
 {
   "name": "hapilon",
-  "version": "0.21.102",
+  "version": "0.21.103",
   "description": "HAPi",
   "private": true,
   "type": "module",
@@ -39,8 +39,8 @@
     "@nklisch/pi-background-tasks": "0.1.8",
     "@tintinweb/pi-subagents": "^0.22.0",
     "@tintinweb/pi-tasks": "^0.9.1",
+    "@zenspc/pi-pstack": "^0.11.0",
     "@zhushanwen/pi-ask-user": "^7.4.1",
-    "@zenspc/pi-pstack": "^0.10.0",
     "billion-context-pi": "^0.1.83",
     "effect": "^3.22.1",
     "pi-goal-x": "^0.34.1",
