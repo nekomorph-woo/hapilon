@@ -16,12 +16,28 @@
  * session 名随 session 存续，所以人工收手不随 session_start 重置，
  * 只重置「本会话已命名」的一次性标记与近期任务 ring，并把现有名收编为基线。
  */
-export const TAB_TITLE_MAX_CHARS = 6;
+/** 标题显示宽度上限（终端列数）：汉字、全角、emoji 算 2 列，字母数字算 1 列 */
+export const TAB_TITLE_MAX_COLUMNS = 24;
 /** 时机 2 生成输入保留的近期任务消息条数 */
 export const NAMING_RECENT_LIMIT = 3;
 const NAMING_INPUT_MAX_CHARS = 300;
-/** 取首个非空行，剥 markdown 前缀与行内标记，压空白，截到 maxChars（按码点切，不劈 emoji）。 */
-export function sanitizeTitle(text, maxChars = TAB_TITLE_MAX_CHARS) {
+// V8 不支持 \p{East_Asian_Width}，按 Script 与全角区段枚举宽字符（半角假名算宽，只会截得更早）
+const WIDE_CHAR = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Extended_Pictographic}\u{FF01}-\u{FF60}\u{FFE0}-\u{FFE6}\u{3000}-\u{303F}]/u;
+/** 单个码点占的终端列数：宽字符 2，组合符号 0，其余 1。 */
+function charColumns(char) {
+    if (/\p{Mark}/u.test(char))
+        return 0;
+    return WIDE_CHAR.test(char) ? 2 : 1;
+}
+/** 字符串占的终端列数。 */
+export function displayWidth(text) {
+    let columns = 0;
+    for (const char of text)
+        columns += charColumns(char);
+    return columns;
+}
+/** 取首个非空行，剥 markdown 前缀与行内标记，压空白，截到 maxColumns 列（不劈 emoji，英文不劈单词）。 */
+export function sanitizeTitle(text, maxColumns = TAB_TITLE_MAX_COLUMNS) {
     // herdr-core 转发的输入带来源包裹（hc send 语义），不剥会进标题
     const unwrapped = text.replace(/^<hc from="[^"]*">/, "").replace(/<\/hc>\s*$/, "");
     const firstLine = unwrapped.split("\n").find((line) => line.trim() !== "") ?? "";
@@ -32,14 +48,20 @@ export function sanitizeTitle(text, maxChars = TAB_TITLE_MAX_CHARS) {
         .trim();
     if (cleaned === "")
         return undefined;
-    const chars = [...cleaned];
-    if (chars.length <= maxChars)
-        return cleaned;
-    let out = chars.slice(0, maxChars).join("");
-    // 截断落在英文单词中间时丢掉残词（「帮我确认 p」→「帮我确认」），但结果不能短于 2 字
-    const partial = out.match(/^(.*\S)\s+[A-Za-z0-9]{1,3}$/);
-    if (partial && [...partial[1]].length >= 2)
-        out = partial[1];
+    let columns = 0;
+    let out = "";
+    for (const char of cleaned) {
+        if (columns + charColumns(char) > maxColumns)
+            break;
+        out += char;
+        columns += charColumns(char);
+    }
+    // 截断落在英文单词中间时丢掉残词（「Fix tab naming du」→「Fix tab naming」），但结果不能短于 2 列
+    if (/^[A-Za-z0-9]/.test(cleaned.slice(out.length))) {
+        const whole = out.replace(/\s*\S+$/, "");
+        if (displayWidth(whole) >= 2)
+            out = whole;
+    }
     return out.trimEnd();
 }
 /** 底座命名的输入过滤：交互式、非排队续跑、非命令的首条用户输入才算任务消息。 */
@@ -52,9 +74,10 @@ export function qualifyingTaskInput(text, source, streamingBehavior) {
         return false;
     return true;
 }
-/** 命名请求的提示词：弱模型约束要死，只要一个名字。 */
+/** 命名请求的提示词：弱模型约束要死，只要一个名字；风格靠例子定住，不靠否定句。 */
 export function buildNamingPrompt(texts) {
-    return "你在给终端会话的标签起名。根据任务内容输出一个 3-6 个字的标签名，概括当前正在做的任务。" +
+    return "你在给终端会话的标签起名。根据任务内容输出一个主题名词短语作为标签名，最多 10 个字（英文不超过 20 个字母），语言跟任务内容一致。" +
+        "例子：标签命名策略、发版冒烟测试、tab title strategy。" +
         "只输出标签名本身：不要解释、不要引号、不要句尾标点。\n任务内容：\n" +
         texts.join("\n---\n");
 }
@@ -64,7 +87,7 @@ export function pickNamingTier(tiers) {
     return pick(tiers.haiku) ?? pick(tiers.sonnet);
 }
 export function createTabNamer(deps) {
-    const max = deps.maxChars ?? TAB_TITLE_MAX_CHARS;
+    const max = deps.maxColumns ?? TAB_TITLE_MAX_COLUMNS;
     let ourLabel = "";
     let manualOwned = false;
     let namedThisSession = false;

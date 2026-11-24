@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { HERDR_AGENT, HERDR_SOURCE, blockMessage, createHerdrReporter, releaseAgentArgs, reportAgentArgs, reporterEnabled, } from "../../extensions/hpl-herdr/report.js";
-import { createTabNamer, pickNamingTier, qualifyingTaskInput, sanitizeTitle } from "../../extensions/hpl-herdr/tab-name.js";
+import { buildNamingPrompt, createTabNamer, displayWidth, pickNamingTier, qualifyingTaskInput, sanitizeTitle } from "../../extensions/hpl-herdr/tab-name.js";
 import { generateTabName, registerHerdrReporting } from "../../extensions/hpl-herdr/index.js";
 import { createHerdrState } from "../../extensions/hpl-herdr/state.js";
 import { createOscReporter, oscEnabled, programStatusSequence, } from "../../extensions/hpl-herdr/osc.js";
@@ -50,13 +50,23 @@ describe("sanitizeTitle()", () => {
         assert.equal(sanitizeTitle('<hc from="t3t">帮我确认 package.json</hc>', 24), "帮我确认 package.json");
         assert.equal(sanitizeTitle('<hc from="t3t">\n第二行', 24), "第二行");
     });
-    it("默认截到 6 字符且按码点切，不劈 emoji", () => {
-        assert.equal(sanitizeTitle("x".repeat(30)).length, 6);
-        assert.equal([...sanitizeTitle("🎉".repeat(30))].length, 6);
+    it("displayWidth：宽字符 2 列，字母 1 列，组合符号 0 列", () => {
+        assert.equal(displayWidth("标签ab1🎉"), 9);
+        assert.equal(displayWidth("e\u0301"), 1);
     });
-    it("截断落在英文单词中间时丢残词，结果不短于 2 字", () => {
-        assert.equal(sanitizeTitle("帮我确认 package.json 里的 name"), "帮我确认");
-        assert.equal(sanitizeTitle("修 bug 的按钮位置"), "修 bug");
+    it("默认截到 24 列且按码点切，不劈 emoji", () => {
+        assert.equal(sanitizeTitle("x".repeat(30)).length, 24);
+        assert.equal([...sanitizeTitle("🎉".repeat(30))].length, 12);
+        assert.equal(sanitizeTitle("调查 reasoning 项被删除的原因"), "调查 reasoning 项被删除");
+    });
+    it("截断落在英文单词中间时丢残词，结果不短于 2 列", () => {
+        assert.equal(sanitizeTitle("Fix tab naming during build process"), "Fix tab naming during");
+        assert.equal(sanitizeTitle("abcd", 2), "ab");
+    });
+    it("提示词要求主题名词短语、最多 10 个字，并带上任务内容", () => {
+        const prompt = buildNamingPrompt(["调查 reasoning 项被删除"]);
+        assert.match(prompt, /主题名词短语.*最多 10 个字/);
+        assert.match(prompt, /任务内容：\n调查 reasoning 项被删除$/);
     });
     it("空内容 undefined", () => {
         assert.equal(sanitizeTitle("   \n  "), undefined);
@@ -100,15 +110,15 @@ describe("createTabNamer()", () => {
     });
     it("生成失败回落首行截断兜底", async () => {
         const { state, namer } = harness({ generate: async () => undefined });
-        await namer.onUserInput("帮我确认 package.json 里的 name");
-        assert.deepEqual(state.sets, ["帮我确认"]);
+        await namer.onUserInput("帮我确认 package.json 里的 name 字段从哪来");
+        assert.deepEqual(state.sets, ["帮我确认 package.json 里"]);
     });
     it("生成抛错同样走截断兜底", async () => {
         const { state, namer } = harness({ generate: async () => {
                 throw new Error("子进程炸了");
             } });
         await namer.onUserInput("修 bug 的按钮位置");
-        assert.deepEqual(state.sets, ["修 bug"]);
+        assert.deepEqual(state.sets, ["修 bug 的按钮位置"]);
     });
     it("session 重置后恢复一次机会", async () => {
         const { state, namer, genCalls } = harness();
