@@ -51,7 +51,8 @@ export function withCompressPreset(config, preset, models) {
     const providers = isJsonObject(existingProviders) ? { ...existingProviders } : {};
     for (const model of models) {
         const tier = tierFor(preset, model.contextWindow);
-        const provider = isJsonObject(providers[model.provider]) ? { ...providers[model.provider] } : {};
+        const existingProvider = providers[model.provider];
+        const provider = isJsonObject(existingProvider) ? { ...existingProvider } : {};
         const entries = isJsonObject(provider.models) ? { ...provider.models } : {};
         if (tier)
             entries[model.id] = { nudgeGrowthTokens: tier.growth, maxContextLimit: tier.hard };
