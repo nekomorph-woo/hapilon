@@ -67,6 +67,11 @@ const HAPI_STATUS_STACK_MARKER = "hapiStatusStack";
 /** 思考折叠标签实时耗时（Thinking... 后跳秒）：两条规则的 marker 即钩子名本身 */
 const HAPI_THINKING_NODE_MARKER = "__hapiThinkingNode";
 const HAPI_THINKING_TICK_MARKER = "__hapiThinkingTick";
+/** 每条消息上方一行时间戳：四条规则的 marker 即钩子名本身 */
+const HAPI_MESSAGE_TIME_MARKER = "__hapiMessageTime";
+/** 时间戳的实时路径（interactive-mode）：bundle 里三个文件同在一个 chunk，
+ *  同 marker 会被首条规则命中后整组跳过，所以单独一个 marker */
+const HAPI_MESSAGE_TIME_LIVE_MARKER = "__hapiMessageTimeLive";
 /** Bundle chunk directory; the host file is located by signature, not its hash name. */
 const PI_BUNDLE_CHUNKS = "dist/bundle/chunks";
 /** SelectList 选中项描述两行展开的 marker */
@@ -75,7 +80,7 @@ const HAPI_DESC_WRAP_MARKER = "hapiDescWrap";
  * 全部改动均为字符串级替换，逐条 anchors 与实际安装产物 byte-for-byte 校验过
  * （pi-tui editor.js 2 条 + select-list.js 2 条 + pi bundle chunk 8 条 + pi 主包 5 条
  * + background-tasks.ts 6 条 + pi-subagents host.js/settings.js 2 条 + ponytail 3 条
- * + billion-context-pi dist/index.js 2 条，共 30 条）。
+ * + billion-context-pi dist/index.js 2 条 + 消息组件 6 条，共 42 条）。
  */
 /** 补丁规则表(导出仅供测试构造 fixture;运行时只读) */
 export const PATCH_RULES = [
@@ -512,6 +517,46 @@ export const PATCH_RULES = [
         replace: "render(width){globalThis.__hapiThinkingTick?.(this);let lines=super.render(width);if(this.hasToolCalls",
         occurrences: 1,
         marker: HAPI_THINKING_TICK_MARKER,
+    },
+    // ── 消息时间戳行(hpl-message-time):pi 已把 timestamp 传进两个消息组件却不渲染。
+    //    钩子在 OSC 133 保护区之外加一行；钩子缺席时与原版一致。源文件与 bundle 各一条。
+    {
+        file: "dist/modes/interactive/components/user-message.js",
+        find: "            zoned[zoned.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + zoned[zoned.length - 1];\n            this.zoneLines = { source: lines, lines: zoned };",
+        replace: "            zoned[zoned.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + zoned[zoned.length - 1];\n            const timeLine = globalThis.__hapiMessageTime?.(this, width);\n            this.zoneLines = { source: lines, lines: timeLine === undefined ? zoned : [timeLine, ...zoned] };",
+        occurrences: 1,
+        marker: HAPI_MESSAGE_TIME_MARKER,
+    },
+    {
+        file: "dist/modes/interactive/components/assistant-message.js",
+        find: "            zoned[zoned.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + zoned[zoned.length - 1];\n            this.zoneLines = { source: lines, lines: zoned };",
+        replace: "            zoned[zoned.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + zoned[zoned.length - 1];\n            const timeLine = globalThis.__hapiMessageTime?.(this, width);\n            this.zoneLines = { source: lines, lines: timeLine === undefined ? zoned : [timeLine, ...zoned] };",
+        occurrences: 1,
+        marker: HAPI_MESSAGE_TIME_MARKER,
+    },
+    {
+        file: PI_BUNDLE_CHUNKS,
+        signature: "OSC133_ZONE_START",
+        find: "zoned[zoned.length-1]=OSC133_ZONE_END+OSC133_ZONE_FINAL+zoned[zoned.length-1],this.zoneLines={source:lines,lines:zoned}",
+        replace: "zoned[zoned.length-1]=OSC133_ZONE_END+OSC133_ZONE_FINAL+zoned[zoned.length-1],this.zoneLines={source:lines,lines:(t=>t===void 0?zoned:[t,...zoned])(globalThis.__hapiMessageTime?.(this,width))}",
+        occurrences: 1,
+        marker: HAPI_MESSAGE_TIME_MARKER,
+    },
+    // 实时路径（addMessageToChat(event.message)）不带 options，组件拿不到 timestamp；回落消息对象自带的
+    {
+        file: "dist/modes/interactive/interactive-mode.js",
+        find: "this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp)",
+        replace: "this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp ?? message.timestamp /* hapilon: __hapiMessageTimeLive */)",
+        occurrences: 7,
+        marker: HAPI_MESSAGE_TIME_LIVE_MARKER,
+    },
+    {
+        file: PI_BUNDLE_CHUNKS,
+        signature: "OSC133_ZONE_START",
+        find: "this.outputPad,this.getMarkdownTransformers(),options?.messageId,options?.timestamp)",
+        replace: "this.outputPad,this.getMarkdownTransformers(),options?.messageId,options?.timestamp??message.timestamp/* hapilon: __hapiMessageTimeLive */)",
+        occurrences: 7,
+        marker: HAPI_MESSAGE_TIME_LIVE_MARKER,
     },
 ];
 /**
