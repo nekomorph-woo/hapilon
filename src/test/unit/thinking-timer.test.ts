@@ -40,7 +40,7 @@ describe("attachThinkingHooks — 折叠标签计时", () => {
     let now = 1_000_000;
     const restore = mock.method(Date, "now", () => now);
     try {
-      const { node, tick } = attachThinkingHooks(style);
+      const { node, tick } = attachThinkingHooks(style, { clock: false });
       const comp = makeComp(true);
       node(comp, 0);
       assert.equal(labelText(comp), "Thinking... 0s");
@@ -61,7 +61,7 @@ describe("attachThinkingHooks — 折叠标签计时", () => {
     let now = 2_000_000;
     const restore = mock.method(Date, "now", () => now);
     try {
-      const { node, tick } = attachThinkingHooks(style);
+      const { node, tick } = attachThinkingHooks(style, { clock: false });
       const comp = makeComp(true);
       node(comp, 0);
 
@@ -82,7 +82,7 @@ describe("attachThinkingHooks — 折叠标签计时", () => {
   });
 
   it("正常路径: 历史消息（从未流式）只显示原标签不计时", () => {
-    const { node, tick } = attachThinkingHooks(style);
+    const { node, tick } = attachThinkingHooks(style, { clock: false });
     const comp = makeComp(false);
     node(comp, 0);
     assert.equal(labelText(comp), "Thinking...");
@@ -94,7 +94,7 @@ describe("attachThinkingHooks — 折叠标签计时", () => {
     let now = 3_000_000;
     const restore = mock.method(Date, "now", () => now);
     try {
-      const { node, tick } = attachThinkingHooks(style);
+      const { node, tick } = attachThinkingHooks(style, { clock: false });
       const comp = makeComp(true);
       node(comp, 0);
       now = 3_000_000 + 5_000;
@@ -106,5 +106,37 @@ describe("attachThinkingHooks — 折叠标签计时", () => {
     } finally {
       restore.mock.restore();
     }
+  });
+});
+
+describe("attachThinkingHooks — 标签里的开始时刻", () => {
+  it("正常路径: 流式期间标签带开始时刻，秒数照常走表", () => {
+    let now = Date.parse("2026-10-24T12:00:05+08:00");
+    const restore = mock.method(Date, "now", () => now);
+    try {
+      const { node, tick } = attachThinkingHooks(style);
+      const comp = makeComp(true);
+      node(comp, 0);
+      assert.match(labelText(comp) ?? "", /^Thinking\.\.\. \d{2}:\d{2}:\d{2} 0s$/);
+      now += 12_000;
+      tick(comp);
+      assert.match(labelText(comp) ?? "", /^Thinking\.\.\. \d{2}:\d{2}:\d{2} 12s$/);
+    } finally {
+      restore.mock.restore();
+    }
+  });
+
+  it("正常路径: 历史消息取消息自己的 timestamp，只有开始时刻没有耗时", () => {
+    const { node } = attachThinkingHooks(style);
+    const comp = { ...makeComp(false), timestamp: Date.parse("2026-10-24T12:34:56+08:00") };
+    node(comp, 0);
+    assert.equal(labelText(comp), "Thinking... 12:34:56");
+  });
+
+  it("异常路径: 历史消息没有 timestamp 就只显示原标签", () => {
+    const { node } = attachThinkingHooks(style);
+    const comp = makeComp(false);
+    node(comp, 0);
+    assert.equal(labelText(comp), "Thinking...");
   });
 });

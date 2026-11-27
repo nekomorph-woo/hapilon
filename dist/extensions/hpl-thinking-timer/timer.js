@@ -5,14 +5,30 @@ export function formatElapsed(ms) {
         return `${total}s`;
     return `${Math.floor(total / 60)}m${String(total % 60).padStart(2, "0")}s`;
 }
+const pad2 = (n) => String(n).padStart(2, "0");
+/** 本地时间 HH:mm:ss */
+export function formatClock(ts) {
+    const d = new Date(ts);
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
 /**
  * 产出补丁（assistant-message.js）调用的两个 globalThis 钩子：
  * - node(comp, runIndex)：折叠思考块的标签节点改由这里构造，顺带登记计时状态；
  * - tick(comp)：TUI 每帧回调，流式期间让秒数走表（工作 spinner 已在 80ms 节拍驱动重绘）。
+ * 标签带开始时刻（clock=true）：流式的取首次渲染时刻，历史消息取消息自己的 timestamp，
+ * 历史只有开始时刻没有耗时。
  */
-export function attachThinkingHooks(theme) {
+export function attachThinkingHooks(theme, options = {}) {
     const style = (text) => theme.italic(theme.fg("thinkingText", text));
-    const label = (comp, run) => run.timed ? `${comp.hiddenThinkingLabel} ${formatElapsed((run.end ?? Date.now()) - run.start)}` : comp.hiddenThinkingLabel;
+    const label = (comp, run) => {
+        const parts = [comp.hiddenThinkingLabel];
+        const startAt = run.timed ? run.start : (comp.timestamp ?? comp.lastMessage?.timestamp);
+        if (options.clock !== false && startAt !== undefined)
+            parts.push(formatClock(startAt));
+        if (run.timed)
+            parts.push(formatElapsed((run.end ?? Date.now()) - run.start));
+        return parts.join(" ");
+    };
     return {
         node(comp, runIndex) {
             const runs = (comp.__hapiThinkingRuns ??= new Map());

@@ -74,6 +74,8 @@ const HAPI_MESSAGE_TIME_MARKER = "__hapiMessageTime";
 /** 时间戳的实时路径（interactive-mode）：bundle 里三个文件同在一个 chunk，
  *  同 marker 会被首条规则命中后整组跳过，所以单独一个 marker */
 const HAPI_MESSAGE_TIME_LIVE_MARKER = "__hapiMessageTimeLive";
+/** 每个工具块顶部的开始时刻与耗时：两条规则（源文件 + bundle）的 marker 即钩子名本身 */
+const HAPI_TOOL_TIME_MARKER = "__hapiToolTime";
 /** Bundle chunk directory; the host file is located by signature, not its hash name. */
 const PI_BUNDLE_CHUNKS = "dist/bundle/chunks";
 
@@ -594,6 +596,25 @@ export const PATCH_RULES: readonly PatchRule[] = [
       "this.outputPad,this.getMarkdownTransformers(),options?.messageId,options?.timestamp??message.timestamp/* hapilon: __hapiMessageTimeLive */)",
     occurrences: 7,
     marker: HAPI_MESSAGE_TIME_LIVE_MARKER,
+  },
+  // ── 工具块计时(hpl-message-time):ToolExecutionComponent 构造时加的顶部空行改为钩子构造的
+  //    节点，工具开跑后显示开始时刻与耗时，行数不变。钩子缺席时仍是空行。
+  {
+    file: "dist/modes/interactive/components/tool-execution.js",
+    find: "        this.cwd = cwd;\n        this.addChild(new Spacer(1));",
+    replace:
+      "        this.cwd = cwd;\n        // hapilon: __hapiToolTime\n        this.addChild(globalThis.__hapiToolTime?.(this) ?? new Spacer(1));",
+    occurrences: 1,
+    marker: HAPI_TOOL_TIME_MARKER,
+  },
+  {
+    file: PI_BUNDLE_CHUNKS,
+    signature: "OSC133_ZONE_START",
+    find: "this.cwd=cwd,this.addChild(new Spacer(1)),this.contentBox=new Box(1,1,",
+    replace:
+      "this.cwd=cwd,this.addChild(globalThis.__hapiToolTime?.(this)??new Spacer(1)),this.contentBox=new Box(1,1,",
+    occurrences: 1,
+    marker: HAPI_TOOL_TIME_MARKER,
   },
 ];
 

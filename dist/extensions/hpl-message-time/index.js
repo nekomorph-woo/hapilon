@@ -1,3 +1,4 @@
+import { attachToolTime } from "./tool-time.js";
 const pad2 = (n) => String(n).padStart(2, "0");
 /** 本地时间 MM-DD HH:mm:ss；年份对会话内的消息没有信息量 */
 export function formatMessageTime(ts) {
@@ -14,8 +15,9 @@ export function messageTimeLine(comp, width, theme) {
         return undefined;
     return theme.fg("dim", " ".repeat(comp.outputPad).concat(formatMessageTime(ts)).padEnd(width));
 }
-// 每条 user / assistant 消息上方一行时间戳。钩子由补丁在两个消息组件的 render 里调用；
-// 钩子缺席（裸 pi、print 模式、settings.messageTime=false）时补丁回落原样。
+// 每条 user / assistant 消息上方一行时间戳，每个工具块顶部的空行换成开始时刻与耗时。
+// 钩子由补丁在消息组件与工具组件里调用；钩子缺席（裸 pi、print 模式、settings.messageTime=false）
+// 时补丁回落原样。
 export default function messageTime(pi) {
     pi.on("session_start", (_event, ctx) => {
         const theme = ctx.ui?.theme;
@@ -24,5 +26,6 @@ export default function messageTime(pi) {
         g.__hapiMessageTime = enabled && theme?.fg
             ? (comp, width) => messageTimeLine(comp, width, theme)
             : undefined;
+        g.__hapiToolTime = enabled && theme?.fg ? attachToolTime(theme) : undefined;
     });
 }
