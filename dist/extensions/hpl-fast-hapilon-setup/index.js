@@ -2,12 +2,14 @@ import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 import { Data, Effect } from "effect";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { hapilonHome } from "../../config/hapilon-home.js";
 import { runMenuLoop } from "../../shared/menu-loop.js";
 import { readTierConfigFileEffect, saveModelTiersEffect } from "../hpl-model-tiers/config.js";
 import { MODEL_TIERS } from "../hpl-model-tiers/resolved.js";
 import { modelIdentity, recommendTiers, tierSize } from "./recommend.js";
+import { applyCompressPresetEffect, COMPRESS_PRESETS, presetSummary } from "./compress.js";
 const TIER_LABEL = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
 const SAVE = "覆盖并保存";
 const CANCEL = "取消";
@@ -129,9 +131,24 @@ async function setupEgo(pi, ctx) {
     const same = existing.right === template;
     ctx.ui.notify(same ? "Ego Lite 规则已启用。" : `保留现有的同名规则，未覆盖 ${path}`, same ? "info" : "warning");
 }
+const ACP_CONFIG_PATH = join(homedir(), ".pi", "acp.json");
+/** 上下文压缩档位：按每个可用模型的最大上下文选档，写进 billion-context 读的 ~/.pi/acp.json */
+async function setupCompress(ctx) {
+    const models = ctx.modelRegistry.getAvailable().map((model) => ({
+        provider: model.provider,
+        id: model.id,
+        contextWindow: model.contextWindow,
+    }));
+    const chosen = await ctx.ui.select(`上下文压缩档位 · ${ACP_CONFIG_PATH}\n每档：增长量 / 强制提醒的窗口占比。未列出的模型按插件默认。`, [...COMPRESS_PRESETS.map((preset) => `${preset.label}：${presetSummary(preset, models)}`), CANCEL]);
+    const preset = COMPRESS_PRESETS.find((entry) => `${entry.label}：${presetSummary(entry, models)}` === chosen);
+    if (!preset)
+        return;
+    const result = await Effect.runPromise(applyCompressPresetEffect(ACP_CONFIG_PATH, preset, models).pipe(Effect.either));
+    ctx.ui.notify(result._tag === "Right" ? `已写入压缩档位「${preset.label}」，新会话生效。` : result.left.message, result._tag === "Right" ? "info" : "error");
+}
 export default function fastHapilonSetup(pi) {
     pi.registerCommand("fast-hapilon-setup", {
-        description: "快速配置模型档位和 Ego Lite 任务空间",
+        description: "快速配置模型档位、上下文压缩档位和 Ego Lite 任务空间",
         handler: (_args, ctx) => {
             if (ctx.mode !== "tui") {
                 ctx.ui.notify("快速设置需要交互终端。", "warning");
@@ -141,6 +158,7 @@ export default function fastHapilonSetup(pi) {
                 title: "Hapilon 快速设置",
                 build: () => [
                     { label: "推荐模型档位", run: () => setupTiers(ctx) },
+                    { label: "上下文压缩档位", run: () => setupCompress(ctx) },
                     { label: "启用 Ego Lite 任务空间", run: () => setupEgo(pi, ctx) },
                 ],
             });
