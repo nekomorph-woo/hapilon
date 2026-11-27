@@ -16,8 +16,8 @@ export interface ThinkingComponent {
   isStreaming: boolean;
   hiddenThinkingLabel: string;
   outputPad: number;
-  timestamp?: number;
-  lastMessage?: { timestamp?: number };
+  timestamp?: number | string;
+  lastMessage?: { timestamp?: number | string };
   __hapiThinkingRuns?: Map<number, ThinkingRun>;
 }
 
@@ -35,8 +35,8 @@ export function formatElapsed(ms: number): string {
 
 const pad2 = (n: number): string => String(n).padStart(2, "0");
 
-/** 本地时间 HH:mm:ss */
-export function formatClock(ts: number): string {
+/** 本地时间 HH:mm:ss；pi 的时刻实时路径给 ISO 字串，回放路径给毫秒数 */
+export function formatClock(ts: number | string): string {
   const d = new Date(ts);
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }

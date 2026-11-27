@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { attachToolTime } from "./tool-time.js";
+import { attachStepTimes, type AssistantTextComponent, type TimeLine } from "./step-time.js";
 
 /** 补丁（ensure-pi-patch 的 __hapiMessageTime 规则）调用钩子时传入的组件接面 */
 export interface MessageComponent {
@@ -31,9 +31,9 @@ export function messageTimeLine(comp: MessageComponent, width: number, theme: Th
   return theme.fg("dim", " ".repeat(comp.outputPad).concat(formatMessageTime(ts)).padEnd(width));
 }
 
-// 每条 user / assistant 消息上方一行时间戳，每个工具块顶部的空行换成开始时刻与耗时。
-// 钩子由补丁在消息组件与工具组件里调用；钩子缺席（裸 pi、print 模式、settings.messageTime=false）
-// 时补丁回落原样。
+// 每条用户消息上方一行发送时间；assistant 消息不加——它的每一步各有时间：思考标签带开始时刻，
+// 工具块顶部带开始时刻与耗时，正文块上方带写完的时刻。钩子由补丁在组件里调用；钩子缺席
+// （裸 pi、print 模式、settings.messageTime=false）时补丁回落原样。
 export default function messageTime(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     const theme = ctx.ui?.theme as ThemeLike | undefined;
@@ -42,6 +42,15 @@ export default function messageTime(pi: ExtensionAPI): void {
     g.__hapiMessageTime = enabled && theme?.fg
       ? (comp: MessageComponent, width: number) => messageTimeLine(comp, width, theme)
       : undefined;
-    g.__hapiToolTime = enabled && theme?.fg ? attachToolTime(theme) : undefined;
+    if (!enabled || !theme?.fg) {
+      g.__hapiToolTime = undefined;
+      g.__hapiTextTime = undefined;
+      return;
+    }
+    const steps = attachStepTimes(theme);
+    g.__hapiToolTime = steps.tool;
+    // updateContent 每个流式块都重建子节点，时间行按组件实例复用，否则计时状态会丢
+    g.__hapiTextTime = (comp: AssistantTextComponent & { __hapiTextLine?: TimeLine }) =>
+      (comp.__hapiTextLine ??= steps.text(comp));
   });
 }

@@ -69,8 +69,10 @@ const HAPI_STATUS_STACK_MARKER = "hapiStatusStack";
 /** 思考折叠标签实时耗时（Thinking... 后跳秒）：两条规则的 marker 即钩子名本身 */
 const HAPI_THINKING_NODE_MARKER = "__hapiThinkingNode";
 const HAPI_THINKING_TICK_MARKER = "__hapiThinkingTick";
-/** 每条消息上方一行时间戳：四条规则的 marker 即钩子名本身 */
+/** 用户消息上方一行时间戳：两条规则（源文件 + bundle）的 marker 即钩子名本身 */
 const HAPI_MESSAGE_TIME_MARKER = "__hapiMessageTime";
+/** assistant 正文上方一行写完的时刻：两条规则（源文件 + bundle）的 marker 即钩子名本身 */
+const HAPI_TEXT_TIME_MARKER = "__hapiTextTime";
 /** 时间戳的实时路径（interactive-mode）：bundle 里三个文件同在一个 chunk，
  *  同 marker 会被首条规则命中后整组跳过，所以单独一个 marker */
 const HAPI_MESSAGE_TIME_LIVE_MARKER = "__hapiMessageTimeLive";
@@ -552,8 +554,10 @@ export const PATCH_RULES: readonly PatchRule[] = [
     occurrences: 1,
     marker: HAPI_THINKING_TICK_MARKER,
   },
-  // ── 消息时间戳行(hpl-message-time):pi 已把 timestamp 传进两个消息组件却不渲染。
-  //    钩子在 OSC 133 保护区之外加一行；钩子缺席时与原版一致。源文件与 bundle 各一条。
+  // ── 消息时间戳行(hpl-message-time):pi 已把 timestamp 传进消息组件却不渲染。只加在用户消息上；
+  //    assistant 消息的每一步各有时间（思考标签、工具块、正文块），顶部再加一行就重复了。
+  //    钩子在 OSC 133 保护区之外加一行；钩子缺席时与原版一致。bundle 里两个消息组件同在一个
+  //    chunk，只打用户组件那处（OSC133_ZONE_END2）。
   {
     file: "dist/modes/interactive/components/user-message.js",
     find: "            zoned[zoned.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + zoned[zoned.length - 1];\n            this.zoneLines = { source: lines, lines: zoned };",
@@ -563,21 +567,32 @@ export const PATCH_RULES: readonly PatchRule[] = [
     marker: HAPI_MESSAGE_TIME_MARKER,
   },
   {
-    file: "dist/modes/interactive/components/assistant-message.js",
-    find: "            zoned[zoned.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + zoned[zoned.length - 1];\n            this.zoneLines = { source: lines, lines: zoned };",
+    file: PI_BUNDLE_CHUNKS,
+    signature: "OSC133_ZONE_START",
+    find: "zoned[zoned.length-1]=OSC133_ZONE_END2+OSC133_ZONE_FINAL2+zoned[zoned.length-1],this.zoneLines={source:lines,lines:zoned}",
     replace:
-      "            zoned[zoned.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + zoned[zoned.length - 1];\n            const timeLine = globalThis.__hapiMessageTime?.(this, width);\n            this.zoneLines = { source: lines, lines: timeLine === undefined ? zoned : [timeLine, ...zoned] };",
+      "zoned[zoned.length-1]=OSC133_ZONE_END2+OSC133_ZONE_FINAL2+zoned[zoned.length-1],this.zoneLines={source:lines,lines:(t=>t===void 0?zoned:[t,...zoned])(globalThis.__hapiMessageTime?.(this,width))}",
     occurrences: 1,
     marker: HAPI_MESSAGE_TIME_MARKER,
+  },
+  // ── assistant 正文上方的时间行(hpl-message-time):正文块前那个空行换成这条回复写完的时刻，行数不变。
+  //    updateContent 每个流式块都重建子节点，钩子按组件实例返回同一个节点；钩子缺席时仍是空行。
+  {
+    file: "dist/modes/interactive/components/assistant-message.js",
+    find: "                const text = content.text.trim();\n                addVisibleChild(markdownBlock(\"text\", text, () => new Markdown(",
+    replace:
+      "                const text = content.text.trim();\n                // hapilon: __hapiTextTime\n                if (needsSpacer) {\n                    needsSpacer = false;\n                    this.contentContainer.addChild(globalThis.__hapiTextTime?.(this) ?? new Spacer(1));\n                }\n                addVisibleChild(markdownBlock(\"text\", text, () => new Markdown(",
+    occurrences: 1,
+    marker: HAPI_TEXT_TIME_MARKER,
   },
   {
     file: PI_BUNDLE_CHUNKS,
     signature: "OSC133_ZONE_START",
-    find: "zoned[zoned.length-1]=OSC133_ZONE_END+OSC133_ZONE_FINAL+zoned[zoned.length-1],this.zoneLines={source:lines,lines:zoned}",
+    find: "let text=content.text.trim();addVisibleChild(markdownBlock(\"text\",text,()=>new Markdown(",
     replace:
-      "zoned[zoned.length-1]=OSC133_ZONE_END+OSC133_ZONE_FINAL+zoned[zoned.length-1],this.zoneLines={source:lines,lines:(t=>t===void 0?zoned:[t,...zoned])(globalThis.__hapiMessageTime?.(this,width))}",
+      "let text=content.text.trim();if(needsSpacer){needsSpacer=!1,this.contentContainer.addChild(globalThis.__hapiTextTime?.(this)??new Spacer(1))}addVisibleChild(markdownBlock(\"text\",text,()=>new Markdown(",
     occurrences: 1,
-    marker: HAPI_MESSAGE_TIME_MARKER,
+    marker: HAPI_TEXT_TIME_MARKER,
   },
   // 实时路径（addMessageToChat(event.message)）不带 options，组件拿不到 timestamp；回落消息对象自带的
   {

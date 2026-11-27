@@ -6,7 +6,7 @@ export function formatElapsed(ms) {
     return `${Math.floor(total / 60)}m${String(total % 60).padStart(2, "0")}s`;
 }
 const pad2 = (n) => String(n).padStart(2, "0");
-/** 本地时间 HH:mm:ss */
+/** 本地时间 HH:mm:ss；pi 的时刻实时路径给 ISO 字串，回放路径给毫秒数 */
 export function formatClock(ts) {
     const d = new Date(ts);
     return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
