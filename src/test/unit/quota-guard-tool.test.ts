@@ -31,6 +31,11 @@ describe("isRollingWindow", () => {
 });
 
 describe("formatQuotaCheckText", () => {
+  it("余额型 provider：余额行在前，verdict 仍为 all_ok", () => {
+    const text = formatQuotaCheckText({ provider: "deepseek", balanceCny: "327", windows: [], timestamp: NOW }, NOW);
+    assert.equal(text, "余额  ¥327  按量付费，无窗口与重置\nverdict: all_ok");
+  });
+
   it("all_ok：无警告行", () => {
     const text = formatQuotaCheckText(snap([{ window: "5h", percent: 63, resetAt: undefined }]), NOW);
     assert.ok(text.includes("5h  已用 63%  剩 37%"));

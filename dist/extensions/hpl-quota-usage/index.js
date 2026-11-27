@@ -115,7 +115,7 @@ function remainingText(resetAt, now) {
             : `${Math.floor(minutes / 1440)}d`;
     return `（剩 ${text}）`;
 }
-/** quota_check 的可读输出：逐窗口水位行 + 机器可判的 verdict 行 */
+/** quota_check 的可读输出：余额行（按量付费的 provider）+ 逐窗口水位行 + 机器可判的 verdict 行 */
 export function formatQuotaCheckText(snapshot, now) {
     const lines = snapshot.windows.map((w) => {
         const level = quotaWindowLevel(w.percent);
@@ -123,6 +123,9 @@ export function formatQuotaCheckText(snapshot, now) {
         const used = Math.round(w.percent);
         return `${w.window}  已用 ${used}%  剩 ${100 - used}%${reset}${remainingText(w.resetAt, now)}  ${level}`;
     });
+    // 余额型（deepseek）没有窗口，verdict 恒为 all_ok，不给余额模型就会把它读成「额度充足」
+    if (snapshot.balanceCny !== undefined)
+        lines.unshift(`余额  ¥${snapshot.balanceCny}  按量付费，无窗口与重置`);
     const hot = snapshot.windows.filter((w) => quotaWindowLevel(w.percent) === "HOT");
     const warn = snapshot.windows.filter((w) => quotaWindowLevel(w.percent) === "WARN");
     const parts = [];
