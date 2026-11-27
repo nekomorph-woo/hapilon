@@ -120,7 +120,8 @@ export function formatQuotaCheckText(snapshot, now) {
     const lines = snapshot.windows.map((w) => {
         const level = quotaWindowLevel(w.percent);
         const reset = w.resetAt === undefined ? "" : ` 重置 ${new Date(w.resetAt).toLocaleString("zh-CN", { hour12: false })}`;
-        return `${w.window}  ${Math.round(w.percent)}%${reset}${remainingText(w.resetAt, now)}  ${level}`;
+        const used = Math.round(w.percent);
+        return `${w.window}  已用 ${used}%  剩 ${100 - used}%${reset}${remainingText(w.resetAt, now)}  ${level}`;
     });
     const hot = snapshot.windows.filter((w) => quotaWindowLevel(w.percent) === "HOT");
     const warn = snapshot.windows.filter((w) => quotaWindowLevel(w.percent) === "WARN");

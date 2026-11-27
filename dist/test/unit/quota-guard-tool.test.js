@@ -27,7 +27,7 @@ describe("isRollingWindow", () => {
 describe("formatQuotaCheckText", () => {
     it("all_ok：无警告行", () => {
         const text = formatQuotaCheckText(snap([{ window: "5h", percent: 63, resetAt: undefined }]), NOW);
-        assert.ok(text.includes("5h  63%"));
+        assert.ok(text.includes("5h  已用 63%  剩 37%"));
         assert.ok(text.includes("verdict: all_ok"));
     });
     it("warn：列出窗口名", () => {

@@ -14,7 +14,7 @@ description: 额度哨兵——长任务中主动用 quota_check 工具盯 codin
 - **异常迹象时**：模型调用连续失败、响应变慢、出现限流报错——先查额度再排查别的。
 - 上次 verdict 是 `warn`：后续每个批次后必查。
 
-工具输出每窗口一行（`5h 63% 重置 …（剩 2h 5m） WARN`）加一行机器可判的 `verdict: all_ok | warn=… | hot_rolling=… | hot_fixed=…`。阈值已内置于输出，按 verdict 行动，不用自己算。
+工具输出每窗口一行，百分比是已用（`5h  已用 91%  剩 9%  重置 …（剩 2h 5m） WARN`）加一行机器可判的 `verdict: all_ok | warn=… | hot_rolling=… | hot_fixed=…`。阈值已内置于输出，按 verdict 行动，不用自己算。
 
 ## verdict 行动表
 
